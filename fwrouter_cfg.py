@@ -75,6 +75,7 @@ class FwRouterCfg(FwCfgDatabase):
                 'add-multilink-policy',
                 'add-firewall-policy',
                 'add-ospf',
+                'add-bgp',
             ]
 
         return FwCfgDatabase.dump(self, types, escape, full, keys)
@@ -99,6 +100,7 @@ class FwRouterCfg(FwCfgDatabase):
             'add-multilink-policy': "============= POLICIES =============",
             'add-firewall-policy':  "============= FIREWALL POLICY =============",
             'add-ospf':             "============= OSPF =============",
+            'add-bgp':              "============= BGP =============",
         }
 
         cfg = self.dump(types=types, escape=escape, full=full, keys=True)

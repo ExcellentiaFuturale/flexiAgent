@@ -68,6 +68,8 @@ fwrouter_translators = {
     'remove-firewall-policy':   {'module': __import__('fwtranslate_revert'),          'api':'revert'},
     'add-ospf':                 {'module': __import__('fwtranslate_add_ospf'),        'api':'add_ospf'},
     'remove-ospf':              {'module': __import__('fwtranslate_revert'),          'api':'revert'},
+    'add-bgp':                  {'module': __import__('fwtranslate_add_bgp'),         'api':'add_bgp'},
+    'remove-bgp':               {'module': __import__('fwtranslate_revert'),          'api':'revert'},
 }
 
 class FwRouterState(enum.Enum):
@@ -683,7 +685,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         #     'add-application', 'add-multilink-policy', 'add-firewall-policy' ]
         #
         add_order = [
-            'add-ospf', 'add-switch', 'add-interface', 'add-tunnel', 'add-route',
+            'add-ospf', 'add-bgp', 'add-switch', 'add-interface', 'add-tunnel', 'add-route',
             'add-dhcp-config', 'add-application', 'add-multilink-policy', 'add-firewall-policy', 'start-router'
         ]
         remove_order = [ re.sub('add-','remove-', name) for name in add_order if name != 'start-router' ]
@@ -1045,6 +1047,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         """
         types = [
             'add-ospf',
+            'add-bgp',
             'add-switch',
             'add-interface',
             'add-tunnel',

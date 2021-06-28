@@ -116,6 +116,8 @@ request_handlers = {
     'remove-multilink-policy':      {'name': '_call_router_api', 'sign': True},
     'add-ospf':                     {'name': '_call_router_api', 'sign': True},
     'remove-ospf':                  {'name': '_call_router_api', 'sign': True},
+    'add-bgp':                      {'name': '_call_router_api', 'sign': True},
+    'remove-bgp':                   {'name': '_call_router_api', 'sign': True},
     'add-switch':                   {'name': '_call_router_api', 'sign': True},
     'remove-switch':                {'name': '_call_router_api', 'sign': True},
     'add-firewall-policy':          {'name': '_call_router_api', 'sign': True},
