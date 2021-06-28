@@ -1047,14 +1047,14 @@ class FWROUTER_API(FwCfgRequestHandler):
         """
         types = [
             'add-ospf',
-            'add-bgp',
             'add-switch',
             'add-interface',
             'add-tunnel',
             'add-application',
             'add-multilink-policy',
             'add-firewall-policy',
-            'add-route',            # Routes should come after tunnels as they might use them!
+            'add-bgp',              # BGP should come after tunnels, as they might use them!
+            'add-route',            # Routes should come after tunnels, as they might use them!
             'add-dhcp-config'
         ]
         messages = self.cfg_db.dump(types=types)
