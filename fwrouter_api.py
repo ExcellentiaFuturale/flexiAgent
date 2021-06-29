@@ -685,7 +685,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         #     'add-application', 'add-multilink-policy', 'add-firewall-policy' ]
         #
         add_order = [
-            'add-ospf', 'add-bgp', 'add-switch', 'add-interface', 'add-tunnel', 'add-route',
+            'add-ospf', 'add-switch', 'add-interface', 'add-tunnel', 'add-bgp', 'add-route',
             'add-dhcp-config', 'add-application', 'add-multilink-policy', 'add-firewall-policy', 'start-router'
         ]
         remove_order = [ re.sub('add-','remove-', name) for name in add_order if name != 'start-router' ]
@@ -896,6 +896,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             os.remove(fwglobals.g.FRR_CONFIG_FILE)
         if os.path.exists(fwglobals.g.FRR_OSPFD_FILE):
             os.remove(fwglobals.g.FRR_OSPFD_FILE)
+        if os.path.exists(fwglobals.g.FRR_BGPD_FILE):
+            os.remove(fwglobals.g.FRR_BGPD_FILE)
 
         fwutils.reset_router_api_db(enforce=True)
 
@@ -1054,7 +1056,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-multilink-policy',
             'add-firewall-policy',
             'add-bgp',              # BGP should come after tunnels, as they might use them!
-            'add-route',            # Routes should come after tunnels, as they might use them!
+            'add-route',            # Routes should come after tunnels and after BGP, as they might use them!
             'add-dhcp-config'
         ]
         messages = self.cfg_db.dump(types=types)
