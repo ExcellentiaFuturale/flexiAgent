@@ -51,6 +51,7 @@ def add_bgp(params):
     """
     cmd_list = []
 
+    # enable bgp process
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['name']    = "exec"
@@ -93,6 +94,22 @@ def add_bgp(params):
     restart_frr = False
 
     routerId = params.get('routerId')
+    neighbors = params.get('neighbors', [])
+    keepaliveInterval = params.get('keepaliveInterval')
+    holdInterval = params.get('holdInterval')
+    networks = params.get('networks', [])
+
+    # add remote tunnels IP as neighbors
+    # tunnels = fwglobals.g.router_cfg.get_tunnels()
+    # for tunnel in tunnels:
+    #     # calc remote IP based on local
+    #     ip  = IPNetwork(tunnel['loopback-iface']['addr'])     # 10.100.0.4 / 10.100.0.5
+    #     ip.value  ^= IPAddress('0.0.0.1').value               # 10.100.0.4 -> 10.100.0.5 / 10.100.0.5 -> 10.100.0.4
+    #     neighbors.append({
+    #         'ip': str(ip.ip),
+    #         'remoteASN': localASN # we create an iBGP session between tunnels interfaces
+    #     })
+
     if routerId:
         vty_commands.append('bgp router-id %s' % routerId)
         restart_frr = True
@@ -144,52 +161,36 @@ def add_bgp(params):
         cmd['revert']['descr']   =  "remove BGP configurations"
         cmd_list.append(cmd)
 
-
-    cmd = {}
-    cmd['cmd'] = {}
-    cmd['cmd']['name']   = "python"
-    cmd['cmd']['params'] = {
-            'module': 'fwutils',
-            'func': 'frr_vtysh_run',
-            'args': {
-                'flags': '-c "configure" -c "route-map %s permit 2" -c "match ip address %s"' % (fwglobals.g.FRR_BGP_ROUTE_MAP, fwglobals.g.FRR_BGP_ACL)
-            },
-    }
-    cmd['cmd']['descr']   =  "add %s route-map for bgp redistribution" % fwglobals.g.FRR_BGP_ROUTE_MAP
-    cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
-    cmd['revert']['params'] = {
-            'module': 'fwutils',
-            'func': 'frr_vtysh_run',
-            'args': {
-                'flags': '-c "configure" -c "no route-map %s permit 2"' % (fwglobals.g.FRR_BGP_ROUTE_MAP)
-            },
-    }
-    cmd['revert']['descr']   =  "remove %s route-map for bgp redistribution" % fwglobals.g.FRR_BGP_ROUTE_MAP
-    cmd_list.append(cmd)
-
-    cmd = {}
-    cmd['cmd'] = {}
-    cmd['cmd']['name']   = "python"
-    cmd['cmd']['params'] = {
-            'module': 'fwutils',
-            'func': 'frr_vtysh_run',
-            'args': {
-                'flags': '-c "configure" -c "%s" -c "redistribute kernel route-map %s"' % (router_bgp_asn, fwglobals.g.FRR_BGP_ROUTE_MAP)
-            },
-    }
-    cmd['cmd']['descr']   =  "add %s route-map for bgp redistribution" % fwglobals.g.FRR_BGP_ROUTE_MAP
-    cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
-    cmd['revert']['params'] = {
-            'module': 'fwutils',
-            'func': 'frr_vtysh_run',
-            'args': {
-                'flags': '-c "configure" -c "%s" -c "no redistribute kernel route-map %s"' % (router_bgp_asn, fwglobals.g.FRR_BGP_ROUTE_MAP)
-            },
-    }
-    cmd['revert']['descr']   =  "remove %s route-map for bgp redistribution" % fwglobals.g.FRR_BGP_ROUTE_MAP
-    cmd_list.append(cmd)
+    # TODO: complete this section
+    # cmd = {}
+    # cmd['cmd'] = {}
+    # cmd['cmd']['name']   = "python"
+    # cmd['cmd']['params'] = {
+    #         'module': 'fwutils',
+    #         'func':   'frr_create_redistribution_filter',
+    #         'args': {
+    #             'router': router_bgp_asn,
+    #             'acl': fwglobals.g.FRR_BGP_ACL,
+    #             'route_map': fwglobals.g.FRR_BGP_ROUTE_MAP,
+    #             'route_map_num': '2', # 1 is for OSPF, 2 is for BGP
+    #         }
+    # }
+    # cmd['cmd']['descr']   =  "add bgp redistribution filter"
+    # cmd['revert'] = {}
+    # cmd['revert']['name']   = "python"
+    # cmd['revert']['params'] = {
+    #         'module': 'fwutils',
+    #         'func':   'frr_create_redistribution_filter',
+    #         'args': {
+    #             'router': router_bgp_asn,
+    #             'acl': fwglobals.g.FRR_BGP_ACL,
+    #             'route_map': fwglobals.g.FRR_BGP_ROUTE_MAP,
+    #             'route_map_num': '2', # 1 is for OSPF, 2 is for BGP
+    #             'revert': True
+    #         }
+    # }
+    # cmd['revert']['descr']   =  "remove bgp redistribution filter"
+    # cmd_list.append(cmd)
 
     return cmd_list
 
