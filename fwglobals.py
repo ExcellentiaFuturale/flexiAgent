@@ -40,7 +40,7 @@ from fwobject import FwObject
 from fwrouter_api import FWROUTER_API
 from fwsystem_api import FWSYSTEM_API
 from fwagent_api import FWAGENT_API
-from fwservices_api import FWSERVICES_API
+from fwapplications_api import FWAPPLICATIONS_API
 from os_api import OS_API
 from fwlog import FwLogFile
 from fwlog import FwSyslog
@@ -57,11 +57,11 @@ from fw_traffic_identification import FwTrafficIdentifications
 # sync flag indicated if module implement sync logic.
 # IMPORTANT! Please keep the list order. It indicates the sync priorities
 modules = {
-    'fwsystem_api':     { 'module': __import__('fwsystem_api'),   'sync': True,  'object': 'system_api' }, # fwglobals.g.system_api
-    'fwagent_api':      { 'module': __import__('fwagent_api'),    'sync': False, 'object': 'agent_api' },  # fwglobals.g.agent_api
-    'fwrouter_api':     { 'module': __import__('fwrouter_api'),   'sync': True,  'object': 'router_api' }, # fwglobals.g.router_api
-    'os_api':           { 'module': __import__('os_api'),         'sync': False, 'object': 'os_api' }, # fwglobals.g.os_api
-    'fwservices_api':   { 'module': __import__('fwservices_api'), 'sync': False, 'object': 'services_api' }, # fwglobals.g.services_api,
+    'fwsystem_api':       { 'module': __import__('fwsystem_api'),       'sync': True,  'object': 'system_api' },       # fwglobals.g.system_api
+    'fwagent_api':        { 'module': __import__('fwagent_api'),        'sync': False, 'object': 'agent_api' },        # fwglobals.g.agent_api
+    'fwrouter_api':       { 'module': __import__('fwrouter_api'),       'sync': True,  'object': 'router_api' },       # fwglobals.g.router_api
+    'os_api':             { 'module': __import__('os_api'),             'sync': False, 'object': 'os_api' },           # fwglobals.g.os_api
+    'fwapplications_api': { 'module': __import__('fwapplications_api'), 'sync': False, 'object': 'applications_api' }, # fwglobals.g.applications_api,
 }
 
 request_handlers = {
@@ -118,14 +118,17 @@ request_handlers = {
     'remove-firewall-policy':       {'name': '_call_router_api', 'sign': True},
 
     # System API
-    'add-lte':                        {'name': '_call_system_api'},
-    'remove-lte':                     {'name': '_call_system_api'},
+    'add-lte':                      {'name': '_call_system_api'},
+    'remove-lte':                   {'name': '_call_system_api'},
 
-    # Services API
-    'install-service':              {'name': '_call_services_api'},
-    'uninstall-service':            {'name': '_call_services_api'},
-    'modify-service':               {'name': '_call_services_api'},
-    'upgrade-service':              {'name': '_call_services_api'},
+    # Applications API
+    'application-install':           {'name': '_call_applications_api'},
+    'application-uninstall':         {'name': '_call_applications_api'},
+    'application-configure':         {'name': '_call_applications_api'},
+    'application-start':             {'name': '_call_applications_api'},
+    'application-stop':              {'name': '_call_applications_api'},
+    'application-status':            {'name': '_call_applications_api'},
+    'application-call':              {'name': '_call_applications_api'},
 
     ##############################################################
     # INTERNAL API-s
@@ -293,7 +296,6 @@ class Fwglobals(FwObject):
         self.CONN_FAILURE_FILE   = self.DATA_PATH + '.upgrade_failed'
         self.IKEV2_FOLDER        = self.DATA_PATH + 'ikev2/'
         self.ROUTER_LOG_FILE     = '/var/log/flexiwan/agent.log'
-        self.OPENVPN_LOG_FILE    = '/var/log/openvpn/openvpn.log'
         self.APPLICATION_IDS_LOG_FILE = '/var/log/flexiwan/application_ids.log'
         self.AGENT_UI_LOG_FILE   = '/var/log/flexiwan/agentui.log'
         self.SYSTEM_CHECKER_LOG_FILE = '/var/log/flexiwan/system_checker.log'
@@ -328,6 +330,8 @@ class Fwglobals(FwObject):
         self.FWAGENT_DAEMON_HOST = '127.0.0.1'
         self.FWAGENT_DAEMON_PORT = 9090
         self.FWAGENT_DAEMON_URI  = 'PYRO:%s@%s:%d' % (self.FWAGENT_DAEMON_NAME, self.FWAGENT_DAEMON_HOST, self.FWAGENT_DAEMON_PORT)
+        self.APPLICATIONS_DIR    = '/usr/share/flexiwan/agent/applications/'
+        self.APPLICATIONS_DB     = self.DATA_PATH + '.applications.sqlite'
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
@@ -412,7 +416,7 @@ class Fwglobals(FwObject):
         self.agent_api    = FWAGENT_API()
         self.system_api   = FWSYSTEM_API(self.system_cfg)
         self.router_api   = FWROUTER_API(self.router_cfg, self.MULTILINK_DB_FILE)
-        self.services_api = FWSERVICES_API()
+        self.applications_api = FWAPPLICATIONS_API()
         self.os_api       = OS_API()
         self.policies     = FwPolicies(self.POLICY_REC_DB_FILE)
         self.wan_monitor  = FwWanMonitor(standalone)
@@ -471,7 +475,7 @@ class Fwglobals(FwObject):
         del self.os_api
         del self.router_api
         del self.agent_api
-        del self.services_api
+        del self.applications_api
 
         del self.logger_add_application
         del self.fwagent
@@ -507,8 +511,8 @@ class Fwglobals(FwObject):
     def _call_os_api(self, request):
         return self.os_api.call_simple(request)
 
-    def _call_services_api(self, request):        
-        return self.services_api.call(request)
+    def _call_applications_api(self, request):
+        return self.applications_api.call(request)
 
     def _call_vpp_api(self, request, result=None):
         return self.router_api.vpp_api.call_simple(request, result)

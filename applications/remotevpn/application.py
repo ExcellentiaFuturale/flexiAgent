@@ -22,33 +22,35 @@
 
 import os
 import shutil
-import fwglobals
 import subprocess
 import time
+from fwapplication import FwApplication
 from netaddr import IPNetwork, IPAddress
+import sys
 
-class OpenVPN:
-    """OpenVPN class representation.
+OPENVPN_LOG_FILE    = '/var/log/openvpn/openvpn.log'
+
+class RemoteVPN(FwApplication):
+    """RemoteVPN class representation.
     """
     def install(self, params):
-        """Install Open VPN server on host.
+        """Install Remote VPN server on host.
 
-        :param params: params - open vpn parameters:
+        :param params: params - remote vpn parameters:
             version - the version to be installed
 
         :returns: (True, None) tuple on success, (False, <error string>) on failure.
         """
 
         try:
-            # version = params.get('version', 'stable')
             version = 'stable'
 
             os.system('mkdir -p /etc/openvpn/server')
             os.system('mkdir -p /etc/openvpn/client')
             dir = os.path.dirname(os.path.realpath(__file__))
-            shutil.copyfile('{}/openvpn_scripts/auth.sh'.format(dir), '/etc/openvpn/server/auth-script.sh')
-            shutil.copyfile('{}/openvpn_scripts/up.sh'.format(dir), '/etc/openvpn/server/up-script.sh')
-            shutil.copyfile('{}/openvpn_scripts/down.sh'.format(dir), '/etc/openvpn/server/down-script.sh')
+            shutil.copyfile('{}/scripts/auth.sh'.format(dir), '/etc/openvpn/server/auth-script.sh')
+            shutil.copyfile('{}/scripts/up.sh'.format(dir), '/etc/openvpn/server/up-script.sh')
+            shutil.copyfile('{}/scripts/down.sh'.format(dir), '/etc/openvpn/server/down-script.sh')
 
             commands = [
                 'wget -O - https://swupdate.openvpn.net/repos/repo-public.gpg|apt-key add -',
@@ -78,18 +80,18 @@ class OpenVPN:
                 if ret:
                     return (False, ret)
 
-            self.modify(params)
+            # self.modify(params)
 
-            fwglobals.log.debug("Openvpn installed successfully")
+            self.log("RemoteVPN installed successfully")
             return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
+
         except Exception as e:
             #call uninstall function to clean the machine on installation error
             self.uninstall(params)
 
             msg = str(e)
-            fwglobals.log.error(msg)
+            self.log_err(msg)
             return (False, msg)
-
 
     def _openvpn_pid(self):
         """Get pid of OpenVpn process.
@@ -123,11 +125,11 @@ class OpenVPN:
                 time.sleep(5)  # 5 sec
 
             output = os.system('sudo openvpn --config /etc/openvpn/server/server.conf --daemon')
-            fwglobals.log.debug("openvpn server is running!")
+            self.log("remoteVPN server is running!")
             return (True, None)
         except Exception as e:
             msg = str(e)
-            fwglobals.log.error(msg)
+            self.log_err(msg)
             return (False, msg)
 
     def uninstall(self, params):
@@ -151,11 +153,11 @@ class OpenVPN:
             for command in commands:
                 ret = os.system(command)
                 if ret:
-                    fwglobals.log.error(ret)
+                    self.log_err(ret)
                     return (False, ret)
         except Exception as e:
             msg = str(e)
-            fwglobals.log.error(msg)
+            self.log_err(msg)
             return (False, msg)
 
         return (True, None)
@@ -202,7 +204,7 @@ class OpenVPN:
                 'echo "topology subnet" >> %s' % destFile,
 
                 # Log
-                'echo "log %s" >> %s' % (fwglobals.g.OPENVPN_LOG_FILE, destFile),
+                'echo "log %s" >> %s' % (OPENVPN_LOG_FILE, destFile),
 
                 # Configure server mode and supply a VPN subnet
                 # for OpenVPN to draw client addresses from.
@@ -253,6 +255,7 @@ class OpenVPN:
                 # network gateway through the VPN
                 commands.append('echo "push \\"redirect-gateway def1 bypass-dhcp\\"" >> %s' % destFile)
             else:
+                # TODO: Change to the org routes
                 commands.append('echo "push \\"route 172.16.0.0 255.255.255.0\\"" >> %s' % (destFile))
 
             # Port
@@ -271,10 +274,10 @@ class OpenVPN:
             for command in commands:
                 ret = os.system(command)
                 if ret:
-                    fwglobals.log.error(ret)
+                    self.log_err(ret)
                     return (False, ret)
 
-            fwglobals.log.debug("Openvpn server conf configured successfully")
+            self.log("remoteVPN server conf configured successfully")
             return (True, None)
         except Exception as e:
             return (False, str(e))
@@ -312,11 +315,14 @@ class OpenVPN:
             for command in commands:
                 ret = os.system(command)
                 if ret:
-                    fwglobals.log.error(ret)
+                    self.log_err(ret)
                     return (False, ret)
 
-            fwglobals.log.debug("Openvpn client conf configured successfully")
+            self.log("remoteVPN client conf configured successfully")
             return (True, None)
         except Exception as e:
             return (False, str(e))
 
+if __name__ == "__main__":
+    app = RemoteVPN()
+    app.main()
