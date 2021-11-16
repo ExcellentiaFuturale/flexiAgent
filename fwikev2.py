@@ -83,16 +83,19 @@ class FwIKEv2(FwObject):
         if not os.path.exists(public_pem):
             return {'certificateExpiration': '', 'error': 'Public key is missing'}
 
-        cmd = "openssl x509 -enddate -noout -in %s" % public_pem
-        res = subprocess.check_output(cmd, shell=True).decode().strip()
-        if not res:
-            return {'certificateExpiration': '', 'error': 'No enddate for public certificate'}
-        end_date = res.split('=')[1]
+        try:
+            cmd = "openssl x509 -enddate -noout -in %s" % public_pem
+            res = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT).decode().strip()
+            if not res:
+                return {'certificateExpiration': '', 'error': 'No enddate for public certificate'}
+            end_date = res.split('=')[1]
 
-        cmd = "openssl rsa -check -noout -in %s" % private_pem
-        res = subprocess.check_output(cmd, shell=True).decode().strip()
-        if res != "RSA key ok":
-            return {'certificateExpiration': '', 'error': 'RSA key is not ok'}
+            cmd = "openssl rsa -check -noout -in %s" % private_pem
+            res = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT).decode().strip()
+            if res != "RSA key ok":
+                return {'certificateExpiration': '', 'error': 'RSA key is not ok'}
+        except subprocess.CalledProcessError as e:
+            return {'certificateExpiration': '', 'error': e.output.splitlines()[0].decode().strip()}
 
         return {'certificateExpiration': end_date}
 
