@@ -32,7 +32,6 @@ import fwutils
 from fwobject import FwObject
 
 from pyroute2 import IPDB
-ipdb = IPDB()
 
 fwagent_api = {
     'get-device-certificate':        '_get_device_certificate',
@@ -257,30 +256,19 @@ class FWAGENT_API(FwObject):
 
         route_entries = []
 
-        for route in ipdb.routes:
-            try:
-                dst = route.dst
-                if dst == 'default':
-                    dst = '0.0.0.0/0'
+        with IPDB() as ipdb:
+            for route in ipdb.routes:
+                try:
+                    dst = route.dst
+                    if dst == 'default':
+                        dst = '0.0.0.0/0'
 
-                metric = route.priority
-                protocol = routes_protocol_map[route.get('proto', -1)]
+                    metric = route.priority
+                    protocol = routes_protocol_map[route.get('proto', -1)]
 
-                if not route.multipath:
-                    gateway = route.gateway
-                    interface = ipdb.interfaces[route.oif].ifname
-
-                    route_entries.append({
-                        'destination': dst,
-                        'gateway': gateway,
-                        'metric': metric,
-                        'interface': interface,
-                        'protocol': protocol
-                    })
-                else:
-                    for path in route.multipath:
-                        gateway = path.gateway
-                        interface = ipdb.interfaces[path.oif].ifname
+                    if not route.multipath:
+                        gateway = route.gateway
+                        interface = ipdb.interfaces[route.oif].ifname
 
                         route_entries.append({
                             'destination': dst,
@@ -289,10 +277,22 @@ class FWAGENT_API(FwObject):
                             'interface': interface,
                             'protocol': protocol
                         })
-            except Exception as e:
-                self.log.error("_get_device_os_routes: failed to parse route %s.\nroutes=%s." % \
-                    (str(route), str(ip.routes)))
-                pass
+                    else:
+                        for path in route.multipath:
+                            gateway = path.gateway
+                            interface = ipdb.interfaces[path.oif].ifname
+
+                            route_entries.append({
+                                'destination': dst,
+                                'gateway': gateway,
+                                'metric': metric,
+                                'interface': interface,
+                                'protocol': protocol
+                            })
+                except Exception as e:
+                    self.log.error("_get_device_os_routes: failed to parse route %s.\nroutes=%s." % \
+                        (str(route), str(ip.routes)))
+                    pass
 
         return {'message': route_entries, 'ok': 1}
 
