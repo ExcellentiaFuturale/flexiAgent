@@ -19,6 +19,7 @@
             "args": [
                 "daemon"
             ],
+            "subProcess": true,
             "cwd": "${workspaceRoot}",
             "env": {
                 "PYTHONPATH": "${workspaceRoot}/flexiagent"

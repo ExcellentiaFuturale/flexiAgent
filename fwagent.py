@@ -406,7 +406,7 @@ class FwAgent(FwObject):
             self._on_close(ws)
 
         # Remove WebSocket send/recv message prints to STDOUT until proper logging configuration is implemented
-        websocket.enableTrace(fwglobals.g.cfg.DEBUG)
+        #websocket.enableTrace(fwglobals.g.cfg.DEBUG)
         machine_id = fwutils.get_machine_id()
         if machine_id == None:
             self.log.error("connect: can't connect (failed to retrieve machine ID in fwutils.py:get_machine_id")

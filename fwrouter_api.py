@@ -1007,6 +1007,9 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwutils.clear_linux_interfaces_cache()
         self.log.info("router was started: vpp_pid=%s" % str(fwutils.vpp_pid()))
 
+        # start applications
+        fwglobals.g.applications_api.start_applications()
+
     def _on_stop_router_before(self):
         """Handles pre-VPP stop activities.
         :returns: None.
@@ -1017,6 +1020,9 @@ class FWROUTER_API(FwCfgRequestHandler):
         self._stop_threads()
         fwglobals.g.cache.dev_id_to_vpp_tap_name.clear()
         self.log.info("router is being stopped: vpp_pid=%s" % str(fwutils.vpp_pid()))
+
+        # stop applications
+        fwglobals.g.applications_api.stop_applications()
 
     def _on_stop_router_after(self):
         """Handles post-VPP stop activities.
