@@ -243,7 +243,7 @@ def _configure_server_file(params):
         for ip in params.get('dnsIps', []):
             commands.append(f'push \\"dhcp-option DNS {ip}\\"')
 
-        for name in params.get('dnsNames', []):
+        for name in params.get('dnsDomains', []):
             commands.append(f'push \\"dhcp-option DOMAIN {name}\\"')
 
         # clean the config file
