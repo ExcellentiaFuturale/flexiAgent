@@ -110,8 +110,13 @@ def configure(params):
             if ret:
                 return (False, f'install: failed to run "{command}". error code is {ret}')
                 
-        _configure_server_file(params)
-        _configure_client_file(params)
+        success, err = _configure_server_file(params)
+        if not success:
+            raise Exception(err)
+
+        success, err = _configure_client_file(params)
+        if not success:
+            raise Exception(err)
 
         return (True, None)
     except Exception as e:
@@ -255,9 +260,10 @@ def _configure_server_file(params):
             if ret:
                 return (False, f'install: failed to run "{command}". error code is {ret}')
 
-        print("remoteVPN server conf configured successfully")
+        print("remoteVPN server.conf configured successfully")
         return (True, None)
     except Exception as e:
+        print("Failed to configure remoteVPN server.conf")
         return (False, str(e))
 
 def _configure_client_file(params):
@@ -269,7 +275,7 @@ def _configure_client_file(params):
             'echo "client" >> %s' % destFile,
             'echo "dev tap0" >> %s' % destFile,
             'echo "proto udp" >> %s' % destFile,
-            'echo "remote %s" >> %s' % (params['deviceWANIp'], destFile),
+            'echo "remote %s" >> %s' % (params['wanIp'], destFile),
             'echo "resolv-retry infinite" >> %s' % destFile,
             'echo "auth-user-pass" >> %s' % destFile,
             'echo "nobind" >> %s' % destFile,
@@ -295,9 +301,10 @@ def _configure_client_file(params):
             if ret:
                 return (False, f'install: failed to run "{command}". error code is {ret}')
 
-        print("remoteVPN client conf configured successfully")
+        print("remoteVPN client.conf configured successfully")
         return (True, None)
     except Exception as e:
+        print("Failed to configure remoteVPN client.conf")
         return (False, str(e))
 
 def start(params):
@@ -324,5 +331,12 @@ def stop(params):
             time.sleep(5)  # 5 sec
         print("remoteVPN server is stopped!")
         return (True, None)
+    except Exception as e:
+        return (False, str(e))
+
+def status(params):
+    try:
+        vpnIsRun = True if _openvpn_pid() else False
+        return (True, vpnIsRun)
     except Exception as e:
         return (False, str(e))

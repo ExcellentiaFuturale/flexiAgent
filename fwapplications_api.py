@@ -74,19 +74,16 @@ class FWAPPLICATIONS_API:
         return reply
 
     def _call_application_api(self, identifier, method, params = {}):
-        try: 
-            path = fwglobals.g.APPLICATIONS_DIR + identifier
-            
-            q = mp.Queue()
-            p = mp.Process(target=subproc, args=(q, path, method, params))
+        path = fwglobals.g.APPLICATIONS_DIR + identifier
+        
+        q = mp.Queue()
+        p = mp.Process(target=subproc, args=(q, path, method, params))
 
-            p.start()
-            result = q.get()
-            p.join()
+        p.start()
+        result = q.get()
+        p.join()
 
-            return result
-        except Exception as e:
-            return (False, str(e))
+        return result
 
     def start(self, params):
         try:
@@ -126,6 +123,23 @@ class FWAPPLICATIONS_API:
             self.update_applications_db(identifier, 'installed', False)
             self.update_applications_db(identifier, 'installationConfig', None)
             return { 'ok': 1 }
+        except Exception as e:
+            return { 'ok': 0, 'message': str(e) }
+
+    def is_app_running(self, identifier):
+        reply = self.status({'identifier': identifier})
+        if reply['ok'] == 0:
+            return False
+        return reply['message']
+
+    def status(self, params):
+        try:
+            identifier = params.get('identifier')
+            success, val = self._call_application_api(identifier, 'status')
+            if not success:
+                return { 'ok': 0, 'message': val }
+
+            return { 'ok': 1, 'message': val }
         except Exception as e:
             return { 'ok': 0, 'message': str(e) }
 
