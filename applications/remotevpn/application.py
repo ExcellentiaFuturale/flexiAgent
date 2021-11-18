@@ -40,7 +40,7 @@ def install(params):
     try:
         os.system('mkdir -p /etc/openvpn/server')
         os.system('mkdir -p /etc/openvpn/client')
-        
+
         commands = [
             'wget -O - https://swupdate.openvpn.net/repos/repo-public.gpg|apt-key add -',
             'echo "deb http://build.openvpn.net/debian/openvpn/stable bionic main" > /etc/apt/sources.list.d/openvpn-aptrepo.list',
@@ -109,7 +109,7 @@ def configure(params):
             ret = os.system(command)
             if ret:
                 return (False, f'install: failed to run "{command}". error code is {ret}')
-                
+
         success, err = _configure_server_file(params)
         if not success:
             raise Exception(err)
@@ -168,7 +168,7 @@ def _configure_server_file(params):
 
             # set dev (NIC) name
             'dev tap_remotevpn',
-            
+
             # use dev tap
             'dev-type tap',
 
@@ -253,7 +253,7 @@ def _configure_server_file(params):
 
         # clean the config file
         os.system(f' > {destFile}')
-        
+
         # tun the commands
         for command in commands:
             ret = os.system(f'echo "{command}" >> {destFile}')
