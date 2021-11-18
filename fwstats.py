@@ -114,6 +114,9 @@ def update_stats():
                 stats['period'] = stats['time'] - prev_stats['time']
                 stats['running'] = True if fwutils.vpp_does_run() else False
 
+                apps_stats = get_applications_stats(stats['running'])
+                stats['applications'] = apps_stats
+
     # Add the update to the list of updates. If the list is full,
     # remove the oldest update before pushing the new one
     if len(updates_list) is UPDATE_LIST_MAX_SIZE:
@@ -124,10 +127,27 @@ def update_stats():
             'running': stats['running'], 
             'stats': stats['bytes'], 
             'period': stats['period'],
+            'application_stats': stats['applications'],
             'tunnel_stats': stats['tunnel_stats'],
             'health': get_system_health(),
             'utc': time.time()
         })
+
+def get_applications_stats(router_is_running):
+    params = {}
+    for identifier in fwglobals.g.applications_api.applications_db:
+        # app = fwglobals.g.applications_api.applications_db[identifier]
+
+        params[identifier] = {
+            'running': False
+        }
+
+        if not router_is_running:
+            continue
+        
+        params[identifier]['running'] = fwglobals.g.applications_api.is_app_running(identifier)
+      
+    return params
 
 def get_system_health():
     # Get CPU info
@@ -185,6 +205,7 @@ def get_stats():
     else:
         status = True if fwutils.vpp_does_run() else False
         (state, reason) = fwutils.get_router_state()
+        apps_stats = get_applications_stats(stats['running'])
     if not res_update_list:
         info = {
             'ok': stats['ok'],
@@ -192,6 +213,7 @@ def get_stats():
             'state': state,
             'stateReason': reason,
             'stats': {},
+            'application_stats': apps_stats,
             'tunnel_stats': {},
             'health': {},
             'period': 0,
@@ -206,6 +228,7 @@ def get_stats():
         res_update_list[-1]['state'] = state
         res_update_list[-1]['stateReason'] = reason
         res_update_list[-1]['reconfig'] = reconfig
+        res_update_list[-1]['application_stats'] = apps_stats
         res_update_list[-1]['health'] = get_system_health()
         if fwglobals.g.ikev2.is_private_key_created():
             res_update_list[-1]['ikev2'] = ikev2_certificate_expiration
