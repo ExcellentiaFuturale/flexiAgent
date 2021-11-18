@@ -776,6 +776,9 @@ def reset(soft=False, quiet=False):
         if fwutils.vpp_does_run():
             print("stopping the router...")
         daemon_rpc('stop', stop_router=True)
+
+        fwglobals.g.applications_api.stop_applications()
+        
         fwutils.reset_device_config()
 
         if os.path.exists(fwglobals.g.DEVICE_TOKEN_FILE):
