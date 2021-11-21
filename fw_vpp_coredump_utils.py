@@ -45,10 +45,11 @@ FW_VPP_GDB_DEFAULT_LOG_FILE = "gdb.log"
 FW_VPP_BIN_PATH = "/usr/bin/vpp"
 
 FW_VPP_CORE_GDB_SOLIB_INFO=\
-        "file " + FW_VPP_BIN_PATH + "\n" +\
-        "core-file %s\n" +\
         "set logging overwrite on\n"+\
         "set logging on\n"+\
+        "file " + FW_VPP_BIN_PATH + "\n" +\
+        "info address main\n" +\
+        "core-file %s\n" +\
         "echo " + FW_VPP_GDB_SO_INFO_START + "\\n\n"+\
         "info sharedlibrary\n"+\
         "echo " + FW_VPP_GDB_SO_INFO_END + "\\n\n"+\
@@ -79,14 +80,18 @@ class FwVppCoredumpProcess(threading.Thread):
 
 
     @staticmethod
-    def __get_gdb_shared_libs(work_dir):
+    def __get_dep_libs_and_symbol_info(work_dir):
 
         gdb_log_file = work_dir + FW_VPP_GDB_DEFAULT_LOG_FILE
         dep_shared_libs = []
         shared_libs_detected = False
+        debug_symbols_exist = False
         with open(gdb_log_file, "r") as gdb_log:
             lines = gdb_log.read().splitlines()
             for line in lines:
+                if line.startswith('Symbol \"main\" is'):
+                    if not 'compiled without debugging' in line:
+                        debug_symbols_exist = True
                 if shared_libs_detected:
                     line_string_list = list(line.split(' '))
                     line_string_list_length = len(line_string_list)
@@ -98,7 +103,7 @@ class FwVppCoredumpProcess(threading.Thread):
                     shared_libs_detected = True
                 if FW_VPP_GDB_SO_INFO_END in line:
                     break
-        return dep_shared_libs
+        return dep_shared_libs, debug_symbols_exist
 
 
     @staticmethod
@@ -115,19 +120,6 @@ class FwVppCoredumpProcess(threading.Thread):
                 if '.so' in line:
                     dpkg_shared_libs.add(line)
         return dpkg_shared_libs
-
-    @staticmethod
-    def __vpp_has_debug_symbols(work_dir):
-        vpp_file_info = work_dir + "vpp_fileinfo.txt"
-        command = ['file', FW_VPP_BIN_PATH]
-        with open(vpp_file_info, "w") as out_file:
-            subprocess.run(command, stdout=out_file) #Can throw CalledProcessError
-        with open(vpp_file_info, "r") as file_log:
-            lines = file_log.read().splitlines()
-            for line in lines:
-                if 'with debug_info' in line:
-                    return True
-        return False
 
 
     @staticmethod
@@ -158,10 +150,11 @@ class FwVppCoredumpProcess(threading.Thread):
         FwVppCoredumpProcess.__generate_solib_dependency_info(corefile, work_dir_path)
 
         # Find/Add diff of the system libraries to be packed as part of coredump packing
-        dep_shared_libs = FwVppCoredumpProcess.__get_gdb_shared_libs(work_dir_path)
+        dep_shared_libs, debug_symbols_exist =\
+            FwVppCoredumpProcess.__get_dep_libs_and_symbol_info(work_dir_path)
         dpkg_shared_libs = FwVppCoredumpProcess.__get_dpkg_shared_libs(work_dir_path)
-        include_all_dep = FW_VPP_WITH_SYM_PACK_ALL_DEP_LIB and \
-                            FwVppCoredumpProcess.__vpp_has_debug_symbols(work_dir_path)
+        include_all_dep = FW_VPP_WITH_SYM_PACK_ALL_DEP_LIB and debug_symbols_exist
+
         for lib_name in dep_shared_libs:
             if (not (lib_name in dpkg_shared_libs)) or include_all_dep:
                 tar_path_name = tar_dir_name + "/" + lib_name
