@@ -1005,6 +1005,12 @@ class FWROUTER_API(FwCfgRequestHandler):
         self.state_change(FwRouterState.STARTED)
         self._start_threads()
         fwutils.clear_linux_interfaces_cache()
+        err = fwutils.frr_flush_config_into_file()
+        if err:
+            # We don't want to fail router start due to failure to save frr configuration file,
+            # so we just log the error and return. Hopefully frr will not crash,
+            # so the configuration file will be not needed.
+            fwglobals.log.error(f"_on_apply_router_config: failed to flush frr configuration into file: {str(e)}")
         self.log.info("router was started: vpp_pid=%s" % str(fwutils.vpp_pid()))
 
     def _on_stop_router_before(self):

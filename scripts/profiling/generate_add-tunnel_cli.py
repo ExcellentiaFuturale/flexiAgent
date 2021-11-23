@@ -41,20 +41,6 @@ def main(args):
 
     out_stream.write("[\n")
 
-    start_router = \
-        '{\n'\
-        '  "entity":  "agent",\n'\
-        '  "message": "start-router",\n'\
-        '  "params": {\n'\
-        '    "interfaces": [\n'\
-        '      "__INTERFACE_1__",\n'\
-        '      "__INTERFACE_2__"\n'\
-        '    ]\n'\
-        '  }\n'\
-        '}\n'\
-        ',\n'
-    out_stream.write(start_router)
-
     for i in range(1, num_tunnels+1):
         add_tunnel = \
             '{\n'\
@@ -98,6 +84,21 @@ def main(args):
             '}\n'\
             ',\n'
         out_stream.write(add_tunnel)
+
+
+    start_router = \
+        '{\n'\
+        '  "entity":  "agent",\n'\
+        '  "message": "start-router",\n'\
+        '  "params": {\n'\
+        '    "interfaces": [\n'\
+        '      "__INTERFACE_1__",\n'\
+        '      "__INTERFACE_2__"\n'\
+        '    ]\n'\
+        '  }\n'\
+        '}\n'\
+        ',\n'
+    out_stream.write(start_router)
 
 
     stop_router = \
