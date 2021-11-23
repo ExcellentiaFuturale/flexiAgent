@@ -217,18 +217,26 @@ class FWAGENT_API(FwObject):
 
         :returns: Dictionary with logs and status code.
         """
-        dl_map = {
-    	    'fwagent': fwglobals.g.ROUTER_LOG_FILE,
-    	    'application_ids': fwglobals.g.APPLICATION_IDS_LOG_FILE,
-    	    'syslog': fwglobals.g.SYSLOG_FILE,
-            'dhcp': fwglobals.g.DHCP_LOG_FILE,
-            'vpp': fwglobals.g.VPP_LOG_FILE,
-            'ospf': fwglobals.g.OSPF_LOG_FILE,
-            'open-vpn': fwglobals.g.OPENVPN_LOG_FILE,
-            'hostapd': fwglobals.g.HOSTAPD_LOG_FILE,
-            'agentui': fwglobals.g.AGENT_UI_LOG_FILE,
-	    }
-        file = dl_map.get(params['filter'], '')
+        is_app = params.get('is-application')
+        if is_app:
+            # check if application is installed
+            fwglobals.g.application_api.get_application(params['filter'])
+
+            # call application log api
+            file = fwglobals.g.application_api.get_log_file(params['filter'])
+        else:
+            dl_map = {
+                'fwagent': fwglobals.g.ROUTER_LOG_FILE,
+                'application_ids': fwglobals.g.APPLICATION_IDS_LOG_FILE,
+                'syslog': fwglobals.g.SYSLOG_FILE,
+                'dhcp': fwglobals.g.DHCP_LOG_FILE,
+                'vpp': fwglobals.g.VPP_LOG_FILE,
+                'ospf': fwglobals.g.OSPF_LOG_FILE,
+                'open-vpn': fwglobals.g.OPENVPN_LOG_FILE,
+                'hostapd': fwglobals.g.HOSTAPD_LOG_FILE,
+                'agentui': fwglobals.g.AGENT_UI_LOG_FILE,
+            }
+            file = dl_map.get(params['filter'], '')
         try:
             logs = fwutils.get_device_logs(file, params['lines'])
             return {'message': logs, 'ok': 1}

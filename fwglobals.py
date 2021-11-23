@@ -125,8 +125,6 @@ request_handlers = {
     'application-install':           {'name': '_call_applications_api'},
     'application-uninstall':         {'name': '_call_applications_api'},
     'application-configure':         {'name': '_call_applications_api'},
-    'application-start':             {'name': '_call_applications_api'},
-    'application-stop':              {'name': '_call_applications_api'},
     'application-status':            {'name': '_call_applications_api'},
     'application-call':              {'name': '_call_applications_api'},
 

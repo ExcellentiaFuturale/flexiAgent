@@ -340,3 +340,6 @@ def status(params):
         return (True, vpnIsRun)
     except Exception as e:
         return (False, str(e))
+
+def get_log_file(params):
+    return (True, OPENVPN_LOG_FILE)

@@ -36,8 +36,6 @@ fwapplications_handlers = {
     'application-install':           'install',
     'application-uninstall':         'uninstall',
     'application-configure':         'configure',
-    'application-start':             'start',
-    'application-stop':              'stop',
     'application-status':            'status',
     'application-call':              'call',
 }
@@ -131,6 +129,16 @@ class FWAPPLICATIONS_API:
         if reply['ok'] == 0:
             return False
         return reply['message']
+
+    def get_log_file(self, identifier):
+        try:
+            success, val = self._call_application_api(identifier, 'get_log_file')
+            if not success:
+                return None
+
+            return val
+        except:
+            return None
 
     def status(self, params):
         try:
@@ -250,6 +258,12 @@ class FWAPPLICATIONS_API:
             is_configured = app.get('configured')
             if is_installed and is_configured:
                 self.stop({'identifier': identifier})
+
+    def get_application(self, identifier):
+        for app_identifier in self.applications_db:
+            if app_identifier == identifier:
+                return self.applications_db[identifier]
+        return None
 
 def subproc(q, path, func, params):
     try:
