@@ -220,10 +220,12 @@ class FWAGENT_API(FwObject):
         is_app = params.get('is-application')
         if is_app:
             # check if application is installed
-            fwglobals.g.application_api.get_application(params['filter'])
-
+            app_installed = fwglobals.g.applications_api.get_application(params['filter'])
+            if not app_installed:
+                raise Exception('application is not installed')
+                
             # call application log api
-            file = fwglobals.g.application_api.get_log_file(params['filter'])
+            file = fwglobals.g.applications_api.get_log_file(params['filter'])
         else:
             dl_map = {
                 'fwagent': fwglobals.g.ROUTER_LOG_FILE,
