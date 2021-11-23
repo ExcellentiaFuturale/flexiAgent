@@ -114,20 +114,16 @@ def update_stats():
                 stats['period'] = stats['time'] - prev_stats['time']
                 stats['running'] = True if fwutils.vpp_does_run() else False
 
-                apps_stats = get_applications_stats(stats['running'])
-                stats['applications'] = apps_stats
-
     # Add the update to the list of updates. If the list is full,
     # remove the oldest update before pushing the new one
     if len(updates_list) is UPDATE_LIST_MAX_SIZE:
         updates_list.pop(0)
 
     updates_list.append({
-            'ok': stats['ok'], 
-            'running': stats['running'], 
-            'stats': stats['bytes'], 
+            'ok': stats['ok'],
+            'running': stats['running'],
+            'stats': stats['bytes'],
             'period': stats['period'],
-            'application_stats': stats['applications'],
             'tunnel_stats': stats['tunnel_stats'],
             'health': get_system_health(),
             'utc': time.time()
@@ -144,9 +140,9 @@ def get_applications_stats(router_is_running):
 
         if not router_is_running:
             continue
-        
+
         params[identifier]['running'] = fwglobals.g.applications_api.is_app_running(identifier)
-      
+
     return params
 
 def get_system_health():

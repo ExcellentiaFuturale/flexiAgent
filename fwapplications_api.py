@@ -75,7 +75,7 @@ class FWAPPLICATIONS_API:
 
     def _call_application_api(self, identifier, method, params = {}):
         path = fwglobals.g.APPLICATIONS_DIR + identifier
-        
+
         q = mp.Queue()
         p = mp.Process(target=subproc, args=(q, path, method, params))
 
@@ -187,7 +187,7 @@ class FWAPPLICATIONS_API:
                 path = os.path.abspath(path)
                 if not os.path.exists(path):
                     raise Exception(f'path {path} is not exists')
-                
+
                 # create the application directory
                 os.system(f'mkdir -p {target_path}')
 
@@ -208,7 +208,7 @@ class FWAPPLICATIONS_API:
             # store in database
             self.update_applications_db(identifier, 'installed', True)
             self.update_applications_db(identifier, 'installationConfig', params)
-            
+
             configParams = params.get('configParams')
             if configParams:
                 reply = self.configure(configParams)
@@ -221,7 +221,7 @@ class FWAPPLICATIONS_API:
                     return reply
 
             return { 'ok': 1 }
-        except Exception as e: 
+        except Exception as e:
             return { 'ok': 0, 'message': str(e) }
 
     def update_applications_db(self, identifier, key, value):
@@ -242,7 +242,7 @@ class FWAPPLICATIONS_API:
             is_configured = app.get('configured')
             if is_installed and is_configured:
                 self.start({'identifier': identifier})
-        
+
     def stop_applications(self):
         for identifier in self.applications_db:
             app = self.applications_db[identifier]
@@ -269,4 +269,3 @@ def subproc(q, path, func, params):
     except Exception as e:
         ret = (False, str(e))
         q.put(ret)
-        
