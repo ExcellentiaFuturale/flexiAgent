@@ -32,7 +32,8 @@
                "labels": [ "green" ]
             },
             "urls": [],
-            "ips": []
+            "ips": [],
+            "routing": "ospf"
         },
         "ikev2": {
             "role": "initiator",

@@ -1130,44 +1130,6 @@ def _add_loop_bridge_l2gre_ikev2(cmd_list, params, l2gre_tunnel_ips, bridge_id, 
     auth_method = 1 # IKEV2_AUTH_METHOD_RSA_SIG
     _add_ikev2(cmd_list, params, responder_ip_address, gre_tunnel_sw_if_index, auth_method, loop1_cache_key)
 
-def _add_loop0_bridge_l2gre(cmd_list, params, l2gre_tunnel_ips, bridge_id):
-    """Add unprotected tunnel, loopback and bridge commands into the list.
-
-    :param cmd_list:            List of commands.
-    :param params:              Parameters from flexiManage.
-    :param l2gre_tunnel_ips:    GRE tunnel src and dst ip addresses.
-    :param bridge_id:           Bridge identifier.
-
-    :returns: None.
-    """
-    _add_loopback(
-                cmd_list,
-                'loop0_sw_if_index',
-                params['loopback-iface'],
-                params,
-                id=bridge_id)
-    _add_bridge(
-                cmd_list, bridge_id)
-    _add_gre_tunnel(
-                cmd_list,
-                'gre_tunnel_sw_if_index',
-                l2gre_tunnel_ips['src'],
-                l2gre_tunnel_ips['dst'])
-    _add_interface_to_bridge(
-                cmd_list,
-                iface_description='loop0_' + params['loopback-iface']['addr'],
-                bridge_id=bridge_id,
-                bvi=1,
-                shg=0,
-                cache_key='loop0_sw_if_index')
-    _add_interface_to_bridge(
-                cmd_list,
-                iface_description='l2gre_tunnel',
-                bridge_id=bridge_id,
-                bvi=0,
-                shg=1,
-                cache_key='gre_tunnel_sw_if_index')
-
 def _add_loop_bridge_vxlan(cmd_list, params, loop_cfg, remote_loop_cfg, vxlan_ips, bridge_id, internal, loop_cache_key):
     """Add VxLAN tunnel, loopback and bridge commands into the list.
 
@@ -1255,16 +1217,16 @@ def _add_loop_bridge_vxlan(cmd_list, params, loop_cfg, remote_loop_cfg, vxlan_ip
 
 
 
-def _add_peer(cmd_list, params):
+def _add_peer(cmd_list, params, peer_loopback_cache_key):
     """Add tunnel for a peer.
 
-    :param cmd_list:            List of commands.
-    :param params:              Parameters from flexiManage.
+    :param cmd_list:                List of commands.
+    :param params:                  Parameters from flexiManage.
+    :param peer_loopback_cache_key  Loopback cache key.
 
     :returns: None.
     """
     tunnel_cache_key = 'ipip_tunnel_sw_if_index'
-    peer_loopback_cache_key = 'peer_loopback_sw_if_index'
     auth_method      = 2 # IKEV2_AUTH_METHOD_SHARED_KEY_MIC
     mtu              = params['peer']['mtu']
     addr             = params['peer']['addr']
@@ -1383,10 +1345,15 @@ def add_tunnel(params):
     cmd_list = []
     loop0_ip = ''
     remote_loop0_ip = None
+    routing = None
+    loop0_cache_key='loop0_sw_if_index'
 
     if 'peer' in params:
-        _add_peer(cmd_list, params)
+        _add_peer(cmd_list, params, loop0_cache_key)
+        loop0_ip  = params['peer']['addr']
+        routing = params['peer'].get('routing')
     else:
+        routing                 = params['loopback-iface'].get('routing')
         encryption_mode         = params.get("encryption-mode", "psk")
         loop0_ip                = params['loopback-iface']['addr']
         remote_loop0_ip         = fwutils.build_tunnel_remote_loopback_ip(loop0_ip)       # 10.100.0.4 -> 10.100.0.5 / 10.100.0.5 -> 10.100.0.4
@@ -1424,7 +1391,7 @@ def add_tunnel(params):
         if encryption_mode == "none":
             loop0_cfg = {'addr':str(loop0_ip), 'mac':str(loop0_mac), 'mtu': 9000}
             bridge_id = params['tunnel-id']*2
-            _add_loop_bridge_vxlan(cmd_list, params, loop0_cfg, remote_loop0_cfg, vxlan_ips, bridge_id=bridge_id, internal=False, loop_cache_key='loop0_sw_if_index')
+            _add_loop_bridge_vxlan(cmd_list, params, loop0_cfg, remote_loop0_cfg, vxlan_ips, bridge_id=bridge_id, internal=False, loop_cache_key=loop0_cache_key)
         else:
             loop1_cfg = {'addr':str(loop1_ip), 'mac':str(loop1_mac), 'mtu': 9000}
             bridge_id = params['tunnel-id']*2+1
@@ -1433,10 +1400,10 @@ def add_tunnel(params):
             l2gre_ips = {'src':loop1_ip, 'dst':remote_loop1_ip}
             if encryption_mode == "psk":
                 # Add loop0-bridge-l2gre-ipsec
-                _add_loop_bridge_l2gre_ipsec(cmd_list, params, l2gre_ips, bridge_id=params['tunnel-id']*2, loop_cache_key='loop0_sw_if_index')
+                _add_loop_bridge_l2gre_ipsec(cmd_list, params, l2gre_ips, bridge_id=params['tunnel-id']*2, loop_cache_key=loop0_cache_key)
             elif encryption_mode == "ikev2":
                 # Add loop0-bridge-l2gre-ikev2
-                _add_loop_bridge_l2gre_ikev2(cmd_list, params, l2gre_ips, params['tunnel-id']*2, loop0_cache_key='loop0_sw_if_index', loop1_cache_key='loop1_sw_if_index')
+                _add_loop_bridge_l2gre_ikev2(cmd_list, params, l2gre_ips, params['tunnel-id']*2, loop0_cache_key=loop0_cache_key, loop1_cache_key='loop1_sw_if_index')
 
     # --------------------------------------------------------------------------
     # Add following section to frr ospfd.conf
@@ -1448,7 +1415,7 @@ def add_tunnel(params):
     #           network <loopback ip> area 0.0.0.0
     # Restart frr
     # --------------------------------------------------------------------------
-    if 'loopback-iface' in params and 'routing' in params['loopback-iface'] and params['loopback-iface']['routing'] == 'ospf':
+    if routing == 'ospf':
 
         # Add point-to-point type of interface for the tunnel address
         cmd = {}
@@ -1460,7 +1427,7 @@ def add_tunnel(params):
                 'args': {
                     'commands': ["interface DEV-STUB", "ip ospf network point-to-point"]
                 },
-                'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':'loop0_sw_if_index'} ]
+                'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':loop0_cache_key} ]
         }
         cmd['cmd']['descr']   = "add loopback interface %s to ospf as point-to-point" % loop0_ip
         cmd['revert'] = {}
@@ -1471,7 +1438,7 @@ def add_tunnel(params):
                 'args': {
                     'commands': ["interface DEV-STUB", "no ip ospf network point-to-point"]
                 },
-                'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':'loop0_sw_if_index'} ]
+                'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':loop0_cache_key} ]
         }
         cmd['revert']['descr']   = "remove loopback interface %s from ospf as point-to-point" % loop0_ip
         cmd_list.append(cmd)
@@ -1524,7 +1491,7 @@ def add_tunnel(params):
     }
     cmd_list.append(cmd)
 
-    tunnel_interface_cache_key = 'ipip_tunnel_sw_if_index' if 'peer' in params else 'loop0_sw_if_index'
+    tunnel_interface_cache_key = 'ipip_tunnel_sw_if_index' if 'peer' in params else loop0_cache_key
 
     cmd = {}
     cmd['cmd'] = {}
