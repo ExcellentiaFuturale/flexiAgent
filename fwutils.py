@@ -2423,7 +2423,7 @@ def fix_received_message(msg):
         def _fix_application_compression(params):
             # Check if applications are compressed - type is string. If yes, decompress first
             if (isinstance(params['applications'], str)):
-                params['applications'] = json.loads(zlib.decompress(base64.b64decode(params['applications'])))
+                params['applications'] = decompress_params(params['applications'])
 
         if msg['message'] == 'add-application':
             _fix_application_compression(msg['params'])
@@ -2446,6 +2446,15 @@ def fix_received_message(msg):
     msg = _fix_application(msg)
     return msg
 
+def decompress_params(params):
+    """ Decompress parmas from base64 to object
+
+    :param params: base64 params
+
+    :return: object after decompression
+
+    """
+    return json.loads(zlib.decompress(base64.b64decode(params)))
 
 def wifi_get_available_networks(dev_id):
     """Get WIFI available access points.
