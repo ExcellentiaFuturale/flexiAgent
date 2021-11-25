@@ -84,7 +84,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                     if modem_mode == 'resetting' or modem_mode == 'connecting':
                         continue
 
-                    name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True)
+                    name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True, print_log=False)
                     if not name:
                         name = fwutils.dev_id_to_linux_if(dev_id)
 
