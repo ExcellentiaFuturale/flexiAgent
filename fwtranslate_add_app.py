@@ -30,6 +30,9 @@ import fwtranslate_revert
 import fwutils
 
 import netaddr
+import zlib
+import base64
+import json
 
 # add-application
 # --------------------------------------
@@ -87,6 +90,10 @@ def add_app(params):
      :returns: List of commands.
     """
     cmd_list = []
+
+    # Check if applications are compressed - type is string. If yes, decompress first
+    if (isinstance(params['applications'], str)):
+        params['applications'] = json.loads(zlib.decompress(base64.b64decode(params['applications'])))
 
     for app in params['applications']:
         _add_traffic_identification(app, cmd_list)
