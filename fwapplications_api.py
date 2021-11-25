@@ -26,8 +26,10 @@ import fwglobals
 import os
 import tarfile
 from sqlitedict import SqliteDict
-
+import threading
 import multiprocessing as mp
+import time
+import traceback
 
 # set it to "spawn" to reduce as much as possible the resources pass to the child process
 mp.set_start_method('spawn', force=True)
@@ -48,6 +50,49 @@ class FWAPPLICATIONS_API:
         """Constructor method.
         """
         self.applications_db = SqliteDict(fwglobals.g.APPLICATIONS_DB, autocommit=True)
+        self.thread_applications_watchdog = None
+
+    def initialize(self):
+        if self.thread_applications_watchdog is None:
+            self.thread_applications_watchdog = threading.Thread(target=self.applications_watchdog, name='Applications Watchdog')
+            self.thread_applications_watchdog.start()
+
+    def finalize(self):
+        if self.thread_applications_watchdog:
+            self.thread_applications_watchdog.join()
+            self.thread_applications_watchdog = None
+
+    def applications_watchdog(self):
+        """Applications watchdog thread.
+        Monitors status of applications. 
+        All applications should be running if vRouter is running.
+        """
+        thread_name = threading.current_thread().getName()
+
+        while not fwglobals.g.teardown:
+            try: # Ensure thread doesn't exit on exception
+
+                time.sleep(30)
+
+                if not fwglobals.g.router_api.state_is_started():
+                    continue
+
+                for app_identifier in self.applications_db:
+                    if self.is_app_running(app_identifier):
+                        continue
+                    
+                    fwglobals.log.debug(f"{thread_name}: {app_identifier} is stopped. starting it...")
+
+                    reply = self.start({ 'identifier': app_identifier })
+                    if reply['ok'] == 0:
+                        fwglobals.log.error(f"{thread_name}: failure in starting {app_identifier}. {reply['message']}")
+                        continue
+                    
+                    fwglobals.log.debug(f"{thread_name}: {app_identifier} is started successfully")
+                    
+            except Exception as e:
+                fwglobals.log.error(f"{thread_name}: {str(e)} ({traceback.format_exc()})")
+                pass
 
     def call(self, request):
         """Invokes API specified by the 'request' parameter.
