@@ -3608,7 +3608,7 @@ def is_non_dpdk_interface(dev_id):
 
     return False
 
-def frr_vtysh_run(commands, restart_frr=False, print_stdout=True, wait_after=None):
+def frr_vtysh_run(commands, restart_frr=False, wait_after=None):
     '''Run vtysh command to configure router
 
     :param commands:    array of frr commands
@@ -3618,8 +3618,17 @@ def frr_vtysh_run(commands, restart_frr=False, print_stdout=True, wait_after=Non
     '''
     try:
         shell_commands = ' -c '.join(map(lambda x: '"%s"' % x, commands))
-        write_cmd = '-c "write"%s' % ('' if print_stdout else ' > /dev/null')
-        vtysh_cmd = 'sudo /usr/bin/vtysh -c "configure" -c %s; sudo /usr/bin/vtysh %s' % (shell_commands, write_cmd)
+        vtysh_cmd = f'sudo /usr/bin/vtysh -c "configure" -c {shell_commands}'
+
+        # If frr restart is needed or if router was already started, flush down
+        # the frr configuration into file, next frr restart will load it from the file.
+        # If router is being started, we don't want to dump the configuration
+        # on every 'add-tunnel', 'add-interface', etc in order to reduce bootup time.
+        # Instead we will do that only once from within _on_start_router_after().
+        #
+        if restart_frr or fwglobals.g.router_api.state_is_started() == True:
+            vtysh_cmd += (' ; sudo /usr/bin/vtysh -c "write" > /dev/null')
+
         output = os.popen(vtysh_cmd).read().splitlines()
 
         # in output, the first line might contains error. So we print only the first line
@@ -3635,6 +3644,18 @@ def frr_vtysh_run(commands, restart_frr=False, print_stdout=True, wait_after=Non
         return (True, None)
     except Exception as e:
         return (False, str(e))
+
+def frr_flush_config_into_file():
+    '''Dumps frr configuration into file, so if frr is crashed or is restarted
+    for some reason, it could restore the state out of this file.
+    '''
+    try:
+        write_cmd = 'sudo /usr/bin/vtysh -c "write" > /dev/null'
+        output = os.popen(write_cmd).read().splitlines()
+        fwglobals.log.debug(f"frr_flush_config_into_file: {str(output) if output else 'OK'}")
+        return None
+    except Exception as e:
+        return str(e)
 
 def frr_setup_config():
     '''Setup the /etc/frr/frr.conf file, initializes it and
@@ -3674,7 +3695,7 @@ def frr_setup_config():
         f"match ip address {fwglobals.g.FRR_OSPF_ACL}",
         "router ospf", f"redistribute kernel route-map {fwglobals.g.FRR_OSPF_ROUTE_MAP}"
     ])
-    frr_vtysh_run(frr_commands, restart_frr=False, print_stdout=False)
+    frr_vtysh_run(frr_commands)
 
 def file_write_and_flush(f, data):
     '''Wrapper over the f.write() method that flushes wrote content
