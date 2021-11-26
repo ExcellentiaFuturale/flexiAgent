@@ -48,6 +48,8 @@ from netaddr import IPNetwork, IPAddress
 import threading
 import serial
 import ipaddress
+import zlib
+import base64
 from tools.common.fw_vpp_startupconf import FwStartupConf
 
 from fwrouter_cfg   import FwRouterCfg
@@ -2417,6 +2419,24 @@ def fix_received_message(msg):
             return msg
         return msg
 
+    def _fix_application(msg):
+
+        def _fix_application_compression(params):
+            # Check if applications are compressed - type is string. If yes, decompress first
+            if (isinstance(params['applications'], str)):
+                params['applications'] = decompress_params(params['applications'])
+
+        if msg['message'] == 'add-application':
+            _fix_application_compression(msg['params'])
+            return msg
+        if re.match('aggregated|sync-device', msg['message']):
+            for request in msg['params']['requests']:
+                if request['message'] == 'add-application':
+                    _fix_application_compression(request['params'])
+            return msg
+
+        return msg
+
     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     # Order of functions is important, as the first one (_fix_aggregation_format())
     # creates clone of the received message, so the rest functions can simply
@@ -2424,8 +2444,18 @@ def fix_received_message(msg):
     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     msg = _fix_aggregation_format(msg)
     msg = _fix_dhcp(msg)
+    msg = _fix_application(msg)
     return msg
 
+def decompress_params(params):
+    """ Decompress parmas from base64 to object
+
+    :param params: base64 params
+
+    :return: object after decompression
+
+    """
+    return json.loads(zlib.decompress(base64.b64decode(params)))
 
 def wifi_get_available_networks(dev_id):
     """Get WIFI available access points.
