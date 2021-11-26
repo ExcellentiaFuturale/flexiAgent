@@ -979,7 +979,7 @@ def bridge_addr_to_bvi_interface_tap(bridge_addr):
 #   root@ubuntu-server-1:/# vppctl sh tap-inject
 #       GigabitEthernet0/8/0 -> vpp0
 #       GigabitEthernet0/9/0 -> vpp1
-def dev_id_to_tap(dev_id, check_vpp_state=False):
+def dev_id_to_tap(dev_id, check_vpp_state=False, print_log=True):
     """Convert Bus address into TAP name.
 
     :param dev_id:          Bus address.
@@ -992,8 +992,9 @@ def dev_id_to_tap(dev_id, check_vpp_state=False):
         is_assigned = is_interface_assigned_to_vpp(dev_id_full)
         vpp_runs    = vpp_does_run()
         if not (is_assigned and vpp_runs):
-            fwglobals.log.debug('dev_id_to_tap(%s): is_assigned=%s, vpp_runs=%s' %
-                (dev_id, str(is_assigned), str(vpp_runs)))
+            if print_log:
+                fwglobals.log.debug('dev_id_to_tap(%s): is_assigned=%s, vpp_runs=%s' %
+                    (dev_id, str(is_assigned), str(vpp_runs)))
             return None
 
     cache = fwglobals.g.cache.dev_id_to_vpp_tap_name
