@@ -423,15 +423,16 @@ class FWAGENT_API(FwObject):
         :returns: Dictionary status code.
         """
         try:
-            fwutils.reset_modem(params['dev_id'])
+            _, err = fwutils.reset_modem(params['dev_id'])
+            if err:
+                raise Exception(str(err))
 
             # restore lte connection if needed
             fwglobals.g.system_api.restore_configuration(types=['add-lte'])
 
-            reply = {'ok': 1, 'message': ''}
+            return {'ok': 1, 'message': ''}
         except Exception as e:
-            reply = {'ok': 0, 'message': str(e)}
-        return reply
+            return {'ok': 0, 'message': str(e)}
 
     def _handle_unblock_sim(self, params):
         dev_id = params['dev_id']
