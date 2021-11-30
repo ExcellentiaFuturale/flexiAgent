@@ -119,7 +119,9 @@ def tunnel_stats_get_ping_time(tunnels):
     for row in rows:
         host_rtt = [x.strip() for x in row.strip().split(':')]
         float_rtt = float(host_rtt[1]) if host_rtt[1] != '-' else 0.0
-        ret[tunnels[host_rtt[0]]] = float_rtt
+        tunnel_id = tunnels.get(host_rtt[0])
+        if tunnel_id:
+            ret[tunnel_id] = float_rtt
 
     return ret
 
