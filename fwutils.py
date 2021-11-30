@@ -4511,3 +4511,22 @@ def restart_service(service, timeout=0):
 
     fwglobals.log.error(f'restart_service({service}): failed on timeout ({timeout} seconds)')
     return (False, "Service is not running")
+
+def load_module(module):
+    tries = 5
+    err = None
+    for _ in range(tries):
+        try:
+            subprocess.check_call(f'modprobe {module}', shell=True)
+            return (True, None)
+        except Exception as e:
+            err = str(e)
+            pass
+    return (False, err)
+
+def load_modules(modules):
+    for module in modules:
+        _, err = load_module(module)
+        if err:
+            return (False, err)
+    return (True, None)

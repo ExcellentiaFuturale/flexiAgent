@@ -113,6 +113,16 @@ def add_interface(params):
     is_lte = fwutils.is_lte_interface_by_dev_id(dev_id) if not is_wifi else False
 
     if is_wifi or is_lte:
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['name']   = "python"
+        cmd['cmd']['descr'] = "load vhost-net modules"
+        cmd['cmd']['params'] = {
+                'module': 'fwutils',
+                'func': 'load_modules',
+                'args': { 'modules': ['tap', 'vhost', 'vhost-net'] }
+        }
+        cmd_list.append(cmd)
         # Create tap interface in linux and vpp.
         # This command will create three interfaces:
         #   1. linux tap interface.
@@ -526,6 +536,18 @@ def add_interface(params):
         cmd['revert']['descr']  = "remove arp entry on linux for lte interface"
         cmd['revert']['params'] = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'lte_get_ip_configuration', 'arg': [dev_id, 'gateway'] } ]},
                                     "sudo arp -d DEV-STUB || true" ]
+        cmd_list.append(cmd)
+
+
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['name']   = "python"
+        cmd['cmd']['descr'] = "load tc modules"
+        cmd['cmd']['params'] = {
+                'module': 'fwutils',
+                'func': 'load_modules',
+                'args': { 'modules': ['act_gact', 'act_mirred', 'act_pedit', 'cls_u32', 'sch_htb', 'sch_ingress', 'uio'] }
+        }
         cmd_list.append(cmd)
 
         cmd = {}
