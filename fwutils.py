@@ -3002,11 +3002,10 @@ def lte_set_modem_to_mbim(dev_id):
 
         hardware_info, err = lte_get_hardware_info(dev_id)
         if err:
-            # sometimes there is a timedout returend from this qmi command.
-            # The workaround is to trying reset modem once
-            _, reset_err = reset_modem(dev_id)
-            if reset_err:
-                raise Exception(str(err))
+            # This seems strange, but sometimes (especially after switching from MBIM mode to QMI mode),
+            # the first qmicli command that runs throws a timeout error,
+            # and it succeeds for the second time. So below is a workaround for this strange issue.
+            hardware_info, err = lte_get_hardware_info(dev_id)
 
         vendor = hardware_info['Vendor']
         model =  hardware_info['Model']
