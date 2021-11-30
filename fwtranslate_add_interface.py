@@ -119,7 +119,7 @@ def add_interface(params):
         cmd['cmd']['descr'] = "load vhost-net modules"
         cmd['cmd']['params'] = {
                 'module': 'fwutils',
-                'func': 'load_modules',
+                'func': 'load_linux_modules',
                 'args': { 'modules': ['tap', 'vhost', 'vhost-net'] }
         }
         cmd_list.append(cmd)
@@ -545,7 +545,7 @@ def add_interface(params):
         cmd['cmd']['descr'] = "load tc modules"
         cmd['cmd']['params'] = {
                 'module': 'fwutils',
-                'func': 'load_modules',
+                'func': 'load_linux_modules',
                 'args': { 'modules': ['act_gact', 'act_mirred', 'act_pedit', 'cls_u32', 'sch_htb', 'sch_ingress', 'uio'] }
         }
         cmd_list.append(cmd)
