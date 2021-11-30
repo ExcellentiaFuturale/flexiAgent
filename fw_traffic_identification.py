@@ -155,16 +155,10 @@ class FwTrafficIdentifications(FwObject):
 
         for traffic_id in traffic_id_set:
             traffic = self.traffic_id_map.get(traffic_id)
-            serviceClass = traffic.get('serviceClass')
-            importance = traffic.get('importance')
-            trafficRules = traffic.get('rules')
-            for trafficRule in trafficRules:
-                rules.append({
-                '_id': trafficRule.get('_id'),
-                'protocol': trafficRule.get('protocol'),
-                'ports': trafficRule.get('ports'),
-                'serviceClass': serviceClass,
-                'importance': importance
-            })
+            traffic_rules = traffic.get('rules', [])
+            for traffic_rule in traffic_rules:
+                traffic_rule.update({"serviceClass": traffic.get('serviceClass'),
+                                     "importance": traffic.get('importance')})
+            rules.extend(traffic.get('rules'))
 
         return rules
