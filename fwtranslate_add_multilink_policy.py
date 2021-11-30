@@ -217,8 +217,8 @@ def _traffic_to_acl_rules(rules):
             proto = [ fwutils.proto_map['any'] ] if not ports else \
                     [ fwutils.proto_map['udp'] , fwutils.proto_map['tcp'] ]
 
-        serviceClass = ServiceAttrToVal.get(traffic_rule.get('serviceClass'), 9)
-        importance = ImportanceAttrToVal.get(traffic_rule.get('importance'), 0)
+        serviceClass = ServiceAttrToVal.get(traffic_rule.get('serviceClass', 'default'), 9)
+        importance = ImportanceAttrToVal.get(traffic_rule.get('importance', 'low'), 0)
 
         for p in proto:
             acl_rules.append({
