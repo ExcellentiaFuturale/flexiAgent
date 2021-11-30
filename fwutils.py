@@ -3041,6 +3041,8 @@ def lte_set_modem_to_mbim(dev_id):
 
         print(f'The reset process was completed successfully')
 
+        os.system('modprobe cdc_mbim') # sometimes driver doesn't regirsted to the device after reset
+
         return (True, None)
     except Exception as e:
         # Modem cards sometimes get stuck and recover only after disconnecting the router from the power supply
