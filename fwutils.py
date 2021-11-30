@@ -4513,6 +4513,12 @@ def restart_service(service, timeout=0):
     return (False, "Service is not running")
 
 def load_module(module):
+    '''
+    Sometimes, due to a problem in the machine boot process, some of the modules do not load properly for the first time.
+    The 'modprobe' command falls with the error "Key was rejected by service".
+    Surprisingly, when you run this command several times - in about 85% of the problems it is solved.
+    So this function is a workaround to this problem but doesn't solve the root cause of the problem that is not up to us.
+    '''
     tries = 5
     err = None
     for _ in range(tries):
