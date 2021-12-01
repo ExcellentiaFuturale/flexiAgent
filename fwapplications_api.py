@@ -80,16 +80,16 @@ class FWAPPLICATIONS_API:
                 for app_identifier in self.applications_db:
                     if self.is_app_running(app_identifier):
                         continue
-                    
+
                     fwglobals.log.debug(f"{thread_name}: {app_identifier} is stopped. starting it...")
 
                     reply = self.start({ 'identifier': app_identifier })
                     if reply['ok'] == 0:
                         fwglobals.log.error(f"{thread_name}: failure in starting {app_identifier}. {reply['message']}")
                         continue
-                    
+
                     fwglobals.log.debug(f"{thread_name}: {app_identifier} is started successfully")
-                    
+
             except Exception as e:
                 fwglobals.log.error(f"{thread_name}: {str(e)} ({traceback.format_exc()})")
                 pass
