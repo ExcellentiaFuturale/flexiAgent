@@ -3162,7 +3162,7 @@ def mbim_registration_state(dev_id):
             break
     return res
 
-def reset_modem(dev_id):
+def lte_reset_modem(dev_id):
 
     def _wait_for_interface_to_be_restored(if_name):
         retries = 30
@@ -3375,10 +3375,9 @@ def lte_get_hardware_info(dev_id):
             if 'IMEI' in line:
                 result['Imei'] = line.split(':')[-1].strip().replace("'", '')
                 break
-
-        return (result, None)
     except Exception as e:
         return (result, str(e))
+    return (result, None)
 
 def lte_get_packets_state(dev_id):
     result = {

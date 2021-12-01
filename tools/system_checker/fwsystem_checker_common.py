@@ -1271,7 +1271,7 @@ class Checker:
                 raise Exception(f'We are unable to detect your modem. {dev_id}')
 
             self.log.debug(f'Resetting the modem. Please wait')
-            fwutils.reset_modem(dev_id)
+            fwutils.lte_reset_modem(dev_id)
 
             # after reset try once again but last
             hardware_info, err = fwutils.lte_get_hardware_info(dev_id)
@@ -1322,7 +1322,7 @@ class Checker:
 
             # at this point the modem switched to mbim mode without errors
             # but we have to reset the modem in order to apply it
-            fwutils.reset_modem(dev_id)
+            fwutils.lte_reset_modem(dev_id)
 
             self.log.debug(f'The reset process was completed successfully')
 
