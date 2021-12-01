@@ -2958,7 +2958,7 @@ def lte_get_phone_number(dev_id):
             return line.split(':')[-1].strip().replace("'", '')
     return ''
 
-def get_at_port(dev_id):
+def lte_get_at_port(dev_id):
     at_ports = []
     try:
         _, addr = dev_id_parse(dev_id)
@@ -2990,52 +2990,6 @@ def get_at_port(dev_id):
         return at_ports
     except:
         return at_ports
-
-def lte_set_modem_to_mbim(dev_id):
-    try:
-        if_name = dev_id_to_linux_if(dev_id)
-        lte_driver = get_interface_driver(if_name)
-        if lte_driver == 'cdc_mbim':
-            return (True, None)
-
-        hardware_info, err = lte_get_hardware_info(dev_id)
-        if err:
-            raise Exception(str(err))
-
-        vendor = hardware_info['Vendor']
-        model =  hardware_info['Model']
-
-        at_commands = []
-        if 'Quectel' in vendor or re.match('Quectel', model, re.IGNORECASE): # Special fix for Quectel ec25 mini pci card
-            print('Please wait...')
-            at_commands = ['AT+QCFG="usbnet",2', 'AT+QPOWD=0']
-            at_serial_port = get_at_port(dev_id)
-            if at_serial_port and len(at_serial_port) > 0:
-                ser = serial.Serial(at_serial_port[0])
-                for at in at_commands:
-                    at_cmd = bytes(at + '\r', 'utf-8')
-                    ser.write(at_cmd)
-                    time.sleep(0.5)
-                ser.close()
-                time.sleep(10) # reset modem might take few seconds
-                os.system('modprobe cdc_mbim') # sometimes driver doesn't regirsted to the device after reset
-                return (True, None)
-            return (False, 'AT port not found. dev_id: %s' % dev_id)
-        elif 'Sierra Wireless' in vendor:
-            print('Please wait...')
-            _run_qmicli_command(dev_id, 'dms-swi-set-usb-composition=8')
-            _run_qmicli_command(dev_id, 'dms-set-operating-mode=offline')
-            _run_qmicli_command(dev_id, 'dms-set-operating-mode=reset')
-            time.sleep(10)  # reset modem might take few seconds
-            os.system('modprobe cdc_mbim') # sometimes driver doesn't regirsted to the device after reset
-            return (True, None)
-        else:
-            print("Your card is not officially supported. It might work, But you have to switch manually to the MBIM modem")
-            return (False, 'vendor or model are not supported. (vendor: %s, model: %s)' % (vendor, model))
-    except Exception as e:
-        # Modem cards sometimes get stuck and recover only after disconnecting the router from the power supply
-        print("Failed to switch modem to MBIM. You can unplug the router, wait a few seconds and try again. (%s)" % str(e))
-        return (False, str(e))
 
 
 def lte_get_default_settings(dev_id):
@@ -3208,26 +3162,65 @@ def mbim_registration_state(dev_id):
             break
     return res
 
-def reset_modem(dev_id):
+def lte_reset_modem(dev_id):
+
+    def _wait_for_interface_to_be_restored(if_name):
+        retries = 30
+        for _ in range(retries):
+            try:
+                output = subprocess.check_output("sudo ls -l /sys/class/net/ | grep -v tap_ | grep " + if_name, shell=True).decode()
+                if output:
+                    return True
+            except:
+                pass
+
+            time.sleep(1)
+
+        return False
+
+    def _wait_for_interface_to_be_removed(if_name):
+        retries = 30
+        for _ in range(retries):
+            try:
+                # if vpp runs, we have the tap_wwan0 interfae, so we filter it out to make sure that LTE pyshical interface does not exists
+                output = subprocess.check_output("sudo ls -l /sys/class/net/ | grep -v tap_ | grep " + if_name, shell=True).decode()
+            except:
+                return True
+
+            time.sleep(1)
+
+        return False
+
     set_lte_cache(dev_id, 'state', 'resetting')
     try:
+        # If the modem switched between QMI and MBIM modes, the dev_id might change.
+        # Hence, we check the reset by interface name, which is a consistent name in both modes.
+        lte_if_name = dev_id_to_linux_if(dev_id)
+
         fwglobals.log.debug('reset_modem: reset starting')
 
         _run_qmicli_command(dev_id,'dms-set-operating-mode=offline')
         _run_qmicli_command(dev_id,'dms-set-operating-mode=reset')
-        time.sleep(10) # reset operation might take few seconds
+
+        # After resetting, the modem should be deleted from Linux and then back up.
+        # We verify these two steps to make sure the reset process is completed successfully
+        ifc_removed = _wait_for_interface_to_be_removed(lte_if_name)
+        if not ifc_removed:
+            raise Exception('the modem exists after reset. it was expected to be temporarily removed')
+        ifc_restored = _wait_for_interface_to_be_restored(lte_if_name)
+        if not ifc_restored:
+            raise Exception('The modem has not recovered from the reset')
+
         _run_qmicli_command(dev_id,'dms-set-operating-mode=online')
 
-        # To reapply set-name for LTE interface we have to call netplan apply here
+        # To re-apply set-name for LTE interface we have to call netplan apply here
         netplan_apply("reset_modem")
 
         fwglobals.log.debug('reset_modem: reset finished')
-    except Exception:
-        pass
-
-    set_lte_cache(dev_id, 'state', '')
-    # clear wrong PIN cache on reset
-    set_lte_db_entry(dev_id, 'wrong_pin', None)
+    finally:
+        set_lte_cache(dev_id, 'state', '')
+        # clear wrong PIN cache on reset
+        set_lte_db_entry(dev_id, 'wrong_pin', None)
 
 def lte_connect(params):
     dev_id = params['dev_id']
