@@ -197,6 +197,9 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     addr = iface_params['addr']
     mac  = iface_params.get('mac')
     mtu  = iface_params['mtu']
+    mss  = mtu - 200  # Leave 200 bytes for TLS/ESP/VXLAN/etc headers to fit the MTU
+    vpp_if_name = fwutils.tunnel_to_vpp_if_name(tunnel_params)
+
 
     # ret_attr  - attribute of the object returned by command,
     #             value of which is stored in cache to be available
@@ -225,6 +228,18 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     cmd['cmd']['params']  = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
                               'is_set':0 , 'feature_bitmap':1 }  # 1 stands for LEARN (see test\test_l2bd_multi_instance.py)
     cmd_list.append(cmd)
+
+    if not internal:
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['name']    = "python"
+        cmd['cmd']['descr']   = f"set MSS {mss} on loopback interface {addr}"
+        cmd['cmd']['params']  = {
+                        'module': 'fwutils',
+                        'func'  : 'vpp_cli_execute',
+                        'args'  : {'cmds':[f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {mss} ip6 tx ip6-mss  {mss}']}
+        }
+        cmd_list.append(cmd)
 
     if internal:
         # interface.api.json: sw_interface_add_del_address (..., sw_if_index, is_add, prefix, ...)
