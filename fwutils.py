@@ -3039,6 +3039,8 @@ def lte_set_modem_to_mbim(dev_id):
 
         print(f'The reset process was completed successfully')
 
+        os.system('modprobe cdc_mbim') # sometimes driver doesn't regirsted to the device after reset
+
         return (True, None)
     except Exception as e:
         # Modem cards sometimes get stuck and recover only after disconnecting the router from the power supply
@@ -3206,7 +3208,7 @@ def mbim_registration_state(dev_id):
         'register_state': '',
         'network_error' : '',
     }
-    lines, _ = _run_mbimcli_command(dev_id, '--query-registration-state')
+    lines, _ = _run_mbimcli_command(dev_id, '--query-registration-state --no-open=3 --no-close')
     for line in lines:
         if 'Network error:' in line:
             res['network_error'] = line.split(':')[-1].strip().replace("'", '')
@@ -3332,10 +3334,10 @@ def lte_connect(params):
 
         connection_params = lte_prepare_connection_params(params)
         mbim_commands = [
-            r'--query-subscriber-ready-status',
-            r'--query-registration-state',
-            r'--attach-packet-service',
-            r'--connect=%s | grep "Session ID\|IP\|Gateway\|DNS"' % connection_params
+            r'--query-subscriber-ready-status --no-close',
+            r'--query-registration-state --no-open=3 --no-close',
+            r'--attach-packet-service --no-open=4 --no-close',
+            r'--connect=%s --no-open=5 --no-close | grep "Session ID\|IP\|Gateway\|DNS"' % connection_params
         ]
         for cmd in mbim_commands:
             lines, err = _run_mbimcli_command(dev_id, cmd, True)
