@@ -3218,7 +3218,7 @@ def mbim_registration_state(dev_id):
 
 def reset_modem(dev_id):
 
-    def _check_lte_exists(if_name):
+    def _wait_for_interface_to_be_restored(if_name):
         retries = 30
         for _ in range(retries):
             try:
@@ -3232,7 +3232,7 @@ def reset_modem(dev_id):
 
         return False
 
-    def _check_lte_does_not_exists(if_name):
+    def _wait_for_interface_to_be_removed(if_name):
         retries = 30
         for _ in range(retries):
             try:
@@ -3258,11 +3258,11 @@ def reset_modem(dev_id):
 
         # After resetting, the modem should be deleted from Linux and then back up.
         # We verify these two steps to make sure the reset process is completed successfully
-        is_not_exists = _check_lte_does_not_exists(lte_if_name)
-        if not is_not_exists:
+        ifc_removed = _wait_for_interface_to_be_removed(lte_if_name)
+        if not ifc_removed:
             raise Exception('the modem exists after reset. it was expected to be temporarily removed')
-        is_exists = _check_lte_exists(lte_if_name)
-        if not is_exists:
+        ifc_restored = _wait_for_interface_to_be_restored(lte_if_name)
+        if not ifc_restored:
             raise Exception('The modem has not recovered from the reset')
 
         _run_qmicli_command(dev_id,'dms-set-operating-mode=online')
