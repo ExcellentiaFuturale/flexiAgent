@@ -3035,9 +3035,7 @@ def lte_set_modem_to_mbim(dev_id):
         print(f'Modem was switched to MBIM. Resetting the modem')
         # at this point the modem switched to mbim mode without errors
         # but we have to reset the modem in order to apply it
-        _, err = reset_modem(dev_id)
-        if err:
-            raise Exception(str(err))
+        reset_modem(dev_id)
 
         print(f'The reset process was completed successfully')
 
@@ -3273,9 +3271,6 @@ def reset_modem(dev_id):
         netplan_apply("reset_modem")
 
         fwglobals.log.debug('reset_modem: reset finished')
-        return (True, None)
-    except Exception as e:
-        return (False, str(e))
     finally:
         set_lte_cache(dev_id, 'state', '')
         # clear wrong PIN cache on reset

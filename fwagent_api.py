@@ -423,9 +423,7 @@ class FWAGENT_API(FwObject):
         :returns: Dictionary status code.
         """
         try:
-            _, err = fwutils.reset_modem(params['dev_id'])
-            if err:
-                raise Exception(str(err))
+            fwutils.reset_modem(params['dev_id'])
 
             # restore lte connection if needed
             fwglobals.g.system_api.restore_configuration(types=['add-lte'])
