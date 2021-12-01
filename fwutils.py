@@ -2958,7 +2958,7 @@ def lte_get_phone_number(dev_id):
             return line.split(':')[-1].strip().replace("'", '')
     return ''
 
-def get_at_port(dev_id):
+def lte_get_at_port(dev_id):
     at_ports = []
     try:
         _, addr = dev_id_parse(dev_id)
@@ -2990,62 +2990,6 @@ def get_at_port(dev_id):
         return at_ports
     except:
         return at_ports
-
-def lte_set_modem_to_mbim(dev_id):
-    try:
-        if_name = dev_id_to_linux_if(dev_id)
-        lte_driver = get_interface_driver(if_name)
-        if lte_driver == 'cdc_mbim':
-            return (True, None)
-
-        print('Please wait a few moments...')
-
-        hardware_info, err = lte_get_hardware_info(dev_id)
-        if err:
-            # This seems strange, but sometimes (especially after switching from MBIM mode to QMI mode),
-            # the first qmicli command that runs throws a timeout error,
-            # and it succeeds for the second time. So below is a workaround for this strange issue.
-            hardware_info, err = lte_get_hardware_info(dev_id)
-
-        vendor = hardware_info['Vendor']
-        model =  hardware_info['Model']
-
-        print(f'The modem is found. Vendor: {vendor}. Model: {model}')
-
-        at_commands = []
-        if 'Quectel' in vendor or re.match('Quectel', model, re.IGNORECASE): # Special fix for Quectel ec25 mini pci card
-            at_commands = ['AT+QCFG="usbnet",2']
-            at_serial_port = get_at_port(dev_id)
-            if at_serial_port and len(at_serial_port) > 0:
-                print(f'The serial port is found. {at_serial_port[0]}')
-                ser = serial.Serial(at_serial_port[0])
-                for at in at_commands:
-                    at_cmd = bytes(at + '\r', 'utf-8')
-                    ser.write(at_cmd)
-                    time.sleep(0.5)
-                ser.close()
-            else:
-                raise Exception(f'The serial port is not found. dev_id: {dev_id}')
-        elif 'Sierra Wireless' in vendor:
-            _run_qmicli_command(dev_id, 'dms-swi-set-usb-composition=8')
-        else:
-            print("Your card is not officially supported. It might work, But you have to switch manually to the MBIM modem")
-            raise Exception('vendor or model are not supported. (vendor: %s, model: %s)' % (vendor, model))
-
-        print(f'Modem was switched to MBIM. Resetting the modem')
-        # at this point the modem switched to mbim mode without errors
-        # but we have to reset the modem in order to apply it
-        reset_modem(dev_id)
-
-        print(f'The reset process was completed successfully')
-
-        os.system('modprobe cdc_mbim') # sometimes driver doesn't regirsted to the device after reset
-
-        return (True, None)
-    except Exception as e:
-        # Modem cards sometimes get stuck and recover only after disconnecting the router from the power supply
-        print("Failed to switch modem to MBIM. You can unplug the router, wait a few seconds and try again. (%s)" % str(e))
-        return (False, str(e))
 
 
 def lte_get_default_settings(dev_id):
