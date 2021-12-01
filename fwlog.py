@@ -184,6 +184,7 @@ class FwLogFile(Fwlog):
         self.filepath, self.filename = os.path.split(filename)
         self.max_size = max_size  # 10 MB by default
         self.cur_size = 0
+        self.to_terminal_enabled = False
 
         if os.path.exists(filename):
             self.cur_size = os.path.getsize(filename)
@@ -206,6 +207,9 @@ class FwLogFile(Fwlog):
 
         :returns: None.
         """
+
+        if to_terminal and self.to_terminal_enabled:
+            print(log_message)
 
         log_prefix  = self._build_log_line_prefix(add_date=True)
         log_message = log_message.replace('\r\n', '#012').replace('\n', '#012')  # Mimic syslog format
