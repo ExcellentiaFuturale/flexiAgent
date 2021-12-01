@@ -527,11 +527,13 @@ def get_dhcp_netplan_interface(if_name):
 
 def _has_ip(if_name, dhcp):
 
-    for i in range(50):
-        log = (i == 49) # Log only the last trial to avoid log spamming
-        if fwutils.get_interface_address(if_name, log_on_failure=log):
-            return True
-        time.sleep(1)
+    for _ in range(2):          # Check IP and retry "netplan apply" in loop
+        for i in range(30):     # Wait for IP to appear for X seconds
+            log = (i == 29)     # Log only the last trial to avoid log spamming
+            if fwutils.get_interface_address(if_name, log_on_failure=log):
+                return True
+            time.sleep(1)
+        fwutils.netplan_apply('_has_ip')
 
     # At this point no IP was found on the interface.
     # If IP was not assigned to the interface, we still return OK if:
