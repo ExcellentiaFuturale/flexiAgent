@@ -539,6 +539,39 @@ def _add_ipip_tunnel(cmd_list, cache_key, params, addr, instance):
     }
     cmd_list.append(cmd)
 
+def _add_ipip_multicast_rule(cmd_list, tunnel_id, src_ip, group_ip):
+    """Add multicast entry into mfib.
+
+    :param cmd_list:             List of commands.
+    :param tunnel_id:            Tunnel id.
+    :param src_ip:               Tunnel interface ip address.
+    :param group_ip:             Multicast group ip address.
+
+    :returns: None.
+    """
+    addr = str(IPNetwork(src_ip).ip)
+    str1 = '%s %s via ipip%u Accept Forward' % (addr, group_ip, tunnel_id)
+    str2 = '%s %s Accept-all-itf' % (addr, group_ip)
+
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['name']    = "python"
+    cmd['cmd']['descr']   = f"register peer tunnel id={tunnel_id} with multicast FIB (group={group_ip}, src={addr})"
+    cmd['cmd']['params']  = {
+                    'module': 'fwutils',
+                    'func'  : 'vpp_cli_execute',
+                    'args'  : {'cmds':['ip mroute add %s' % str1, 'ip mroute add %s' % str2], 'debug':True}
+    }
+    cmd['revert'] = {}
+    cmd['revert']['name']    = "python"
+    cmd['revert']['descr']   = f"un-register peer tunnel id={tunnel_id} from multicast FIB: (group={group_ip}, src={addr})"
+    cmd['revert']['params']  = {
+                    'module': 'fwutils',
+                    'func'  : 'vpp_cli_execute',
+                    'args'  : {'cmds':['ip mroute del %s' % str1, 'ip mroute del %s' % str2]}
+    }
+    cmd_list.append(cmd)
+
 
 def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
     """Add VxLAN tunnel command into the list.
@@ -1249,6 +1282,10 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
     mac              = f"02:00:27:ff:{tunnel_id_hex[:2]}:{tunnel_id_hex[-2:]}"
 
     _add_ipip_tunnel(cmd_list, tunnel_cache_key, params, tunnel_addr, id)
+
+    # Add mfib rules to route OSPF multicast packets from peer TAP interface through ip4-input/lookup node into ipip tunnel.
+    _add_ipip_multicast_rule(cmd_list, id, addr, "224.0.0.5")
+    _add_ipip_multicast_rule(cmd_list, id, addr, "224.0.0.6")
 
     loopback_params = {'addr':addr, 'mtu': mtu, 'mac': mac}
     _add_loopback(cmd_list, peer_loopback_cache_key, loopback_params, params, id=id)
