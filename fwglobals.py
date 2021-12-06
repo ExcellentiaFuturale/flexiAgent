@@ -449,7 +449,6 @@ class Fwglobals(FwObject):
 
         self.wan_monitor.initialize() # IMPORTANT! The WAN monitor should be initialized after restore_vpp_if_needed!
         self.system_api.initialize()
-        self.applications_api.initialize()
 
         return self.fwagent
 
@@ -463,7 +462,6 @@ class Fwglobals(FwObject):
 
         self.teardown = True   # Stop all helper threads in parallel to speedup gracefull exit
 
-        self.applications_api.finalize()
         self.wan_monitor.finalize()
         self.stun_wrapper.finalize()
         self.system_api.finalize()

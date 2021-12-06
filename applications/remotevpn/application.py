@@ -53,8 +53,13 @@ def install(params):
                 return (False, f'install: failed to run "{command}". error code is {ret}')
 
         print("RemoteVPN installed successfully")
-        return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
 
+        configParams = params.get('configParams')
+        if not configParams:
+            raise Exception('configParams is missing')
+
+        res, err = configure(configParams)
+        return (res, err)   # 'True' stands for success, 'None' - for the returned object or error string.
     except Exception as e:
         # call uninstall function to clean the machine on installation error
         uninstall(params)
@@ -306,6 +311,12 @@ def _configure_client_file(params):
     except Exception as e:
         print("Failed to configure remoteVPN client.conf")
         return (False, str(e))
+
+def router_is_started(params):
+    return start(params)
+
+def router_is_stopped(params):
+    return stop(params)
 
 def start(params):
     try:

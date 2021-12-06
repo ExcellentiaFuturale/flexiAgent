@@ -222,7 +222,7 @@ class FWAGENT_API(FwObject):
             app_installed = fwglobals.g.applications_api.get_application(params['filter'])
             if not app_installed:
                 raise Exception('application is not installed')
-                
+
             # call application log api
             file = fwglobals.g.applications_api.get_log_file(params['filter'])
         else:

@@ -58,6 +58,7 @@ from fwmultilink    import FwMultilink
 from fwpolicies     import FwPolicies
 from fwwan_monitor  import get_wan_failover_metric
 from fwikev2        import FwIKEv2
+from fwapplications_api import FWAPPLICATIONS_API
 from fw_traffic_identification import FwTrafficIdentifications
 import fwtranslate_add_switch
 
@@ -1412,6 +1413,10 @@ def stop_vpp():
                 break
     fwstats.update_state(False)
     netplan_apply('stop_vpp')
+
+    with FWAPPLICATIONS_API() as app_api:
+        app_api.call_hook('router_is_stopped')
+
     with FwIKEv2() as ike:
         ike.clean()
 
