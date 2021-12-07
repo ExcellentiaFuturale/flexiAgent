@@ -1487,8 +1487,11 @@ def reset_router_api_db(enforce=False):
     if not 'sw_if_index_to_vpp_if_name' in router_api_db or enforce:
         router_api_db['sw_if_index_to_vpp_if_name'] = {}
     if not 'vpp_if_name_to_sw_if_index' in router_api_db or enforce:
-        router_api_db['vpp_if_name_to_sw_if_index'] = {
-            'tunnel': {}, 'peer-tunnel': {}, 'lan': {}, 'wan': {} }
+        router_api_db['vpp_if_name_to_sw_if_index'] = {}
+    vpp_if_name_to_sw_if_index_keys = ['tunnel', 'peer-tunnel', 'lan', 'switch-lan', 'wan', 'switch']
+    for key in vpp_if_name_to_sw_if_index_keys:
+        if not key in router_api_db['vpp_if_name_to_sw_if_index'] or enforce:
+            router_api_db['vpp_if_name_to_sw_if_index'][key] = {}
     if not 'vpp_if_name_to_tap_if_name' in router_api_db or enforce:
         router_api_db['vpp_if_name_to_tap_if_name'] = {}
     if not 'sw_if_index_to_tap_if_name' in router_api_db or enforce:
@@ -2192,8 +2195,11 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
     """
     op = 'add' if add else 'del'
 
-    vpp_if_names = get_lans_vpp_if_names(use_bvi_for_bridged=True)
-    vpp_if_names += list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['tunnel'].keys())
+    bvi_vpp_name_list      = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['switch'].keys())
+    lan_vpp_name_list      = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['lan'].keys())
+    loopback_vpp_name_list = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['tunnel'].keys())
+
+    vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list
 
     if not add:
         for if_vpp_name in vpp_if_names:
