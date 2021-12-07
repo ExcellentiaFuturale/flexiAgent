@@ -2146,37 +2146,6 @@ def vpp_multilink_update_labels(labels, remove, next_hop=None, dev_id=None, sw_i
 
     return (True, None)
 
-def get_lans_vpp_if_names(use_bvi_for_bridged=False):
-    """Get vpp interfaces names list of the LAN interfaces.
-
-    :param use_bvi_for_bridged:  indicates if to return the name of the BVI in the case of bridged interface
-
-    :returns: list of vpp interfaces names.
-    """
-    vpp_if_names = []
-
-    if use_bvi_for_bridged:
-        # fill the list with the BVI interfaces names
-        vpp_bridges_det = fwglobals.g.router_api.vpp_api.vpp.api.bridge_domain_dump()
-
-        min_bd_id, max_bd_id = fwglobals.g.LOOPBACK_ID_SWITCHES
-        for vpp_bridge in vpp_bridges_det:
-            # make sure that only bridges that we use for the switch feature will be populated
-            if min_bd_id <= vpp_bridge.bd_id <= max_bd_id:
-                vpp_if_name = vpp_sw_if_index_to_name(vpp_bridge.bvi_sw_if_index)
-                vpp_if_names.append(vpp_if_name)
-
-    interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
-    for intf in interfaces:
-        bridge_addr = intf.get('bridge_addr')
-        if bridge_addr and use_bvi_for_bridged:
-            continue # bridged BVI interfaces already added to the list
-
-        vpp_if_name = dev_id_to_vpp_if_name(intf['dev_id'])
-        vpp_if_names.append(vpp_if_name)
-
-    return vpp_if_names
-
 def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl_id=None, priority=None):
     """Updates VPP with flexiwan policy rules.
     In general, policy rules instruct VPP to route packets to specific interface,
