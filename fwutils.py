@@ -2143,7 +2143,6 @@ def vpp_multilink_update_labels(labels, remove, next_hop=None, dev_id=None, sw_i
     if result_cache and result_cache['result_attr'] == 'next_hop':
         key = result_cache['key']
         result_cache['cache'][key] = next_hop
-
     return (True, None)
 
 def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl_id=None, priority=None):
@@ -2167,7 +2166,6 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
     bvi_vpp_name_list      = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['switch'].keys())
     lan_vpp_name_list      = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['lan'].keys())
     loopback_vpp_name_list = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['tunnel'].keys())
-
     vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list
 
     if not add:
