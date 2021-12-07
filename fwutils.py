@@ -2171,8 +2171,8 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
     vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list
 
     if not add:
-        for if_vpp_name in vpp_if_names:
-            vppctl_cmd = 'fwabf attach ip4 del policy %d priority %d %s' % (int(policy_id), priority, if_vpp_name)
+        for vpp_if_name in vpp_if_names:
+            vppctl_cmd = 'fwabf attach ip4 del policy %d priority %d %s' % (int(policy_id), priority, vpp_if_name)
             vpp_cli_execute([vppctl_cmd])
         fwglobals.g.policies.remove_policy(policy_id)
 
@@ -2204,8 +2204,8 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
 
     if add:
         fwglobals.g.policies.add_policy(policy_id, priority)
-        for if_vpp_name in vpp_if_names:
-            vppctl_cmd = 'fwabf attach ip4 add policy %d priority %d %s' % (int(policy_id), priority, if_vpp_name)
+        for vpp_if_name in vpp_if_names:
+            vppctl_cmd = 'fwabf attach ip4 add policy %d priority %d %s' % (int(policy_id), priority, vpp_if_name)
             vpp_cli_execute([vppctl_cmd])
 
     return (True, None)

@@ -666,10 +666,6 @@ def add_interface(params):
         cmd['cmd']['descr'] = "add filter traffic control command for tap and wwan interfaces"
         cmd_list.append(cmd)
 
-    ifc_type = str(int_type).lower()
-    if bridge_addr:
-        ifc_type = 'switch-lan'
-
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['name']    = "python"
@@ -677,7 +673,7 @@ def add_interface(params):
     cmd['cmd']['params']  = {
                     'object': 'fwglobals.g.router_api',
                     'func'  : '_on_add_interface_after',
-                    'args'  : { 'type': ifc_type },
+                    'args'  : { 'type': 'switch-lan' if bridge_addr else str(int_type).lower() },
                     'substs': [ { 'add_param':'sw_if_index', 'val_by_func':'dev_id_to_vpp_sw_if_index', 'arg':dev_id } ]
     }
     cmd['revert'] = {}
@@ -686,7 +682,7 @@ def add_interface(params):
     cmd['revert']['params'] = {
                     'object': 'fwglobals.g.router_api',
                     'func'  : '_on_remove_interface_before',
-                    'args'  : { 'type': ifc_type },
+                    'args'  : { 'type': 'switch-lan' if bridge_addr else str(int_type).lower() },
                     'substs': [ { 'add_param':'sw_if_index', 'val_by_func':'dev_id_to_vpp_sw_if_index', 'arg':dev_id } ]
     }
     cmd_list.append(cmd)
