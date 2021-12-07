@@ -34,12 +34,27 @@ import traceback
 # set it to "spawn" to reduce as much as possible the resources pass to the child process
 mp.set_start_method('spawn', force=True)
 
+# flexiManage jobs types
 fwapplications_handlers = {
     'application-install':           'install',
     'application-uninstall':         'uninstall',
     'application-configure':         'configure',
     'application-status':            'status',
-    'application-call':              'call',
+}
+
+# all hooks supported with a flag indicating whether it is a mandatory hook,
+# meaning that if it does not exist, an error will be thrown.
+fwapplications_hooks = {
+    'install':                 True,
+    'uninstall':               True,
+    'status':                  True,
+    'configure':               True,
+    'get_log_file':            False,
+    'router_is_started':       False,
+    'router_is_being_to_stop': False,
+    'router_is_stopped':       False,
+    'agent_soft_reset':        False,
+    'agent_reset':             False,
 }
 
 class FWAPPLICATIONS_API:
@@ -50,49 +65,19 @@ class FWAPPLICATIONS_API:
         """Constructor method.
         """
         self.applications_db = SqliteDict(fwglobals.g.APPLICATIONS_DB, autocommit=True)
-        self.thread_applications_watchdog = None
 
-    def initialize(self):
-        if self.thread_applications_watchdog is None:
-            self.thread_applications_watchdog = threading.Thread(target=self.applications_watchdog, name='Applications Watchdog')
-            self.thread_applications_watchdog.start()
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # The three arguments to `__exit__` describe the exception
+        # caused the `with` statement execution to fail. If the `with`
+        # statement finishes without an exception being raised, these
+        # arguments will be `None`.
+        self.finalize()
 
     def finalize(self):
-        if self.thread_applications_watchdog:
-            self.thread_applications_watchdog.join()
-            self.thread_applications_watchdog = None
-
-    def applications_watchdog(self):
-        """Applications watchdog thread.
-        Monitors status of applications. 
-        All applications should be running if vRouter is running.
-        """
-        thread_name = threading.current_thread().getName()
-
-        while not fwglobals.g.teardown:
-            try: # Ensure thread doesn't exit on exception
-
-                time.sleep(30)
-
-                if not fwglobals.g.router_api.state_is_started():
-                    continue
-
-                for app_identifier in self.applications_db:
-                    if self.is_app_running(app_identifier):
-                        continue
-
-                    fwglobals.log.debug(f"{thread_name}: {app_identifier} is stopped. starting it...")
-
-                    reply = self.start({ 'identifier': app_identifier })
-                    if reply['ok'] == 0:
-                        fwglobals.log.error(f"{thread_name}: failure in starting {app_identifier}. {reply['message']}")
-                        continue
-
-                    fwglobals.log.debug(f"{thread_name}: {app_identifier} is started successfully")
-
-            except Exception as e:
-                fwglobals.log.error(f"{thread_name}: {str(e)} ({traceback.format_exc()})")
-                pass
+        return
 
     def call(self, request):
         """Invokes API specified by the 'request' parameter.
@@ -119,36 +104,80 @@ class FWAPPLICATIONS_API:
     def _call_application_api(self, identifier, method, params = {}):
         path = fwglobals.g.APPLICATIONS_DIR + identifier
 
+        # check if the given hook is supported and if it required
+        required_hook = fwapplications_hooks.get(method)
+        if required_hook == None:
+            raise Exception(f'_call_application_api: {method} is not defined')
+
         q = mp.Queue()
-        p = mp.Process(target=subproc, args=(q, path, method, params))
+        p = mp.Process(target=subproc, args=(q, path, method, params, required_hook))
 
         p.start()
         result = q.get()
         p.join()
+        p.terminate()
 
         return result
 
-    def start(self, params):
+    def call_hook(self, hook_type, params={}, identifier=None):
+        for app_identifier in self.applications_db:
+            try:
+                # skip applications if filter is passed
+                if identifier and app_identifier != identifier:
+                    continue
+
+                params['identifier'] = app_identifier
+                self._call_application_api(app_identifier, hook_type, params)
+            except Exception as e:
+                fwglobals.log.debug(f'call_hook: hook "{hook_type}" failed. identifier={app_identifier}. err={str(e)}')
+                pass
+
+        return { 'ok': 1, 'message': '' }
+
+    def install(self, params):
+        # identifier: 'com.flexiwan.remotevpn',
+        # name: ‘Remote VPN’,
+        # installationFilePath: 'https://store.flexiwan.com/com.flexiwan.remotevpn/install.tar.gz',
+        # installationPathType: 'url' / 'local'
+        # md5: 'sdfgsdfg'
         try:
+            path_type = params.get('installationPathType')
             identifier = params.get('identifier')
-            success, val = self._call_application_api(identifier, 'start')
+            path = params.get('installationFilePath')
+
+            target_path = fwglobals.g.APPLICATIONS_DIR + identifier + '/'
+
+            # create the application directory if not exists
+            os.system(f'mkdir -p {target_path}')
+
+            if path_type == 'url':
+                response = requests.get(path, allow_redirects=True, stream=True)
+                if response.status_code == 200:
+                    with open(target_path, 'wb') as f:
+                        f.write(response.raw.read())
+
+            elif (path_type == 'local'):
+                path = os.path.abspath(path)
+                if not os.path.exists(path):
+                    raise Exception(f'path {path} is not exists')
+
+                # move install file to application directory
+                rc = os.system(f'cp {path} {target_path}')
+                if rc:
+                    raise Exception(f'failed to move {path} to the applications directory')
+
+            file = tarfile.open(target_path + 'install.tar.gz')
+            file.extractall(target_path)
+            file.close()
+
+            success, val = self._call_application_api(identifier, 'install', params)
+
             if not success:
                 return { 'ok': 0, 'message': val }
 
-            self.update_applications_db(identifier, 'started', True)
+            # store in database
+            self.update_applications_db(identifier, 'installed', True)
 
-            return { 'ok': 1 }
-        except Exception as e:
-            return { 'ok': 0, 'message': str(e) }
-
-    def stop(self, params):
-        try:
-            identifier = params.get('identifier')
-            success, val = self._call_application_api(identifier, 'stop')
-            if not success:
-                return { 'ok': 0, 'message': val }
-
-            self.update_applications_db(identifier, 'started', False)
             return { 'ok': 1 }
         except Exception as e:
             return { 'ok': 0, 'message': str(e) }
@@ -161,29 +190,13 @@ class FWAPPLICATIONS_API:
             if not success:
                 return { 'ok': 0, 'message': val }
 
-            self.update_applications_db(identifier, 'configured', False)
-            self.update_applications_db(identifier, 'configuration', None)
-            self.update_applications_db(identifier, 'installed', False)
-            self.update_applications_db(identifier, 'installationConfig', None)
+            # remove the application directory
+            target_path = fwglobals.g.APPLICATIONS_DIR + identifier + '/'
+            os.system(f'rm -rf {target_path}')
+
             return { 'ok': 1 }
         except Exception as e:
             return { 'ok': 0, 'message': str(e) }
-
-    def is_app_running(self, identifier):
-        reply = self.status({'identifier': identifier})
-        if reply['ok'] == 0:
-            return False
-        return reply['message']
-
-    def get_log_file(self, identifier):
-        try:
-            success, val = self._call_application_api(identifier, 'get_log_file')
-            if not success:
-                return None
-
-            return val
-        except:
-            return None
 
     def status(self, params):
         try:
@@ -204,78 +217,27 @@ class FWAPPLICATIONS_API:
             if not success:
                 return { 'ok': 0, 'message': val }
 
-            self.update_applications_db(identifier, 'configured', True)
-            self.update_applications_db(identifier, 'configuration', params)
-
-            if fwglobals.g.router_api.state_is_started():
-                reply = self.start(params)
-                if reply['ok'] == 0:
-                    return reply
 
             return { 'ok': 1 }
         except Exception as e:
-            self.update_applications_db(identifier, 'configured', False)
+            # self.update_applications_db(identifier, 'configured', False)
             return { 'ok': 0, 'message': str(e) }
 
-    def install(self, params):
-        # identifier: 'com.flexiwan.remotevpn',
-        # name: ‘Remote VPN’,
-        # installationFilePath: 'https://store.flexiwan.com/com.flexiwan.remotevpn/install.tar.gz',
-        # installationPathType: 'url' / 'local'
-        # md5: 'sdfgsdfg'
+    def is_app_running(self, identifier):
+        reply = self.status({'identifier': identifier})
+        if reply['ok'] == 0:
+            return False
+        return reply['message']
+
+    def get_log_file(self, identifier):
         try:
-            path_type = params.get('installationPathType')
-            identifier = params.get('identifier')
-            path = params.get('installationFilePath')
-
-            target_path = fwglobals.g.APPLICATIONS_DIR + identifier + '/'
-
-            if path_type == 'url':
-                response = requests.get(path, allow_redirects=True, stream=True)
-                if response.status_code == 200:
-                    with open(target_path, 'wb') as f:
-                        f.write(response.raw.read())
-
-            elif (path_type == 'local'):
-                path = os.path.abspath(path)
-                if not os.path.exists(path):
-                    raise Exception(f'path {path} is not exists')
-
-                # create the application directory
-                os.system(f'mkdir -p {target_path}')
-
-                # move install file to application directory
-                rc = os.system(f'cp {path} {target_path}')
-                if rc:
-                    raise Exception(f'failed to move {path} to the applications directory')
-
-            file = tarfile.open(target_path + 'install.tar.gz')
-            file.extractall(target_path)
-            file.close()
-
-            success, val = self._call_application_api(identifier, 'install')
-
+            success, val = self._call_application_api(identifier, 'get_log_file')
             if not success:
-                return { 'ok': 0, 'message': val }
+                return None
 
-            # store in database
-            self.update_applications_db(identifier, 'installed', True)
-            self.update_applications_db(identifier, 'installationConfig', params)
-
-            configParams = params.get('configParams')
-            if configParams:
-                reply = self.configure(configParams)
-                if reply['ok'] == 0:
-                    return reply
-
-            if fwglobals.g.router_api.state_is_started():
-                reply = self.start(params)
-                if reply['ok'] == 0:
-                    return reply
-
-            return { 'ok': 1 }
-        except Exception as e:
-            return { 'ok': 0, 'message': str(e) }
+            return val
+        except:
+            return None
 
     def update_applications_db(self, identifier, key, value):
         apps_db = self.applications_db
@@ -288,29 +250,38 @@ class FWAPPLICATIONS_API:
         apps_db[identifier] = app
         self.applications_db = apps_db
 
-    def start_applications(self):
-        for identifier in self.applications_db:
-            app = self.applications_db[identifier]
-            is_installed = app.get('installed')
-            is_configured = app.get('configured')
-            if is_installed and is_configured:
-                self.start({'identifier': identifier})
-
-    def stop_applications(self):
-        for identifier in self.applications_db:
-            app = self.applications_db[identifier]
-            is_installed = app.get('installed')
-            is_configured = app.get('configured')
-            if is_installed and is_configured:
-                self.stop({'identifier': identifier})
-
     def get_application(self, identifier):
         for app_identifier in self.applications_db:
             if app_identifier == identifier:
                 return self.applications_db[identifier]
         return None
 
-def subproc(q, path, func, params):
+     # def start(self, params):
+    #     try:
+    #         identifier = params.get('identifier')
+    #         success, val = self._call_application_api(identifier, 'start')
+    #         if not success:
+    #             return { 'ok': 0, 'message': val }
+
+    #         self.update_applications_db(identifier, 'started', True)
+
+    #         return { 'ok': 1 }
+    #     except Exception as e:
+    #         return { 'ok': 0, 'message': str(e) }
+
+    # def stop(self, params):
+    #     try:
+    #         identifier = params.get('identifier')
+    #         success, val = self._call_application_api(identifier, 'stop')
+    #         if not success:
+    #             return { 'ok': 0, 'message': val }
+
+    #         self.update_applications_db(identifier, 'started', False)
+    #         return { 'ok': 1 }
+    #     except Exception as e:
+    #         return { 'ok': 0, 'message': str(e) }
+
+def subproc(q, path, method, params, validate_func_exists):
     try:
         # os.setuid(0) # TODO: change this number
         # os.chdir('/tmp') # TODO: implement the right dir with permissions
@@ -321,7 +292,14 @@ def subproc(q, path, func, params):
         spec.loader.exec_module(module)
 
         # get the function
-        func = getattr(module, func)
+        if validate_func_exists:
+            func = getattr(module, method)
+        else:
+            func = getattr(module, method, None)
+            if not func:
+                ret = (False, f'The function {method} does not exist')
+                q.put(ret)
+                return
 
         ret = func(params)
         q.put(ret)

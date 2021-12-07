@@ -132,14 +132,10 @@ def update_stats():
 def get_applications_stats(router_is_running):
     params = {}
     for identifier in fwglobals.g.applications_api.applications_db:
-        # app = fwglobals.g.applications_api.applications_db[identifier]
 
         params[identifier] = {
             'running': False
         }
-
-        if not router_is_running:
-            continue
 
         params[identifier]['running'] = fwglobals.g.applications_api.is_app_running(identifier)
 

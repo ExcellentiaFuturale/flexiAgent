@@ -758,6 +758,7 @@ def reset(soft=False, quiet=False):
 
     if soft:
         fwutils.reset_device_config()
+        fwglobals.g.applications_api.call_hook('agent_soft_reset')
         return
 
     with fwikev2.FwIKEv2() as ike:
@@ -777,8 +778,8 @@ def reset(soft=False, quiet=False):
             print("stopping the router...")
         daemon_rpc('stop', stop_router=True)
 
-        fwglobals.g.applications_api.stop_applications()
-        
+        fwglobals.g.applications_api.call_hook('agent_reset')
+
         fwutils.reset_device_config()
 
         if os.path.exists(fwglobals.g.DEVICE_TOKEN_FILE):

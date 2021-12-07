@@ -216,6 +216,7 @@ class Fwglobals(FwObject):
             """
             DEFAULT_BYPASS_CERT    = False
             DEFAULT_DEBUG          = False
+            DEFAULT_DISABLE_STUN   = False
             DEFAULT_MANAGEMENT_URL = 'https://manage.flexiwan.com:443'
             DEFAULT_TOKEN_FILE     = data_path + 'token.txt'
             DEFAULT_UUID           = None
@@ -226,6 +227,7 @@ class Fwglobals(FwObject):
                 agent_conf = conf.get('agent', {})
                 self.BYPASS_CERT    = agent_conf.get('bypass_certificate', DEFAULT_BYPASS_CERT)
                 self.DEBUG          = agent_conf.get('debug',  DEFAULT_DEBUG)
+                self.DISABLE_STUN   = agent_conf.get('disable_stun',  DEFAULT_DISABLE_STUN)
                 self.MANAGEMENT_URL = agent_conf.get('server', DEFAULT_MANAGEMENT_URL)
                 self.TOKEN_FILE     = agent_conf.get('token',  DEFAULT_TOKEN_FILE)
                 self.UUID           = agent_conf.get('uuid',   DEFAULT_UUID)
@@ -235,6 +237,7 @@ class Fwglobals(FwObject):
                     log.excep("%s, set defaults" % str(e))
                 self.BYPASS_CERT    = DEFAULT_BYPASS_CERT
                 self.DEBUG          = DEFAULT_DEBUG
+                self.DISABLE_STUN   = DEFAULT_DISABLE_STUN
                 self.MANAGEMENT_URL = DEFAULT_MANAGEMENT_URL
                 self.TOKEN_FILE     = DEFAULT_TOKEN_FILE
                 self.UUID           = DEFAULT_UUID
@@ -418,7 +421,7 @@ class Fwglobals(FwObject):
         self.os_api       = OS_API()
         self.policies     = FwPolicies(self.POLICY_REC_DB_FILE)
         self.wan_monitor  = FwWanMonitor(standalone)
-        self.stun_wrapper = FwStunWrap(standalone)
+        self.stun_wrapper = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
         self.ikev2        = FwIKEv2()
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
@@ -446,7 +449,6 @@ class Fwglobals(FwObject):
 
         self.wan_monitor.initialize() # IMPORTANT! The WAN monitor should be initialized after restore_vpp_if_needed!
         self.system_api.initialize()
-        self.applications_api.initialize()
 
         return self.fwagent
 
@@ -460,7 +462,6 @@ class Fwglobals(FwObject):
 
         self.teardown = True   # Stop all helper threads in parallel to speedup gracefull exit
 
-        self.applications_api.finalize()
         self.wan_monitor.finalize()
         self.stun_wrapper.finalize()
         self.system_api.finalize()

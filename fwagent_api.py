@@ -222,7 +222,7 @@ class FWAGENT_API(FwObject):
             app_installed = fwglobals.g.applications_api.get_application(params['filter'])
             if not app_installed:
                 raise Exception('application is not installed')
-                
+
             # call application log api
             file = fwglobals.g.applications_api.get_log_file(params['filter'])
         else:
@@ -434,15 +434,14 @@ class FWAGENT_API(FwObject):
         :returns: Dictionary status code.
         """
         try:
-            fwutils.reset_modem(params['dev_id'])
+            fwutils.lte_reset_modem(params['dev_id'])
 
             # restore lte connection if needed
             fwglobals.g.system_api.restore_configuration(types=['add-lte'])
 
-            reply = {'ok': 1, 'message': ''}
+            return {'ok': 1, 'message': ''}
         except Exception as e:
-            reply = {'ok': 0, 'message': str(e)}
-        return reply
+            return {'ok': 0, 'message': str(e)}
 
     def _handle_unblock_sim(self, params):
         dev_id = params['dev_id']
