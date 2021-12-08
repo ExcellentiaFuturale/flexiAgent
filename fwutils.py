@@ -1487,8 +1487,11 @@ def reset_router_api_db(enforce=False):
     if not 'sw_if_index_to_vpp_if_name' in router_api_db or enforce:
         router_api_db['sw_if_index_to_vpp_if_name'] = {}
     if not 'vpp_if_name_to_sw_if_index' in router_api_db or enforce:
-        router_api_db['vpp_if_name_to_sw_if_index'] = {
-            'tunnel': {}, 'peer-tunnel': {}, 'lan': {}, 'wan': {} }
+        router_api_db['vpp_if_name_to_sw_if_index'] = {}
+    vpp_if_name_to_sw_if_index_keys = ['tunnel', 'peer-tunnel', 'lan', 'switch-lan', 'wan', 'switch']
+    for key in vpp_if_name_to_sw_if_index_keys:
+        if not key in router_api_db['vpp_if_name_to_sw_if_index'] or enforce:
+            router_api_db['vpp_if_name_to_sw_if_index'][key] = {}
     if not 'vpp_if_name_to_tap_if_name' in router_api_db or enforce:
         router_api_db['vpp_if_name_to_tap_if_name'] = {}
     if not 'sw_if_index_to_tap_if_name' in router_api_db or enforce:
@@ -2162,13 +2165,14 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
     """
     op = 'add' if add else 'del'
 
+    bvi_vpp_name_list      = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['switch'].keys())
     lan_vpp_name_list      = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['lan'].keys())
     loopback_vpp_name_list = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['tunnel'].keys())
-    interfaces = lan_vpp_name_list + loopback_vpp_name_list
+    vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list
 
     if not add:
-        for if_vpp_name in interfaces:
-            vppctl_cmd = 'fwabf attach ip4 del policy %d priority %d %s' % (int(policy_id), priority, if_vpp_name)
+        for vpp_if_name in vpp_if_names:
+            vppctl_cmd = 'fwabf attach ip4 del policy %d priority %d %s' % (int(policy_id), priority, vpp_if_name)
             vpp_cli_execute([vppctl_cmd])
         fwglobals.g.policies.remove_policy(policy_id)
 
@@ -2200,8 +2204,8 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
 
     if add:
         fwglobals.g.policies.add_policy(policy_id, priority)
-        for if_vpp_name in interfaces:
-            vppctl_cmd = 'fwabf attach ip4 add policy %d priority %d %s' % (int(policy_id), priority, if_vpp_name)
+        for vpp_if_name in vpp_if_names:
+            vppctl_cmd = 'fwabf attach ip4 add policy %d priority %d %s' % (int(policy_id), priority, vpp_if_name)
             vpp_cli_execute([vppctl_cmd])
 
     return (True, None)
