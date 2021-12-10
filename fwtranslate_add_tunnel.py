@@ -490,6 +490,7 @@ def _add_ipip_tunnel(cmd_list, cache_key, params, addr, instance):
     tunnel = {
         'src': ipaddress.ip_address(src),
         'dst': ipaddress.ip_address(dst),
+        'substs': [{'add_param': 'gw', 'val_by_func': 'get_tunnel_gateway', 'arg': [dst, params.get('dev_id')]}],
         'instance': instance
     }
 
