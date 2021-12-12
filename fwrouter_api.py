@@ -513,17 +513,6 @@ class FWROUTER_API(FwCfgRequestHandler):
                         Therefor we have to restart it on modify-interface completion.
         """
 
-        def _should_reconnect_agent_on_modify_interface(new_params):
-            old_params = self.cfg_db.get_interfaces(dev_id=new_params['dev_id'])[0]
-            if new_params.get('addr') and new_params.get('addr') != old_params.get('addr'):
-                return True
-            if new_params.get('gateway') != old_params.get('gateway'):
-                return True
-            if new_params.get('metric') != old_params.get('metric'):
-                return True
-            return False
-
-
         (restart_router, reconnect_agent, gateways, restart_dhcp_service) = \
         (False,          False,           [],       False)
 
@@ -532,7 +521,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 restart_router  = True
                 reconnect_agent = True
             elif request['message'] == 'modify-interface':
-                reconnect_agent = _should_reconnect_agent_on_modify_interface(request['params'])
+                reconnect_agent = True
                 restart_dhcp_service = True
             elif request['message'] == 'aggregated':
                 for _request in request['params']['requests']:
@@ -541,8 +530,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                         reconnect_agent = True
                     elif _request['message'] == 'modify-interface':
                         restart_dhcp_service = True
-                        if _should_reconnect_agent_on_modify_interface(_request['params']):
-                            reconnect_agent = True
+                        reconnect_agent      = True
 
         if re.match('(start|stop)-router', request['message']):
             reconnect_agent = True
