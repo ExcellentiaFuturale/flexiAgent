@@ -335,6 +335,8 @@ class Fwglobals(FwObject):
         self.DUMP_FOLDER                   = '/var/log/flexiwan/fwdump'
         self.DEFAULT_DNS_SERVERS           = ['8.8.8.8', '8.8.4.4']
         self.request_lock                  = threading.RLock()   # lock to syncronize message processing
+        self.handle_request_counter        = 0
+        self.reconnect_agent               = False
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
@@ -627,10 +629,21 @@ class Fwglobals(FwObject):
             handler_func = getattr(self, handler.get('name'))
 
             with self.request_lock:
-                if result is None:
-                    reply = handler_func(request)
-                else:
-                    reply = handler_func(request, result)
+                self.handle_request_counter += 1
+                try:
+                    if result is None:
+                        reply = handler_func(request)
+                    else:
+                        reply = handler_func(request, result)
+                except Exception as e:
+                    raise e
+                finally:
+                    self.handle_request_counter -= 1
+                    if self.handle_request_counter == 0:
+                        if self.reconnect_agent:
+                            self.fwagent.reconnect()
+                        self.reconnect_agent = False
+
             if reply['ok'] == 0:
                 vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
                 os.system('sudo vppctl api trace save %s' % (vpp_trace_file))

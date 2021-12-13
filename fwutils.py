@@ -3744,14 +3744,6 @@ def netplan_apply(caller_name=None):
     :param data:    the data to write into file
     '''
     try:
-        # Before netplan apply go and note the default route.
-        # If it will be changed as a result of netplan apply, we return True.
-        #
-        if fwglobals.g.fwagent:
-            (_, _, dr_dev_id_before, _) = get_default_route()
-
-        # Now go and apply the netplan
-        #
         cmd = 'netplan apply'
         log_str = caller_name + ': ' + cmd if caller_name else cmd
         fwglobals.log.debug(log_str)
@@ -3766,15 +3758,20 @@ def netplan_apply(caller_name=None):
         # IPv6 might be renable if interface name is changed using set-name
         disable_ipv6()
 
-        # Find out if the default route was changed. If it was - reconnect agent.
+        # Reconnect agent.
+        # We need it, as if WAN interface uses DHCP, the 'netplan apply' will
+        # renew IP. That causes WebSocket connection to flexiManage to hang,
+        # when no exception is thrown by the websocket module, but no more
+        # messages can be received on the connection.
+        # In this situation to avoid reconnect on no request timeout we do it
+        # proactively here.
+        # Note, to avoid multiple reconnects during router starting, modifying
+        # or stopping we check the fwglobals.g.handle_request_counter.
         #
-        if fwglobals.g.fwagent:
-            (_, _, dr_dev_id_after, _) = get_default_route()
-            if dr_dev_id_before != dr_dev_id_after:
-                fwglobals.log.debug(
-                    "%s: netplan_apply: default route changed (%s->%s) - reconnect" % \
-                    (caller_name, dr_dev_id_before, dr_dev_id_after))
-                fwglobals.g.fwagent.reconnect()
+        if fwglobals.g.handle_request_counter > 0:
+            fwglobals.g.reconnect_agent = True
+        else:
+            fwglobals.g.fwagent.reconnect()
 
     except Exception as e:
         fwglobals.log.debug("%s: netplan_apply failed: %s" % (caller_name, str(e)))
