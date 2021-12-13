@@ -149,6 +149,7 @@ g_dumpers = {
     'vpp_interfaces_rx_placement':  { 'shell_cmd': 'vppctl sh int rx > <dumper_out_file>' },
     'vpp_interfaces_sw':            { 'shell_cmd': 'vppctl sh int > <dumper_out_file>' },
     'vpp_interfaces_vmxnet3':       { 'shell_cmd': 'vppctl sh vmxnet3 > <dumper_out_file>' },
+    'vpp_ipip_tunnel':              { 'shell_cmd': 'vppctl sh ipip tunnel > <dumper_out_file>' },
     'vpp_ipsec_sa':                 { 'shell_cmd': 'vppctl sh ipsec sa > <dumper_out_file>' },
     'vpp_ipsec_tunnel':             { 'shell_cmd': 'vppctl sh ipsec tunnel > <dumper_out_file>' },
     'vpp_fib_entries':              { 'shell_cmd': 'vppctl sh fib entry > <dumper_out_file>' },
