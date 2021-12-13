@@ -3699,9 +3699,9 @@ def frr_setup_config():
     # Setup basics on frr.conf.
     frr_commands = [
         "password zebra",
-        "log file /var/log/frr/ospfd.log informational",
-        "log stdout",
-        "log syslog informational"
+        f"log file {fwglobals.g.OSPF_LOG_FILE} notifications",
+        "log stdout notifications",
+        "log syslog notifications"
     ]
 
     # Setup route redistribution, so the static routes configured by 'add-route'
