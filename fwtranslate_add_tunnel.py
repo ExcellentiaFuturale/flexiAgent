@@ -721,7 +721,12 @@ def _add_ikev2_traffic_selector(cmd_list, name, params, is_local, ts_section):
 
     :returns: None.
     """
-    ts = {'is_local':is_local}
+    ts = {'is_local'    : is_local,
+          'protocol_id' : 0,
+          'start_port'  : 0,
+          'end_port'    : 65535,
+          'start_addr'  : ipaddress.ip_address('0.0.0.0'),
+          'end_addr'    : ipaddress.ip_address('255.255.255.255')}
 
     if ts_section in params['ikev2']:
         ts_params = params['ikev2'][ts_section]
