@@ -1065,9 +1065,9 @@ def tunnel_to_tap(params):
 def vpp_enable_tap_inject():
     """Enable tap-inject plugin
      """
-    vppctl_cmd = "enable tap-inject"
-    fwglobals.log.debug("vppctl " + vppctl_cmd)
-    subprocess.check_call("vppctl %s" % vppctl_cmd, shell=True)
+    out = _vppctl_read("enable tap-inject").strip()
+    if out == None:
+        return (False, "'vppctl enable tap-inject' failed")
 
     if not vpp_does_run():
         return (False, "VPP is not running")
@@ -1333,6 +1333,15 @@ def _vppctl_read(cmd, wait=True):
 
     :returns: Output returned bu vppctl.
     """
+
+    # Give one optimistic shot before going into cycles
+    try:
+        output = subprocess.check_output("vppctl " + cmd, shell=True).decode()
+        return output
+    except Exception as e:
+        fwglobals.log.debug(f"'vppctl {cmd}' failed: {str(e)}, start retrials")
+        pass
+
     retries = 200
     retries_sleep = 1
     if wait == False:
