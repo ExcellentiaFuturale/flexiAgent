@@ -1066,9 +1066,9 @@ def tunnel_to_tap(params):
 def vpp_enable_tap_inject():
     """Enable tap-inject plugin
      """
-    vppctl_cmd = "enable tap-inject"
-    fwglobals.log.debug("vppctl " + vppctl_cmd)
-    subprocess.check_call("vppctl %s" % vppctl_cmd, shell=True)
+    out = _vppctl_read("enable tap-inject").strip()
+    if out == None:
+        return (False, "'vppctl enable tap-inject' failed")
 
     if not vpp_does_run():
         return (False, "VPP is not running")
@@ -1334,6 +1334,15 @@ def _vppctl_read(cmd, wait=True):
 
     :returns: Output returned bu vppctl.
     """
+
+    # Give one optimistic shot before going into cycles
+    try:
+        output = subprocess.check_output("vppctl " + cmd, shell=True).decode()
+        return output
+    except Exception as e:
+        fwglobals.log.debug(f"'vppctl {cmd}' failed: {str(e)}, start retrials")
+        pass
+
     retries = 200
     retries_sleep = 1
     if wait == False:
@@ -1492,8 +1501,11 @@ def reset_router_api_db(enforce=False):
     if not 'sw_if_index_to_vpp_if_name' in router_api_db or enforce:
         router_api_db['sw_if_index_to_vpp_if_name'] = {}
     if not 'vpp_if_name_to_sw_if_index' in router_api_db or enforce:
-        router_api_db['vpp_if_name_to_sw_if_index'] = {
-            'tunnel': {}, 'peer-tunnel': {}, 'lan': {}, 'wan': {} }
+        router_api_db['vpp_if_name_to_sw_if_index'] = {}
+    vpp_if_name_to_sw_if_index_keys = ['tunnel', 'peer-tunnel', 'lan', 'switch-lan', 'wan', 'switch']
+    for key in vpp_if_name_to_sw_if_index_keys:
+        if not key in router_api_db['vpp_if_name_to_sw_if_index'] or enforce:
+            router_api_db['vpp_if_name_to_sw_if_index'][key] = {}
     if not 'vpp_if_name_to_tap_if_name' in router_api_db or enforce:
         router_api_db['vpp_if_name_to_tap_if_name'] = {}
     if not 'sw_if_index_to_tap_if_name' in router_api_db or enforce:
@@ -2167,13 +2179,14 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
     """
     op = 'add' if add else 'del'
 
+    bvi_vpp_name_list      = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['switch'].keys())
     lan_vpp_name_list      = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['lan'].keys())
     loopback_vpp_name_list = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['tunnel'].keys())
-    interfaces = lan_vpp_name_list + loopback_vpp_name_list
+    vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list
 
     if not add:
-        for if_vpp_name in interfaces:
-            vppctl_cmd = 'fwabf attach ip4 del policy %d priority %d %s' % (int(policy_id), priority, if_vpp_name)
+        for vpp_if_name in vpp_if_names:
+            vppctl_cmd = 'fwabf attach ip4 del policy %d priority %d %s' % (int(policy_id), priority, vpp_if_name)
             vpp_cli_execute([vppctl_cmd])
         fwglobals.g.policies.remove_policy(policy_id)
 
@@ -2205,8 +2218,8 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
 
     if add:
         fwglobals.g.policies.add_policy(policy_id, priority)
-        for if_vpp_name in interfaces:
-            vppctl_cmd = 'fwabf attach ip4 add policy %d priority %d %s' % (int(policy_id), priority, if_vpp_name)
+        for vpp_if_name in vpp_if_names:
+            vppctl_cmd = 'fwabf attach ip4 add policy %d priority %d %s' % (int(policy_id), priority, vpp_if_name)
             vpp_cli_execute([vppctl_cmd])
 
     return (True, None)
@@ -3700,9 +3713,9 @@ def frr_setup_config():
     # Setup basics on frr.conf.
     frr_commands = [
         "password zebra",
-        "log file /var/log/frr/ospfd.log informational",
-        "log stdout",
-        "log syslog informational"
+        f"log file {fwglobals.g.OSPF_LOG_FILE} notifications",
+        "log stdout notifications",
+        "log syslog notifications"
     ]
 
     # Setup route redistribution, so the static routes configured by 'add-route'
@@ -3745,14 +3758,6 @@ def netplan_apply(caller_name=None):
     :param data:    the data to write into file
     '''
     try:
-        # Before netplan apply go and note the default route.
-        # If it will be changed as a result of netplan apply, we return True.
-        #
-        if fwglobals.g.fwagent:
-            (_, _, dr_dev_id_before, _) = get_default_route()
-
-        # Now go and apply the netplan
-        #
         cmd = 'netplan apply'
         log_str = caller_name + ': ' + cmd if caller_name else cmd
         fwglobals.log.debug(log_str)
@@ -3767,15 +3772,20 @@ def netplan_apply(caller_name=None):
         # IPv6 might be renable if interface name is changed using set-name
         disable_ipv6()
 
-        # Find out if the default route was changed. If it was - reconnect agent.
+        # Reconnect agent.
+        # We need it, as if WAN interface uses DHCP, the 'netplan apply' will
+        # renew IP. That causes WebSocket connection to flexiManage to hang,
+        # when no exception is thrown by the websocket module, but no more
+        # messages can be received on the connection.
+        # In this situation to avoid reconnect on no request timeout we do it
+        # proactively here.
+        # Note, to avoid multiple reconnects during router starting, modifying
+        # or stopping we check the fwglobals.g.handle_request_counter.
         #
-        if fwglobals.g.fwagent:
-            (_, _, dr_dev_id_after, _) = get_default_route()
-            if dr_dev_id_before != dr_dev_id_after:
-                fwglobals.log.debug(
-                    "%s: netplan_apply: default route changed (%s->%s) - reconnect" % \
-                    (caller_name, dr_dev_id_before, dr_dev_id_after))
-                fwglobals.g.fwagent.reconnect()
+        if fwglobals.g.handle_request_counter > 0:
+            fwglobals.g.reconnect_agent = True
+        else:
+            fwglobals.g.fwagent.reconnect()
 
     except Exception as e:
         fwglobals.log.debug("%s: netplan_apply failed: %s" % (caller_name, str(e)))

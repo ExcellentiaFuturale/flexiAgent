@@ -159,6 +159,6 @@ class FwTrafficIdentifications(FwObject):
             for traffic_rule in traffic_rules:
                 traffic_rule.update({"serviceClass": traffic.get('serviceClass'),
                                      "importance": traffic.get('importance')})
-            rules.extend(traffic.get('rules'))
+            rules.extend(traffic_rules)
 
         return rules

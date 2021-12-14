@@ -490,6 +490,7 @@ def _add_ipip_tunnel(cmd_list, cache_key, params, addr, instance):
     tunnel = {
         'src': ipaddress.ip_address(src),
         'dst': ipaddress.ip_address(dst),
+        'substs': [{'add_param': 'gw', 'val_by_func': 'get_tunnel_gateway', 'arg': [dst, params.get('dev_id')]}],
         'instance': instance
     }
 
@@ -536,6 +537,39 @@ def _add_ipip_tunnel(cmd_list, cache_key, params, addr, instance):
                     'func'  : '_update_cache_sw_if_index',
                     'args'  : {'type': 'peer-tunnel', 'params': params, 'add': False },
                     'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+    }
+    cmd_list.append(cmd)
+
+def _add_ipip_multicast_rule(cmd_list, tunnel_id, src_ip, group_ip):
+    """Add multicast entry into mfib.
+
+    :param cmd_list:             List of commands.
+    :param tunnel_id:            Tunnel id.
+    :param src_ip:               Tunnel interface ip address.
+    :param group_ip:             Multicast group ip address.
+
+    :returns: None.
+    """
+    addr = str(IPNetwork(src_ip).ip)
+    str1 = '%s %s via ipip%u Accept Forward' % (addr, group_ip, tunnel_id)
+    str2 = '%s %s Accept-all-itf' % (addr, group_ip)
+
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['name']    = "python"
+    cmd['cmd']['descr']   = f"register peer tunnel id={tunnel_id} with multicast FIB (group={group_ip}, src={addr})"
+    cmd['cmd']['params']  = {
+                    'module': 'fwutils',
+                    'func'  : 'vpp_cli_execute',
+                    'args'  : {'cmds':['ip mroute add %s' % str1, 'ip mroute add %s' % str2], 'debug':True}
+    }
+    cmd['revert'] = {}
+    cmd['revert']['name']    = "python"
+    cmd['revert']['descr']   = f"un-register peer tunnel id={tunnel_id} from multicast FIB: (group={group_ip}, src={addr})"
+    cmd['revert']['params']  = {
+                    'module': 'fwutils',
+                    'func'  : 'vpp_cli_execute',
+                    'args'  : {'cmds':['ip mroute del %s' % str1, 'ip mroute del %s' % str2]}
     }
     cmd_list.append(cmd)
 
@@ -687,7 +721,12 @@ def _add_ikev2_traffic_selector(cmd_list, name, params, is_local, ts_section):
 
     :returns: None.
     """
-    ts = {'is_local':is_local}
+    ts = {'is_local'    : is_local,
+          'protocol_id' : 0,
+          'start_port'  : 0,
+          'end_port'    : 65535,
+          'start_addr'  : ipaddress.ip_address('0.0.0.0'),
+          'end_addr'    : ipaddress.ip_address('255.255.255.255')}
 
     if ts_section in params['ikev2']:
         ts_params = params['ikev2'][ts_section]
@@ -1249,6 +1288,10 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
     mac              = f"02:00:27:ff:{tunnel_id_hex[:2]}:{tunnel_id_hex[-2:]}"
 
     _add_ipip_tunnel(cmd_list, tunnel_cache_key, params, tunnel_addr, id)
+
+    # Add mfib rules to route OSPF multicast packets from peer TAP interface through ip4-input/lookup node into ipip tunnel.
+    _add_ipip_multicast_rule(cmd_list, id, addr, "224.0.0.5")
+    _add_ipip_multicast_rule(cmd_list, id, addr, "224.0.0.6")
 
     loopback_params = {'addr':addr, 'mtu': mtu, 'mac': mac}
     _add_loopback(cmd_list, peer_loopback_cache_key, loopback_params, params, id=id)

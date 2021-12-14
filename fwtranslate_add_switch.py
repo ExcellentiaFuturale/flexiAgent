@@ -158,6 +158,27 @@ def add_switch(params):
                             }
     cmd_list.append(cmd)
 
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['name']    = "python"
+    cmd['cmd']['descr']   = "add BVI sw_if_index to router_api cache"
+    cmd['cmd']['params']  = {
+                    'object': 'fwglobals.g.router_api',
+                    'func'  : '_update_cache_sw_if_index',
+                    'args'  : {'type': 'switch', 'add': True },
+                    'substs': [ { 'add_param':'sw_if_index', 'val_by_key':loopback_cache_key} ]
+    }
+    cmd['revert'] = {}
+    cmd['revert']['name']   = "python"
+    cmd['revert']['descr']  = "remove BVI sw_if_index from router_api cache"
+    cmd['revert']['params'] = {
+                    'object': 'fwglobals.g.router_api',
+                    'func'  : '_update_cache_sw_if_index',
+                    'args'  : {'type': 'switch', 'add': False },
+                    'substs': [ { 'add_param':'sw_if_index', 'val_by_key':loopback_cache_key} ]
+    }
+    cmd_list.append(cmd)
+
     return cmd_list
 
 def get_request_key(params):
