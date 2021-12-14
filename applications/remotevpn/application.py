@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import time
 from netaddr import IPNetwork
+import re
 
 OPENVPN_LOG_FILE    = '/var/log/openvpn/openvpn.log'
 
@@ -91,6 +92,10 @@ def configure(params):
         shutil.copyfile('{}/scripts/auth.sh'.format(dir), '/etc/openvpn/server/auth-script.sh')
         shutil.copyfile('{}/scripts/up.sh'.format(dir), '/etc/openvpn/server/up-script.sh')
         shutil.copyfile('{}/scripts/down.sh'.format(dir), '/etc/openvpn/server/down-script.sh')
+
+        # set global variable for VPN server - it will use by openvpn scripts
+        escaped_url = re.escape(params['vpnPortalServer'])
+        os.system("sed -i 's/__VPN_SERVER__/%s/g' /etc/openvpn/server/auth-script.sh" % escaped_url)
 
         commands = [
             'chmod +x /etc/openvpn/server/auth-script.sh',
