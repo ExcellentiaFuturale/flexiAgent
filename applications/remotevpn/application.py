@@ -237,7 +237,7 @@ def _configure_server_file(params):
             'client-config-dir /etc/openvpn/client',
             'username-as-common-name',
             'reneg-sec 43200',
-            # 'duplicate-cn',
+            'duplicate-cn',
             'client-to-client',
             'explicit-exit-notify',
             'up /etc/openvpn/server/up-script.py',
