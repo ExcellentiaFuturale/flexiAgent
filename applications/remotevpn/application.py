@@ -210,6 +210,7 @@ def _configure_server_file(params):
             'keepalive 10 120',
 
             # Select a cryptographic cipher.
+            'data-ciphers AES-256-CBC',
             'cipher AES-256-CBC',
 
             #'echo "user nobody" >> %s' % destFile,
@@ -232,11 +233,11 @@ def _configure_server_file(params):
             'tmp-dir /dev/shm',
             'script-security 2',
 
-            'verify-client-cert none',
+            # 'verify-client-cert none',
             'client-config-dir /etc/openvpn/client',
             'username-as-common-name',
             'reneg-sec 43200',
-            'duplicate-cn',
+            # 'duplicate-cn',
             'client-to-client',
             'explicit-exit-notify',
             'up /etc/openvpn/server/up-script.py',
