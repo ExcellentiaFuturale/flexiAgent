@@ -60,6 +60,11 @@ def install(params):
             raise Exception('configParams is missing')
 
         res, err = configure(configParams)
+
+        router_is_running = params.get('router_is_running')
+        if router_is_running:
+            res, err = start(configParams)
+
         return (res, err)   # 'True' stands for success, 'None' - for the returned object or error string.
     except Exception as e:
         # call uninstall function to clean the machine on installation error

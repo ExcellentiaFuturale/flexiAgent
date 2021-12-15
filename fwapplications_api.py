@@ -170,6 +170,8 @@ class FWAPPLICATIONS_API:
             file.extractall(target_path)
             file.close()
 
+            params['router_is_running'] = fwglobals.g.router_api.state_is_started()
+
             success, val = self._call_application_api(identifier, 'install', params)
 
             if not success:
@@ -193,6 +195,12 @@ class FWAPPLICATIONS_API:
             # remove the application directory
             target_path = fwglobals.g.APPLICATIONS_DIR + identifier + '/'
             os.system(f'rm -rf {target_path}')
+
+            apps_db = self.applications_db
+            app = apps_db.get(identifier)
+            if app:
+                del apps_db[identifier]
+                self.applications_db = apps_db
 
             return { 'ok': 1 }
         except Exception as e:
@@ -239,13 +247,13 @@ class FWAPPLICATIONS_API:
         except:
             return None
 
-    def update_applications_db(self, identifier, key, value):
+    def update_applications_db(self, identifier, key, value, add=True):
         apps_db = self.applications_db
         app = apps_db.get(identifier)
         if not app:
             apps_db[identifier] = {}
             app = apps_db[identifier]
-
+        
         app[key] = value
         apps_db[identifier] = app
         self.applications_db = apps_db
