@@ -90,8 +90,8 @@ def configure(params):
     try:
         dir = os.path.dirname(os.path.realpath(__file__))
         shutil.copyfile('{}/scripts/auth.sh'.format(dir), '/etc/openvpn/server/auth-script.sh')
-        shutil.copyfile('{}/scripts/up.sh'.format(dir), '/etc/openvpn/server/up-script.sh')
-        shutil.copyfile('{}/scripts/down.sh'.format(dir), '/etc/openvpn/server/down-script.sh')
+        shutil.copyfile('{}/scripts/up.py'.format(dir), '/etc/openvpn/server/up-script.py')
+        shutil.copyfile('{}/scripts/down.py'.format(dir), '/etc/openvpn/server/down-script.py')
 
         # set global variable for VPN server - it will use by openvpn scripts
         escaped_url = re.escape(params['vpnPortalServer'])
@@ -99,13 +99,11 @@ def configure(params):
 
         commands = [
             'chmod +x /etc/openvpn/server/auth-script.sh',
-            'chmod +x /etc/openvpn/server/up-script.sh',
-            'chmod +x /etc/openvpn/server/down-script.sh',
+            'chmod +x /etc/openvpn/server/up-script.py',
+            'chmod +x /etc/openvpn/server/down-script.py',
 
             # Convert DOS format to UNIX format
             "sed -i 's/\r$//' /etc/openvpn/server/auth-script.sh",
-            "sed -i 's/\r$//' /etc/openvpn/server/up-script.sh",
-            "sed -i 's/\r$//' /etc/openvpn/server/down-script.sh",
 
             'echo "%s" > /etc/openvpn/server/ca.key' % params['caKey'],
             'echo "%s" > /etc/openvpn/server/ca.crt' % params['caCrt'],
@@ -241,8 +239,8 @@ def _configure_server_file(params):
             'duplicate-cn',
             'client-to-client',
             'explicit-exit-notify',
-            # 'echo "up /etc/openvpn/server/up-script.sh" >> %s' % destFile,
-            # 'echo "down /etc/openvpn/server/down-script.sh" >> %s' % destFile
+            'up /etc/openvpn/server/up-script.py',
+            'down /etc/openvpn/server/down-script.py'
         ]
 
         # Split tunnel
