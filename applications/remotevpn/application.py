@@ -233,7 +233,7 @@ def _configure_server_file(params):
             'tmp-dir /dev/shm',
             'script-security 2',
 
-            # 'verify-client-cert none',
+            'verify-client-cert none',
             'client-config-dir /etc/openvpn/client',
             'username-as-common-name',
             'reneg-sec 43200',
