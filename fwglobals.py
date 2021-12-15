@@ -122,11 +122,11 @@ request_handlers = {
     'remove-lte':                   {'name': '_call_system_api'},
 
     # Applications API
-    'application-install':           {'name': '_call_applications_api'},
-    'application-uninstall':         {'name': '_call_applications_api'},
-    'application-configure':         {'name': '_call_applications_api'},
-    'application-status':            {'name': '_call_applications_api'},
-    'application-call':              {'name': '_call_applications_api'},
+    'application-install':           {'name': '_call_applications_api', 'sign': True},
+    'application-uninstall':         {'name': '_call_applications_api', 'sign': True},
+    'application-configure':         {'name': '_call_applications_api', 'sign': True},
+    'application-status':            {'name': '_call_applications_api', 'sign': True},
+    'application-call':              {'name': '_call_applications_api', 'sign': True},
 
     ##############################################################
     # INTERNAL API-s
