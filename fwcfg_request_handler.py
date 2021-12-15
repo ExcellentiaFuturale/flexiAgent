@@ -248,13 +248,7 @@ class FwCfgRequestHandler(FwObject):
                 # The params might include 'substs' key with list of substitutions.
                 self.substitute(cmd_cache, cmd.get('params'))
 
-                if 'params' in cmd and type(cmd['params'])==dict:
-                    params = fwutils.yaml_dump(cmd['params'])
-                elif 'params' in cmd:
-                    params = format(cmd['params'])
-                else:
-                    params = ''
-                self.log.debug("_execute: %s(%s)" % (cmd['name'], params))
+                self.log.debug(f"_execute: {self._dump_translation_cmd_params(cmd)}")
 
                 # Now execute command
                 result = None if not 'cache_ret_val' in cmd else \
@@ -303,6 +297,7 @@ class FwCfgRequestHandler(FwObject):
         for t in reversed(cmd_list[0:idx_failed_cmd]):
             if 'revert' in t:
                 rev_cmd = t['revert']
+                self.log.debug(f"_revert: {self._dump_translation_cmd_params(rev_cmd)}")
                 try:
                     reply = fwglobals.g.handle_request(
                         { 'message': rev_cmd['name'], 'params': rev_cmd.get('params')})
@@ -672,3 +667,13 @@ class FwCfgRequestHandler(FwObject):
 
         # Full sync
         return self.sync_full(incoming_requests)
+
+    def _dump_translation_cmd_params(self, cmd):
+        if 'params' in cmd and type(cmd['params'])==dict:
+            return "%s(%s)" % (cmd['name'], fwutils.yaml_dump(cmd['params']))
+        elif 'params' in cmd:
+            return "%s(%s)" % (cmd['name'], format(cmd['params']))
+        else:
+            return "%s()" % (cmd['name'])
+
+
