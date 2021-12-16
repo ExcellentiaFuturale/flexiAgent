@@ -97,6 +97,7 @@ def configure(params):
         shutil.copyfile('{}/scripts/auth.sh'.format(dir), '/etc/openvpn/server/auth-script.sh')
         shutil.copyfile('{}/scripts/up.py'.format(dir), '/etc/openvpn/server/up-script.py')
         shutil.copyfile('{}/scripts/down.py'.format(dir), '/etc/openvpn/server/down-script.py')
+        shutil.copyfile('{}/scripts/client-connect.py'.format(dir), '/etc/openvpn/server/client-connect.py')
 
         # set global variable for VPN server - it will use by openvpn scripts
         escaped_url = re.escape(params['vpnPortalServer'])
@@ -106,6 +107,7 @@ def configure(params):
             'chmod +x /etc/openvpn/server/auth-script.sh',
             'chmod +x /etc/openvpn/server/up-script.py',
             'chmod +x /etc/openvpn/server/down-script.py',
+            'chmod +x /etc/openvpn/server/client-connect.py',
 
             # Convert DOS format to UNIX format
             "sed -i 's/\r$//' /etc/openvpn/server/auth-script.sh",
@@ -130,6 +132,9 @@ def configure(params):
         success, err = _configure_client_file(params)
         if not success:
             raise Exception(err)
+
+        if _openvpn_pid():
+            start(params)
 
         return (True, None)
     except Exception as e:
@@ -180,10 +185,10 @@ def _configure_server_file(params):
             'proto udp',
 
             # set dev (NIC) name
-            'dev tap_remotevpn',
+            'dev t_remotevpn',
 
             # use dev tap
-            'dev-type tap',
+            'dev-type tun',
 
             # SSL/TLS root certificate
             'ca /etc/openvpn/server/ca.crt',
@@ -235,7 +240,7 @@ def _configure_server_file(params):
 
             # 'echo "plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so /tmp/script.sh" >> %s' % destFile,
             'auth-user-pass-verify /etc/openvpn/server/auth-script.sh via-file',
-            'tmp-dir /dev/shm',
+            'tmp-dir /dev/shm/vpn',
             'script-security 2',
 
             'verify-client-cert none',
@@ -255,8 +260,7 @@ def _configure_server_file(params):
             # network gateway through the VPN
             commands.append('push \\"redirect-gateway def1 bypass-dhcp\\"')
         else:
-            # TODO: Change to the org routes
-            commands.append('push \\"route 172.16.0.0 255.255.255.0\\"')
+            commands.append('client-connect /etc/openvpn/server/client-connect.py')
 
         # DNS options
         for ip in params.get('dnsIps', []):
@@ -325,6 +329,9 @@ def router_is_started(params):
     return start(params)
 
 def router_is_stopped(params):
+    return stop(params)
+
+def router_is_being_to_stop(params):
     return stop(params)
 
 def start(params):
