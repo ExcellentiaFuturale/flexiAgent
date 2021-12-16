@@ -3799,11 +3799,16 @@ def compare_request_params(params1, params2):
         Note! The normalization is done for top level keys only!
     """
     if not params1 or not params2:
+        fwglobals.log.debug("compare_request_params: either params1 or params2 is None/''/[]")
         return False
     if type(params1) != type(params2):
+        fwglobals.log.debug(f"compare_request_params: type(params1)={str(type(params1))} != type(params2)={str(type(params2))}")
         return False
     if type(params1) != dict:
-        return (params1 == params2)
+        same = (params1 == params2)
+        if not same:
+            fwglobals.log.debug(f"compare_request_params: params1 != params2: param1={format(params1)}, params2={format(params2)}")
+        return same
 
     set_keys1   = set(params1.keys())
     set_keys2   = set(params2.keys())
@@ -3814,11 +3819,13 @@ def compare_request_params(params1, params2):
     for key in keys1_only:
         if type(params1[key]) == bool or params1[key]:
             # params1 has non-empty string/value that does not present in params2
+            fwglobals.log.debug(f"compare_request_params: params1[{key}] does not present in params2")
             return False
 
     for key in keys2_only:
         if type(params2[key]) == bool or params2[key]:
             # params2 has non-empty string/value that does not present in params1
+            fwglobals.log.debug(f"compare_request_params: params2[{key}] does not present in params1")
             return False
 
     for key in keys_common:
@@ -3831,16 +3838,19 @@ def compare_request_params(params1, params2):
         if val1 and val2:
             if (type(val1) == str) and (type(val2) == str):
                 if val1.lower() != val2.lower():
+                    fwglobals.log.debug(f"compare_request_params: '{key}': '{val1}' != '{val2}'")
                     return False    # Strings are not equal
             elif type(val1) != type(val2):
+                fwglobals.log.debug(f"compare_request_params: '{key}': {str(type(val1))} != {str(type(val2))}")
                 return False        # Types are not equal
             elif val1 != val2:
+                fwglobals.log.debug(f"compare_request_params: '{key}': '{format(val1)}' != '{format(val2)}'")
                 return False        # Values are not equal
 
-        # If False booleans or
-        # if one of values not exists or empty string
+        # If False booleans or if one of values not exists or empty string.
         #
         elif (val1 and not val2) or (not val1 and val2):
+            fwglobals.log.debug(f"compare_request_params: '{key}': '{format(val1)}' != '{format(val2)}'")
             return False
 
     return True
