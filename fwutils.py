@@ -3777,10 +3777,11 @@ def netplan_apply(caller_name=None):
         # Note, to avoid multiple reconnects during router starting, modifying
         # or stopping we check the fwglobals.g.handle_request_counter.
         #
-        if fwglobals.g.handle_request_counter > 0:
-            fwglobals.g.reconnect_agent = True
-        else:
-            fwglobals.g.fwagent.reconnect()
+        if fwglobals.g.fwagent:
+            if fwglobals.g.handle_request_counter > 0:
+                fwglobals.g.reconnect_agent = True
+            else:
+                fwglobals.g.fwagent.reconnect()
 
     except Exception as e:
         fwglobals.log.debug("%s: netplan_apply failed: %s" % (caller_name, str(e)))
