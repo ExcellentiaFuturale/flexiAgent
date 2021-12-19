@@ -509,35 +509,28 @@ def add_interface(params):
             cmd_list.append(cmd)
 
     if is_lte:
+        substs = [ {'replace':'DEV-STUB', 'key': 'cmds', 'val_by_func':'dev_id_to_vpp_if_name', 'arg': dev_id},
+                   {'replace':'LTE-GW', 'key': 'cmds', 'val_by_func':'lte_get_ip_configuration', 'arg':[dev_id, 'gateway']} ]
+
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']   = "python"
-        cmd['cmd']['params'] = {
-                    'module': 'fwutils',
-                    'func': 'vpp_add_del_static_arp',
-                    'args': {
-                            'dev_id'  : dev_id,
-                            'gw'      : '',
-                            'mac'     : 'ff:ff:ff:ff:ff:ff',
-                            'add'     : True,
-                    },
-                    'substs': [ { 'add_param':'gw', 'val_by_func':'lte_get_ip_configuration', 'arg':[dev_id, 'gateway'] }]
+        cmd['cmd']['name']    = "python"
+        cmd['cmd']['descr']   = "add vpp static entry"
+        cmd['cmd']['params']  = {
+                        'substs': substs,
+                        'module': 'fwutils',
+                        'func'  : 'vpp_cli_execute',
+                        'args'  : {'cmds':['set ip neighbor static DEV-STUB LTE-GW ff:ff:ff:ff:ff:ff']}
         }
-        cmd['cmd']['descr']  = "create static arp entry for dev_id %s in vpp" % dev_id
         cmd['revert'] = {}
-        cmd['revert']['name']   = "python"
-        cmd['revert']['params'] = {
-                    'module': 'fwutils',
-                    'func': 'vpp_add_del_static_arp',
-                    'args': {
-                            'dev_id'  : dev_id,
-                            'gw'      : '',
-                            'mac'     : 'ff:ff:ff:ff:ff:ff',
-                            'add'     : False
-                    },
-                    'substs': [ { 'add_param':'gw', 'val_by_func':'lte_get_ip_configuration', 'arg':[dev_id, 'gateway'] }]
+        cmd['revert']['name']    = "python"
+        cmd['revert']['descr']   = "remove vpp static entry"
+        cmd['revert']['params']  = {
+                        'substs': substs,
+                        'module': 'fwutils',
+                        'func'  : 'vpp_cli_execute',
+                        'args'  : {'cmds':['set ip neighbor del static DEV-STUB LTE-GW ff:ff:ff:ff:ff:ff']}
         }
-        cmd['revert']['descr']  = "remove static arp entry for dev_id %s from vpp" % dev_id
         cmd_list.append(cmd)
 
         cmd = {}
