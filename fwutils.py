@@ -1241,13 +1241,11 @@ def vpp_tap_connect(linux_tap_if_name):
     fwglobals.log.debug("vppctl " + vppctl_cmd)
     subprocess.check_call("sudo vppctl %s" % vppctl_cmd, shell=True)
 
-def vpp_add_static_arp(dev_id, gw, mac, add=True):
+def vpp_add_del_static_arp(dev_id, gw, mac, add=True):
     try:
         vpp_if_name = dev_id_to_vpp_if_name(dev_id)
         vppctl_cmd = "set ip neighbor %s static %s %s %s" % ('' if add else 'del', vpp_if_name, gw, mac)
-        fwglobals.log.debug("vppctl " + vppctl_cmd)
-        subprocess.check_call("sudo vppctl %s" % vppctl_cmd, shell=True)
-        return (True, None)
+        return vpp_cli_execute([vppctl_cmd])
     except Exception as e:
         return (False, "Failed to add static arp in vpp for dev_id: %s\nOutput: %s" % (dev_id, str(e)))
 
