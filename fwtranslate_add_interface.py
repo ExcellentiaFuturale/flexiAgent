@@ -519,10 +519,25 @@ def add_interface(params):
                             'dev_id'  : dev_id,
                             'gw'      : '',
                             'mac'     : 'ff:ff:ff:ff:ff:ff',
+                            'add'     : True,
                     },
                     'substs': [ { 'add_param':'gw', 'val_by_func':'lte_get_ip_configuration', 'arg':[dev_id, 'gateway'] }]
         }
-        cmd['cmd']['descr']         = "create static arp entry for dev_id %s" % dev_id
+        cmd['cmd']['descr']         = "create static arp entry for dev_id %s in vpp" % dev_id
+        cmd['revert'] = {}
+        cmd['revert']['name']   = "python"
+        cmd['revert']['params'] = {
+                    'module': 'fwutils',
+                    'func': 'vpp_add_static_arp',
+                    'args': {
+                            'dev_id'  : dev_id,
+                            'gw'      : '',
+                            'mac'     : 'ff:ff:ff:ff:ff:ff',
+                            'add'     : False
+                    },
+                    'substs': [ { 'add_param':'gw', 'val_by_func':'lte_get_ip_configuration', 'arg':[dev_id, 'gateway'] }]
+        }
+        cmd['revert']['descr']      = "remove static arp entry for dev_id %s from vpp" % dev_id
         cmd_list.append(cmd)
 
         cmd = {}
