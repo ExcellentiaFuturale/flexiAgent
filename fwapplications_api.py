@@ -79,6 +79,9 @@ class FWAPPLICATIONS_API:
     def finalize(self):
         return
 
+    def reset_db(self):
+        self.applications_db.clear()
+
     def call(self, request):
         """Invokes API specified by the 'request' parameter.
 

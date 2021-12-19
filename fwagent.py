@@ -54,6 +54,7 @@ import loadsimulator
 import jwt
 
 from fwobject import FwObject
+from fwapplications_api import FWAPPLICATIONS_API
 
 # Global signal handler for clean exit
 def global_signal_handler(signum, frame):
@@ -778,7 +779,9 @@ def reset(soft=False, quiet=False):
             print("stopping the router...")
         daemon_rpc('stop', stop_router=True)
 
-        fwglobals.g.applications_api.call_hook('agent_reset')
+        with FWAPPLICATIONS_API() as app_api:
+            app_api.call_hook('uninstall')
+            app_api.reset_db()
 
         fwutils.reset_device_config()
 
