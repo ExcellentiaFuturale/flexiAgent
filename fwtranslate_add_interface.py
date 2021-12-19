@@ -515,7 +515,7 @@ def add_interface(params):
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['name']    = "python"
-        cmd['cmd']['descr']   = "add vpp static entry"
+        cmd['cmd']['descr']   = f"add arp static entry to vpp for LTE device {dev_id}"
         cmd['cmd']['params']  = {
                         'substs': substs,
                         'module': 'fwutils',
@@ -524,7 +524,7 @@ def add_interface(params):
         }
         cmd['revert'] = {}
         cmd['revert']['name']    = "python"
-        cmd['revert']['descr']   = "remove vpp static entry"
+        cmd['revert']['descr']   = f"remove arp static entry from vpp for LTE device {dev_id}"
         cmd['revert']['params']  = {
                         'substs': substs,
                         'module': 'fwutils',
