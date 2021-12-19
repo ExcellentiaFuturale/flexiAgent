@@ -240,7 +240,7 @@ def _configure_server_file(params):
 
             # 'echo "plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so /tmp/script.sh" >> %s' % destFile,
             'auth-user-pass-verify /etc/openvpn/server/auth-script.sh via-file',
-            'tmp-dir /dev/shm/vpn',
+            'tmp-dir /dev/shm',
             'script-security 2',
 
             'verify-client-cert none',
