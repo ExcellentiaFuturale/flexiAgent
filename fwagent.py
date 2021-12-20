@@ -864,7 +864,7 @@ def show(agent, configuration, database, status):
     if agent:
         out = daemon_rpc('show', what=agent)
         if out:
-            fwglobals.log.info(out, to_syslog=False)
+            print(out)
 
     if database:
         if database == 'router':

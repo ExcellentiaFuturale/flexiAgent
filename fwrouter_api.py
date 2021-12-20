@@ -182,7 +182,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
                 if apply_netplan:
                     fwutils.netplan_apply('dhcpc_thread')
-                    time.sleep(10)
+                    time.sleep(60)
 
             except Exception as e:
                 self.log.error("%s: %s (%s)" %
