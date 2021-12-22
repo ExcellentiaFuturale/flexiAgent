@@ -30,6 +30,7 @@ import threading
 import multiprocessing as mp
 import time
 import traceback
+import copy
 
 # set it to "spawn" to reduce as much as possible the resources pass to the child process
 mp.set_start_method('spawn', force=True)
@@ -65,6 +66,9 @@ class FWAPPLICATIONS_API:
         """Constructor method.
         """
         self.applications_db = SqliteDict(fwglobals.g.APPLICATIONS_DB, autocommit=True)
+        self.thread_apps_statistics    = None
+        self.apps_stats    = {}
+        self.application_stats()
 
     def __enter__(self):
         return self
@@ -77,10 +81,41 @@ class FWAPPLICATIONS_API:
         self.finalize()
 
     def finalize(self):
+        if self.thread_apps_statistics:
+            self.thread_apps_statistics.join()
+            self.thread_apps_statistics = None
         return
 
     def reset_db(self):
         self.applications_db.clear()
+
+    def get_applications_stats(self):
+        return copy.deepcopy(self.apps_stats)
+
+    def application_stats(self):
+        def run(*args):
+            slept = 0
+            while not fwglobals.g.teardown:
+                # Every 10 seconds collection the application status and monitoring
+                #
+                try:  # Ensure thread doesn't exit on exception
+                    timeout = 10
+                    if (slept % timeout) == 0:
+                        for identifier in self.applications_db:
+                            self.apps_stats[identifier] = {}
+                            self.apps_stats[identifier]['running'] = self.is_app_running(identifier)
+                            self.apps_stats[identifier]['monitoring'] = self.is_app_running(identifier)
+                        slept = 0
+                except Exception as e:
+                    fwglobals.log.excep("%s: %s (%s)" %
+                        (threading.current_thread().getName(), str(e), traceback.format_exc()))
+                    pass
+
+                time.sleep(1)
+                slept += 1
+
+        self.thread_apps_statistics = threading.Thread(target=run, name='Applications Statistics Thread')
+        self.thread_apps_statistics.start()
 
     def call(self, request):
         """Invokes API specified by the 'request' parameter.
@@ -239,6 +274,16 @@ class FWAPPLICATIONS_API:
         if reply['ok'] == 0:
             return False
         return reply['message']
+
+    def get_monitoring_info(self, identifier):
+        try:
+            success, val = self._call_application_api(identifier, 'get_monitoring')
+            if not success:
+                return {}
+
+            return val
+        except:
+            return {}
 
     def get_log_file(self, identifier):
         try:

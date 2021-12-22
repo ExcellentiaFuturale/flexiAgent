@@ -370,3 +370,11 @@ def status(params):
 
 def get_log_file(params):
     return (True, OPENVPN_LOG_FILE)
+
+def get_monitoring(params):
+    try:
+        res = {}
+        output = os.popen('cat /etc/openvpn/server/openvpn-status.log').read()
+        return (res, None)
+    except Exception as e:
+        return (False, str(e))

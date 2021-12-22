@@ -43,7 +43,7 @@ updates_list = []
 vpp_pid = ''
 
 # Keeps last stats
-stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0}
+stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'application_stats': {}, 'health':{}, 'period':0}
 
 def update_stats():
     """Update statistics dictionary using values retrieved from VPP interfaces.
@@ -130,18 +130,6 @@ def update_stats():
             'utc': time.time()
         })
 
-def get_applications_stats(router_is_running):
-    params = {}
-    for identifier in fwglobals.g.applications_api.applications_db:
-
-        params[identifier] = {
-            'running': False
-        }
-
-        params[identifier]['running'] = fwglobals.g.applications_api.is_app_running(identifier)
-
-    return params
-
 def get_system_health():
     # Get CPU info
     try:
@@ -198,7 +186,7 @@ def get_stats():
     else:
         status = True if fwutils.vpp_does_run() else False
         (state, reason) = fwutils.get_router_state()
-        apps_stats = get_applications_stats(stats['running'])
+        apps_stats = fwglobals.g.applications_api.get_applications_stats()
     if not res_update_list:
         info = {
             'ok': stats['ok'],
