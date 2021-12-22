@@ -2834,7 +2834,7 @@ def configure_lte_interface(params):
             for r in routes:
                 os.system('ip route del %s' % r)
         # set updated default route
-        os.system('route add -net 0.0.0.0 gw %s metric %s' % (gateway, metric))
+        os.system(f"ip route add default via {gateway} proto static metric {metric}")
 
         # configure dns servers for the interface.
         # If the LTE interface is configured in netplan, the user must set the dns servers manually in netplan.
