@@ -174,6 +174,7 @@ def get_stats():
 
     reconfig = fwutils.get_reconfig_hash()
     ikev2_certificate_expiration = fwglobals.g.ikev2.get_certificate_expiration()
+    apps_stats = fwglobals.g.applications_api.get_applications_stats()
 
     # If the list of updates is empty, append a dummy update to
     # set the most up-to-date status of the router. If not, update
@@ -186,7 +187,6 @@ def get_stats():
     else:
         status = True if fwutils.vpp_does_run() else False
         (state, reason) = fwutils.get_router_state()
-        apps_stats = fwglobals.g.applications_api.get_applications_stats()
     if not res_update_list:
         info = {
             'ok': stats['ok'],
@@ -231,4 +231,4 @@ def reset_stats():
     :returns: None.
     """
     global stats
-    stats = {'running': False, 'ok':0, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'reconfig':False, 'ikev2':''}
+    stats = {'running': False, 'ok':0, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'application_stats': {}, 'health':{}, 'period':0, 'reconfig':False, 'ikev2':''}

@@ -51,6 +51,7 @@ fwapplications_hooks = {
     'status':                  True,
     'configure':               True,
     'get_log_file':            False,
+    'get_monitoring':          False,
     'router_is_started':       False,
     'router_is_being_to_stop': False,
     'router_is_stopped':       False,
@@ -102,9 +103,10 @@ class FWAPPLICATIONS_API:
                     timeout = 10
                     if (slept % timeout) == 0:
                         for identifier in self.applications_db:
-                            self.apps_stats[identifier] = {}
-                            self.apps_stats[identifier]['running'] = self.is_app_running(identifier)
-                            self.apps_stats[identifier]['monitoring'] = self.is_app_running(identifier)
+                            new_stats = {}
+                            new_stats['running'] = self.is_app_running(identifier)
+                            new_stats['monitoring'] = self.get_monitoring_info(identifier)
+                            self.apps_stats[identifier] = new_stats
                         slept = 0
                 except Exception as e:
                     fwglobals.log.excep("%s: %s (%s)" %

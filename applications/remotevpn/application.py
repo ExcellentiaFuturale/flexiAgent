@@ -44,7 +44,7 @@ def install(params):
 
         commands = [
             'wget -O - https://swupdate.openvpn.net/repos/repo-public.gpg|apt-key add -',
-            'echo "deb http://build.openvpn.net/debian/openvpn/stable bionic main" > /etc/apt/sources.list.d/openvpn-aptrepo.list',
+            'echo "deb http://build.openvpn.net/debian/openvpn/release/2.5 bionic main" > /etc/apt/sources.list.d/openvpn-aptrepo.list',
             'apt-get update && apt-get install -y openvpn',
         ]
 
@@ -233,7 +233,7 @@ def _configure_server_file(params):
 
             # Output a short status file showing current connections, truncated
             # and rewritten every minute.
-            'status /etc/openvpn/server/openvpn-status.log',
+            'status /etc/openvpn/server/openvpn-status.log 10',
 
             # Set the appropriate level of log file verbosity.
             'verb 3',
@@ -356,6 +356,9 @@ def stop(params):
         if vpnIsRun:
             os.system('sudo killall openvpn')
             time.sleep(5)  # 5 sec
+
+        # cleanup static log file
+        os.system('echo "" > /etc/openvpn/server/openvpn-status.log')
         print("remoteVPN server is stopped!")
         return (True, None)
     except Exception as e:
@@ -373,8 +376,36 @@ def get_log_file(params):
 
 def get_monitoring(params):
     try:
-        res = {}
-        output = os.popen('cat /etc/openvpn/server/openvpn-status.log').read()
-        return (res, None)
+        response = {
+            'clients': {}
+        }
+        with open('/etc/openvpn/server/openvpn-status.log', 'r') as logfile:
+            status = logfile.read().splitlines()
+            routing_table_idx = status.index("ROUTING TABLE")
+            global_stats_idx = status.index("GLOBAL STATS")
+
+            client_list = status[:routing_table_idx]
+            for line in client_list[3:]:
+                # line = 'shneorp@flexiwan.com ,192.168.1.1:57662,22206,13194,2021-12-22 11:57:33'
+                fields = line.split(',')
+                username = fields[0]
+
+                response['clients'][username] = {
+                    'Common Name': username,
+                    'Real Address': fields[1],
+                    'Bytes Received':  fields[2],
+                    'Bytes Sent': fields[3],
+                    'Connected Since': fields[4],
+                }
+
+            routing_table = status[routing_table_idx:global_stats_idx]
+            for line in routing_table[2:]:
+                # line = '50.50.50.2,shneorp@flexiwan.com ,192.168.1.1:1052,2021-12-22 11:57:33'
+                fields = line.split(',')
+                username = fields[1]
+                if username in response['clients']:
+                    response['clients'][username]['Virtual Address'] = fields[0]
+
+        return (True, response)
     except Exception as e:
         return (False, str(e))
