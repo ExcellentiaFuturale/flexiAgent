@@ -86,7 +86,7 @@ def configure(params):
     """Configure Open VPN server on host.
 
     :param params: params - open vpn parameters:
-        deviceWANIp - the device WAN ip
+        local - the dev id of interface to listen on
         vpnNetwork    -
         routeAllTrafficOverVpn    - false to use split tunnel
 
@@ -176,7 +176,7 @@ def _configure_server_file(params):
 
         commands = [
             # Which local IP address should OpenVPN listen on
-            f'local {params.get("wanIp")}',
+            # f'local {params.get("wanIp")}',
 
             # Which TCP/UDP port should OpenVPN listen on?
             f'port {params.get("serverPort", "1194")}',
@@ -213,6 +213,9 @@ def _configure_server_file(params):
             # Configure server mode and supply a VPN subnet
             # for OpenVPN to draw client addresses from.
             f'server {ip.ip} {ip.netmask}',
+
+            # Limit server to a maximum of concurrent clients.
+            f'max-clients {params.get("maxConnectionPerDevice")}',
 
             # Maintain a record of client <-> virtual IP address associations in this file
             'ifconfig-pool-persist /etc/openvpn/server/ipp.txt',
@@ -343,6 +346,10 @@ def start(params):
             time.sleep(5)  # 5 sec
 
         os.system('sudo openvpn --config /etc/openvpn/server/server.conf --daemon')
+
+        vpnIsRun = True if _openvpn_pid() else False
+        if not vpnIsRun:
+            raise Exception('removeVPN failed to start')
 
         print("remoteVPN server is running!")
         return (True, None)
