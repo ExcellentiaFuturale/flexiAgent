@@ -20,6 +20,8 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import logging
+from logging.handlers import SysLogHandler
 import os
 import fnmatch
 import fwglobals
@@ -72,7 +74,8 @@ class VPP_API(FwObject):
             raise Exception("connect_to_vpp: no vpp api files were found")
         self.log.debug("connect_to_vpp: connecting")
 
-        self.vpp = VPPApiClient(apifiles=self.jsonfiles, use_socket=False, read_timeout=30)
+        self.vpp = VPPApiClient(apifiles=self.jsonfiles, use_socket=False, read_timeout=30, loglevel='DEBUG')
+        self.vpp.logger.addHandler(SysLogHandler(address='/dev/log'))
         num_retries = 5
         for i in range(num_retries):
             try:
