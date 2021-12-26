@@ -147,7 +147,7 @@ def add_interface(params):
             cmd['cmd'] = {}
             cmd['cmd']['name']   = "python"
             cmd['cmd']['params'] = {
-                    'module': 'fwutils',
+                    'module': 'fwwifi',
                     'func': 'configure_hostapd',
                     'args': { 'dev_id': dev_id, 'configuration': params.get('configuration', None) }
             }
@@ -157,14 +157,14 @@ def add_interface(params):
             cmd['cmd'] = {}
             cmd['cmd']['name']   = "python"
             cmd['cmd']['params'] = {
-                    'module': 'fwutils',
+                    'module': 'fwwifi',
                     'func': 'start_hostapd'
             }
             cmd['cmd']['descr']  = "start hostpad"
             cmd['revert'] = {}
             cmd['revert']['name']   = "python"
             cmd['revert']['params'] = {
-                    'module': 'fwutils',
+                    'module': 'fwwifi',
                     'func': 'stop_hostapd'
             }
             cmd['revert']['descr']  = "stop hostpad"
@@ -243,8 +243,8 @@ def add_interface(params):
             cmd['cmd'] = {}
             cmd['cmd']['name']   = "python"
             cmd['cmd']['params'] = {
-                        'module': 'fwutils',
-                        'func': 'lte_connect',
+                        'module': 'fwlte',
+                        'func': 'connect',
                         'args': { 'params': configs }
             }
             cmd['cmd']['descr'] = "connect modem to lte cellular network provider"
@@ -290,13 +290,13 @@ def add_interface(params):
 
     if is_lte:
         netplan_params['substs'] = [
-            { 'add_param':'ip', 'val_by_func':'lte_get_ip_configuration', 'arg': [dev_id, 'ip'] },
-            { 'add_param':'gw', 'val_by_func':'lte_get_ip_configuration', 'arg': [dev_id, 'gateway'] },
+            { 'add_param':'ip', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'ip'] },
+            { 'add_param':'gw', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'gateway'] },
         ]
 
         # If a user doesn't configure static dns servers, we use the servers received from ISP
         if len(dnsServers) == 0:
-            netplan_params['substs'].append({ 'add_param':'dnsServers', 'val_by_func':'lte_get_ip_configuration', 'arg': [dev_id, 'dns_servers'] })
+            netplan_params['substs'].append({ 'add_param':'dnsServers', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'dns_servers'] })
 
     if bridge_addr:
         netplan_params['args']['ip'] = ''
@@ -510,7 +510,7 @@ def add_interface(params):
 
     if is_lte:
         substs = [ {'replace':'DEV-STUB', 'key': 'cmds', 'val_by_func':'dev_id_to_vpp_if_name', 'arg': dev_id},
-                   {'replace':'LTE-GW', 'key': 'cmds', 'val_by_func':'lte_get_ip_configuration', 'arg':[dev_id, 'gateway']} ]
+                   {'replace':'LTE-GW', 'key': 'cmds', 'val_by_func':'fwlte.get_ip_configuration', 'arg':[dev_id, 'gateway']} ]
 
         cmd = {}
         cmd['cmd'] = {}
@@ -536,13 +536,13 @@ def add_interface(params):
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['name'] = "exec"
-        cmd['cmd']['params'] = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'lte_get_ip_configuration', 'arg': [dev_id, 'gateway'] } ]},
+        cmd['cmd']['params'] = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'gateway'] } ]},
                                 "sudo arp -s DEV-STUB 00:00:00:00:00:00" ]
         cmd['cmd']['descr'] = "set arp entry on linux for lte interface"
         cmd['revert'] = {}
         cmd['revert']['name']   = "exec"
         cmd['revert']['descr']  = "remove arp entry on linux for lte interface"
-        cmd['revert']['params'] = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'lte_get_ip_configuration', 'arg': [dev_id, 'gateway'] } ]},
+        cmd['revert']['params'] = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'gateway'] } ]},
                                     "sudo arp -d DEV-STUB || true" ]
         cmd_list.append(cmd)
 

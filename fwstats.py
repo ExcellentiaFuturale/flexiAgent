@@ -27,7 +27,8 @@ import math
 import time
 import loadsimulator
 import psutil
-
+import fwlte
+import fwwifi
 from fwtunnel_stats import tunnel_stats_get
 import fwglobals
 import fwtunnel_stats
@@ -43,9 +44,9 @@ updates_list = []
 vpp_pid = ''
 
 # Keeps last stats
-stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0}
+stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'lte_stats': {}, 'wifi_stats': {}}
 
-def update_stats():
+def update_stats(update_lte_wifi=False):
     """Update statistics dictionary using values retrieved from VPP interfaces.
 
     :returns: None.
@@ -114,17 +115,36 @@ def update_stats():
                 stats['period'] = stats['time'] - prev_stats['time']
                 stats['running'] = True if fwutils.vpp_does_run() else False
 
+    # get LTE stats
+    if update_lte_wifi:
+        lte_dev_ids = fwutils.get_lte_interfaces_dev_ids()
+        for lte_dev_id in lte_dev_ids:
+            modem_mode = fwlte.get_cache_val(lte_dev_id, 'state')
+            if modem_mode == 'resetting' and modem_mode == 'connecting':
+                continue
+
+            info = fwlte.collect_lte_info(lte_dev_id)
+            stats['lte_stats'][lte_dev_id] = info
+
+        # get WiFi stats
+        wifi_dev_ids = fwutils.get_wifi_interfaces_dev_ids()
+        for wifi_dev_id in wifi_dev_ids:
+            info = fwwifi.collect_wifi_info(wifi_dev_id)
+            stats['wifi_stats'][wifi_dev_id] = info
+
     # Add the update to the list of updates. If the list is full,
     # remove the oldest update before pushing the new one
     if len(updates_list) is UPDATE_LIST_MAX_SIZE:
         updates_list.pop(0)
 
     updates_list.append({
-            'ok': stats['ok'], 
-            'running': stats['running'], 
-            'stats': stats['bytes'], 
+            'ok': stats['ok'],
+            'running': stats['running'],
+            'stats': stats['bytes'],
             'period': stats['period'],
             'tunnel_stats': stats['tunnel_stats'],
+            'lte_stats': stats['lte_stats'],
+            'wifi_stats': stats['wifi_stats'],
             'health': get_system_health(),
             'utc': time.time()
         })
@@ -193,6 +213,8 @@ def get_stats():
             'stateReason': reason,
             'stats': {},
             'tunnel_stats': {},
+            'lte_stats': {},
+            'wifi_stats': {},
             'health': {},
             'period': 0,
             'utc': time.time(),
@@ -227,4 +249,8 @@ def reset_stats():
     :returns: None.
     """
     global stats
-    stats = {'running': False, 'ok':0, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'reconfig':False, 'ikev2':''}
+    stats = {
+        'running': False, 'ok':0, 'last':{}, 'bytes':{}, 'tunnel_stats':{},
+        'health':{}, 'period':0, 'reconfig':False, 'ikev2':'',
+        'lte_stats': {}, 'wifi_stats': {}
+    }

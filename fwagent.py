@@ -52,6 +52,7 @@ import fwstats
 import fwutils
 import loadsimulator
 import jwt
+import fwlte
 
 from fwobject import FwObject
 
@@ -545,6 +546,7 @@ class FwAgent(FwObject):
 
                 try:  # Ensure thread doesn't exit on exception
                     timeout = 30
+                    lte_wifi_timeout = 120
                     if (slept % timeout) == 0:
                         if self.received_request or self.handling_request:
                             self.received_request = False
@@ -561,7 +563,8 @@ class FwAgent(FwObject):
                             else:
                                 break
                         else:
-                            fwstats.update_stats()
+                            update_lte_wifi = (slept % lte_wifi_timeout) == 0
+                            fwstats.update_stats(update_lte_wifi=update_lte_wifi)
                 except Exception as e:
                     self.log.excep("%s: %s (%s)" %
                         (threading.current_thread().getName(), str(e), traceback.format_exc()))
@@ -785,7 +788,7 @@ def reset(soft=False, quiet=False):
         # stop LTE connections
         lte_interfaces = fwutils.get_lte_interfaces_dev_ids()
         for dev_id in lte_interfaces:
-            fwutils.lte_disconnect(dev_id, False)
+            fwlte.disconnect(dev_id, False)
 
         fwglobals.log.info("Reset operation done")
     else:

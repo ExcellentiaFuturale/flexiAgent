@@ -33,7 +33,7 @@ import fwglobals
 import fwutils
 import fwnetplan
 import fwroutes
-
+import fwwifi
 from fwmultilink import FwMultilink
 from fwpolicies import FwPolicies
 from vpp_api import VPP_API
@@ -126,7 +126,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
                     fwutils.reset_traffic_control()             # Release LTE operations.
                     fwutils.remove_linux_bridges()              # Release bridges for wifi.
-                    fwutils.stop_hostapd()                      # Stop access point service
+                    fwwifi.stop_hostapd()                      # Stop access point service
 
                     self.state_change(FwRouterState.STOPPED)    # Reset state so configuration will applied correctly
                     self._restore_vpp()                         # Rerun VPP and apply configuration
@@ -993,7 +993,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         self.router_stopping = False
         fwutils.reset_traffic_control()
         fwutils.remove_linux_bridges()
-        fwutils.stop_hostapd()
+        fwwifi.stop_hostapd()
 
         # keep LTE connectivity on linux interface
         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
