@@ -43,12 +43,21 @@ except Exception as e:
 class VPP_API(FwObject):
     """This is VPP API class representation.
     """
-    def __init__(self):
+    def __init__(self, vpp_json_dir='/usr/share/vpp/api/'):
         """Constructor method
         """
         FwObject.__init__(self)
+
+        self.jsonfiles = []
+        for root, _, filenames in os.walk(vpp_json_dir):
+            for filename in fnmatch.filter(filenames, '*.api.json'):
+                self.jsonfiles.append(os.path.join(root, filename))
+        if not self.jsonfiles and not vppWrapper:
+            raise Exception("VPP_API: no vpp *.api.json files were found")
+        self.vpp = VPPApiClient(apifiles=self.jsonfiles, use_socket=False, read_timeout=30, loglevel='DEBUG')
+        self.vpp.logger.addHandler(SysLogHandler(address='/dev/log'))
+
         self.connected_to_vpp = False
-        self.interface_event_handlers = {}
         if fwutils.vpp_does_run():
             self.connect_to_vpp()
 
@@ -58,24 +67,16 @@ class VPP_API(FwObject):
         if self.connected_to_vpp:
             self.disconnect_from_vpp()
 
-    def connect_to_vpp(self, vpp_json_dir='/usr/share/vpp/api/'):
+    def connect_to_vpp(self):
         """Connect to VPP.
 
         :param vpp_json_dir:         Path to json files with API description.
         """
         if self.connected_to_vpp:
+            self.log.debug("connect_to_vpp: already connected")
             return True
-        self.log.debug("connect_to_vpp: loading VPP API files")
-        self.jsonfiles = []
-        for root, _, filenames in os.walk(vpp_json_dir):
-            for filename in fnmatch.filter(filenames, '*.api.json'):
-                self.jsonfiles.append(os.path.join(root, filename))
-        if not self.jsonfiles and not vppWrapper:
-            raise Exception("connect_to_vpp: no vpp api files were found")
         self.log.debug("connect_to_vpp: connecting")
 
-        self.vpp = VPPApiClient(apifiles=self.jsonfiles, use_socket=False, read_timeout=30, loglevel='DEBUG')
-        self.vpp.logger.addHandler(SysLogHandler(address='/dev/log'))
         num_retries = 5
         for i in range(num_retries):
             try:
