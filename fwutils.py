@@ -19,6 +19,7 @@
 ################################################################################
 
 import copy
+import ctypes
 import binascii
 import datetime
 import enum
@@ -60,6 +61,8 @@ from fwwan_monitor  import get_wan_failover_metric
 from fwikev2        import FwIKEv2
 from fw_traffic_identification import FwTrafficIdentifications
 import fwtranslate_add_switch
+
+libc = None
 
 proto_map = {'any': 0, 'icmp': 1, 'tcp': 6, 'udp': 17}
 
@@ -4541,3 +4544,10 @@ def load_linux_modules(modules):
         if err:
             return (False, err)
     return (True, None)
+
+def get_thread_tid():
+    '''Returns OS thread id'''
+    global libc
+    if not libc:
+        libc = ctypes.cdll.LoadLibrary('libc.so.6')
+    return str(libc.syscall(186)) # gettid defined in /usr/include/x86_64-linux-gnu/asm/unistd_64.h

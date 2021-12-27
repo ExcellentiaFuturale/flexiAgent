@@ -336,6 +336,8 @@ class FwStunWrap(FwObject):
         Its function is to send STUN requests for address:4789 in a timely manner
         according to some algorithm-based calculations.
         """
+        self.log.debug(f"{threading.current_thread().name} tid={fwutils.get_thread_tid()}")
+
         slept = 1
         reset_all_timeout = 10 * 60
         update_cache_from_os_timeout = 2 * 60

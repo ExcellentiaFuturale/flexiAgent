@@ -99,6 +99,8 @@ class FwWanMonitor(FwObject):
 
 
     def main_loop(self):
+        self.log.debug(f"{threading.current_thread().name} tid={fwutils.get_thread_tid()}")
+
         self.log.debug("loop started")
 
         prev_time = time.time()

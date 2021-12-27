@@ -529,6 +529,8 @@ class FwAgent(FwObject):
             del self.pending_msg_replies[:]
 
         def run(*args):
+            self.log.debug(f"{threading.current_thread().name} tid={fwutils.get_thread_tid()}")
+
             slept = 0
 
             while self.connected and not fwglobals.g.teardown:
@@ -1053,6 +1055,8 @@ class FwagentDaemon(FwObject):
 
         :returns: None.
         """
+        self.log.debug(f"{threading.current_thread().name} tid={fwutils.get_thread_tid()}")
+
         self.log.info("connection loop was started, use 'fwagent stop' to stop it if needed")
 
         # Register with Manager
