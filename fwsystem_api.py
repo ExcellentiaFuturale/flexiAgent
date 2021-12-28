@@ -67,7 +67,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         parameters received from provider should match these configured in linux
         for the correspondent interface.
         """
-        self.log.debug(f"{threading.current_thread().name} tid={fwutils.get_thread_tid()}")
+        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
 
         while not fwglobals.g.teardown:
             try: # Ensure thread doesn't exit on exception

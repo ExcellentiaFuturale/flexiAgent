@@ -103,7 +103,7 @@ class FwIKEv2(FwObject):
         '''This function modifies private key.
         '''
         try:
-            fwglobals.g.router_api.vpp_api.vpp.api.ikev2_set_local_key(key_file=private_pem)
+            fwglobals.g.router_api.vpp_api.call('ikev2_set_local_key', key_file=private_pem)
 
         except Exception as e:
             self.log.error("%s" % str(e))
@@ -165,7 +165,8 @@ class FwIKEv2(FwObject):
             public_pem = self.remote_certificate_filename_get(device_id)
             profile = self.profile_name_get(tunnel_id)
 
-            fwglobals.g.router_api.vpp_api.vpp.api.ikev2_profile_set_auth(name=profile,
+            fwglobals.g.router_api.vpp_api.call('ikev2_profile_set_auth',
+                                                            name=profile,
                                                             auth_method=1,
                                                             data=public_pem.encode(),
                                                             data_len=len(public_pem))
@@ -197,7 +198,7 @@ class FwIKEv2(FwObject):
 
         try:
             if role == 'initiator':
-                fwglobals.g.router_api.vpp_api.vpp.api.ikev2_initiate_sa_init(name=profile)
+                fwglobals.g.router_api.vpp_api.call('ikev2_initiate_sa_init', name=profile)
 
         except Exception as e:
             self.log.error("%s" % str(e))

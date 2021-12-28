@@ -114,7 +114,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         Its function is to monitor if VPP process is alive.
         Otherwise it will start VPP and restore configuration from DB.
         """
-        self.log.debug(f"{threading.current_thread().name} tid={fwutils.get_thread_tid()}")
+        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
         pending_coredump_processing = True
         while self.state_is_started() and not fwglobals.g.teardown:
             time.sleep(1)  # 1 sec
@@ -148,7 +148,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         Its function is to monitor tunnel state and RTT.
         It is implemented by pinging the other end of the tunnel.
         """
-        self.log.debug(f"{threading.current_thread().name} tid={fwutils.get_thread_tid()}")
+        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
         fwtunnel_stats.fill_tunnel_stats_dict()
         while self.state_is_started() and not fwglobals.g.teardown:
             time.sleep(1)  # 1 sec
@@ -163,7 +163,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         """DHCP client thread.
         Its function is to monitor state of WAN interfaces with DHCP.
         """
-        self.log.debug(f"{threading.current_thread().name} tid={fwutils.get_thread_tid()}")
+        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
 
         while self.state_is_started() and not fwglobals.g.teardown:
             time.sleep(1)  # 1 sec
@@ -197,7 +197,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         """Static route thread.
         Its function is to monitor static routes.
         """
-        self.log.debug(f"{threading.current_thread().name} tid={fwutils.get_thread_tid()}")
+        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
 
         while self.state_is_started() and not fwglobals.g.teardown:
             time.sleep(1)
@@ -910,7 +910,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         """Start all threads.
         """
         if self.thread_watchdog is None or self.thread_watchdog.is_alive() == False:
-            self.thread_watchdog = threading.Thread(target=self.watchdog, name='Watchdog Thread')
+            self.thread_watchdog = threading.Thread(target=self.watchdog, name='VPP Watchdog Thread')
             self.thread_watchdog.start()
         if self.thread_tunnel_stats is None or self.thread_tunnel_stats.is_alive() == False:
             self.thread_tunnel_stats = threading.Thread(target=self.tunnel_stats_thread, name='Tunnel Stats Thread')
