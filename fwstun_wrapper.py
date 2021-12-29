@@ -576,12 +576,12 @@ class FwStunWrap(FwObject):
             if stats and stats.get('status') == 'down':
                 vni = self._get_vni(tunnel_id, encryption_mode)
                 if vni in probe_tunnels:
-                    if tunnel['dst'] != probe_tunnels[vni]["dst"] or tunnel['dstPort'] != probe_tunnels[vni]["dstPort"]:
+                    if tunnel['dst'] != probe_tunnels[vni]["dst"] or tunnel['dstPort'] != str(probe_tunnels[vni]["dstPort"]):
                         self.log.debug("Remove tunnel: %s" %(tunnel))
                         fwglobals.g.handle_request({'message':'remove-tunnel', "params": tunnel})
 
                         tunnel['dst'] = probe_tunnels[vni]["dst"]
-                        tunnel['dstPort'] = probe_tunnels[vni]["dstPort"]
+                        tunnel['dstPort'] = str(probe_tunnels[vni]["dstPort"])
                         self.log.debug("Add tunnel: %s" %(tunnel))
                         fwglobals.g.handle_request({'message':'add-tunnel', "params": tunnel})
 
