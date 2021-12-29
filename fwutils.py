@@ -4542,7 +4542,11 @@ def load_linux_modules(modules):
 
 def get_thread_tid():
     '''Returns OS thread id'''
-    global libc
-    if not libc:
-        libc = ctypes.cdll.LoadLibrary('libc.so.6')
-    return str(libc.syscall(186)) # gettid defined in /usr/include/x86_64-linux-gnu/asm/unistd_64.h
+    try:
+        global libc
+        if not libc:
+            libc = ctypes.cdll.LoadLibrary('libc.so.6')
+        tid = str(libc.syscall(186)) # gettid defined in /usr/include/x86_64-linux-gnu/asm/unistd_64.h
+    except Exception as e:
+        tid = f'<str({e})>'
+    return tid
