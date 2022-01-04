@@ -518,7 +518,7 @@ class Fwglobals(FwObject):
         return self.applications_api.call(request)
 
     def _call_vpp_api(self, request, result=None):
-        return self.router_api.vpp_api.call_simple(request, result)
+        return self.router_api.vpp_api.call_by_request(request, result)
 
     def _call_python_api(self, request, result=None):
         '''Handle request that describe python function.
