@@ -296,7 +296,7 @@ def _configure_client_file(params):
             'echo "client" >> %s' % destFile,
             'echo "dev tap0" >> %s' % destFile,
             'echo "proto udp" >> %s' % destFile,
-            'echo "remote %s" >> %s' % (params['wanIp'], destFile),
+            # 'echo "remote %s" >> %s' % (params['wanIp'], destFile),
             'echo "resolv-retry infinite" >> %s' % destFile,
             'echo "auth-user-pass" >> %s' % destFile,
             'echo "nobind" >> %s' % destFile,
