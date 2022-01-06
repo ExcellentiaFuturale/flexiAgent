@@ -31,6 +31,8 @@ import multiprocessing as mp
 import time
 import traceback
 import copy
+import fwutils
+from fwobject import FwObject
 
 # set it to "spawn" to reduce as much as possible the resources pass to the child process
 mp.set_start_method('spawn', force=True)
@@ -55,18 +57,19 @@ fwapplications_hooks = {
     'router_is_started':       False,
     'router_is_being_to_stop': False,
     'router_is_stopped':       False,
-    'agent_soft_reset':        False,
     'agent_reset':             False,
 }
 
-class FWAPPLICATIONS_API:
+class FWAPPLICATIONS_API(FwObject):
     """Services class representation.
     """
 
     def __init__(self):
         """Constructor method.
         """
-        self.applications_db = SqliteDict(fwglobals.g.APPLICATIONS_DB, autocommit=True)
+        FwObject.__init__(self)
+
+        self.applications_db = fwglobals.g.applications_db
         self.thread_apps_statistics    = None
         self.apps_stats    = {}
         self.application_stats()
@@ -102,14 +105,18 @@ class FWAPPLICATIONS_API:
                 try:  # Ensure thread doesn't exit on exception
                     timeout = 10
                     if (slept % timeout) == 0:
-                        for identifier in self.applications_db:
+                        apps = dict(self.applications_db.items())
+                        for identifier in apps:
+                            is_installed = apps[identifier].get('installed')
+                            if not is_installed:
+                                continue
                             new_stats = {}
                             new_stats['running'] = self.is_app_running(identifier)
                             new_stats['monitoring'] = self.get_monitoring_info(identifier)
                             self.apps_stats[identifier] = new_stats
                         slept = 0
                 except Exception as e:
-                    fwglobals.log.excep("%s: %s (%s)" %
+                    self.log.excep("%s: %s (%s)" %
                         (threading.current_thread().getName(), str(e), traceback.format_exc()))
                     pass
 
@@ -136,9 +143,9 @@ class FWAPPLICATIONS_API:
         handler_func = getattr(self, handler)
         assert handler_func, f'fwapplications_api: handler={handler} not found for req={request}'
 
-        reply = handler_func(params)
+        reply = handler_func(request)
         if reply['ok'] == 0:
-            raise Exception(f'fwagent_api: {handler_func}({format(params)}) failed: {reply["message"]}')
+            raise Exception(f'fwapplications_api: {handler_func}({format(params)}) failed: {reply["message"]}')
         return reply
 
     def _call_application_api(self, identifier, method, params = {}):
@@ -169,18 +176,14 @@ class FWAPPLICATIONS_API:
                 params['identifier'] = app_identifier
                 self._call_application_api(app_identifier, hook_type, params)
             except Exception as e:
-                fwglobals.log.debug(f'call_hook: hook "{hook_type}" failed. identifier={app_identifier}. err={str(e)}')
+                self.log.debug(f'call_hook: hook "{hook_type}" failed. identifier={app_identifier}. err={str(e)}')
                 pass
 
         return { 'ok': 1, 'message': '' }
 
-    def install(self, params):
-        # identifier: 'com.flexiwan.remotevpn',
-        # name: ‘Remote VPN’,
-        # installationFilePath: 'https://store.flexiwan.com/com.flexiwan.remotevpn/install.tar.gz',
-        # installationPathType: 'url' / 'local'
-        # md5: 'sdfgsdfg'
+    def install(self, request):
         try:
+            params = request['params']
             path_type = params.get('installationPathType')
             identifier = params.get('identifier')
             path = params.get('installationFilePath')
@@ -210,22 +213,24 @@ class FWAPPLICATIONS_API:
             file.extractall(target_path)
             file.close()
 
-            params['router_is_running'] = fwglobals.g.router_api.state_is_started()
+            extended_params = dict(params)
+            extended_params['router_is_running'] = fwglobals.g.router_api.state_is_started()
 
-            success, val = self._call_application_api(identifier, 'install', params)
+            success, val = self._call_application_api(identifier, 'install', extended_params)
 
             if not success:
                 return { 'ok': 0, 'message': val }
 
             # store in database
-            self.update_applications_db(identifier, 'installed', True)
+            self.update_applications_db(identifier, 'installed', request)
 
             return { 'ok': 1 }
         except Exception as e:
             return { 'ok': 0, 'message': str(e) }
 
-    def uninstall(self, params):
+    def uninstall(self, request):
         try:
+            params = request['params']
             identifier = params.get('identifier')
             success, val = self._call_application_api(identifier, 'uninstall', params)
 
@@ -236,6 +241,7 @@ class FWAPPLICATIONS_API:
             target_path = fwglobals.g.APPLICATIONS_DIR + identifier + '/'
             os.system(f'rm -rf {target_path}')
 
+            # remove application from db
             apps_db = self.applications_db
             app = apps_db.get(identifier)
             if app:
@@ -246,8 +252,9 @@ class FWAPPLICATIONS_API:
         except Exception as e:
             return { 'ok': 0, 'message': str(e) }
 
-    def status(self, params):
+    def status(self, request):
         try:
+            params = request['params']
             identifier = params.get('identifier')
             success, val = self._call_application_api(identifier, 'status')
             if not success:
@@ -257,8 +264,9 @@ class FWAPPLICATIONS_API:
         except Exception as e:
             return { 'ok': 0, 'message': str(e) }
 
-    def configure(self, params):
+    def configure(self, request):
         try:
+            params = request['params']
             identifier = params.get('identifier')
             success, val = self._call_application_api(identifier, 'configure', params)
 
@@ -268,7 +276,6 @@ class FWAPPLICATIONS_API:
 
             return { 'ok': 1 }
         except Exception as e:
-            # self.update_applications_db(identifier, 'configured', False)
             return { 'ok': 0, 'message': str(e) }
 
     def is_app_running(self, identifier):
@@ -300,12 +307,19 @@ class FWAPPLICATIONS_API:
     def update_applications_db(self, identifier, key, value, add=True):
         apps_db = self.applications_db
         app = apps_db.get(identifier)
-        if not app:
-            apps_db[identifier] = {}
-            app = apps_db[identifier]
-        
-        app[key] = value
-        apps_db[identifier] = app
+
+        if add:
+            if not app:
+                apps_db[identifier] = {}
+                app = apps_db[identifier]
+
+            app[key] = value
+            apps_db[identifier] = app
+        else:
+            if app and key in app:
+                del app[key]
+                apps_db[identifier] = app
+
         self.applications_db = apps_db
 
     def get_application(self, identifier):
@@ -314,7 +328,65 @@ class FWAPPLICATIONS_API:
                 return self.applications_db[identifier]
         return None
 
-     # def start(self, params):
+    def get_sync_list(self, requests):
+        output_requests = []
+
+        current_applications = dict(self.applications_db.items())
+
+        # generate incoming applications list in order to save searches bellow
+        incoming_applications = {}
+        for incoming_application in requests:
+            identifier = incoming_application.get('params').get('identifier')
+            incoming_applications[identifier] = incoming_application
+
+        # loop over the existing applications.
+        # if the existing application exists in the incoming list:
+        #   if the incoming and current params are the same - no need to do anything.
+        #   if there is a diff between them - generate uninstall and install application messages
+        # if the existing application does not exist in the incoming list:
+        #   generate uninstall application message
+        #
+        for identifier in current_applications:
+            install_req = current_applications[identifier].get('installed')
+            if not install_req:
+                continue
+
+            if identifier in incoming_applications:
+                current_params = install_req.get('params')
+                input_params  = incoming_applications[identifier]['params']
+                if fwutils.compare_request_params(current_params, input_params):
+                    # The configuration item has exactly same parameters.
+                    # It does not require sync, so remove it from input list.
+                    #
+                    del incoming_applications[identifier]
+                else:
+                    install_req['message'] = install_req['message'].replace('-install', '-uninstall')
+                    output_requests.append(install_req)
+            else:
+                install_req['message'] = install_req['message'].replace('-install', '-uninstall')
+                output_requests.append(install_req)
+
+
+        output_requests += list(incoming_applications.values())
+        return output_requests
+
+    def sync(self, requests, full_sync=False):
+        requests = list([x for x in requests if x['message'] in fwapplications_handlers])
+
+        sync_list = self.get_sync_list(requests)
+
+        if len(sync_list) == 0:
+            self.log.info("_sync_device: sync_list is empty, no need to sync")
+            return True
+
+        self.log.debug("_sync_device: start smart sync")
+
+        for sync_request in sync_list:
+            self.call(sync_request)
+
+        self.log.debug("_sync_device: smart sync succeeded")
+
+    # def start(self, params):
     #     try:
     #         identifier = params.get('identifier')
     #         success, val = self._call_application_api(identifier, 'start')

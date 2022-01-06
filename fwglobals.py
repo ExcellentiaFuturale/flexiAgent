@@ -61,7 +61,7 @@ modules = {
     'fwagent_api':        { 'module': __import__('fwagent_api'),        'sync': False, 'object': 'agent_api' },        # fwglobals.g.agent_api
     'fwrouter_api':       { 'module': __import__('fwrouter_api'),       'sync': True,  'object': 'router_api' },       # fwglobals.g.router_api
     'os_api':             { 'module': __import__('os_api'),             'sync': False, 'object': 'os_api' },           # fwglobals.g.os_api
-    'fwapplications_api': { 'module': __import__('fwapplications_api'), 'sync': False, 'object': 'applications_api' }, # fwglobals.g.applications_api,
+    'fwapplications_api': { 'module': __import__('fwapplications_api'), 'sync': True,  'object': 'applications_api' }, # fwglobals.g.applications_api,
 }
 
 request_handlers = {
@@ -353,6 +353,7 @@ class Fwglobals(FwObject):
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
 
         self.db = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! set the db variable regardless of agent initialization
+        self.applications_db = SqliteDict(self.APPLICATIONS_DB, autocommit=True)  # IMPORTANT! set the db variable regardless of agent initialization
 
         # Load websocket status codes on which agent should reconnect into a list
         self.ws_reconnect_status_codes = []

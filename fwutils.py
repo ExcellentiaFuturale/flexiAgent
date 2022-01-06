@@ -1459,6 +1459,8 @@ def reset_device_config():
 
     restore_dhcpd_files()
 
+    fwglobals.g.applications_db.clear()
+
 def reset_router_api_db_sa_id():
     router_api_db = fwglobals.g.db['router_api'] # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
     router_api_db['sa_id'] = 0
@@ -1514,6 +1516,19 @@ def print_system_config(full=False):
 def print_device_config_signature():
     cfg = get_device_config_signature()
     print(cfg)
+
+def print_applications_db():
+    out = []
+    try:
+        for key in sorted(list(fwglobals.g.applications_db.keys())):
+            obj = {}
+            obj[key] = fwglobals.g.applications_db[key]
+            out.append(obj)
+        cfg = json.dumps(out, indent=2, sort_keys=True)
+        print(cfg)
+    except Exception as e:
+        fwglobals.log.error(str(e))
+        pass
 
 def print_router_config(basic=True, full=False, multilink=False):
     """Print router configuration.

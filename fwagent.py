@@ -761,7 +761,6 @@ def reset(soft=False, quiet=False):
 
     if soft:
         fwutils.reset_device_config()
-        fwglobals.g.applications_api.call_hook('agent_soft_reset')
         return
 
     with fwikev2.FwIKEv2() as ike:
@@ -875,6 +874,8 @@ def show(agent, configuration, database, status):
             fwutils.print_system_config(full=True)
         elif database == 'general':
             fwutils.print_general_database()
+        elif database == 'applications':
+            fwutils.print_applications_db()
         elif database == 'multilink':
             with fwmultilink.FwMultilink(fwglobals.g.MULTILINK_DB_FILE, fill_if_empty=False) as multilink_db:
                 print(multilink_db.dumps())
