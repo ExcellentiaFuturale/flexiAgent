@@ -4039,16 +4039,23 @@ def get_min_metric_device(skip_dev_id):
 
     return (metric_min_dev_id, metric_min)
 
-def vpp_nat_add_del_identity_mapping(vpp_if_name, protocol, port, is_add):
+def vpp_nat_add_del_identity_mapping(protocol, port, is_add):
 
-    del_str = '' if is_add else 'del'
-    vppctl_cmd = 'nat44 add identity mapping external %s %s %d vrf 0 %s' %\
-        (vpp_if_name, protocol, port, del_str)
-    out = _vppctl_read(vppctl_cmd, wait=False)
-    if out is None:
-        fwglobals.log.error("Failed vppctl command: %s" % vppctl_cmd)
-    else:
-        fwglobals.log.debug("Executed nat44 mapping command: %s" % vppctl_cmd)
+    if not fwglobals.g.router_api.state_is_started():
+        return
+
+    del_str = '' if is_add else ' del'
+
+    wan_list = fwglobals.g.router_cfg.get_interfaces(type='wan')
+    for wan in wan_list:
+        vpp_if_name = dev_id_to_vpp_if_name(wan['dev_id'])
+        vppctl_cmd  = 'nat44 add identity mapping external %s %s %d vrf 0%s' %\
+                      (vpp_if_name, protocol, port, del_str)
+        out = _vppctl_read(vppctl_cmd, wait=False)
+        if out is None:
+            fwglobals.log.error("vpp_nat_add_del_identity_mapping failed: %s" % vppctl_cmd)
+            continue
+        fwglobals.log.debug("vpp_nat_add_del_identity_mapping: %s" % vppctl_cmd)
 
 
 def wifi_get_capabilities(dev_id):

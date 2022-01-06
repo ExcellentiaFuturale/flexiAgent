@@ -21,7 +21,6 @@
 ################################################################################
 
 # Handle device statistics
-import fwikev2
 import fwutils
 import math
 import time
