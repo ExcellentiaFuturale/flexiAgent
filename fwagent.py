@@ -483,35 +483,11 @@ class FwAgent(FwObject):
             for reply in self.pending_msg_replies:
                 self.log.debug("_on_open: sending reply: " + json.dumps(reply))
                 self.ws.send(json.dumps(reply))
-
             del self.pending_msg_replies[:]
 
-        def run(*args):
-            self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
-
-            slept = 0
-
-            while self.connected and not fwglobals.g.teardown:
-                try:  # Ensure thread doesn't exit on exception
-                    timeout = 30
-                    if (slept % timeout) == 0:
-                        if loadsimulator.g.enabled():
-                            if loadsimulator.g.started:
-                                loadsimulator.g.update_stats()
-                            else:
-                                break
-                        else:
-                            fwstats.update_stats()
-                except Exception as e:
-                    self.log.excep("%s: %s (%s)" %
-                        (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                    pass
-
-                # Sleep 1 second and make another iteration
-                time.sleep(1)
-                slept += 1
-
-        self.thread_statistics = threading.Thread(target=run, name='Statistics Thread')
+        self.thread_statistics = threading.Thread(
+                                    target=fwstats.update_stats_tread,
+                                    name='Statistics Thread', args=(self.log,))
         self.thread_statistics.start()
 
         if not fwutils.vpp_does_run():

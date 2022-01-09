@@ -25,6 +25,7 @@ import fwutils
 import math
 import time
 import loadsimulator
+import threading
 import psutil
 
 from fwtunnel_stats import tunnel_stats_get
@@ -43,6 +44,33 @@ vpp_pid = ''
 
 # Keeps last stats
 stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0}
+
+
+def update_stats_tread(log):
+
+    log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+
+    slept = 0
+
+    while fwglobals.g.fwagent.connected and not fwglobals.g.teardown:
+        try:  # Ensure thread doesn't exit on exception
+            timeout = 30
+            if (slept % timeout) == 0:
+                if loadsimulator.g.enabled():
+                    if loadsimulator.g.started:
+                        loadsimulator.g.update_stats()
+                    else:
+                        break
+                else:
+                    update_stats()
+        except Exception as e:
+            log.excep("%s: %s (%s)" %
+                (threading.current_thread().getName(), str(e), traceback.format_exc()))
+            pass
+
+        # Sleep 1 second and make another iteration
+        time.sleep(1)
+        slept += 1
 
 def update_stats():
     """Update statistics dictionary using values retrieved from VPP interfaces.
@@ -127,6 +155,7 @@ def update_stats():
             'health': get_system_health(),
             'utc': time.time()
         })
+
 
 def get_system_health():
     # Get CPU info
