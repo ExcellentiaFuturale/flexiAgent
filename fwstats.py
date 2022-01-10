@@ -24,13 +24,12 @@
 import fwutils
 import math
 import time
-import loadsimulator
 import threading
+import traceback
 import psutil
 
 from fwtunnel_stats import tunnel_stats_get
 import fwglobals
-import fwtunnel_stats
 
 # Globals
 # Keep updates up to 1 hour ago
@@ -46,21 +45,18 @@ vpp_pid = ''
 stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0}
 
 
-def update_stats_tread(log):
+def update_stats_tread(log, fwagent):
 
     log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
 
     slept = 0
 
-    while fwglobals.g.fwagent.connected and not fwglobals.g.teardown:
+    while fwagent.connected and not fwglobals.g.teardown:
         try:  # Ensure thread doesn't exit on exception
             timeout = 30
             if (slept % timeout) == 0:
-                if loadsimulator.g.enabled():
-                    if loadsimulator.g.started:
-                        loadsimulator.g.update_stats()
-                    else:
-                        break
+                if fwglobals.g.loadsimulator:
+                    fwglobals.g.loadsimulator.update_stats()
                 else:
                     update_stats()
         except Exception as e:
@@ -205,7 +201,7 @@ def get_stats():
     # If the list of updates is empty, append a dummy update to
     # set the most up-to-date status of the router. If not, update
     # the last element in the list with the current status of the router
-    if loadsimulator.g.enabled():
+    if fwglobals.g.loadsimulator:
         status = True
         state = 'running'
         reason = ''

@@ -20,6 +20,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import enum
 import socket
 import ssl
 import urllib.parse
@@ -37,6 +38,14 @@ class FwWebSocketClient(FwObject):
     once the WebSocket connection is reconnected.
     FlexiEdge device uses WebSocket connection to communicate with flexiManage.
     """
+
+    class FwWebSocketState(enum.Enum):
+        IDLE          = 1
+        CONNECTING    = 2
+        CONNECTED     = 3
+        DISCONNECTING = 4
+
+
     def __init__(self, on_message, on_open=None, on_close=None):
         """
         :params on_message: the user callback which provides user with received
@@ -52,6 +61,7 @@ class FwWebSocketClient(FwObject):
         self.on_message   = on_message
         self.on_close     = on_close
         self.ssl_context  = ssl.create_default_context()
+        self.state        = self.FwWebSocketState.IDLE
 
     def finalize(self):
         self.disconnect()
@@ -71,6 +81,7 @@ class FwWebSocketClient(FwObject):
 
         try:
             self.log.debug(f"connecting to {remote_host}")
+            self.state = self.FwWebSocketState.CONNECTING
 
             # We create socket explicitly to be able to retrieve
             # local port used by it. Fwagent might use it for NAT.
@@ -92,8 +103,9 @@ class FwWebSocketClient(FwObject):
                                     header = headers)
 
             self.log.debug(f"connected to {remote_host}")
+            self.state = self.FwWebSocketState.CONNECTED
+
             self.remote_host = remote_host
-            self.connected = True
             if self.on_open:
                 self.on_open()
 
@@ -126,16 +138,21 @@ class FwWebSocketClient(FwObject):
         """Disconnects the active connection if exists.
         The connect() can be invoked again to establish new connection.
         """
-        if not self.ws:
+        if self.state != self.FwWebSocketState.CONNECTED:
             return
-        if self.on_close:
-            self.on_close()
-        self.connected = False
+        self.state = self.FwWebSocketState.DISCONNECTING
+        self.log.debug(f"disconnecting from {self.remote_host}")
+
         #self.ws.shutdown() # The shutdown() actually calls the close()
         self.ws.close()     # The close() performs shutdown as well, though not graceful :(
-        self.ws = None
-        self.log.debug(f"disconnected from {self.remote_host}")
 
+    def close(self):
+        if self.ws:
+            self.ws.close()
+            self.ws = None
+        if self.on_close:
+            self.on_close()
+        self.state = self.FwWebSocketState.IDLE
 
     def run_loop_send_recv(self, timeout=None):
         """Runs infinite loop of recv/recv-n-send operations.
@@ -149,28 +166,13 @@ class FwWebSocketClient(FwObject):
                          If no data was received within 'timeout' seconds,
                          raises the websocket.WebSocketTimeoutException exception.
         """
-        if not timeout:
-            timeout = 0xffffffff
-        self.ws.settimeout(timeout)
+        while self.state == self.FwWebSocketState.CONNECTED:
+            received = self.recv(timeout)
+            if received:
+                to_send = self.on_message(received)
+                if to_send:
+                    self.send(to_send)
 
-        while self.connected:
-
-            try:
-                opcode, received = self.ws.recv_data()
-
-                if opcode == 0x1 or opcode == 0x2:      # OPCODE_TEXT / OPCODE_BINARY rfc5234
-                    to_send = self.on_message(received)
-                    if to_send:
-                        self.ws.send(to_send)
-                elif opcode == 0x8:                     # OPCODE_CLOSE rfc5234
-                    self.disconnect()
-                    return
-                else:
-                    self.log.warning(f"recv_send_loop: not suppported opcode {opcode}")
-
-            except Exception as e:
-                self.disconnect()
-                raise e
 
     def recv(self, timeout=None):
         """Reads data from connection.
@@ -179,12 +181,34 @@ class FwWebSocketClient(FwObject):
                          If no data was received within 'timeout' seconds,
                          raises the websocket.WebSocketTimeoutException exception.
 
-        :returns: the received data.
+        :returns: the received data or None if connection was closed.
         """
         if not timeout:
             timeout = 0xffffffff
         self.ws.settimeout(timeout)
-        return self.ws.recv()
+
+        try:
+            opcode, received = self.ws.recv_data()
+
+            if opcode == 0x1 or opcode == 0x2:   # OPCODE_TEXT / OPCODE_BINARY rfc5234
+                return received
+
+            if opcode == 0x8:                    # OPCODE_CLOSE rfc5234
+                if self.state == self.FwWebSocketState.CONNECTED:
+                    self.disconnect()
+                elif self.state == self.FwWebSocketState.DISCONNECTING:
+                    self.close()
+                else:
+                    raise Exception(f"not expected state {str(self.state)}")
+                return None
+
+            else:
+                raise Exception(f"not suppported opcode {opcode}")
+
+        except Exception as e:
+            self.log.error(f"recv_send_loop: exception: {str(e)}")
+            self.close()
+            raise e
 
     def send(self, data):
         """Pushes data into connection.

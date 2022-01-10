@@ -325,6 +325,7 @@ class Fwglobals(FwObject):
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
+        self.loadsimulator = None
         self.cache   = self.FwCache()
         self.WAN_FAILOVER_SERVERS          = [ '1.1.1.1' , '8.8.8.8' ]
         self.WAN_FAILOVER_WND_SIZE         = 20         # 20 pings, every ping waits a second for response
