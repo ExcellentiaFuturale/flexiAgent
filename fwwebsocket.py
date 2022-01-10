@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2022  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -26,7 +26,7 @@ import ssl
 import urllib.parse
 import websocket
 
-import fwutils
+import fwglobals
 
 
 from fwobject import FwObject
@@ -56,7 +56,6 @@ class FwWebSocketClient(FwObject):
         FwObject.__init__(self)
 
         self.ws           = None
-        self.local_port   = None
         self.on_open      = on_open
         self.on_message   = on_message
         self.on_close     = on_close
@@ -66,7 +65,7 @@ class FwWebSocketClient(FwObject):
     def finalize(self):
         self.disconnect()
 
-    def connect(self, url, headers=None, check_certificate=True, timeout=10):
+    def connect(self, url, headers=None, check_certificate=True, timeout=10, local_port=0):
         """Establishes connection to the provided URL.
 
         :params url:     the address of the server to connect to.
@@ -83,10 +82,14 @@ class FwWebSocketClient(FwObject):
             self.log.debug(f"connecting to {remote_host}")
             self.state = self.FwWebSocketState.CONNECTING
 
-            # We create socket explicitly to be able to retrieve
-            # local port used by it. Fwagent might use it for NAT.
+            # We create socket explicitly to be able to control the local port
+            # used by it. Fwagent might use it for NAT.
+            # In case of loadsimulator we can't use same port for multiple connections.
             #
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            if local_port and not fwglobals.g.loadsimulator:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)  # Avoid EADDRINUSE on reconnect
+                sock.bind(('', local_port))
             sock.settimeout(timeout)
 
             self.ssl_context.verify_mode    = ssl.CERT_REQUIRED if check_certificate else ssl.CERT_OPTIONAL
@@ -109,14 +112,6 @@ class FwWebSocketClient(FwObject):
             if self.on_open:
                 self.on_open()
 
-            # Prevent VPP NAT to block WebSocket packets after reconnect,
-            # as local port does not match anymore existing NAT session.
-            # Trick it by identity mapping - no session will be created.
-            #
-            if self.local_port:
-                fwutils.vpp_nat_add_del_identity_mapping("tcp", self.local_port, is_add=False)
-            _, self.local_port = ssl_sock.getsockname()
-            fwutils.vpp_nat_add_del_identity_mapping("tcp", self.local_port, is_add=True)
 
         # The try-except is need to exit gracefully , if self.on_open() raises exception
         #

@@ -30,7 +30,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/fwagent.py",
             "args": [
-                "simulate", "-c", "1"
+                "simulate", "-c", "2"
             ],
             "cwd": "${workspaceRoot}",
             "env": {
