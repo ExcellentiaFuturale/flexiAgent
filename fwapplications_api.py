@@ -34,9 +34,6 @@ import copy
 import fwutils
 from fwobject import FwObject
 
-# set it to "spawn" to reduce as much as possible the resources pass to the child process
-mp.set_start_method('spawn', force=True)
-
 # flexiManage jobs types
 fwapplications_handlers = {
     'application-install':           'install',
@@ -58,6 +55,7 @@ fwapplications_hooks = {
     'router_is_being_to_stop': False,
     'router_is_stopped':       False,
     'agent_reset':             False,
+    'start':                   False,
 }
 
 class FWAPPLICATIONS_API(FwObject):
@@ -110,8 +108,13 @@ class FWAPPLICATIONS_API(FwObject):
                             is_installed = apps[identifier].get('installed')
                             if not is_installed:
                                 continue
+
+                            is_app_running = self.is_app_running(identifier)
+                            if not is_app_running:
+                                self.start(is_installed)
+
                             new_stats = {}
-                            new_stats['running'] = self.is_app_running(identifier)
+                            new_stats['running'] = is_app_running
                             new_stats['monitoring'] = self.get_monitoring_info(identifier)
                             self.apps_stats[identifier] = new_stats
                         slept = 0
@@ -279,7 +282,7 @@ class FWAPPLICATIONS_API(FwObject):
             return { 'ok': 0, 'message': str(e) }
 
     def is_app_running(self, identifier):
-        reply = self.status({'identifier': identifier})
+        reply = self.status({'params': { 'identifier': identifier }})
         if reply['ok'] == 0:
             return False
         return reply['message']
@@ -386,18 +389,19 @@ class FWAPPLICATIONS_API(FwObject):
 
         self.log.debug("_sync_device: smart sync succeeded")
 
-    # def start(self, params):
-    #     try:
-    #         identifier = params.get('identifier')
-    #         success, val = self._call_application_api(identifier, 'start')
-    #         if not success:
-    #             return { 'ok': 0, 'message': val }
+    def start(self, request):
+        try:
+            params = request['params']
+            identifier = params.get('identifier')
+            success, val = self._call_application_api(identifier, 'start')
+            if not success:
+                return { 'ok': 0, 'message': val }
 
-    #         self.update_applications_db(identifier, 'started', True)
+            self.update_applications_db(identifier, 'started', True)
 
-    #         return { 'ok': 1 }
-    #     except Exception as e:
-    #         return { 'ok': 0, 'message': str(e) }
+            return { 'ok': 1 }
+        except Exception as e:
+            return { 'ok': 0, 'message': str(e) }
 
     # def stop(self, params):
     #     try:
