@@ -565,8 +565,7 @@ class FwAgent(FwObject):
                             else:
                                 break
                         else:
-                            update_lte_wifi = (slept % lte_wifi_timeout) == 0
-                            fwstats.update_stats(update_lte_wifi=update_lte_wifi)
+                            fwstats.update_stats()
                 except Exception as e:
                     self.log.excep("%s: %s (%s)" %
                         (threading.current_thread().getName(), str(e), traceback.format_exc()))

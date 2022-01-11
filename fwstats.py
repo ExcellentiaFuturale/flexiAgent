@@ -46,7 +46,7 @@ vpp_pid = ''
 # Keeps last stats
 stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'lte_stats': {}, 'wifi_stats': {}}
 
-def update_stats(update_lte_wifi=False):
+def update_stats():
     """Update statistics dictionary using values retrieved from VPP interfaces.
 
     :returns: None.
@@ -116,21 +116,20 @@ def update_stats(update_lte_wifi=False):
                 stats['running'] = True if fwutils.vpp_does_run() else False
 
     # get LTE stats
-    if update_lte_wifi:
-        lte_dev_ids = fwutils.get_lte_interfaces_dev_ids()
-        for lte_dev_id in lte_dev_ids:
-            modem_mode = fwlte.get_cache_val(lte_dev_id, 'state')
-            if modem_mode == 'resetting' and modem_mode == 'connecting':
-                continue
+    lte_dev_ids = fwutils.get_lte_interfaces_dev_ids()
+    for lte_dev_id in lte_dev_ids:
+        modem_mode = fwlte.get_cache_val(lte_dev_id, 'state')
+        if modem_mode == 'resetting' and modem_mode == 'connecting':
+            continue
 
-            info = fwlte.collect_lte_info(lte_dev_id)
-            stats['lte_stats'][lte_dev_id] = info
+        info = fwlte.collect_lte_info(lte_dev_id)
+        stats['lte_stats'][lte_dev_id] = info
 
-        # get WiFi stats
-        wifi_dev_ids = fwutils.get_wifi_interfaces_dev_ids()
-        for wifi_dev_id in wifi_dev_ids:
-            info = fwwifi.collect_wifi_info(wifi_dev_id)
-            stats['wifi_stats'][wifi_dev_id] = info
+    # get WiFi stats
+    wifi_dev_ids = fwutils.get_wifi_interfaces_dev_ids()
+    for wifi_dev_id in wifi_dev_ids:
+        info = fwwifi.collect_wifi_info(wifi_dev_id)
+        stats['wifi_stats'][wifi_dev_id] = info
 
     # Add the update to the list of updates. If the list is full,
     # remove the oldest update before pushing the new one
