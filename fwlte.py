@@ -375,7 +375,7 @@ def reset_modem(dev_id):
         return False
 
     def _wait_for_interface_to_be_removed(if_name):
-        retries = 30
+        retries = 60
         for _ in range(retries):
             try:
                 # if vpp runs, we have the tap_wwan0 interfae, so we filter it out to make sure that LTE pyshical interface does not exists
