@@ -46,6 +46,7 @@ import fwlog
 import fwutils
 import fwnetplan
 import fwlte
+import fwwifi
 from fw_vpp_coredump_utils import FW_VPP_COREDUMP_FOLDER, FW_VPP_COREDUMP_PERMISSIONS
 from fwsystem_checker import TXT_COLOR
 
@@ -1143,7 +1144,7 @@ class Checker:
     def soft_check_wifi_driver(self, fix=False, silently=False, prompt=''):
         other_wifi_drivers = False
         for nicname, addrs in list(psutil.net_if_addrs().items()):
-            if not fwutils.is_wifi_interface(nicname):
+            if not fwwifi.is_wifi_interface(nicname):
                 continue
 
             driver = fwutils.get_interface_driver(nicname, cache=False)

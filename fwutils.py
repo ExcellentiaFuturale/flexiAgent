@@ -41,22 +41,24 @@ import shutil
 import sys
 import traceback
 import yaml
-from netaddr import IPNetwork, IPAddress
 import ipaddress
 import zlib
 import base64
-from tools.common.fw_vpp_startupconf import FwStartupConf
 
-from fwrouter_cfg   import FwRouterCfg
-from fwsystem_cfg   import FwSystemCfg
-from fwmultilink    import FwMultilink
-from fwpolicies     import FwPolicies
-from fwwan_monitor  import get_wan_failover_metric
-from fwikev2        import FwIKEv2
-from fw_traffic_identification import FwTrafficIdentifications
-import fwtranslate_add_switch
+from netaddr import IPNetwork, IPAddress
+
 import fwlte
 import fwwifi
+import fwtranslate_add_switch
+
+from fwikev2        import FwIKEv2
+from fwmultilink    import FwMultilink
+from fwpolicies     import FwPolicies
+from fwrouter_cfg   import FwRouterCfg
+from fwsystem_cfg   import FwSystemCfg
+from fwwan_monitor  import get_wan_failover_metric
+from fw_traffic_identification import FwTrafficIdentifications
+from tools.common.fw_vpp_startupconf import FwStartupConf
 
 libc = None
 
@@ -326,7 +328,7 @@ def get_all_interfaces():
         if not dev_id:
             continue
 
-        if is_lte_interface(nic_name):
+        if fwlte.is_lte_interface(nic_name):
             tap_name = dev_id_to_tap(dev_id, check_vpp_state=True)
             if tap_name:
                 nic_name = tap_name
@@ -546,8 +548,8 @@ def get_linux_interfaces(cached=True):
 
             interface['dhcp'] = fwnetplan.get_dhcp_netplan_interface(if_name)
 
-            is_wifi = is_wifi_interface(if_name)
-            is_lte = is_lte_interface(if_name)
+            is_wifi = fwwifi.is_wifi_interface(if_name)
+            is_lte = fwlte.is_lte_interface(if_name)
 
             # Some interfaces need special logic to get their ip
             # For LTE/WiFi/Bridged interfaces - we need to take it from the tap
@@ -1918,7 +1920,7 @@ def get_lte_interfaces_names():
 
     for nic_name, _ in list(interfaces.items()):
         dev_id = get_interface_dev_id(nic_name)
-        if dev_id and is_lte_interface(nic_name):
+        if dev_id and fwlte.is_lte_interface(nic_name):
             names.append(nic_name)
 
     return names
@@ -2083,7 +2085,7 @@ def modify_dhcpd(is_add, params):
     try:
         output = subprocess.check_output(exec_string, shell=True).decode()
     except Exception as e:
-        return (False, "Exception: %s" % str(e))
+        return (False, str(e))
 
     return True
 
@@ -2521,47 +2523,6 @@ def connect_to_wifi(params):
 
     return False
 
-def is_wifi_interface_by_dev_id(dev_id):
-    linux_if = dev_id_to_linux_if(dev_id)
-    return is_wifi_interface(linux_if)
-
-def is_wifi_interface(if_name):
-    """Check if interface is WIFI.
-
-    :param if_name: Interface name to check.
-
-    :returns: Boolean.
-    """
-    try:
-        lines = subprocess.check_output('iwconfig | grep %s' % if_name, shell=True, stderr=subprocess.STDOUT).decode().splitlines()
-        for line in lines:
-            if if_name in line and not 'no wireless extensions' in line:
-                return True
-    except Exception:
-        return False
-
-    return False
-
-def is_lte_interface_by_dev_id(dev_id):
-    if_name = dev_id_to_linux_if(dev_id)
-    if not if_name:
-        return False
-    return is_lte_interface(if_name)
-
-def is_lte_interface(if_name):
-    """Check if interface is LTE.
-
-    :param dev_id: Bus address of interface to check.
-
-    :returns: Boolean.
-    """
-    driver = get_interface_driver(if_name)
-    supported_lte_drivers = ['cdc_mbim']
-    if driver in supported_lte_drivers:
-        return True
-
-    return False
-
 def get_inet6_by_linux_name(inf_name):
     interfaces = psutil.net_if_addrs()
     if inf_name in interfaces:
@@ -2578,7 +2539,7 @@ def get_lte_interfaces_dev_ids():
     out = {}
     interfaces = psutil.net_if_addrs()
     for nic_name, _ in list(interfaces.items()):
-        if is_lte_interface(nic_name):
+        if fwlte.is_lte_interface(nic_name):
             dev_id = get_interface_dev_id(nic_name)
             if dev_id:
                 out[dev_id] = nic_name
@@ -2588,7 +2549,7 @@ def get_wifi_interfaces_dev_ids():
     out = {}
     interfaces = psutil.net_if_addrs()
     for nic_name, _ in list(interfaces.items()):
-        if is_wifi_interface(nic_name):
+        if fwwifi.is_wifi_interface(nic_name):
             dev_id = get_interface_dev_id(nic_name)
             if dev_id:
                 out[dev_id] = nic_name
@@ -2707,9 +2668,9 @@ def is_non_dpdk_interface(dev_id):
     # 0000:0a:00.00 'Ethernet Connection X553 1GbE' if=eth4 drv=ixgbe unused= 10.0.0.1
     # 0000:07:00.00 'I210 Gigabit Network Connection' if=eth2 drv=igb unused=vfio-pci,uio_pci_generic =192.168.0.1
 
-    if is_wifi_interface_by_dev_id(dev_id):
+    if fwwifi.is_wifi_interface_by_dev_id(dev_id):
         return True
-    if is_lte_interface_by_dev_id(dev_id):
+    if fwlte.is_lte_interface_by_dev_id(dev_id):
         return True
 
     return False

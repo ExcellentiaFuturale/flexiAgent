@@ -2,7 +2,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2021  flexiWAN Ltd.
+# Copyright (C) 2022  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -19,12 +19,14 @@
 ################################################################################
 
 import os
-import time
-import subprocess
 import re
-import fwglobals
-from netaddr import IPAddress
 import serial
+import subprocess
+import time
+
+from netaddr import IPAddress
+
+import fwglobals
 import fwutils
 
 class LTE_ERROR_MESSAGES():
@@ -295,7 +297,7 @@ def disconnect(dev_id, hard_reset_service=False):
 
         return (True, None)
     except subprocess.CalledProcessError as e:
-        return (False, "Exception: %s" % (str(e)))
+        return (False, str(e))
 
 def prepare_connection_params(params):
     connection_params = []
@@ -506,7 +508,7 @@ def connect(params):
     except Exception as e:
         fwglobals.log.debug('connect: faild to connect lte. %s' % str(e))
         set_cache_val(dev_id, 'state', '')
-        return (False, "Exception: %s" % str(e))
+        return (False, str(e))
 
 def get_system_info(dev_id, cached=True):
     cached_values = get_cache_val(dev_id, 'system_info')
@@ -734,7 +736,7 @@ def configure_interface(params):
             os.system('ifconfig %s up' % nic_name)
             return (True, None)
 
-        if not fwutils.is_lte_interface_by_dev_id(dev_id):
+        if not is_lte_interface_by_dev_id(dev_id):
             return (False, "dev_id %s is not a lte interface" % dev_id)
 
         ip_config = get_ip_configuration(dev_id)
@@ -914,3 +916,23 @@ def handle_pin_modifications(dev_id, current_pin, new_pin, enable, puk):
     # no need to verify if we enabled or disabled the pin since it's already verified
     if need_to_verify:
         handle_verify_pin_code(dev_id, current_pin, is_currently_enabled, retries_left)
+
+def is_lte_interface_by_dev_id(dev_id):
+    if_name = fwutils.dev_id_to_linux_if(dev_id)
+    if not if_name:
+        return False
+    return is_lte_interface(if_name)
+
+def is_lte_interface(if_name):
+    """Check if interface is LTE.
+
+    :param dev_id: Bus address of interface to check.
+
+    :returns: Boolean.
+    """
+    driver = fwutils.get_interface_driver(if_name)
+    supported_lte_drivers = ['cdc_mbim']
+    if driver in supported_lte_drivers:
+        return True
+
+    return False

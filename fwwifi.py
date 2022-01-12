@@ -2,7 +2,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2021  flexiWAN Ltd.
+# Copyright (C) 2022  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -166,62 +166,66 @@ def configure_hostapd(dev_id, configuration):
 
         return (True, None)
     except Exception as e:
-        return (False, "Exception: %s" % str(e))
+        return (False, str(e))
 
 def ap_get_clients(interface_name):
     response = []
     try:
         output = subprocess.check_output('iw dev %s station dump' % interface_name, shell=True).decode()
-        if output:
-            data = output.splitlines()
-            for (idx, line) in enumerate(data):
-                if 'Station' in line:
-                    mac = line.split(' ')[1]
-                    signal =  data[idx + 2].split(':')[-1].strip().replace("'", '') if 'signal' in data[idx + 2] else ''
-                    ip = ''
+        if not output:
+            return response
 
-                    try:
-                        arp_output = subprocess.check_output('arp -a -n | grep %s' % mac, shell=True).decode()
-                    except:
-                        arp_output = None
+        data = output.splitlines()
+        for (idx, line) in enumerate(data):
+            if 'Station' in line:
+                mac = line.split(' ')[1]
+                signal =  data[idx + 2].split(':')[-1].strip().replace("'", '') if 'signal' in data[idx + 2] else ''
+                ip = ''
 
-                    if arp_output:
-                        ip = arp_output[arp_output.find("(")+1:arp_output.find(")")]
+                try:
+                    arp_output = subprocess.check_output('arp -a -n | grep %s' % mac, shell=True).decode()
+                except:
+                    arp_output = None
 
-                    entry = {
-                        'mac'   : mac,
-                        'ip'    : ip,
-                        'signal': signal
-                    }
-                    response.append(entry)
+                if arp_output:
+                    ip = arp_output[arp_output.find("(")+1:arp_output.find(")")]
+
+                entry = {
+                    'mac'   : mac,
+                    'ip'    : ip,
+                    'signal': signal
+                }
+                response.append(entry)
     except Exception:
         pass
     return response
 
 def start_hostapd():
     try:
-
         if fwutils.pid_of('hostapd'):
             return (True, None)
 
         files = glob.glob("%s*fwrun.conf" % fwglobals.g.HOSTAPD_CONFIG_DIRECTORY)
         fwglobals.log.debug("get_hostapd_filenames: %s" % files)
 
-        if files:
-            files = ' '.join(files)
+        if not files:
+            raise Exception('Error in activating your access point. No configuration files was found')
 
-            # Start hostapd in background
-            subprocess.check_call('sudo hostapd %s -B -t -f %s' % (files, fwglobals.g.HOSTAPD_LOG_FILE), stderr=subprocess.STDOUT, shell=True)
-            time.sleep(2)
+        files = ' '.join(files)
 
-            pid = fwutils.pid_of('hostapd')
-            if pid:
-                return (True, None)
+        # Start hostapd in background
+        subprocess.check_call('sudo hostapd %s -B -t -f %s' % (files, fwglobals.g.HOSTAPD_LOG_FILE), stderr=subprocess.STDOUT, shell=True)
+        time.sleep(2)
 
-        return (False, 'Error in activating your access point. Your hardware may not support the selected settings')
-    except subprocess.CalledProcessError as err:
+        pid = fwutils.pid_of('hostapd')
+        if pid:
+            return (True, None)
+
+        raise Exception('Error in activating your access point. Your hardware may not support the selected settings')
+    except Exception as err:
         stop_hostapd()
-        return (False, str(err.output))
+        return (False, str(err))
+
 
 def stop_hostapd():
     try:
@@ -233,10 +237,10 @@ def stop_hostapd():
             try:
                 os.remove(filePath)
             except:
-                print("Error while deleting file : ", filePath)
+                fwglobals.log.debug(f"Error while deleting file: {filePath}")
         return (True, None)
     except Exception as e:
-        return (False, "Exception: %s" % str(e))
+        return (False, str(e))
 
 
 def wifi_get_capabilities(dev_id):
@@ -305,3 +309,24 @@ def collect_wifi_info(dev_id):
     }
 
     return response
+
+def is_wifi_interface_by_dev_id(dev_id):
+    linux_if = fwutils.dev_id_to_linux_if(dev_id)
+    return is_wifi_interface(linux_if)
+
+def is_wifi_interface(if_name):
+    """Check if interface is WIFI.
+
+    :param if_name: Interface name to check.
+
+    :returns: Boolean.
+    """
+    try:
+        lines = subprocess.check_output('iwconfig | grep %s' % if_name, shell=True, stderr=subprocess.STDOUT).decode().splitlines()
+        for line in lines:
+            if if_name in line and not 'no wireless extensions' in line:
+                return True
+    except Exception:
+        return False
+
+    return False

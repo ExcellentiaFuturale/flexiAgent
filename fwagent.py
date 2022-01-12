@@ -21,16 +21,8 @@
 ################################################################################
 
 import json
-import loadsimulator
 import os
-import shutil
 import glob
-
-from urllib import request as ureq
-from urllib import parse as uparse
-from urllib import error as uerr
-from http import server as hsvr
-
 import websocket
 import ssl
 import socket
@@ -45,14 +37,20 @@ import subprocess
 import threading
 import traceback
 import yaml
+import jwt
+
+from urllib import request as ureq
+from urllib import parse as uparse
+from urllib import error as uerr
+from http import server as hsvr
+
 import fwglobals
 import fwikev2
+import fwlte
 import fwmultilink
 import fwstats
 import fwutils
 import loadsimulator
-import jwt
-import fwlte
 
 from fwobject import FwObject
 
@@ -548,7 +546,6 @@ class FwAgent(FwObject):
 
                 try:  # Ensure thread doesn't exit on exception
                     timeout = 30
-                    lte_wifi_timeout = 120
                     if (slept % timeout) == 0:
                         if self.received_request or self.handling_request:
                             self.received_request = False

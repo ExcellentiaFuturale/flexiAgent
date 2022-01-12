@@ -28,10 +28,11 @@ import time
 import traceback
 
 import fwglobals
+import fwlte
 import fwnetplan
 import fwroutes
 import fwutils
-import fwlte
+
 from fwobject import FwObject
 
 class FwWanMonitor(FwObject):

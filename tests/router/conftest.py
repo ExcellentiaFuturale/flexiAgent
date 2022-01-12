@@ -9,6 +9,7 @@ import sys, select
 CODE_ROOT = os.path.realpath(__file__).replace('\\', '/').split('/tests/')[0]
 sys.path.append(CODE_ROOT)
 import fwutils
+import fwwifi
 
 @pytest.fixture
 def netplan_backup():
@@ -62,7 +63,7 @@ def run_wifi(currpath):
     if 'wifi_' in currpath:
         exists = False
         for nicname, addrs in psutil.net_if_addrs().items():
-            if fwutils.is_wifi_interface(nicname):
+            if fwwifi.is_wifi_interface(nicname):
                 exists = True
                 break
         if not exists:

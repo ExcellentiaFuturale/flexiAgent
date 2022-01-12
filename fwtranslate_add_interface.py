@@ -23,7 +23,9 @@
 import copy
 
 import fwglobals
+import fwlte
 import fwutils
+import fwwifi
 import fw_nat_command_helpers
 
 # add_interface
@@ -109,8 +111,8 @@ def add_interface(params):
     if bridge_addr:
         iface_addr = bridge_addr
 
-    is_wifi = fwutils.is_wifi_interface_by_dev_id(dev_id)
-    is_lte = fwutils.is_lte_interface_by_dev_id(dev_id) if not is_wifi else False
+    is_wifi = fwwifi.is_wifi_interface_by_dev_id(dev_id)
+    is_lte = fwlte.is_lte_interface_by_dev_id(dev_id) if not is_wifi else False
 
     if is_wifi or is_lte:
         cmd = {}
