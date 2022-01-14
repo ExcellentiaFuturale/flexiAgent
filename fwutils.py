@@ -2144,7 +2144,7 @@ def vpp_multilink_update_labels(labels, remove, next_hop=None, dev_id=None, sw_i
     return (True, None)
 
 
-def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl_id=None, priority=None):
+def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl_id=None, priority=None, ignore_default_route=False):
     """Updates VPP with flexiwan policy rules.
     In general, policy rules instruct VPP to route packets to specific interface,
     which is marked with multilink label that noted in policy rule.
@@ -2157,6 +2157,9 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
                         policy-id - the policy id (two byte integer)
                         labels    - labels of interfaces to be used for packet forwarding
                         remove    - True to remove rule, False to add.
+                        ignore_default_route - If True, the policy links will be enforced,
+                                    even if FIB lookup brings default route and this route
+                                    does not use  one of policy links.
 
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
@@ -2175,11 +2178,12 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
 
     fallback = 'fallback drop' if re.match(fallback, 'drop') else ''
     order    = 'select_group random' if re.match(order, 'load-balancing') else ''
+    ignore_dr = 'ignore_default_route' if ignore_default_route else ''
 
     if acl_id is None:
-        vppctl_cmd = 'fwabf policy %s id %d action %s %s' % (op, policy_id, fallback, order)
+        vppctl_cmd = 'fwabf policy %s id %d %s action %s %s' % (op, policy_id, ignore_dr, fallback, order)
     else:
-        vppctl_cmd = 'fwabf policy %s id %d acl %d action %s %s' % (op, policy_id, acl_id, fallback, order)
+        vppctl_cmd = 'fwabf policy %s id %d acl %d %s action %s %s' % (op, policy_id, acl_id, ignore_dr, fallback, order)
 
     group_id = 1
     for link in links:
