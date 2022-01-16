@@ -2535,26 +2535,6 @@ def get_inet6_by_linux_name(inf_name):
 
     return None
 
-def get_lte_interfaces_dev_ids():
-    out = {}
-    interfaces = psutil.net_if_addrs()
-    for nic_name, _ in list(interfaces.items()):
-        if fwlte.is_lte_interface(nic_name):
-            dev_id = get_interface_dev_id(nic_name)
-            if dev_id:
-                out[dev_id] = nic_name
-    return out
-
-def get_wifi_interfaces_dev_ids():
-    out = {}
-    interfaces = psutil.net_if_addrs()
-    for nic_name, _ in list(interfaces.items()):
-        if fwwifi.is_wifi_interface(nic_name):
-            dev_id = get_interface_dev_id(nic_name)
-            if dev_id:
-                out[dev_id] = nic_name
-    return out
-
 def get_ethtool_value(if_name, ethtool_key):
     """Gets requested value from ethtool command output
 

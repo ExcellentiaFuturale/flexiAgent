@@ -115,21 +115,8 @@ def update_stats():
                 stats['period'] = stats['time'] - prev_stats['time']
                 stats['running'] = True if fwutils.vpp_does_run() else False
 
-    # get LTE stats
-    lte_dev_ids = fwutils.get_lte_interfaces_dev_ids()
-    for lte_dev_id in lte_dev_ids:
-        modem_mode = fwlte.get_cache_val(lte_dev_id, 'state')
-        if modem_mode == 'resetting' and modem_mode == 'connecting':
-            continue
-
-        info = fwlte.collect_lte_info(lte_dev_id)
-        stats['lte_stats'][lte_dev_id] = info
-
-    # get WiFi stats
-    wifi_dev_ids = fwutils.get_wifi_interfaces_dev_ids()
-    for wifi_dev_id in wifi_dev_ids:
-        info = fwwifi.collect_wifi_info(wifi_dev_id)
-        stats['wifi_stats'][wifi_dev_id] = info
+    stats['lte_stats'] = fwlte.get_stats()
+    stats['wifi_stats'] = fwwifi.get_stats()
 
     # Add the update to the list of updates. If the list is full,
     # remove the oldest update before pushing the new one

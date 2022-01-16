@@ -19,6 +19,7 @@
 ################################################################################
 
 import glob
+import psutil
 import os
 import time
 import subprocess
@@ -357,3 +358,21 @@ def is_wifi_interface(if_name):
         return False
 
     return False
+
+def get_wifi_interfaces_dev_ids():
+    out = {}
+    interfaces = psutil.net_if_addrs()
+    for nic_name, _ in list(interfaces.items()):
+        if is_wifi_interface(nic_name):
+            dev_id = fwutils.get_interface_dev_id(nic_name)
+            if dev_id:
+                out[dev_id] = nic_name
+    return out
+
+def get_stats():
+    out = {}
+    wifi_dev_ids = get_wifi_interfaces_dev_ids()
+    for wifi_dev_id in wifi_dev_ids:
+        info = collect_wifi_info(wifi_dev_id)
+        out[wifi_dev_id] = info
+    return out

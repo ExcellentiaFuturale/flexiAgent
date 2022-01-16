@@ -19,6 +19,7 @@
 ################################################################################
 
 import os
+import psutil
 import re
 import serial
 import subprocess
@@ -936,3 +937,25 @@ def is_lte_interface(if_name):
         return True
 
     return False
+
+def get_lte_interfaces_dev_ids():
+    out = {}
+    interfaces = psutil.net_if_addrs()
+    for nic_name, _ in list(interfaces.items()):
+        if is_lte_interface(nic_name):
+            dev_id = fwutils.get_interface_dev_id(nic_name)
+            if dev_id:
+                out[dev_id] = nic_name
+    return out
+
+def get_stats():
+    out = {}
+    lte_dev_ids = get_lte_interfaces_dev_ids()
+    for lte_dev_id in lte_dev_ids:
+        modem_mode = get_cache_val(lte_dev_id, 'state')
+        if modem_mode == 'resetting' and modem_mode == 'connecting':
+            continue
+
+        info = collect_lte_info(lte_dev_id)
+        out[lte_dev_id] = info
+    return out
