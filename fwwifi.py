@@ -176,19 +176,46 @@ def ap_get_clients(interface_name):
             return response
 
         data = output.splitlines()
+        # data example:
+        #   Station d6:84:e5:49:fe:e1 (on wlan0)
+        #       inactive time:  856 ms
+        #       rx bytes:       893878
+        #       rx packets:     9521
+        #       tx bytes:       13123202
+        #       tx packets:     9950
+        #       tx retries:     0
+        #       tx failed:      5
+        #       rx drop misc:   102
+        #       signal:         -38 [-53, -38] dBm
+        #       signal avg:     -33 [-51, -33] dBm
+        #       tx bitrate:     5.4 MBit/s
+        #       rx bitrate:     1.0 MBit/s
+        #       rx duration:    1595393 us
+        #       authorized:     yes
+        #       authenticated:  yes
+        #       associated:     yes
+        #       preamble:       short
+        #       WMM/WME:        yes
+        #       MFP:            no
+        #       TDLS peer:      no
+        #       DTIM period:    2
+        #       beacon interval:100
+        #       short slot time:yes
+        #       connected time: 456 seconds
         for (idx, line) in enumerate(data):
             if 'Station' in line:
                 mac = line.split(' ')[1]
-                signal =  data[idx + 2].split(':')[-1].strip().replace("'", '') if 'signal' in data[idx + 2] else ''
-                ip = ''
+
+                if 'signal' in data[idx + 9]:
+                    signal =  data[idx + 9].split(':')[-1].strip().replace("'", '')
+                else:
+                    signal = ''
 
                 try:
                     arp_output = subprocess.check_output('arp -a -n | grep %s' % mac, shell=True).decode()
-                except:
-                    arp_output = None
-
-                if arp_output:
                     ip = arp_output[arp_output.find("(")+1:arp_output.find(")")]
+                except:
+                    ip = ''
 
                 entry = {
                     'mac'   : mac,
