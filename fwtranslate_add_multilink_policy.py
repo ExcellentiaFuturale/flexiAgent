@@ -317,6 +317,7 @@ def add_multilink_policy(params):
         order     = rule['action'].get('order', 'priority')
         links     = rule['action']['links']
         ignore_default_route = rule.get('ignore-default-route', False)
+        attach_to_wan        = rule.get('apply-on-wan-rx', False)
         policy_id = _generate_policy_id()
 
         cmd = {}
@@ -328,7 +329,8 @@ def add_multilink_policy(params):
                         'func':   'vpp_multilink_update_policy_rule',
                         'args'  : { 'add': True, 'links': links, 'policy_id': policy_id,
                                     'fallback': fallback, 'order': order, 'priority': priority,
-                                    'ignore_default_route': ignore_default_route },
+                                    'ignore_default_route': ignore_default_route,
+                                    'attach_to_wan': attach_to_wan },
                         'substs' : [{'add_param': 'acl_id', 'val_by_key': cache_key}]
         }
         cmd['revert'] = {}
@@ -339,7 +341,8 @@ def add_multilink_policy(params):
                         'func':   'vpp_multilink_update_policy_rule',
                         'args'  : { 'add': False, 'links': links, 'policy_id': policy_id,
                                     'fallback': fallback, 'order': order, 'priority': priority,
-                                    'ignore_default_route': ignore_default_route },
+                                    'ignore_default_route': ignore_default_route,
+                                    'attach_to_wan': attach_to_wan },
                         'substs' : [{'add_param': 'acl_id', 'val_by_key': cache_key}]
         }
         cmd_list.append(cmd)
