@@ -197,7 +197,7 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     addr = iface_params['addr']
     mac  = iface_params.get('mac')
     mtu  = iface_params['mtu']
-    mss  = mtu - 200  # Leave 200 bytes for TLS/ESP/VXLAN/etc headers to fit the MTU
+    mss  = iface_params.get('tcp-mss-clamp')
     vpp_if_name = fwutils.tunnel_to_vpp_if_name(tunnel_params)
 
 
@@ -230,16 +230,39 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     cmd_list.append(cmd)
 
     if not internal:
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['name']    = "python"
-        cmd['cmd']['descr']   = f"set MSS {mss} on loopback interface {addr}"
-        cmd['cmd']['params']  = {
-                        'module': 'fwutils',
-                        'func'  : 'vpp_cli_execute',
-                        'args'  : {'cmds':[f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {mss} ip6 tx ip6-mss  {mss}']}
-        }
-        cmd_list.append(cmd)
+        current_tunnel = fwglobals.g.router_cfg.get_tunnel(id)
+        current_mss    = current_tunnel.get('tcp-wss-clamp') if current_tunnel else None
+        if mss and current_mss:
+            vpp_cmd        = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {mss} ip6 tx ip6-mss  {mss}'
+            vpp_revert_cmd = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {current_mss} ip6 tx ip6-mss {current_mss}'
+        elif mss and not current_mss:
+            vpp_cmd        = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {mss} ip6 tx ip6-mss {mss}'
+            vpp_revert_cmd = f'set interface tcp-mss-clamp {vpp_if_name} ip4 disable ip6 disable'
+        elif not mss and current_mss:
+            vpp_cmd        = f'set interface tcp-mss-clamp {vpp_if_name} ip4 disable ip6 disable'
+            vpp_revert_cmd = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {current_mss} ip6 tx ip6-mss {current_mss}'
+        else: # not mss and not current_mss:
+            vpp_cmd = None
+
+        if vpp_cmd:
+            cmd = {}
+            cmd['cmd'] = {}
+            cmd['cmd']['name']    = "python"
+            cmd['cmd']['descr']   = f"set MSS {str(mss)} on loopback interface {addr}"
+            cmd['cmd']['params']  = {
+                            'module': 'fwutils',
+                            'func'  : 'vpp_cli_execute',
+                            'args'  : {'cmds':[vpp_cmd]}
+            }
+            cmd['revert'] = {}
+            cmd['revert']['name']    = "python"
+            cmd['revert']['descr']   = f"revert MSS to {str(current_mss)} on loopback interface {addr}"
+            cmd['revert']['params']  = {
+                            'module': 'fwutils',
+                            'func'  : 'vpp_cli_execute',
+                            'args'  : {'cmds':[vpp_revert_cmd]}
+            }
+            cmd_list.append(cmd)
 
     if internal:
         # interface.api.json: sw_interface_add_del_address (..., sw_if_index, is_add, prefix, ...)
