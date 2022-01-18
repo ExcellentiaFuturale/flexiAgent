@@ -217,6 +217,9 @@ def _traffic_to_acl_rules(rules):
             proto = [ fwutils.proto_map['any'] ] if not ports else \
                     [ fwutils.proto_map['udp'] , fwutils.proto_map['tcp'] ]
 
+        serviceClass = ServiceAttrToVal.get(traffic_rule.get('serviceClass', 'default'), 9)
+        importance = ImportanceAttrToVal.get(traffic_rule.get('importance', 'low'), 0)
+
         for p in proto:
             acl_rules.append({
                 'is_permit': 1, 'is_ipv6': 0, 'proto': p,
@@ -225,7 +228,9 @@ def _traffic_to_acl_rules(rules):
                 'src_prefix': '0.0.0.0/0',
                 'dstport_or_icmpcode_first': port_from,
                 'dstport_or_icmpcode_last': port_to,
-                'dst_prefix': ip_prefix
+                'dst_prefix': ip_prefix,
+                'service_class': serviceClass,
+                'importance': importance
             })
             acl_rules.append({
                 'is_permit': 1, 'is_ipv6': 0, 'proto': p,
@@ -234,7 +239,9 @@ def _traffic_to_acl_rules(rules):
                 'src_prefix': ip_prefix,
                 'dstport_or_icmpcode_first': 0,
                 'dstport_or_icmpcode_last': 65535,
-                'dst_prefix': '0.0.0.0/0'
+                'dst_prefix': '0.0.0.0/0',
+                'service_class': serviceClass,
+                'importance': importance
             })
     return acl_rules
 
@@ -279,7 +286,6 @@ def add_multilink_policy(params):
             traffic_category   = app.get('category')
             traffic_class      = app.get('serviceClass')
             traffic_importance = app.get('importance')
-            tag = str(ServiceAttrToVal.get(traffic_class,9)) + ':' + str(ImportanceAttrToVal.get(traffic_importance,0))
 
             traffic_rules = fwglobals.g.traffic_identifications.get_traffic_rules(
                                 traffic_id, traffic_category, traffic_class, traffic_importance)

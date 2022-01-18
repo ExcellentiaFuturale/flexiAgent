@@ -207,6 +207,7 @@ class Fwglobals(FwObject):
             """
             DEFAULT_BYPASS_CERT    = False
             DEFAULT_DEBUG          = False
+            DEFAULT_DISABLE_STUN   = False
             DEFAULT_MANAGEMENT_URL = 'https://manage.flexiwan.com:443'
             DEFAULT_TOKEN_FILE     = data_path + 'token.txt'
             DEFAULT_UUID           = None
@@ -217,6 +218,7 @@ class Fwglobals(FwObject):
                 agent_conf = conf.get('agent', {})
                 self.BYPASS_CERT    = agent_conf.get('bypass_certificate', DEFAULT_BYPASS_CERT)
                 self.DEBUG          = agent_conf.get('debug',  DEFAULT_DEBUG)
+                self.DISABLE_STUN   = agent_conf.get('disable_stun',  DEFAULT_DISABLE_STUN)
                 self.MANAGEMENT_URL = agent_conf.get('server', DEFAULT_MANAGEMENT_URL)
                 self.TOKEN_FILE     = agent_conf.get('token',  DEFAULT_TOKEN_FILE)
                 self.UUID           = agent_conf.get('uuid',   DEFAULT_UUID)
@@ -226,6 +228,7 @@ class Fwglobals(FwObject):
                     log.excep("%s, set defaults" % str(e))
                 self.BYPASS_CERT    = DEFAULT_BYPASS_CERT
                 self.DEBUG          = DEFAULT_DEBUG
+                self.DISABLE_STUN   = DEFAULT_DISABLE_STUN
                 self.MANAGEMENT_URL = DEFAULT_MANAGEMENT_URL
                 self.TOKEN_FILE     = DEFAULT_TOKEN_FILE
                 self.UUID           = DEFAULT_UUID
@@ -332,6 +335,8 @@ class Fwglobals(FwObject):
         self.DUMP_FOLDER                   = '/var/log/flexiwan/fwdump'
         self.DEFAULT_DNS_SERVERS           = ['8.8.8.8', '8.8.4.4']
         self.request_lock                  = threading.RLock()   # lock to syncronize message processing
+        self.handle_request_counter        = 0
+        self.reconnect_agent               = False
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
@@ -406,7 +411,7 @@ class Fwglobals(FwObject):
         self.os_api       = OS_API()
         self.policies     = FwPolicies(self.POLICY_REC_DB_FILE)
         self.wan_monitor  = FwWanMonitor(standalone)
-        self.stun_wrapper = FwStunWrap(standalone)
+        self.stun_wrapper = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
         self.ikev2        = FwIKEv2()
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
@@ -496,7 +501,7 @@ class Fwglobals(FwObject):
         return self.os_api.call_simple(request)
 
     def _call_vpp_api(self, request, result=None):
-        return self.router_api.vpp_api.call_simple(request, result)
+        return self.router_api.vpp_api.call_by_request(request, result)
 
     def _call_python_api(self, request, result=None):
         '''Handle request that describe python function.
@@ -624,10 +629,21 @@ class Fwglobals(FwObject):
             handler_func = getattr(self, handler.get('name'))
 
             with self.request_lock:
-                if result is None:
-                    reply = handler_func(request)
-                else:
-                    reply = handler_func(request, result)
+                self.handle_request_counter += 1
+                try:
+                    if result is None:
+                        reply = handler_func(request)
+                    else:
+                        reply = handler_func(request, result)
+                except Exception as e:
+                    raise e
+                finally:
+                    self.handle_request_counter -= 1
+                    if self.handle_request_counter == 0:
+                        if self.reconnect_agent:
+                            self.fwagent.reconnect()
+                        self.reconnect_agent = False
+
             if reply['ok'] == 0:
                 vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
                 os.system('sudo vppctl api trace save %s' % (vpp_trace_file))

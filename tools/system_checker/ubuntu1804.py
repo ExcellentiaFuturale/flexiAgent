@@ -76,7 +76,7 @@ class Checker(fwsystem_checker_common.Checker):
                 running = True
             return True
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             if not fix:
                 return False
             else:
@@ -112,7 +112,7 @@ class Checker(fwsystem_checker_common.Checker):
                 else:
                     return True
             except Exception as e:
-                print(prompt + str(e))
+                self.log.error(prompt + str(e))
                 if not fix:
                     return False
                 else:
@@ -167,7 +167,7 @@ class Checker(fwsystem_checker_common.Checker):
         #
         if not os.path.isfile(autoupgrade_file):
             if not fix:
-                print(prompt + '%s not found' % autoupgrade_file)
+                self.log.error(prompt + '%s not found' % autoupgrade_file)
                 return False
             else:
                 os.system('touch ' + autoupgrade_file)
@@ -187,7 +187,7 @@ class Checker(fwsystem_checker_common.Checker):
         # Fix parameter if needed
         if not fix:
             for param in params_to_fix:
-                print(prompt + '%s %s' % (param['name'], param['status']))
+                self.log.error(prompt + '%s %s' % (param['name'], param['status']))
             return False
         else:
             succeeded = True
@@ -195,7 +195,7 @@ class Checker(fwsystem_checker_common.Checker):
                 try:
                     _set_autoupgrade_param(param['name'], 0)
                 except Exception as e:
-                    print(prompt + 'failed to disable %s: %s' % (param['name'], str(e)))
+                    self.log.error(prompt + 'failed to disable %s: %s' % (param['name'], str(e)))
                     succeeded = False
             return succeeded
 
@@ -220,13 +220,13 @@ class Checker(fwsystem_checker_common.Checker):
         try:
             out = subprocess.check_output("timedatectl | grep 'Time zone:'", shell=True).decode().strip()
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             return False
         if 'Time zone: Etc/UTC' in out or 'Time zone: UTC' in out:
             return True
 
         if not fix:
-            print(prompt + 'time zone is not UTC: ' + out)
+            self.log.error(prompt + 'time zone is not UTC: ' + out)
             return False
 
         ret = os.system('timedatectl set-timezone UTC')

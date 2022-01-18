@@ -67,6 +67,8 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         parameters received from provider should match these configured in linux
         for the correspondent interface.
         """
+        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+
         while not fwglobals.g.teardown:
             try: # Ensure thread doesn't exit on exception
 
@@ -84,7 +86,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                     if modem_mode == 'resetting' or modem_mode == 'connecting':
                         continue
 
-                    name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True)
+                    name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True, print_log=False)
                     if not name:
                         name = fwutils.dev_id_to_linux_if(dev_id)
 

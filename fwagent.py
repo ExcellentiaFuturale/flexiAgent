@@ -529,6 +529,8 @@ class FwAgent(FwObject):
             del self.pending_msg_replies[:]
 
         def run(*args):
+            self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+
             slept = 0
 
             while self.connected and not fwglobals.g.teardown:
@@ -858,7 +860,7 @@ def show(agent, configuration, database, status):
     if agent:
         out = daemon_rpc('show', what=agent)
         if out:
-            fwglobals.log.info(out, to_syslog=False)
+            print(out)
 
     if database:
         if database == 'router':
@@ -1053,6 +1055,8 @@ class FwagentDaemon(FwObject):
 
         :returns: None.
         """
+        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+
         self.log.info("connection loop was started, use 'fwagent stop' to stop it if needed")
 
         # Register with Manager

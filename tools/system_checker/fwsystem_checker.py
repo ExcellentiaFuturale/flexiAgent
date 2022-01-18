@@ -110,7 +110,7 @@ def checker_name_to_description(checker_name):
     # convert first character to uppercase
     return result_string[0].upper() + result_string[1:]
 
-def report_checker_result(succeeded, severity, description, failure_reason=None):
+def report_checker_result(logger, succeeded, severity, description, failure_reason=None):
     """Report checker results.
 
     :param succeeded:       Success status.
@@ -132,7 +132,7 @@ def report_checker_result(succeeded, severity, description, failure_reason=None)
     result_string = '%s: %s : %s' % (status, severity.upper(), description)
     if failure_reason:
         result_string = result_string + ' : %s' % failure_reason
-    print(result_string)
+    logger.info(result_string)
 
 def check_hard_configuration(checker, check_only):
     """Check hard configuration.
@@ -159,7 +159,7 @@ def check_hard_configuration(checker, check_only):
         result = checker_func(args)
         if not result and severity == 'critical':
             succeeded = False
-        report_checker_result(result, severity, description)
+        report_checker_result(checker.log, result, severity, description)
     return succeeded
 
 def check_soft_configuration(checker, fix=False, quiet=False):
@@ -181,7 +181,7 @@ def check_soft_configuration(checker, fix=False, quiet=False):
             checker_func = getattr(checker, checker_name)
             severity     = checker_params['severity']
             result       = checker_func(fix=False, prompt=prompt)
-            report_checker_result(result, severity, description)
+            report_checker_result(checker.log, result, severity, description)
             go_and_fix = fix
             if go_and_fix:
                 # No need to fix if result is OK.
@@ -221,12 +221,12 @@ def check_soft_configuration(checker, fix=False, quiet=False):
 
             if run_check:
                 result = checker_func(fix=True, silently=quiet, prompt=prompt)
-                report_checker_result(result, severity, description)
+                report_checker_result(checker.log, result, severity, description)
                 if not result and severity == 'critical':
                     succeeded = False
 
         except Exception as e:
-            report_checker_result(None, severity, description, str(e))
+            report_checker_result(checker.log, None, severity, description, str(e))
 
     return succeeded
 
@@ -277,95 +277,91 @@ def main(args):
     module = importlib.import_module(module_name)
     with module.Checker(args.debug) as checker:
 
-        try:
-            fwglobals.log.info("\n=== system checker starts ====")
-            # Check hardware requirements
-            # -----------------------------------------
-            hard_status_code = FW_EXIT_CODE_OK
-            if not args.soft_only:
-                if not args.hard_only:
-                    print('\n=== hard configuration ====')
-                success = check_hard_configuration(checker, args.check_only)
-                hard_status_code = FW_EXIT_CODE_OK if success else FW_EXIT_CODE_ERROR_UNMET_HARDWARE_REQUIREMENTS
-                if args.hard_only:
-                    return hard_status_code
+        # Check hardware requirements
+        # -----------------------------------------
+        hard_status_code = FW_EXIT_CODE_OK
+        if not args.soft_only:
+            if not args.hard_only:
+                print('\n=== hard configuration ====')
+            success = check_hard_configuration(checker, args.check_only)
+            hard_status_code = FW_EXIT_CODE_OK if success else FW_EXIT_CODE_ERROR_UNMET_HARDWARE_REQUIREMENTS
+            if args.hard_only:
+                return hard_status_code
 
-            # Check software and configure it if needed
-            # -----------------------------------------
-            if not (args.hard_only or args.soft_only):
-                print('\n=== soft configuration ====')
-            if args.check_only:
-                success = check_soft_configuration(checker, fix=False)
-                soft_status_code = FW_EXIT_CODE_OK if success else FW_EXIT_CODE_ERROR_UNMET_SYSTEM_REQUIREMENTS
-                if not success:
-                    print('')
-                    print("===================================================================================")
-                    print("! system checker errors, run 'fwsystem_checker' with no flags to fix configuration!")
-                    print("===================================================================================")
-                    print('')
-                return (soft_status_code | hard_status_code)
-
-            if args.quiet:
-                # In silent mode just go and configure needed stuff
-                success = check_soft_configuration(checker, fix=True, quiet=True)
-                soft_status_code = FW_EXIT_CODE_OK if success else FW_EXIT_CODE_ERROR_FAILED_TO_FIX_SYSTEM_CONFIGURATION
-                return  (soft_status_code | hard_status_code)
-
-            # Firstly show to user needed configuration adjustments.
-            # The start interaction with user.
-            check_soft_configuration(checker, fix=False)
-            choice = 'x'
-            while not (choice == '' or choice == '0' or choice == '4'):
-                choice = input(
-                                "\n" +
-                                "\t[0] - quit and use fixed parameters\n" +
-                                "\t 1  - check system configuration\n" +
-                                "\t 2  - configure system silently\n" +
-                                "\t 3  - configure system interactively\n" +
-                                "\t 4  - restore system checker settings to default\n" +
-                                "\t------------------------------------------------\n" +
-                                "Choose: ")
-                if choice == '1':
-                    print('')
-                    success = check_soft_configuration(checker, fix=False)
-                elif choice == '2':
-                    print('')
-                    success = check_soft_configuration(checker, fix=True, quiet=True)
-                elif choice == '3':
-                    print('')
-                    success = check_soft_configuration(checker, fix=True, quiet=False)
-                elif choice == '4':
-                    print ('')
-                    success = reset_system_to_defaults(checker)
-                else:
-                    success = True
-
-            if choice == '0' or choice == '':   # Note we restart daemon and not use 'fwagent restart' as fwsystem_checker might change python code too ;)
-                if success == True:
-                    print ("Please wait..")
-                    os.system("sudo systemctl stop flexiwan-router")
-                    checker.save_config()
-                    if checker.update_grub == True:
-                        rebootSys = 'x'
-                        while not (rebootSys == "n" or rebootSys == 'N' or rebootSys == 'y' or rebootSys == 'Y'):
-                            rebootSys = input("Changes to OS confugration requires system reboot.\n" +
-                                            "Would you like to reboot now (Y/n)?")
-                            if rebootSys == 'y' or rebootSys == 'Y' or rebootSys == '':
-                                print ("Rebooting...")
-                                os.system('reboot now')
-                            else:
-                                print ("Please reboot the system for changes to take effect.")
-
-                    os.system("sudo systemctl start flexiwan-router")
-                    # Wait two seconds for the agent to reload the LTE drivers
-                    time.sleep(2)
-
-                    print ("Done.")
-
-            soft_status_code = FW_EXIT_CODE_OK if success else FW_EXIT_CODE_ERROR_FAILED_TO_FIX_SYSTEM_CONFIGURATION
+        # Check software and configure it if needed
+        # -----------------------------------------
+        if not (args.hard_only or args.soft_only):
+            print('\n=== soft configuration ====')
+        if args.check_only:
+            success = check_soft_configuration(checker, fix=False)
+            soft_status_code = FW_EXIT_CODE_OK if success else FW_EXIT_CODE_ERROR_UNMET_SYSTEM_REQUIREMENTS
+            if not success:
+                print('')
+                print("===================================================================================")
+                print("! system checker errors, run 'fwsystem_checker' with no flags to fix configuration!")
+                print("===================================================================================")
+                print('')
             return (soft_status_code | hard_status_code)
-        finally:
-            fwglobals.log.info("\n=== system checker ended ====")
+
+        if args.quiet:
+            # In silent mode just go and configure needed stuff
+            success = check_soft_configuration(checker, fix=True, quiet=True)
+            soft_status_code = FW_EXIT_CODE_OK if success else FW_EXIT_CODE_ERROR_FAILED_TO_FIX_SYSTEM_CONFIGURATION
+            return  (soft_status_code | hard_status_code)
+
+        # Firstly show to user needed configuration adjustments.
+        # The start interaction with user.
+        check_soft_configuration(checker, fix=False)
+        choice = 'x'
+        while not (choice == '' or choice == '0' or choice == '4'):
+            choice = input(
+                            "\n" +
+                            "\t[0] - quit and use fixed parameters\n" +
+                            "\t 1  - check system configuration\n" +
+                            "\t 2  - configure system silently\n" +
+                            "\t 3  - configure system interactively\n" +
+                            "\t 4  - restore system checker settings to default\n" +
+                            "\t------------------------------------------------\n" +
+                            "Choose: ")
+            if choice == '1':
+                print('')
+                success = check_soft_configuration(checker, fix=False)
+            elif choice == '2':
+                print('')
+                success = check_soft_configuration(checker, fix=True, quiet=True)
+            elif choice == '3':
+                print('')
+                success = check_soft_configuration(checker, fix=True, quiet=False)
+            elif choice == '4':
+                print ('')
+                success = reset_system_to_defaults(checker)
+            else:
+                success = True
+
+        if choice == '0' or choice == '':   # Note we restart daemon and not use 'fwagent restart' as fwsystem_checker might change python code too ;)
+            if success == True:
+                print ("Please wait..")
+                os.system("sudo systemctl stop flexiwan-router")
+                checker.save_config()
+                if checker.update_grub == True:
+                    rebootSys = 'x'
+                    while not (rebootSys == "n" or rebootSys == 'N' or rebootSys == 'y' or rebootSys == 'Y'):
+                        rebootSys = input("Changes to OS confugration requires system reboot.\n" +
+                                        "Would you like to reboot now (Y/n)?")
+                        if rebootSys == 'y' or rebootSys == 'Y' or rebootSys == '':
+                            print ("Rebooting...")
+                            os.system('reboot now')
+                        else:
+                            print ("Please reboot the system for changes to take effect.")
+
+                os.system("sudo systemctl start flexiwan-router")
+                # Wait two seconds for the agent to reload the LTE drivers
+                time.sleep(2)
+
+                print ("Done.")
+
+        soft_status_code = FW_EXIT_CODE_OK if success else FW_EXIT_CODE_ERROR_FAILED_TO_FIX_SYSTEM_CONFIGURATION
+        return (soft_status_code | hard_status_code)
 
 if __name__ == '__main__':
     import argparse

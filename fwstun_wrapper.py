@@ -336,6 +336,8 @@ class FwStunWrap(FwObject):
         Its function is to send STUN requests for address:4789 in a timely manner
         according to some algorithm-based calculations.
         """
+        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+
         slept = 1
         reset_all_timeout = 10 * 60
         update_cache_from_os_timeout = 2 * 60
@@ -576,12 +578,12 @@ class FwStunWrap(FwObject):
             if stats and stats.get('status') == 'down':
                 vni = self._get_vni(tunnel_id, encryption_mode)
                 if vni in probe_tunnels:
-                    if tunnel['dst'] != probe_tunnels[vni]["dst"] or tunnel['dstPort'] != probe_tunnels[vni]["dstPort"]:
+                    if tunnel['dst'] != probe_tunnels[vni]["dst"] or tunnel['dstPort'] != str(probe_tunnels[vni]["dstPort"]):
                         self.log.debug("Remove tunnel: %s" %(tunnel))
                         fwglobals.g.handle_request({'message':'remove-tunnel', "params": tunnel})
 
                         tunnel['dst'] = probe_tunnels[vni]["dst"]
-                        tunnel['dstPort'] = probe_tunnels[vni]["dstPort"]
+                        tunnel['dstPort'] = str(probe_tunnels[vni]["dstPort"])
                         self.log.debug("Add tunnel: %s" %(tunnel))
                         fwglobals.g.handle_request({'message':'add-tunnel', "params": tunnel})
 

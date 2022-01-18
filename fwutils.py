@@ -19,9 +19,9 @@
 ################################################################################
 
 import copy
+import ctypes
 import binascii
 import datetime
-import enum
 import glob
 import hashlib
 import inspect
@@ -33,21 +33,19 @@ import platform
 import subprocess
 import psutil
 import socket
-import threading
 import re
 import fwglobals
-import fwikev2
 import fwnetplan
 import fwstats
-import fwtunnel_stats
 import shutil
 import sys
 import traceback
 import yaml
 from netaddr import IPNetwork, IPAddress
-import threading
 import serial
 import ipaddress
+import zlib
+import base64
 from tools.common.fw_vpp_startupconf import FwStartupConf
 
 from fwrouter_cfg   import FwRouterCfg
@@ -58,6 +56,8 @@ from fwwan_monitor  import get_wan_failover_metric
 from fwikev2        import FwIKEv2
 from fw_traffic_identification import FwTrafficIdentifications
 import fwtranslate_add_switch
+
+libc = None
 
 proto_map = {'any': 0, 'icmp': 1, 'tcp': 6, 'udp': 17}
 
@@ -831,7 +831,7 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
     # with the tap1 interface. This is done as follows:
     # Then we can substr the dev_name and get back the linux interface name. Then we can get the dev_id of this interface.
     #
-    taps = fwglobals.g.router_api.vpp_api.vpp.api.sw_interface_tap_v2_dump()
+    taps = fwglobals.g.router_api.vpp_api.call('sw_interface_tap_v2_dump')
     for tap in taps:
         vpp_tap = tap.dev_name                      # fetch tap0
         linux_tap = tap.host_if_name                # fetch tap_wwan0
@@ -866,7 +866,7 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
             fwglobals.g.cache.dev_id_to_vpp_if_name[full_addr] = v
             fwglobals.g.cache.vpp_if_name_to_dev_id[v] = full_addr
 
-    vmxnet3hw = fwglobals.g.router_api.vpp_api.vpp.api.vmxnet3_dump()
+    vmxnet3hw = fwglobals.g.router_api.vpp_api.call('vmxnet3_dump')
     for hw_if in vmxnet3hw:
         vpp_if_name = hw_if.if_name.rstrip(' \t\r\n\0')
         pci_addr = 'pci:%s' % pci_bytes_to_str(hw_if.pci_addr)
@@ -943,7 +943,7 @@ def dev_id_to_vpp_sw_if_index(dev_id):
     if vpp_if_name is None:
         return None
 
-    sw_ifs = fwglobals.g.router_api.vpp_api.vpp.api.sw_interface_dump()
+    sw_ifs = fwglobals.g.router_api.vpp_api.call('sw_interface_dump')
     for sw_if in sw_ifs:
         if re.match(vpp_if_name, sw_if.interface_name):    # Use regex, as sw_if.interface_name might include trailing whitespaces
             return sw_if.sw_if_index
@@ -963,7 +963,7 @@ def bridge_addr_to_bvi_interface_tap(bridge_addr):
         fwglobals.log.error('bridge_addr_to_bvi_interface_tap: failed to fetch bridge id for address: %s' % str(bridge_addr))
         return None
 
-    vpp_bridges_det = fwglobals.g.router_api.vpp_api.vpp.api.bridge_domain_dump(bd_id=bd_id)
+    vpp_bridges_det = fwglobals.g.router_api.vpp_api.call('bridge_domain_dump', bd_id=bd_id)
     if not vpp_bridges_det:
         fwglobals.log.error('bridge_addr_to_bvi_interface_tap: failed to fetch vpp bridges for bd_id %s' % str(bd_id))
         return None
@@ -979,7 +979,7 @@ def bridge_addr_to_bvi_interface_tap(bridge_addr):
 #   root@ubuntu-server-1:/# vppctl sh tap-inject
 #       GigabitEthernet0/8/0 -> vpp0
 #       GigabitEthernet0/9/0 -> vpp1
-def dev_id_to_tap(dev_id, check_vpp_state=False):
+def dev_id_to_tap(dev_id, check_vpp_state=False, print_log=True):
     """Convert Bus address into TAP name.
 
     :param dev_id:          Bus address.
@@ -992,8 +992,9 @@ def dev_id_to_tap(dev_id, check_vpp_state=False):
         is_assigned = is_interface_assigned_to_vpp(dev_id_full)
         vpp_runs    = vpp_does_run()
         if not (is_assigned and vpp_runs):
-            fwglobals.log.debug('dev_id_to_tap(%s): is_assigned=%s, vpp_runs=%s' %
-                (dev_id, str(is_assigned), str(vpp_runs)))
+            if print_log:
+                fwglobals.log.debug('dev_id_to_tap(%s): is_assigned=%s, vpp_runs=%s' %
+                    (dev_id, str(is_assigned), str(vpp_runs)))
             return None
 
     cache = fwglobals.g.cache.dev_id_to_vpp_tap_name
@@ -1062,9 +1063,9 @@ def tunnel_to_tap(params):
 def vpp_enable_tap_inject():
     """Enable tap-inject plugin
      """
-    vppctl_cmd = "enable tap-inject"
-    fwglobals.log.debug("vppctl " + vppctl_cmd)
-    subprocess.check_call("vppctl %s" % vppctl_cmd, shell=True)
+    out = _vppctl_read("enable tap-inject").strip()
+    if out == None:
+        return (False, "'vppctl enable tap-inject' failed")
 
     if not vpp_does_run():
         return (False, "VPP is not running")
@@ -1238,16 +1239,6 @@ def vpp_tap_connect(linux_tap_if_name):
     fwglobals.log.debug("vppctl " + vppctl_cmd)
     subprocess.check_call("sudo vppctl %s" % vppctl_cmd, shell=True)
 
-def vpp_add_static_arp(dev_id, gw, mac):
-    try:
-        vpp_if_name = dev_id_to_vpp_if_name(dev_id)
-        vppctl_cmd = "set ip neighbor static %s %s %s" % (vpp_if_name, gw, mac)
-        fwglobals.log.debug("vppctl " + vppctl_cmd)
-        subprocess.check_call("sudo vppctl %s" % vppctl_cmd, shell=True)
-        return (True, None)
-    except Exception as e:
-        return (False, "Failed to add static arp in vpp for dev_id: %s\nOutput: %s" % (dev_id, str(e)))
-
 def vpp_sw_if_index_to_name(sw_if_index):
     """Convert VPP sw_if_index into VPP interface name.
 
@@ -1263,7 +1254,7 @@ def vpp_sw_if_index_to_name(sw_if_index):
 
     # Now go to the heavy route.
     #
-    sw_interfaces = fwglobals.g.router_api.vpp_api.vpp.api.sw_interface_dump(sw_if_index=sw_if_index)
+    sw_interfaces = fwglobals.g.router_api.vpp_api.call('sw_interface_dump', sw_if_index=sw_if_index)
     if not sw_interfaces:
         fwglobals.log.debug(f"vpp_sw_if_index_to_name({sw_if_index}): not found")
         return None
@@ -1311,7 +1302,7 @@ def vpp_get_interface_status(sw_if_index):
     status = 'down'
 
     try:
-        interfaces = fwglobals.g.router_api.vpp_api.vpp.api.sw_interface_dump(sw_if_index=sw_if_index)
+        interfaces = fwglobals.g.router_api.vpp_api.call('sw_interface_dump', sw_if_index=sw_if_index)
         if len(interfaces) == 1:
             flags = interfaces[0].flags
             # flags are equal to IF_STATUS_API_FLAG_LINK_UP|IF_STATUS_API_FLAG_ADMIN_UP when interface is up
@@ -1330,6 +1321,15 @@ def _vppctl_read(cmd, wait=True):
 
     :returns: Output returned bu vppctl.
     """
+
+    # Give one optimistic shot before going into cycles
+    try:
+        output = subprocess.check_output("vppctl " + cmd, shell=True).decode()
+        return output
+    except Exception as e:
+        fwglobals.log.debug(f"'vppctl {cmd}' failed: {str(e)}, start retrials")
+        pass
+
     retries = 200
     retries_sleep = 1
     if wait == False:
@@ -1484,8 +1484,11 @@ def reset_router_api_db(enforce=False):
     if not 'sw_if_index_to_vpp_if_name' in router_api_db or enforce:
         router_api_db['sw_if_index_to_vpp_if_name'] = {}
     if not 'vpp_if_name_to_sw_if_index' in router_api_db or enforce:
-        router_api_db['vpp_if_name_to_sw_if_index'] = {
-            'tunnel': {}, 'peer-tunnel': {}, 'lan': {}, 'wan': {} }
+        router_api_db['vpp_if_name_to_sw_if_index'] = {}
+    vpp_if_name_to_sw_if_index_keys = ['tunnel', 'peer-tunnel', 'lan', 'switch-lan', 'wan', 'switch']
+    for key in vpp_if_name_to_sw_if_index_keys:
+        if not key in router_api_db['vpp_if_name_to_sw_if_index'] or enforce:
+            router_api_db['vpp_if_name_to_sw_if_index'][key] = {}
     if not 'vpp_if_name_to_tap_if_name' in router_api_db or enforce:
         router_api_db['vpp_if_name_to_tap_if_name'] = {}
     if not 'sw_if_index_to_tap_if_name' in router_api_db or enforce:
@@ -2159,13 +2162,14 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
     """
     op = 'add' if add else 'del'
 
+    bvi_vpp_name_list      = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['switch'].keys())
     lan_vpp_name_list      = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['lan'].keys())
     loopback_vpp_name_list = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['tunnel'].keys())
-    interfaces = lan_vpp_name_list + loopback_vpp_name_list
+    vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list
 
     if not add:
-        for if_vpp_name in interfaces:
-            vppctl_cmd = 'fwabf attach ip4 del policy %d priority %d %s' % (int(policy_id), priority, if_vpp_name)
+        for vpp_if_name in vpp_if_names:
+            vppctl_cmd = 'fwabf attach ip4 del policy %d priority %d %s' % (int(policy_id), priority, vpp_if_name)
             vpp_cli_execute([vppctl_cmd])
         fwglobals.g.policies.remove_policy(policy_id)
 
@@ -2197,8 +2201,8 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
 
     if add:
         fwglobals.g.policies.add_policy(policy_id, priority)
-        for if_vpp_name in interfaces:
-            vppctl_cmd = 'fwabf attach ip4 add policy %d priority %d %s' % (int(policy_id), priority, if_vpp_name)
+        for vpp_if_name in vpp_if_names:
+            vppctl_cmd = 'fwabf attach ip4 add policy %d priority %d %s' % (int(policy_id), priority, vpp_if_name)
             vpp_cli_execute([vppctl_cmd])
 
     return (True, None)
@@ -2416,6 +2420,24 @@ def fix_received_message(msg):
             return msg
         return msg
 
+    def _fix_application(msg):
+
+        def _fix_application_compression(params):
+            # Check if applications are compressed - type is string. If yes, decompress first
+            if (isinstance(params['applications'], str)):
+                params['applications'] = decompress_params(params['applications'])
+
+        if msg['message'] == 'add-application':
+            _fix_application_compression(msg['params'])
+            return msg
+        if re.match('aggregated|sync-device', msg['message']):
+            for request in msg['params']['requests']:
+                if request['message'] == 'add-application':
+                    _fix_application_compression(request['params'])
+            return msg
+
+        return msg
+
     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     # Order of functions is important, as the first one (_fix_aggregation_format())
     # creates clone of the received message, so the rest functions can simply
@@ -2423,8 +2445,18 @@ def fix_received_message(msg):
     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     msg = _fix_aggregation_format(msg)
     msg = _fix_dhcp(msg)
+    msg = _fix_application(msg)
     return msg
 
+def decompress_params(params):
+    """ Decompress parmas from base64 to object
+
+    :param params: base64 params
+
+    :return: object after decompression
+
+    """
+    return json.loads(zlib.decompress(base64.b64decode(params)))
 
 def wifi_get_available_networks(dev_id):
     """Get WIFI available access points.
@@ -2791,7 +2823,7 @@ def configure_lte_interface(params):
             for r in routes:
                 os.system('ip route del %s' % r)
         # set updated default route
-        os.system('route add -net 0.0.0.0 gw %s metric %s' % (gateway, metric))
+        os.system(f"ip route add default via {gateway} proto static metric {metric}")
 
         # configure dns servers for the interface.
         # If the LTE interface is configured in netplan, the user must set the dns servers manually in netplan.
@@ -2927,7 +2959,7 @@ def lte_get_phone_number(dev_id):
             return line.split(':')[-1].strip().replace("'", '')
     return ''
 
-def get_at_port(dev_id):
+def lte_get_at_port(dev_id):
     at_ports = []
     try:
         _, addr = dev_id_parse(dev_id)
@@ -2959,52 +2991,6 @@ def get_at_port(dev_id):
         return at_ports
     except:
         return at_ports
-
-def lte_set_modem_to_mbim(dev_id):
-    try:
-        if_name = dev_id_to_linux_if(dev_id)
-        lte_driver = get_interface_driver(if_name)
-        if lte_driver == 'cdc_mbim':
-            return (True, None)
-
-        hardware_info, err = lte_get_hardware_info(dev_id)
-        if err:
-            raise Exception(str(err))
-
-        vendor = hardware_info['Vendor']
-        model =  hardware_info['Model']
-
-        at_commands = []
-        if 'Quectel' in vendor or re.match('Quectel', model, re.IGNORECASE): # Special fix for Quectel ec25 mini pci card
-            print('Please wait...')
-            at_commands = ['AT+QCFG="usbnet",2', 'AT+QPOWD=0']
-            at_serial_port = get_at_port(dev_id)
-            if at_serial_port and len(at_serial_port) > 0:
-                ser = serial.Serial(at_serial_port[0])
-                for at in at_commands:
-                    at_cmd = bytes(at + '\r', 'utf-8')
-                    ser.write(at_cmd)
-                    time.sleep(0.5)
-                ser.close()
-                time.sleep(10) # reset modem might take few seconds
-                os.system('modprobe cdc_mbim') # sometimes driver doesn't regirsted to the device after reset
-                return (True, None)
-            return (False, 'AT port not found. dev_id: %s' % dev_id)
-        elif 'Sierra Wireless' in vendor:
-            print('Please wait...')
-            _run_qmicli_command(dev_id, 'dms-swi-set-usb-composition=8')
-            _run_qmicli_command(dev_id, 'dms-set-operating-mode=offline')
-            _run_qmicli_command(dev_id, 'dms-set-operating-mode=reset')
-            time.sleep(10)  # reset modem might take few seconds
-            os.system('modprobe cdc_mbim') # sometimes driver doesn't regirsted to the device after reset
-            return (True, None)
-        else:
-            print("Your card is not officially supported. It might work, But you have to switch manually to the MBIM modem")
-            return (False, 'vendor or model are not supported. (vendor: %s, model: %s)' % (vendor, model))
-    except Exception as e:
-        # Modem cards sometimes get stuck and recover only after disconnecting the router from the power supply
-        print("Failed to switch modem to MBIM. You can unplug the router, wait a few seconds and try again. (%s)" % str(e))
-        return (False, str(e))
 
 
 def lte_get_default_settings(dev_id):
@@ -3177,26 +3163,65 @@ def mbim_registration_state(dev_id):
             break
     return res
 
-def reset_modem(dev_id):
+def lte_reset_modem(dev_id):
+
+    def _wait_for_interface_to_be_restored(if_name):
+        retries = 30
+        for _ in range(retries):
+            try:
+                output = subprocess.check_output("sudo ls -l /sys/class/net/ | grep -v tap_ | grep " + if_name, shell=True).decode()
+                if output:
+                    return True
+            except:
+                pass
+
+            time.sleep(1)
+
+        return False
+
+    def _wait_for_interface_to_be_removed(if_name):
+        retries = 30
+        for _ in range(retries):
+            try:
+                # if vpp runs, we have the tap_wwan0 interfae, so we filter it out to make sure that LTE pyshical interface does not exists
+                output = subprocess.check_output("sudo ls -l /sys/class/net/ | grep -v tap_ | grep " + if_name, shell=True).decode()
+            except:
+                return True
+
+            time.sleep(1)
+
+        return False
+
     set_lte_cache(dev_id, 'state', 'resetting')
     try:
+        # If the modem switched between QMI and MBIM modes, the dev_id might change.
+        # Hence, we check the reset by interface name, which is a consistent name in both modes.
+        lte_if_name = dev_id_to_linux_if(dev_id)
+
         fwglobals.log.debug('reset_modem: reset starting')
 
         _run_qmicli_command(dev_id,'dms-set-operating-mode=offline')
         _run_qmicli_command(dev_id,'dms-set-operating-mode=reset')
-        time.sleep(10) # reset operation might take few seconds
+
+        # After resetting, the modem should be deleted from Linux and then back up.
+        # We verify these two steps to make sure the reset process is completed successfully
+        ifc_removed = _wait_for_interface_to_be_removed(lte_if_name)
+        if not ifc_removed:
+            raise Exception('the modem exists after reset. it was expected to be temporarily removed')
+        ifc_restored = _wait_for_interface_to_be_restored(lte_if_name)
+        if not ifc_restored:
+            raise Exception('The modem has not recovered from the reset')
+
         _run_qmicli_command(dev_id,'dms-set-operating-mode=online')
 
-        # To reapply set-name for LTE interface we have to call netplan apply here
+        # To re-apply set-name for LTE interface we have to call netplan apply here
         netplan_apply("reset_modem")
 
         fwglobals.log.debug('reset_modem: reset finished')
-    except Exception:
-        pass
-
-    set_lte_cache(dev_id, 'state', '')
-    # clear wrong PIN cache on reset
-    set_lte_db_entry(dev_id, 'wrong_pin', None)
+    finally:
+        set_lte_cache(dev_id, 'state', '')
+        # clear wrong PIN cache on reset
+        set_lte_db_entry(dev_id, 'wrong_pin', None)
 
 def lte_connect(params):
     dev_id = params['dev_id']
@@ -3671,9 +3696,9 @@ def frr_setup_config():
     # Setup basics on frr.conf.
     frr_commands = [
         "password zebra",
-        "log file /var/log/frr/ospfd.log informational",
-        "log stdout",
-        "log syslog informational"
+        f"log file {fwglobals.g.OSPF_LOG_FILE} notifications",
+        "log stdout notifications",
+        "log syslog notifications"
     ]
 
     # Setup route redistribution, so the static routes configured by 'add-route'
@@ -3716,14 +3741,6 @@ def netplan_apply(caller_name=None):
     :param data:    the data to write into file
     '''
     try:
-        # Before netplan apply go and note the default route.
-        # If it will be changed as a result of netplan apply, we return True.
-        #
-        if fwglobals.g.fwagent:
-            (_, _, dr_dev_id_before, _) = get_default_route()
-
-        # Now go and apply the netplan
-        #
         cmd = 'netplan apply'
         log_str = caller_name + ': ' + cmd if caller_name else cmd
         fwglobals.log.debug(log_str)
@@ -3738,14 +3755,20 @@ def netplan_apply(caller_name=None):
         # IPv6 might be renable if interface name is changed using set-name
         disable_ipv6()
 
-        # Find out if the default route was changed. If it was - reconnect agent.
+        # Reconnect agent.
+        # We need it, as if WAN interface uses DHCP, the 'netplan apply' will
+        # renew IP. That causes WebSocket connection to flexiManage to hang,
+        # when no exception is thrown by the websocket module, but no more
+        # messages can be received on the connection.
+        # In this situation to avoid reconnect on no request timeout we do it
+        # proactively here.
+        # Note, to avoid multiple reconnects during router starting, modifying
+        # or stopping we check the fwglobals.g.handle_request_counter.
         #
         if fwglobals.g.fwagent:
-            (_, _, dr_dev_id_after, _) = get_default_route()
-            if dr_dev_id_before != dr_dev_id_after:
-                fwglobals.log.debug(
-                    "%s: netplan_apply: default route changed (%s->%s) - reconnect" % \
-                    (caller_name, dr_dev_id_before, dr_dev_id_after))
+            if fwglobals.g.handle_request_counter > 0:
+                fwglobals.g.reconnect_agent = True
+            else:
                 fwglobals.g.fwagent.reconnect()
 
     except Exception as e:
@@ -3764,11 +3787,16 @@ def compare_request_params(params1, params2):
         Note! The normalization is done for top level keys only!
     """
     if not params1 or not params2:
+        fwglobals.log.debug("compare_request_params: either params1 or params2 is None/''/[]")
         return False
     if type(params1) != type(params2):
+        fwglobals.log.debug(f"compare_request_params: type(params1)={str(type(params1))} != type(params2)={str(type(params2))}")
         return False
     if type(params1) != dict:
-        return (params1 == params2)
+        same = (params1 == params2)
+        if not same:
+            fwglobals.log.debug(f"compare_request_params: params1 != params2: param1={format(params1)}, params2={format(params2)}")
+        return same
 
     set_keys1   = set(params1.keys())
     set_keys2   = set(params2.keys())
@@ -3779,11 +3807,13 @@ def compare_request_params(params1, params2):
     for key in keys1_only:
         if type(params1[key]) == bool or params1[key]:
             # params1 has non-empty string/value that does not present in params2
+            fwglobals.log.debug(f"compare_request_params: params1[{key}] does not present in params2")
             return False
 
     for key in keys2_only:
         if type(params2[key]) == bool or params2[key]:
             # params2 has non-empty string/value that does not present in params1
+            fwglobals.log.debug(f"compare_request_params: params2[{key}] does not present in params1")
             return False
 
     for key in keys_common:
@@ -3796,16 +3826,19 @@ def compare_request_params(params1, params2):
         if val1 and val2:
             if (type(val1) == str) and (type(val2) == str):
                 if val1.lower() != val2.lower():
+                    fwglobals.log.debug(f"compare_request_params: '{key}': '{val1}' != '{val2}'")
                     return False    # Strings are not equal
             elif type(val1) != type(val2):
+                fwglobals.log.debug(f"compare_request_params: '{key}': {str(type(val1))} != {str(type(val2))}")
                 return False        # Types are not equal
             elif val1 != val2:
+                fwglobals.log.debug(f"compare_request_params: '{key}': '{format(val1)}' != '{format(val2)}'")
                 return False        # Values are not equal
 
-        # If False booleans or
-        # if one of values not exists or empty string
+        # If False booleans or if one of values not exists or empty string.
         #
         elif (val1 and not val2) or (not val1 and val2):
+            fwglobals.log.debug(f"compare_request_params: '{key}': '{format(val1)}' != '{format(val2)}'")
             return False
 
     return True
@@ -4480,3 +4513,40 @@ def restart_service(service, timeout=0):
 
     fwglobals.log.error(f'restart_service({service}): failed on timeout ({timeout} seconds)')
     return (False, "Service is not running")
+
+def load_linux_module(module):
+    '''
+    Sometimes, due to a problem in the machine boot process, some of the modules do not load properly for the first time.
+    The 'modprobe' command falls with the error "Key was rejected by service".
+    Surprisingly, when you run this command several times - in about 85% of the problems it is solved.
+    So this function is a workaround to this problem but doesn't solve the root cause of the problem that is not up to us.
+    '''
+    tries = 5
+    err = None
+    for _ in range(tries):
+        try:
+            subprocess.check_call(f'modprobe {module}', shell=True)
+            return (True, None)
+        except Exception as e:
+            err = str(e)
+            time.sleep(0.5)
+            pass
+    return (False, err)
+
+def load_linux_modules(modules):
+    for module in modules:
+        _, err = load_linux_module(module)
+        if err:
+            return (False, err)
+    return (True, None)
+
+def get_thread_tid():
+    '''Returns OS thread id'''
+    try:
+        global libc
+        if not libc:
+            libc = ctypes.cdll.LoadLibrary('libc.so.6')
+        tid = str(libc.syscall(186)) # gettid defined in /usr/include/x86_64-linux-gnu/asm/unistd_64.h
+    except Exception as e:
+        tid = f'<str({e})>'
+    return tid

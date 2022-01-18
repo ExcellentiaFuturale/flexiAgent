@@ -32,6 +32,8 @@ import uuid
 import yaml
 import shutil
 import stat
+import serial
+import time
 
 common_tools = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , 'common')
 sys.path.append(common_tools)
@@ -40,6 +42,7 @@ from fw_vpp_startupconf import FwStartupConf
 globals = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , '..')
 sys.path.append(globals)
 import fwglobals
+import fwlog
 import fwutils
 import fwnetplan
 from fw_vpp_coredump_utils import FW_VPP_COREDUMP_FOLDER, FW_VPP_COREDUMP_PERMISSIONS
@@ -80,9 +83,12 @@ class Checker:
         """
         fwglobals.initialize(quiet=True)
 
+        self.log = fwlog.FwLogFile(fwglobals.g.SYSTEM_CHECKER_LOG_FILE, level=fwlog.FWLOG_LEVEL_DEBUG)
+        self.log.set_target(to_terminal=True)
+
         self.CFG_VPP_CONF_FILE      = fwglobals.g.VPP_CONFIG_FILE
         self.CFG_FWAGENT_CONF_FILE  = fwglobals.g.FWAGENT_CONF_FILE
-        self.debug                  = debug   # Don't use fwglobals.g.cfg.DEBUG to prevent temporary checker files even DEBUG is enabled globally
+        self.debug                  = debug   # Don't use fwglobals.g.cfg.jmDEBUG to prevent temporary checker files even DEBUG is enabled globally
         self.wan_interfaces         = None
         self.nameservers            = None
         self.detected_nics          = None
@@ -103,6 +109,7 @@ class Checker:
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE, fwglobals.g.VPP_CONFIG_FILE_BACKUP)
 
     def __enter__(self):
+        self.log.info("=== system checker starts ====")
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -112,6 +119,7 @@ class Checker:
         # arguments will be `None`.
         if self.vpp_config_modified:
             self.vpp_startup_conf.dump(self.vpp_configuration, self.CFG_VPP_CONF_FILE)
+        self.log.info("=== system checker ended ====")
 
     def hard_check_sse42(self, supported):
         """Check SSE 4.2 support.
@@ -204,7 +212,7 @@ class Checker:
         for mod in modules:
             ret = os.system('modinfo %s > /dev/null 2>&1' %  mod)
             if ret:
-                print(mod + ' not found')
+                self.log.error(mod + ' not found')
                 succeeded = False
         return succeeded
 
@@ -236,8 +244,8 @@ class Checker:
                         continue
                     match = re.search('([^ ]+) .*\\[02..\\]: ([^ ]+)', params[0])
                     if not match:
-                        print("device: %s" % (str(device)))
-                        print("params[0]: %s" % (str(params[0])))
+                        self.log.excep("device: %s" % (str(device)))
+                        self.log.excep("params[0]: %s" % (str(params[0])))
                         raise Exception("not supported format of 'lspci -vnn' output")
                     pci          = match.group(1)
                     manufacturer = match.group(2)
@@ -259,7 +267,7 @@ class Checker:
                         'driver' : driver,
                         'supported' : supported }
             except Exception as e:
-                print(str(e))
+                self.log.error(str(e))
                 return False
 
         # Now go over found network cards and ensure that they are supported
@@ -267,7 +275,7 @@ class Checker:
         for pci in self.detected_nics:
             device = self.detected_nics[pci]
             if not device['supported']:
-                print('%s %s driver is not supported' % (device['manufacturer'], device['driver']))
+                self.log.error('%s %s driver is not supported' % (device['manufacturer'], device['driver']))
                 succeeded = False
         return succeeded
 
@@ -297,7 +305,7 @@ class Checker:
             return True
 
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
 
             # Check if fwagent configuration file has the simulated uuid
             with open(self.CFG_FWAGENT_CONF_FILE, 'r') as f:
@@ -305,7 +313,7 @@ class Checker:
                 if conf.get('agent') and conf['agent'].get('uuid'):
                     return True
 
-            print(prompt + "UUID was found neither in system nor in %s" % self.CFG_FWAGENT_CONF_FILE)
+            self.log.warning(prompt + "UUID was found neither in system nor in %s" % self.CFG_FWAGENT_CONF_FILE)
             if not fix:
                 return False
 
@@ -343,7 +351,7 @@ class Checker:
             # Find all default routes and ensure that configured interface has WAN connectivity
             default_routes = subprocess.check_output('ip route | grep default', shell=True).decode().strip().split('\n')
             if len(default_routes) == 0:
-                print(prompt + "no default route was found")
+                self.log.error(prompt + "no default route was found")
                 return False
             for route in default_routes:
                 # The 'route' should be in 'default via 192.168.1.1 dev enp0s3 proto static' format
@@ -351,10 +359,10 @@ class Checker:
                 iface_name = route.split(' ')[4]
                 if iface_name in self.wan_interfaces:
                     return True
-            print(prompt + "default route has no WAN connectivity")
+            self.log.error(prompt + "default route has no WAN connectivity")
             return False
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             return False
 
     def soft_check_default_route(self, fix=False, silently=False, prompt=''):
@@ -373,7 +381,7 @@ class Checker:
                 raise Exception("no default route was found")
             return True
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             if not fix:
                 return False
             else:
@@ -385,7 +393,7 @@ class Checker:
                         out = subprocess.check_output('ip route add default via %s' % ip, shell=True).decode().strip()
                         return True
                     except Exception as e:
-                        print(prompt + str(e))
+                        self.log.error(prompt + str(e))
                         while True:
                             choice = input(prompt + "repeat? [Y/n]: ")
                             if choice == 'y' or choice == 'Y' or choice == '':
@@ -428,7 +436,7 @@ class Checker:
         return gws
 
     def _add_netplan_interface(self, fname, dev, metric):
-        print("%s is assigned metric %u" % (dev, metric))
+        self.log.debug("%s is assigned metric %u" % (dev, metric))
         with open(fname, 'r') as stream:
             config = yaml.safe_load(stream)
             network = config['network']
@@ -500,13 +508,13 @@ class Checker:
             try:
                 self._check_duplicate_netplan_sections()
             except:
-                print("Please fix duplicate netplan sections first")
+                self.log.error("Please fix duplicate netplan sections first")
                 return False
             duplicates = self._get_duplicate_interface_definitions()
             if duplicates:
-                print("Please fix duplicate interface definition in netplan first")
+                self.log.error("Please fix duplicate interface definition in netplan first")
                 return False
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             if not fix:
                 return False
             else:
@@ -515,19 +523,19 @@ class Checker:
                     return self._fix_duplicate_metric(gws[0])
                 while True:
                     try:
-                        print("\nGateways to choose from:")
+                        self.log.debug("\nGateways to choose from:")
                         gws = self._get_gateways()
                         id = 1
                         for gw in gws:
-                            print("         %u  - %s" % (id, gw))
+                            self.log.debug("         %u  - %s" % (id, gw))
                             id += 1
                         id = int(input(prompt + "please choose the gw number: "))
                         if id > len(gws):
-                            print("Wrong number chosen!")
+                            self.log.error("Wrong number chosen!")
                             return False
                         return self._fix_duplicate_metric(gws[id-1])
                     except Exception as e:
-                        print(prompt + str(e))
+                        self.log.error(prompt + str(e))
                         while True:
                             choice = input(prompt + "repeat? [Y/n]: ")
                             if choice == 'y' or choice == 'Y' or choice == '':
@@ -583,7 +591,7 @@ class Checker:
             self._check_duplicate_netplan_sections()
             return True
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             return False
         return True
 
@@ -607,7 +615,7 @@ class Checker:
                 raise Exception(message)
             return True
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             return False
         return True
 
@@ -635,7 +643,7 @@ class Checker:
                 raise Exception("hostname '%s' does not comply standard" % hostname)
             result = True
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             hostname = ''
             result = False
 
@@ -647,13 +655,13 @@ class Checker:
             new_hostname = input(prompt + "enter hostname: ")
             if re.match(pattern, new_hostname):
                 break
-            print(prompt + "hostname '%s' does not comply standard (%s)" % (new_hostname, pattern))
+            self.log.error(prompt + "hostname '%s' does not comply standard (%s)" % (new_hostname, pattern))
 
         # Write it into /etc/hostname
         hostname_filename = '/etc/hostname'
         ret = os.system('printf "%s\n" > %s' % (new_hostname, hostname_filename))
         if ret != 0:
-            print(prompt + "failed to write '%s' into %s" % (new_hostname, hostname_filename))
+            self.log.error(prompt + "failed to write '%s' into %s" % (new_hostname, hostname_filename))
             return False
 
         # On Ubuntu 18.04 server we should ensure 'preserve_hostname: true'
@@ -662,10 +670,10 @@ class Checker:
         if os.path.isfile(cloud_cfg_filename):
             ret = os.system('sed -i -E "s/(^[ ]*)preserve_hostname:.*/\\1preserve_hostname: true/" %s' % cloud_cfg_filename)
             if ret != 0:
-                print(prompt + 'failed to modify %s' % cloud_cfg_filename)
+                self.log.error(prompt + 'failed to modify %s' % cloud_cfg_filename)
                 return False
 
-        print(prompt + "please reboot upon configuration completion")
+        self.log.debug(prompt + "please reboot upon configuration completion")
         return True
 
 
@@ -686,7 +694,7 @@ class Checker:
             if not hostname:
                 raise Exception("empty hostname was retrieved by 'hostname'")
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             return False
 
         ret_ipv4 = os.system("grep --perl-regex '^[0-9.]+[\t ]+.*%s' %s > /dev/null 2>&1" % (hostname, hosts_file))
@@ -695,7 +703,7 @@ class Checker:
             return True
 
         if not fix:
-            print(prompt + "hostname '%s' not found in %s" % (hostname, hosts_file))
+            self.log.error(prompt + "hostname '%s' not found in %s" % (hostname, hosts_file))
             return False
 
         def _add_record(address):
@@ -707,13 +715,13 @@ class Checker:
                 record = out + '\t' + hostname
                 ret = os.system('sed -i -E "s/%s/%s/" %s' % (out, record, hosts_file))
                 if ret != 0:
-                    print(prompt + "failed to add '%s  %s' to %s" % (address, hostname, hosts_file))
+                    self.log.error(prompt + "failed to add '%s  %s' to %s" % (address, hostname, hosts_file))
                     return False
             except Exception as e:
                 # At this point we have no 127.0.0.1 line, just go and add new record to the file
                 ret = os.system('printf "%s\t%s\n" >> %s' % (address, hostname, hosts_file))
                 if ret != 0:
-                    print(prompt + "failed to add '%s  %s' to %s" % (address, hostname, hosts_file))
+                    self.log.error(prompt + "failed to add '%s  %s' to %s" % (address, hostname, hosts_file))
                     return False
             return True
 
@@ -754,7 +762,7 @@ class Checker:
             pass
 
         if not fix:
-            print(prompt + "'never' is neither chosen in %s nor defined in %s" % (thp_filename, grub_filename))
+            self.log.error(prompt + "'never' is neither chosen in %s nor defined in %s" % (thp_filename, grub_filename))
             return False
 
         # Disable transparent hugepages:
@@ -798,7 +806,7 @@ class Checker:
         cmd = 'echo never > ' + thp_filename
         ret = os.system(cmd)
         if ret != 0:
-            print(prompt + "%s - failed (%d)" % (cmd,ret))
+            self.log.error(prompt + "%s - failed (%d)" % (cmd,ret))
             return False
 
         # Update the grub file
@@ -806,7 +814,7 @@ class Checker:
         cmd = 'sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=\\\"/GRUB_CMDLINE_LINUX_DEFAULT=\\\"transparent_hugepage=never /" ' + grub_filename
         ret = os.system(cmd)
         if ret != 0:
-            print(prompt + "%s - failed (%d)" % (cmd,ret))
+            self.log.error(prompt + "%s - failed (%d)" % (cmd,ret))
             return False
         return True
 
@@ -835,7 +843,7 @@ class Checker:
                         num_hugepages = int(match.group(1))
                         break
         except Exception as e:
-            print(prompt + str(e))      # File should be created during vpp installation, so return if not exists!
+            self.log.error(prompt + str(e))      # File should be created during vpp installation, so return if not exists!
             return False
 
 
@@ -845,7 +853,7 @@ class Checker:
 
         if not fix:
             if num_hugepages is None:
-                print(prompt + "'hugepages' was not found in %s" % vpp_hugepages_file)
+                self.log.error(prompt + "'hugepages' was not found in %s" % vpp_hugepages_file)
                 return False
             return True
 
@@ -853,7 +861,7 @@ class Checker:
             if num_hugepages is None:   # If not found in file
                 ret = os.system('\nprintf "# Number of 2MB hugepages desired\nvm.nr_hugepages=%d\n" >> %s' % (default_hugepages, vpp_hugepages_file))
                 if ret != 0:
-                    print(prompt + "failed to write hugepages=%d into %s" % (default_hugepages, vpp_hugepages_file))
+                    self.log.error(prompt + "failed to write hugepages=%d into %s" % (default_hugepages, vpp_hugepages_file))
                     return False
                 os.system('sysctl -p %s' %(vpp_hugepages_file))
                 return True
@@ -869,18 +877,18 @@ class Checker:
                 hugepages = int(str_hugepages)
                 break
             except Exception as e:
-                print(prompt + str(e))
+                self.log.error(prompt + str(e))
 
         if num_hugepages:   # If not None, that means it was found in file, delete it firstly from file
             os.system('sed -i -E "/Number of .* hugepages desired/d" %s' % (vpp_hugepages_file))
             ret = os.system('sed -i -E "/vm.nr_hugepages.*=/d" %s' % (vpp_hugepages_file))
             if ret != 0:
-                print(prompt + "failed to remove old hugepages from %s" % (vpp_hugepages_file))
+                self.log.error(prompt + "failed to remove old hugepages from %s" % (vpp_hugepages_file))
                 return False
         # Now add parameter by new line
         ret = os.system('\nprintf "# Number of 2MB hugepages desired\nvm.nr_hugepages=%d\n" >> %s' % (default_hugepages, vpp_hugepages_file))
         if ret != 0:
-            print(prompt + "failed to write hugepages=%d into %s" % (hugepages, vpp_hugepages_file))
+            self.log.error(prompt + "failed to write hugepages=%d into %s" % (hugepages, vpp_hugepages_file))
             return False
         os.system('sysctl -p %s' %(vpp_hugepages_file))
         return True
@@ -916,11 +924,11 @@ class Checker:
                     break
                 input_cores = int(str_cores)
                 if input_cores > num_worker_cores:
-                    print ("Number of cores entered (%d) was set to maximum available (%d)" % (input_cores, num_worker_cores))
+                    self.log.warning("Number of cores entered (%d) was set to maximum available (%d)" % (input_cores, num_worker_cores))
                     input_cores = num_worker_cores
                 break
             except Exception as e:
-                print(prompt + str(e))
+                self.log.error(prompt + str(e))
 
         current_workers = self.vpp_startup_conf.get_cpu_workers()
         if current_workers == input_cores:
@@ -1126,7 +1134,7 @@ class Checker:
             if inf['driver'] == 'qmi_wwan':
                 if not fix:
                     return False
-                success, _ = fwutils.lte_set_modem_to_mbim(inf['dev_id'])
+                success, _ = self.lte_set_modem_to_mbim(inf['dev_id'])
                 if not success:
                     return False
         return True
@@ -1158,7 +1166,7 @@ class Checker:
                 return False
 
             if silently:
-                print(TXT_COLOR.BG_WARNING + "Installing new driver... that might takes a few minutes" + TXT_COLOR.END)
+                self.log.debug(TXT_COLOR.BG_WARNING + "Installing new driver... that might takes a few minutes" + TXT_COLOR.END)
                 choice = "Y"
             else:
                 choice = input(TXT_COLOR.BG_WARNING + "New driver installation is needed, that takes a few minutes. Continue? [Y/N]: " + TXT_COLOR.END)
@@ -1188,7 +1196,7 @@ class Checker:
                 for module in modules:
                     os.system('modprobe %s 2>/dev/null' % module)
             except Exception as e:
-                print('Error: %s' % str(e))
+                self.log.error('Error: %s' % str(e))
                 for module in modules:
                     os.system('modprobe %s 2>/dev/null' % module)
                 return False
@@ -1247,3 +1255,81 @@ class Checker:
                 os.chmod(FW_VPP_COREDUMP_FOLDER, FW_VPP_COREDUMP_PERMISSIONS)
 
         return True
+
+    def lte_get_vendor_and_model(self, dev_id):
+        hardware_info, err = fwutils.lte_get_hardware_info(dev_id)
+        if err:
+            # This seems strange, but sometimes (especially after switching from MBIM mode to QMI mode),
+            # the first qmicli command that runs throws a timeout error,
+            # and it succeeds for the second time. So below is a workaround for this strange issue.
+            hardware_info, err = fwutils.lte_get_hardware_info(dev_id)
+        if err:
+            # If there is still an error, ask the user to reset the modem and try again
+            msg = 'An error occurred while identifying your modem. Resetting the modem can help'
+            choice = input(msg + ". Reset it? ? [Y/n]: ")
+            if choice != 'y' and choice != 'Y' and choice != '':
+                raise Exception(f'We are unable to detect your modem. {dev_id}')
+
+            self.log.debug(f'Resetting the modem. Please wait')
+            fwutils.lte_reset_modem(dev_id)
+
+            # after reset try once again but last
+            hardware_info, err = fwutils.lte_get_hardware_info(dev_id)
+            if err:
+                raise Exception(f'We are unable to detect your modem. {dev_id}')
+
+        return hardware_info
+
+    def lte_set_modem_to_mbim(self, dev_id):
+        """Switch LTE modem to the MBIM mode
+        """
+        try:
+            if_name = fwutils.dev_id_to_linux_if(dev_id)
+            lte_driver = fwutils.get_interface_driver(if_name)
+            if lte_driver == 'cdc_mbim':
+                return (True, None)
+
+            self.log.debug('Please wait a few moments...')
+
+            hardware_info = self.lte_get_vendor_and_model(dev_id)
+
+            vendor = hardware_info['Vendor']
+            model =  hardware_info['Model']
+
+            self.log.debug(f'The modem is found. Vendor: {vendor}. Model: {model}')
+
+            at_commands = []
+            if 'Quectel' in vendor or re.match('Quectel', model, re.IGNORECASE): # Special fix for Quectel ec25 mini pci card
+                at_commands = ['AT+QCFG="usbnet",2']
+                at_serial_port = fwutils.lte_get_at_port(dev_id)
+                if at_serial_port and len(at_serial_port) > 0:
+                    self.log.debug(f'The serial port is found. {at_serial_port[0]}')
+                    ser = serial.Serial(at_serial_port[0])
+                    for at in at_commands:
+                        at_cmd = bytes(at + '\r', 'utf-8')
+                        ser.write(at_cmd)
+                        time.sleep(0.5)
+                    ser.close()
+                else:
+                    raise Exception(f'The serial port is not found. dev_id: {dev_id}')
+            elif 'Sierra Wireless' in vendor:
+                fwutils._run_qmicli_command(dev_id, 'dms-swi-set-usb-composition=8')
+            else:
+                self.log.error("Your card is not officially supported. It might work, But you have to switch manually to the MBIM modem")
+                raise Exception('vendor or model are not supported. (vendor: %s, model: %s)' % (vendor, model))
+
+            self.log.debug(f'Modem was switched to MBIM. Resetting the modem')
+
+            # at this point the modem switched to mbim mode without errors
+            # but we have to reset the modem in order to apply it
+            fwutils.lte_reset_modem(dev_id)
+
+            self.log.debug(f'The reset process was completed successfully')
+
+            os.system('modprobe cdc_mbim') # sometimes driver doesn't regirsted to the device after reset
+
+            return (True, None)
+        except Exception as e:
+            # Modem cards sometimes get stuck and recover only after disconnecting the router from the power supply
+            self.log.error("Failed to switch modem to MBIM. You can unplug the router, wait a few seconds and try again. (%s)" % str(e))
+            return (False, str(e))
