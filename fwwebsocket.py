@@ -92,8 +92,8 @@ class FwWebSocketClient(FwObject):
                 sock.bind(('', local_port))
             sock.settimeout(timeout)
 
-            self.ssl_context.verify_mode    = ssl.CERT_REQUIRED if check_certificate else ssl.CERT_OPTIONAL
-            self.ssl_context.check_hostname = True
+            self.ssl_context.check_hostname = True if check_certificate else False
+            self.ssl_context.verify_mode    = ssl.CERT_REQUIRED if check_certificate else ssl.CERT_NONE
             ssl_sock = self.ssl_context.wrap_socket(sock, server_hostname=remote_host)
             ssl_sock.connect((remote_host, remote_port))
 
