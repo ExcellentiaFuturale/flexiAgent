@@ -162,15 +162,15 @@ class FwSyslog(Fwlog):
         :returns: None.
         """
 
+        if to_terminal and self.to_terminal_enabled:
+            print(log_message)
+
         # Prepend prefix (name of class that produced log line) and truncate the log line to 4K.
         # Note syslog discards lines beyond 8K by default, so take a caution if you modify this code!
         #
         log_message = self._build_log_line_prefix() + log_message
         if len(log_message) > 4096:
             log_message = log_message[0:4096] + ' <truncated>'
-
-        if to_terminal and self.to_terminal_enabled:
-            print(log_message)
 
         if to_syslog and self.to_syslog_enabled:
             syslog.syslog(log_message)

@@ -33,16 +33,16 @@ def add_lte(params):
     cmd['cmd'] = {}
     cmd['cmd']['name']   = "python"
     cmd['cmd']['params'] = {
-                'module': 'fwutils',
-                'func': 'lte_connect',
+                'module': 'fwlte',
+                'func': 'connect',
                 'args': { 'params': params }
     }
     cmd['cmd']['descr'] = "Connect LTE to the cellular provider"
     cmd['revert'] = {}
     cmd['revert']['name']   = "python"
     cmd['revert']['params'] = {
-                'module': 'fwutils',
-                'func': 'lte_disconnect',
+                'module': 'fwlte',
+                'func': 'disconnect',
                 'args': { 'dev_id': params['dev_id'] }
     }
     cmd['revert']['descr'] = "Disconnect LTE from the cellular provider"
@@ -52,8 +52,8 @@ def add_lte(params):
     cmd['cmd'] = {}
     cmd['cmd']['name']   = "python"
     cmd['cmd']['params'] = {
-                'module': 'fwutils',
-                'func': 'configure_lte_interface',
+                'module': 'fwlte',
+                'func': 'configure_interface',
                 'args': { 'params': params }
     }
     cmd['cmd']['descr'] = "Configure LTE IP and gateway on linux interface if vpp is not run"

@@ -32,6 +32,7 @@ import yaml
 import fwutils
 import threading
 import fw_vpp_coredump_utils
+import fwlte
 
 from sqlitedict import SqliteDict
 
@@ -207,6 +208,7 @@ class Fwglobals(FwObject):
             """
             DEFAULT_BYPASS_CERT    = False
             DEFAULT_DEBUG          = False
+            DEFAULT_DISABLE_STUN   = False
             DEFAULT_MANAGEMENT_URL = 'https://manage.flexiwan.com:443'
             DEFAULT_TOKEN_FILE     = data_path + 'token.txt'
             DEFAULT_UUID           = None
@@ -217,6 +219,7 @@ class Fwglobals(FwObject):
                 agent_conf = conf.get('agent', {})
                 self.BYPASS_CERT    = agent_conf.get('bypass_certificate', DEFAULT_BYPASS_CERT)
                 self.DEBUG          = agent_conf.get('debug',  DEFAULT_DEBUG)
+                self.DISABLE_STUN   = agent_conf.get('disable_stun',  DEFAULT_DISABLE_STUN)
                 self.MANAGEMENT_URL = agent_conf.get('server', DEFAULT_MANAGEMENT_URL)
                 self.TOKEN_FILE     = agent_conf.get('token',  DEFAULT_TOKEN_FILE)
                 self.UUID           = agent_conf.get('uuid',   DEFAULT_UUID)
@@ -226,6 +229,7 @@ class Fwglobals(FwObject):
                     log.excep("%s, set defaults" % str(e))
                 self.BYPASS_CERT    = DEFAULT_BYPASS_CERT
                 self.DEBUG          = DEFAULT_DEBUG
+                self.DISABLE_STUN   = DEFAULT_DISABLE_STUN
                 self.MANAGEMENT_URL = DEFAULT_MANAGEMENT_URL
                 self.TOKEN_FILE     = DEFAULT_TOKEN_FILE
                 self.UUID           = DEFAULT_UUID
@@ -322,6 +326,7 @@ class Fwglobals(FwObject):
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
+        self.loadsimulator = None
         self.cache   = self.FwCache()
         self.WAN_FAILOVER_SERVERS          = [ '1.1.1.1' , '8.8.8.8' ]
         self.WAN_FAILOVER_WND_SIZE         = 20         # 20 pings, every ping waits a second for response
@@ -394,7 +399,7 @@ class Fwglobals(FwObject):
         # We run it only if vpp is not running to make sure that we reload the driver
         # only on boot, and not if a user run `systemctl restart flexiwan-router` when vpp is running.
         if not fwutils.vpp_does_run():
-            fwutils.reload_lte_drivers_if_needed()
+            fwlte.reload_lte_drivers_if_needed()
 
         self.db           = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! Load data at the first place!
         self.fwagent      = FwAgent(handle_signals=False)
@@ -406,7 +411,7 @@ class Fwglobals(FwObject):
         self.os_api       = OS_API()
         self.policies     = FwPolicies(self.POLICY_REC_DB_FILE)
         self.wan_monitor  = FwWanMonitor(standalone)
-        self.stun_wrapper = FwStunWrap(standalone)
+        self.stun_wrapper = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
         self.ikev2        = FwIKEv2()
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
@@ -496,7 +501,7 @@ class Fwglobals(FwObject):
         return self.os_api.call_simple(request)
 
     def _call_vpp_api(self, request, result=None):
-        return self.router_api.vpp_api.call_simple(request, result)
+        return self.router_api.vpp_api.call_by_request(request, result)
 
     def _call_python_api(self, request, result=None):
         '''Handle request that describe python function.
@@ -628,6 +633,7 @@ class Fwglobals(FwObject):
                     reply = handler_func(request)
                 else:
                     reply = handler_func(request, result)
+
             if reply['ok'] == 0:
                 vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
                 os.system('sudo vppctl api trace save %s' % (vpp_trace_file))

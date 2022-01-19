@@ -22,14 +22,14 @@
 
 import copy
 import ipaddress
-import os
-
-import fwikev2
-import fwutils
-import fwglobals
 import socket
 
 from netaddr import *
+
+import fwglobals
+import fwlte
+import fwutils
+
 
 # add_tunnel
 # --------------------------------------
@@ -197,6 +197,9 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     addr = iface_params['addr']
     mac  = iface_params.get('mac')
     mtu  = iface_params['mtu']
+    mss  = iface_params.get('tcp-mss-clamp')
+    vpp_if_name = fwutils.tunnel_to_vpp_if_name(tunnel_params)
+
 
     # ret_attr  - attribute of the object returned by command,
     #             value of which is stored in cache to be available
@@ -225,6 +228,41 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     cmd['cmd']['params']  = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
                               'is_set':0 , 'feature_bitmap':1 }  # 1 stands for LEARN (see test\test_l2bd_multi_instance.py)
     cmd_list.append(cmd)
+
+    if not internal:
+        current_tunnel = fwglobals.g.router_cfg.get_tunnel(id)
+        current_mss    = current_tunnel.get('tcp-wss-clamp') if current_tunnel else None
+        if mss and current_mss:
+            vpp_cmd        = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {mss} ip6 tx ip6-mss  {mss}'
+            vpp_revert_cmd = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {current_mss} ip6 tx ip6-mss {current_mss}'
+        elif mss and not current_mss:
+            vpp_cmd        = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {mss} ip6 tx ip6-mss {mss}'
+            vpp_revert_cmd = f'set interface tcp-mss-clamp {vpp_if_name} ip4 disable ip6 disable'
+        elif not mss and current_mss:
+            vpp_cmd        = f'set interface tcp-mss-clamp {vpp_if_name} ip4 disable ip6 disable'
+            vpp_revert_cmd = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {current_mss} ip6 tx ip6-mss {current_mss}'
+        else: # not mss and not current_mss:
+            vpp_cmd = None
+
+        if vpp_cmd:
+            cmd = {}
+            cmd['cmd'] = {}
+            cmd['cmd']['name']    = "python"
+            cmd['cmd']['descr']   = f"set MSS {str(mss)} on loopback interface {addr}"
+            cmd['cmd']['params']  = {
+                            'module': 'fwutils',
+                            'func'  : 'vpp_cli_execute',
+                            'args'  : {'cmds':[vpp_cmd]}
+            }
+            cmd['revert'] = {}
+            cmd['revert']['name']    = "python"
+            cmd['revert']['descr']   = f"revert MSS to {str(current_mss)} on loopback interface {addr}"
+            cmd['revert']['params']  = {
+                            'module': 'fwutils',
+                            'func'  : 'vpp_cli_execute',
+                            'args'  : {'cmds':[vpp_revert_cmd]}
+            }
+            cmd_list.append(cmd)
 
     if internal:
         # interface.api.json: sw_interface_add_del_address (..., sw_if_index, is_add, prefix, ...)
@@ -490,6 +528,7 @@ def _add_ipip_tunnel(cmd_list, cache_key, params, addr, instance):
     tunnel = {
         'src': ipaddress.ip_address(src),
         'dst': ipaddress.ip_address(dst),
+        'substs': [{'add_param': 'gw', 'val_by_func': 'get_tunnel_gateway', 'arg': [dst, params.get('dev_id')]}],
         'instance': instance
     }
 
@@ -539,6 +578,39 @@ def _add_ipip_tunnel(cmd_list, cache_key, params, addr, instance):
     }
     cmd_list.append(cmd)
 
+def _add_ipip_multicast_rule(cmd_list, tunnel_id, src_ip, group_ip):
+    """Add multicast entry into mfib.
+
+    :param cmd_list:             List of commands.
+    :param tunnel_id:            Tunnel id.
+    :param src_ip:               Tunnel interface ip address.
+    :param group_ip:             Multicast group ip address.
+
+    :returns: None.
+    """
+    addr = str(IPNetwork(src_ip).ip)
+    str1 = '%s %s via ipip%u Accept Forward' % (addr, group_ip, tunnel_id)
+    str2 = '%s %s Accept-all-itf' % (addr, group_ip)
+
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['name']    = "python"
+    cmd['cmd']['descr']   = f"register peer tunnel id={tunnel_id} with multicast FIB (group={group_ip}, src={addr})"
+    cmd['cmd']['params']  = {
+                    'module': 'fwutils',
+                    'func'  : 'vpp_cli_execute',
+                    'args'  : {'cmds':['ip mroute add %s' % str1, 'ip mroute add %s' % str2], 'debug':True}
+    }
+    cmd['revert'] = {}
+    cmd['revert']['name']    = "python"
+    cmd['revert']['descr']   = f"un-register peer tunnel id={tunnel_id} from multicast FIB: (group={group_ip}, src={addr})"
+    cmd['revert']['params']  = {
+                    'module': 'fwutils',
+                    'func'  : 'vpp_cli_execute',
+                    'args'  : {'cmds':['ip mroute del %s' % str1, 'ip mroute del %s' % str2]}
+    }
+    cmd_list.append(cmd)
+
 
 def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
     """Add VxLAN tunnel command into the list.
@@ -559,7 +631,7 @@ def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
     dst_addr = ipaddress.ip_address(dst)
 
     # for lte interface, we need to get the current source IP, and not the one stored in DB. The IP may have changed due last 'add-interface' job.
-    if fwutils.is_lte_interface_by_dev_id(dev_id):
+    if fwlte.is_lte_interface_by_dev_id(dev_id):
         tap_name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True)
         if tap_name:
             source = fwutils.get_interface_address(tap_name)
@@ -687,7 +759,12 @@ def _add_ikev2_traffic_selector(cmd_list, name, params, is_local, ts_section):
 
     :returns: None.
     """
-    ts = {'is_local':is_local}
+    ts = {'is_local'    : is_local,
+          'protocol_id' : 0,
+          'start_port'  : 0,
+          'end_port'    : 65535,
+          'start_addr'  : ipaddress.ip_address('0.0.0.0'),
+          'end_addr'    : ipaddress.ip_address('255.255.255.255')}
 
     if ts_section in params['ikev2']:
         ts_params = params['ikev2'][ts_section]
@@ -1249,6 +1326,10 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
     mac              = f"02:00:27:ff:{tunnel_id_hex[:2]}:{tunnel_id_hex[-2:]}"
 
     _add_ipip_tunnel(cmd_list, tunnel_cache_key, params, tunnel_addr, id)
+
+    # Add mfib rules to route OSPF multicast packets from peer TAP interface through ip4-input/lookup node into ipip tunnel.
+    _add_ipip_multicast_rule(cmd_list, id, addr, "224.0.0.5")
+    _add_ipip_multicast_rule(cmd_list, id, addr, "224.0.0.6")
 
     loopback_params = {'addr':addr, 'mtu': mtu, 'mac': mac}
     _add_loopback(cmd_list, peer_loopback_cache_key, loopback_params, params, id=id)

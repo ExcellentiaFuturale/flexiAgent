@@ -20,16 +20,17 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import copy
 import glob
 import os
-import time
-import subprocess
 import re
-import fwglobals
-import fwutils
-import shutil
+import subprocess
+import time
 import yaml
-import copy
+
+import fwglobals
+import fwlte
+import fwutils
 
 from fwwan_monitor import get_wan_failover_metric
 
@@ -380,7 +381,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         # But if the user has configured in the netplan file also the LTE with set-name option,
         # we need to make sure that in any action, of any kind, that set-name will apply to the physical interface.
         # Note the comments below in the appropriate places.
-        is_lte = fwutils.is_lte_interface_by_dev_id(dev_id)
+        is_lte = fwlte.is_lte_interface_by_dev_id(dev_id)
 
         if is_add == 1:
             '''
@@ -527,11 +528,13 @@ def get_dhcp_netplan_interface(if_name):
 
 def _has_ip(if_name, dhcp):
 
-    for i in range(50):
-        log = (i == 49) # Log only the last trial to avoid log spamming
-        if fwutils.get_interface_address(if_name, log_on_failure=log):
-            return True
-        time.sleep(1)
+    for _ in range(2):          # Check IP and retry "netplan apply" in loop
+        for i in range(30):     # Wait for IP to appear for X seconds
+            log = (i == 29)     # Log only the last trial to avoid log spamming
+            if fwutils.get_interface_address(if_name, log_on_failure=log):
+                return True
+            time.sleep(1)
+        fwutils.netplan_apply('_has_ip')
 
     # At this point no IP was found on the interface.
     # If IP was not assigned to the interface, we still return OK if:
