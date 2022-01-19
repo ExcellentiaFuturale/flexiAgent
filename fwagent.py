@@ -23,12 +23,6 @@
 import json
 import os
 import glob
-
-from urllib import request as ureq
-from urllib import parse as uparse
-from urllib import error as uerr
-from http import server as hsvr
-
 import ssl
 import socket
 import sys
@@ -41,14 +35,21 @@ import subprocess
 import threading
 import traceback
 import yaml
+import jwt
+
+from urllib import request as ureq
+from urllib import parse as uparse
+from urllib import error as uerr
+from http import server as hsvr
+
 import fwglobals
 import fwikev2
+import fwlte
 import fwmultilink
 import fwstats
 import fwutils
 import fwwebsocket
 import loadsimulator
-import jwt
 
 from fwobject import FwObject
 
@@ -646,9 +647,9 @@ def reset(soft=False, quiet=False):
             os.remove(fwglobals.g.DEVICE_TOKEN_FILE)
 
         # stop LTE connections
-        lte_interfaces = fwutils.get_lte_interfaces_dev_ids()
+        lte_interfaces = fwlte.get_lte_interfaces_dev_ids()
         for dev_id in lte_interfaces:
-            fwutils.lte_disconnect(dev_id, False)
+            fwlte.disconnect(dev_id, False)
 
         fwglobals.log.info("Reset operation done")
     else:

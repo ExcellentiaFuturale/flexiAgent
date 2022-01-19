@@ -27,7 +27,8 @@ import time
 import threading
 import traceback
 import psutil
-
+import fwlte
+import fwwifi
 from fwtunnel_stats import tunnel_stats_get
 import fwglobals
 
@@ -42,7 +43,7 @@ updates_list = []
 vpp_pid = ''
 
 # Keeps last stats
-stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0}
+stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'lte_stats': {}, 'wifi_stats': {}}
 
 
 def update_stats_tread(log, fwagent):
@@ -137,17 +138,22 @@ def update_stats():
                 stats['period'] = stats['time'] - prev_stats['time']
                 stats['running'] = True if fwutils.vpp_does_run() else False
 
+    stats['lte_stats'] = fwlte.get_stats()
+    stats['wifi_stats'] = fwwifi.get_stats()
+
     # Add the update to the list of updates. If the list is full,
     # remove the oldest update before pushing the new one
     if len(updates_list) is UPDATE_LIST_MAX_SIZE:
         updates_list.pop(0)
 
     updates_list.append({
-            'ok': stats['ok'], 
-            'running': stats['running'], 
-            'stats': stats['bytes'], 
+            'ok': stats['ok'],
+            'running': stats['running'],
+            'stats': stats['bytes'],
             'period': stats['period'],
             'tunnel_stats': stats['tunnel_stats'],
+            'lte_stats': stats['lte_stats'],
+            'wifi_stats': stats['wifi_stats'],
             'health': get_system_health(),
             'utc': time.time()
         })
@@ -217,6 +223,8 @@ def get_stats():
             'stateReason': reason,
             'stats': {},
             'tunnel_stats': {},
+            'lte_stats': {},
+            'wifi_stats': {},
             'health': {},
             'period': 0,
             'utc': time.time(),
@@ -251,4 +259,8 @@ def reset_stats():
     :returns: None.
     """
     global stats
-    stats = {'running': False, 'ok':0, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'reconfig':False, 'ikev2':''}
+    stats = {
+        'running': False, 'ok':0, 'last':{}, 'bytes':{}, 'tunnel_stats':{},
+        'health':{}, 'period':0, 'reconfig':False, 'ikev2':'',
+        'lte_stats': {}, 'wifi_stats': {}
+    }
