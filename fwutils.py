@@ -2147,19 +2147,34 @@ def vpp_multilink_update_labels(labels, remove, next_hop=None, dev_id=None, sw_i
     return (True, None)
 
 
-def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl_id=None, priority=None):
+def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order,
+                                     acl_id=None, priority=None, override_default_route=False,
+                                     attach_to_wan=False):
     """Updates VPP with flexiwan policy rules.
     In general, policy rules instruct VPP to route packets to specific interface,
     which is marked with multilink label that noted in policy rule.
-
-        REMARK: this function is temporary solution as it uses VPP CLI to
-    configure policy rules. Remove it, when correspondent Python API will be added.
-    In last case the API should be called directly from translation.
 
     :param params: params - rule parameters:
                         policy-id - the policy id (two byte integer)
                         labels    - labels of interfaces to be used for packet forwarding
                         remove    - True to remove rule, False to add.
+                        override_default_route - If True, the policy links will be enforced,
+                                    even if FIB lookup brings default route and this route
+                                    does not use one of policy links.
+                                    This logic is needed for the so called Branch-to-HQ topology,
+                                    (another name - Internet Gateway use case), where all internet
+                                    designated traffic on Branch device is pushed into tunnels
+                                    that go to the Head Quarters (HQ) machine, and there it goes
+                                    out to internet. On branch machine we have to ignore routes
+                                    for default route packets - Internet designated packets,
+                                    and to push it into tunnels to HQ machine.
+                        attach_to_wan - If True the policy will be attached to the WAN
+                                    interfaces. This is addition to the attachment to the LAN
+                                    and the Tunnel loopback interfaces that are always performed.
+                                    This logic is needed for the Branch-to-HQ topology,
+                                    see explanation above. We need attachment to WAN in order
+                                    to choose proper tunnel on the HQ machine for the downstream
+                                    packets - packets received from internet.
 
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
@@ -2170,6 +2185,11 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
     loopback_vpp_name_list = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['tunnel'].keys())
     vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list
 
+    if attach_to_wan:
+        wan_vpp_name_list  = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['wan'].keys())
+        vpp_if_names += wan_vpp_name_list
+
+
     if not add:
         for vpp_if_name in vpp_if_names:
             vppctl_cmd = 'fwabf attach ip4 del policy %d priority %d %s' % (int(policy_id), priority, vpp_if_name)
@@ -2178,11 +2198,12 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
 
     fallback = 'fallback drop' if re.match(fallback, 'drop') else ''
     order    = 'select_group random' if re.match(order, 'load-balancing') else ''
+    override_dr = 'override_default_route' if override_default_route else ''
 
     if acl_id is None:
-        vppctl_cmd = 'fwabf policy %s id %d action %s %s' % (op, policy_id, fallback, order)
+        vppctl_cmd = 'fwabf policy %s id %d %s action %s %s' % (op, policy_id, override_dr, fallback, order)
     else:
-        vppctl_cmd = 'fwabf policy %s id %d acl %d action %s %s' % (op, policy_id, acl_id, fallback, order)
+        vppctl_cmd = 'fwabf policy %s id %d acl %d %s action %s %s' % (op, policy_id, acl_id, override_dr, fallback, order)
 
     group_id = 1
     for link in links:
@@ -2763,6 +2784,12 @@ def netplan_apply(caller_name=None):
     :param data:    the data to write into file
     '''
     try:
+        # Before netplan apply go and note the default route.
+        # If it will be changed as a result of netplan apply, we return True.
+        #
+        if fwglobals.g.fwagent:
+            (_, _, dr_pci_before, _) = get_default_route()
+
         cmd = 'netplan apply'
         log_str = caller_name + ': ' + cmd if caller_name else cmd
         fwglobals.log.debug(log_str)
@@ -2777,20 +2804,14 @@ def netplan_apply(caller_name=None):
         # IPv6 might be renable if interface name is changed using set-name
         disable_ipv6()
 
-        # Reconnect agent.
-        # We need it, as if WAN interface uses DHCP, the 'netplan apply' will
-        # renew IP. That causes WebSocket connection to flexiManage to hang,
-        # when no exception is thrown by the websocket module, but no more
-        # messages can be received on the connection.
-        # In this situation to avoid reconnect on no request timeout we do it
-        # proactively here.
-        # Note, to avoid multiple reconnects during router starting, modifying
-        # or stopping we check the fwglobals.g.handle_request_counter.
+        # Find out if the default route was changed. If it was - reconnect agent.
         #
         if fwglobals.g.fwagent:
-            if fwglobals.g.handle_request_counter > 0:
-                fwglobals.g.reconnect_agent = True
-            else:
+            (_, _, dr_pci_after, _) = get_default_route()
+            if dr_pci_before != dr_pci_after:
+                fwglobals.log.debug(
+                    "%s: netplan_apply: default route changed (%s->%s) - reconnect" % \
+                    (caller_name, dr_pci_before, dr_pci_after))
                 fwglobals.g.fwagent.reconnect()
 
     except Exception as e:
@@ -3060,18 +3081,6 @@ def get_min_metric_device(skip_dev_id):
             metric_min_dev_id = wan['dev_id']
 
     return (metric_min_dev_id, metric_min)
-
-def vpp_nat_add_del_identity_mapping(vpp_if_name, protocol, port, is_add):
-
-    del_str = '' if is_add else 'del'
-    vppctl_cmd = 'nat44 add identity mapping external %s %s %d vrf 0 %s' %\
-        (vpp_if_name, protocol, port, del_str)
-    out = _vppctl_read(vppctl_cmd, wait=False)
-    if out is None:
-        fwglobals.log.error("Failed vppctl command: %s" % vppctl_cmd)
-    else:
-        fwglobals.log.debug("Executed nat44 mapping command: %s" % vppctl_cmd)
-
 
 def dump(filename=None, path=None, clean_log=False):
     '''This function invokes 'fwdump' utility while ensuring no DoS on disk space.

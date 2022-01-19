@@ -348,14 +348,20 @@ class FWROUTER_API(FwCfgRequestHandler):
             request = new_request
 
             # Now find out if:
-            # -  VPP should be restarted as a result of request execution.
+            # 1. VPP should be restarted as a result of request execution.
             #    It should be restarted on addition/removal interfaces in order
             #    to capture new interface /release old interface back to Linux.
-            # -  Gateway of WAN interfaces are going to be modified.
+            # 2. Agent should reconnect proactively to flexiManage.
+            #    It should reconnect on add-/remove-/modify-interface, as they might
+            #    impact on connection under the connection legs. So it might take
+            #    a time for connection to detect the change, to report error and to
+            #    reconnect again by the agent infinite connection loop with random
+            #    sleep between retrials.
+            # 3. Gateway of WAN interfaces are going to be modified.
             #    In this case we have to ping the GW-s after modification.
             #    See explanations on that workaround later in this function.
             #
-            (restart_router, gateways, restart_dhcp_service) = self._analyze_request(request)
+            (restart_router, reconnect_agent, gateways, restart_dhcp_service) = self._analyze_request(request)
 
             # Some requests require preprocessing.
             # For example before handling 'add-application' the currently configured
@@ -386,6 +392,11 @@ class FWROUTER_API(FwCfgRequestHandler):
             if restart_dhcp_service:
                 if not restart_router: # on router restart DHCP service is restarted as well
                     fwutils.restart_service(service='isc-dhcp-server', timeout=5)
+
+            # Reconnect agent if needed
+            #
+            if reconnect_agent:
+                fwglobals.g.fwagent.reconnect()
 
 
             ########################################################################
@@ -482,6 +493,13 @@ class FWROUTER_API(FwCfgRequestHandler):
                         'remove-interface' was detected in request.
                         These operations require vpp restart as vpp should
                         capture or should release interfaces back to Linux.
+            reconnect_agent - Agent should reconnect proactively to flexiManage
+                        as add-/remove-/modify-interface was detected in request.
+                        These operations might cause connection failure on TCP
+                        timeout, which might take up to few minutes to detect!
+                        As well the connection retrials are performed with some
+                        interval. To short no connectivity periods we close and
+                        retries the connection proactively.
             gateways - List of gateways to be pinged after request handling
                         in order to solve following problem:
                         today 'modify-interface' request is replaced by pair of
@@ -501,33 +519,53 @@ class FWROUTER_API(FwCfgRequestHandler):
                         Therefor we have to restart it on modify-interface completion.
         """
 
-        (restart_router, gateways, restart_dhcp_service) = \
-        (False,          [],       False)
+        def _should_reconnect_agent_on_modify_interface(new_params):
+            old_params = self.cfg_db.get_interfaces(dev_id=new_params['dev_id'])[0]
+            if new_params.get('addr') and new_params.get('addr') != old_params.get('addr'):
+                return True
+            if new_params.get('gateway') != old_params.get('gateway'):
+                return True
+            if new_params.get('metric') != old_params.get('metric'):
+                return True
+            return False
+
+
+        (restart_router, reconnect_agent, gateways, restart_dhcp_service) = \
+        (False,          False,           [],       False)
 
         if self.state_is_started():
             if re.match('(add|remove)-interface', request['message']):
                 restart_router  = True
+                reconnect_agent = True
             elif request['message'] == 'modify-interface':
+                reconnect_agent = _should_reconnect_agent_on_modify_interface(request['params'])
                 restart_dhcp_service = True
             elif request['message'] == 'aggregated':
                 for _request in request['params']['requests']:
                     if re.match('(add|remove)-interface', _request['message']):
                         restart_router = True
+                        reconnect_agent = True
                     elif _request['message'] == 'modify-interface':
                         restart_dhcp_service = True
+                        if _should_reconnect_agent_on_modify_interface(_request['params']):
+                            reconnect_agent = True
 
-        if re.match('modify-interface', request['message']):
+        if re.match('(start|stop)-router', request['message']):
+            reconnect_agent = True
+        elif re.match('modify-interface', request['message']):
             gw = request['params'].get('gateway')
             if gw:
                 gateways.append(gw)
         elif request['message'] == 'aggregated':
             for _request in request['params']['requests']:
-                if re.match('modify-interface', _request['message']):
+                if re.match('(start|stop)-router', _request['message']):
+                    reconnect_agent = True
+                elif re.match('modify-interface', _request['message']):
                     gw = _request['params'].get('gateway')
                     if gw:
                         gateways.append(gw)
 
-        return (restart_router, gateways, restart_dhcp_service)
+        return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
 
     def _preprocess_request(self, request):
         """Some requests require preprocessing. For example before handling

@@ -25,6 +25,19 @@
             }
         },
         {
+            "name": "loadsimulator",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/fwagent.py",
+            "args": [
+                "simulate", "-c", "2"
+            ],
+            "cwd": "${workspaceRoot}",
+            "env": {
+                "PYTHONPATH": "${workspaceRoot}/flexiagent"
+            }
+        },
+        {
             "name": "Python: Attach using Process Id",
             "type": "python",
             "request": "attach",
