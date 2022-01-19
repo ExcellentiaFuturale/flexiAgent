@@ -2144,19 +2144,34 @@ def vpp_multilink_update_labels(labels, remove, next_hop=None, dev_id=None, sw_i
     return (True, None)
 
 
-def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl_id=None, priority=None):
+def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order,
+                                     acl_id=None, priority=None, override_default_route=False,
+                                     attach_to_wan=False):
     """Updates VPP with flexiwan policy rules.
     In general, policy rules instruct VPP to route packets to specific interface,
     which is marked with multilink label that noted in policy rule.
-
-        REMARK: this function is temporary solution as it uses VPP CLI to
-    configure policy rules. Remove it, when correspondent Python API will be added.
-    In last case the API should be called directly from translation.
 
     :param params: params - rule parameters:
                         policy-id - the policy id (two byte integer)
                         labels    - labels of interfaces to be used for packet forwarding
                         remove    - True to remove rule, False to add.
+                        override_default_route - If True, the policy links will be enforced,
+                                    even if FIB lookup brings default route and this route
+                                    does not use one of policy links.
+                                    This logic is needed for the so called Branch-to-HQ topology,
+                                    (another name - Internet Gateway use case), where all internet
+                                    designated traffic on Branch device is pushed into tunnels
+                                    that go to the Head Quarters (HQ) machine, and there it goes
+                                    out to internet. On branch machine we have to ignore routes
+                                    for default route packets - Internet designated packets,
+                                    and to push it into tunnels to HQ machine.
+                        attach_to_wan - If True the policy will be attached to the WAN
+                                    interfaces. This is addition to the attachment to the LAN
+                                    and the Tunnel loopback interfaces that are always performed.
+                                    This logic is needed for the Branch-to-HQ topology,
+                                    see explanation above. We need attachment to WAN in order
+                                    to choose proper tunnel on the HQ machine for the downstream
+                                    packets - packets received from internet.
 
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
@@ -2167,6 +2182,11 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
     loopback_vpp_name_list = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['tunnel'].keys())
     vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list
 
+    if attach_to_wan:
+        wan_vpp_name_list  = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['wan'].keys())
+        vpp_if_names += wan_vpp_name_list
+
+
     if not add:
         for vpp_if_name in vpp_if_names:
             vppctl_cmd = 'fwabf attach ip4 del policy %d priority %d %s' % (int(policy_id), priority, vpp_if_name)
@@ -2175,11 +2195,12 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
 
     fallback = 'fallback drop' if re.match(fallback, 'drop') else ''
     order    = 'select_group random' if re.match(order, 'load-balancing') else ''
+    override_dr = 'override_default_route' if override_default_route else ''
 
     if acl_id is None:
-        vppctl_cmd = 'fwabf policy %s id %d action %s %s' % (op, policy_id, fallback, order)
+        vppctl_cmd = 'fwabf policy %s id %d %s action %s %s' % (op, policy_id, override_dr, fallback, order)
     else:
-        vppctl_cmd = 'fwabf policy %s id %d acl %d action %s %s' % (op, policy_id, acl_id, fallback, order)
+        vppctl_cmd = 'fwabf policy %s id %d acl %d %s action %s %s' % (op, policy_id, acl_id, override_dr, fallback, order)
 
     group_id = 1
     for link in links:
