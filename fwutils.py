@@ -3762,6 +3762,12 @@ def netplan_apply(caller_name=None):
     :param data:    the data to write into file
     '''
     try:
+        # Before netplan apply go and note the default route.
+        # If it will be changed as a result of netplan apply, we return True.
+        #
+        if fwglobals.g.fwagent:
+            (_, _, dr_pci_before, _) = get_default_route()
+
         cmd = 'netplan apply'
         log_str = caller_name + ': ' + cmd if caller_name else cmd
         fwglobals.log.debug(log_str)
@@ -3776,20 +3782,14 @@ def netplan_apply(caller_name=None):
         # IPv6 might be renable if interface name is changed using set-name
         disable_ipv6()
 
-        # Reconnect agent.
-        # We need it, as if WAN interface uses DHCP, the 'netplan apply' will
-        # renew IP. That causes WebSocket connection to flexiManage to hang,
-        # when no exception is thrown by the websocket module, but no more
-        # messages can be received on the connection.
-        # In this situation to avoid reconnect on no request timeout we do it
-        # proactively here.
-        # Note, to avoid multiple reconnects during router starting, modifying
-        # or stopping we check the fwglobals.g.handle_request_counter.
+        # Find out if the default route was changed. If it was - reconnect agent.
         #
         if fwglobals.g.fwagent:
-            if fwglobals.g.handle_request_counter > 0:
-                fwglobals.g.reconnect_agent = True
-            else:
+            (_, _, dr_pci_after, _) = get_default_route()
+            if dr_pci_before != dr_pci_after:
+                fwglobals.log.debug(
+                    "%s: netplan_apply: default route changed (%s->%s) - reconnect" % \
+                    (caller_name, dr_pci_before, dr_pci_after))
                 fwglobals.g.fwagent.reconnect()
 
     except Exception as e:
@@ -4059,18 +4059,6 @@ def get_min_metric_device(skip_dev_id):
             metric_min_dev_id = wan['dev_id']
 
     return (metric_min_dev_id, metric_min)
-
-def vpp_nat_add_del_identity_mapping(vpp_if_name, protocol, port, is_add):
-
-    del_str = '' if is_add else 'del'
-    vppctl_cmd = 'nat44 add identity mapping external %s %s %d vrf 0 %s' %\
-        (vpp_if_name, protocol, port, del_str)
-    out = _vppctl_read(vppctl_cmd, wait=False)
-    if out is None:
-        fwglobals.log.error("Failed vppctl command: %s" % vppctl_cmd)
-    else:
-        fwglobals.log.debug("Executed nat44 mapping command: %s" % vppctl_cmd)
-
 
 def wifi_get_capabilities(dev_id):
 

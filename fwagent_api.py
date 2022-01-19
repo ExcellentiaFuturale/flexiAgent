@@ -20,7 +20,6 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import loadsimulator
 import yaml
 import sys
 import os
@@ -164,7 +163,7 @@ class FWAGENT_API(FwObject):
             # Load network configuration.
             info['network'] = {}
             info['network']['interfaces'] = list(fwutils.get_linux_interfaces(cached=False).values())
-            info['reconfig'] = '' if loadsimulator.g.enabled() else fwutils.get_reconfig_hash()
+            info['reconfig'] = '' if fwglobals.g.loadsimulator else fwutils.get_reconfig_hash()
             if fwglobals.g.ikev2.is_private_key_created():
                 info['ikev2'] = fwglobals.g.ikev2.get_certificate_expiration()
             # Load tunnel info, if requested by the management
