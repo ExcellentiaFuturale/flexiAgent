@@ -22,9 +22,7 @@
 
 import copy
 import ipaddress
-import os
 
-import fwikev2
 import fwutils
 import fwglobals
 import socket
@@ -1567,20 +1565,11 @@ def modify_peer_tunnel(new_params, old_params):
     if ips is None and urls is None:
         return []
 
-    whitelist = set()
     if urls is not None:
         old_params['peer']['urls'] = urls
-        whitelist.add('urls')
 
     if ips is not None:
         old_params['peer']['ips'] = ips
-        whitelist.add('ips')
-
-    # Modify whitelist
-    cmd = {}
-    cmd['modify'] = 'modify'
-    cmd['whitelist'] = whitelist
-    cmd_list.append(cmd)
 
     # Remove tunnel statistics entry for this tunnel
     cmd = {}
@@ -1619,12 +1608,6 @@ def modify_tunnel(new_params, old_params):
 
     certificate = new_params['ikev2'].get('certificate')
     if certificate:
-        # Add modify white list
-        cmd = {}
-        cmd['modify'] = 'modify'
-        cmd['whitelist'] = {'certificate'}
-        cmd_list.append(cmd)
-
         # Add public certificate file
         cmd = {}
         cmd['cmd'] = {}
@@ -1655,6 +1638,27 @@ def modify_tunnel(new_params, old_params):
         cmd_list.append(cmd)
 
     return cmd_list
+
+
+# The modify_X_supported_params variable represents set of modifiable parameters
+# that can be received from flexiManage within the 'modify-X' request.
+# If the received 'modify-X' includes parameters that do not present in this set,
+# the agent framework will not modify the configuration item, but will recreate
+# it from scratch. To do that it replaces 'modify-X' request with pair of 'remove-X'
+# and 'add-X' requests, where 'remove-X' request uses parameters stored
+# in the agent configuration database, and the 'add-X' request uses modified
+# parameters received with the 'modify-X' request and all the rest of parameters
+# are taken from the configuration database.
+#
+modify_tunnel_supported_params = {
+    'peer': {
+        'ips' : None,
+        'urls': None,
+    },
+    'ikev2': {
+        'certificate': None,
+    }
+}
 
 def get_request_key(params):
     """Get add-tunnel command.

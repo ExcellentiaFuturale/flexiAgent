@@ -308,8 +308,8 @@ def tunnel_stats_add(params):
         stats_entry['vpp_if_name'] = fwutils.tunnel_to_vpp_if_name(params)
 
     if 'peer' in params:
-        hosts_to_ping = params['peer']['ips']
-        hosts_to_ping += params['peer']['urls']
+        hosts_to_ping =  copy.deepcopy(params['peer']['ips'])
+        hosts_to_ping += copy.deepcopy(params['peer']['urls'])
     else:
         hosts_to_ping = [fwutils.build_tunnel_remote_loopback_ip(params['loopback-iface']['addr'])]
     stats_entry['hosts_to_ping'] = hosts_to_ping

@@ -207,6 +207,10 @@ class TestFwagent:
         out = subprocess.check_output(cmd, shell=True).decode()
         return out.rstrip()
 
+    def clean_log(self):
+        os.system(f"sudo echo '' > {g.ROUTER_LOG_FILE}")
+        os.system(f"sudo echo '' > {g.SYSLOG_FILE}")
+
     def grep_log(self, pattern, print_findings=True, since=None):
         found = []
         if not since:

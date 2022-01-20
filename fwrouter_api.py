@@ -20,7 +20,6 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import copy
 import enum
 import os
 import re
@@ -49,12 +48,12 @@ fwrouter_translators = {
     'stop-router':              {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
     'add-interface':            {'module': __import__('fwtranslate_add_interface'),   'api':'add_interface'},
     'remove-interface':         {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
-    'modify-interface':         {'module': __import__('fwtranslate_add_interface'),   'api':'modify_interface'},
+    'modify-interface':         {'module': __import__('fwtranslate_add_interface'),   'api':None,                'ignored_params': 'modify_interface_ignored_params'},
     'add-route':                {'module': __import__('fwtranslate_add_route'),       'api':'add_route'},
     'remove-route':             {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
     'add-tunnel':               {'module': __import__('fwtranslate_add_tunnel'),      'api':'add_tunnel'},
     'remove-tunnel':            {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
-    'modify-tunnel':            {'module': __import__('fwtranslate_add_tunnel'),      'api':'modify_tunnel'},
+    'modify-tunnel':            {'module': __import__('fwtranslate_add_tunnel'),      'api':'modify_tunnel',     'supported_params':'modify_tunnel_supported_params'},
     'add-dhcp-config':          {'module': __import__('fwtranslate_add_dhcp_config'), 'api':'add_dhcp_config'},
     'remove-dhcp-config':       {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
     'add-application':          {'module': __import__('fwtranslate_add_app'),         'api':'add_app'},
@@ -429,7 +428,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         :returns: dictionary with status code and optional error message.
         """
         try:
-            whitelist = None
             req = request['message']
 
             router_was_started = fwutils.vpp_does_run()
@@ -495,39 +493,51 @@ class FWROUTER_API(FwCfgRequestHandler):
                         neighbor table. That causes VPPSB to propagate the ARP
                         information into VPP FIB.
             restart_dhcp_service - DHCP service should be restarted if modify-interface
-                        was received. This is because modify-interface might remove interface
-                        from VPP/Linux (see usage of "vppctl delete tap") and recreate them again.
+                        was received. This is because modify-interface is implemented
+                        today by pair of 'remove-interface' and 'add-interface'
+                        requests which removes interface from VPP/Linux (see usage of
+                        "vppctl delete tap") and recreates it back.
                         That causes DHCP service to stop monitoring of the recreated interface.
                         Therefor we have to restart it on modify-interface completion.
         """
-
         (restart_router, gateways, restart_dhcp_service) = \
         (False,          [],       False)
 
-        if self.state_is_started():
-            if re.match('(add|remove)-interface', request['message']):
-                restart_router  = True
-            elif request['message'] == 'modify-interface':
-                restart_dhcp_service = True
-            elif request['message'] == 'aggregated':
-                for _request in request['params']['requests']:
-                    if re.match('(add|remove)-interface', _request['message']):
-                        restart_router = True
-                    elif _request['message'] == 'modify-interface':
-                        restart_dhcp_service = True
-
-        if re.match('modify-interface', request['message']):
-            gw = request['params'].get('gateway')
-            if gw:
-                gateways.append(gw)
-        elif request['message'] == 'aggregated':
+        if re.match('(add|remove)-interface', request['message']):
+            if self.state_is_started():
+                restart_router = True
+            return (restart_router, gateways, restart_dhcp_service)
+        elif request['message'] != 'aggregated':
+            return (restart_router, gateways, restart_dhcp_service)
+        else:   # aggregated request
+            add_remove_requests = {}
+            modify_requests = {}
             for _request in request['params']['requests']:
-                if re.match('modify-interface', _request['message']):
-                    gw = _request['params'].get('gateway')
-                    if gw:
-                        gateways.append(gw)
+                if re.match('(add|remove)-interface', _request['message']):
+                    dev_id = _request['params']['dev_id']
+                    if not dev_id in add_remove_requests:
+                        add_remove_requests[dev_id] = _request
+                    else:
+                        # This add/remove complements pair created for modify-X
 
-        return (restart_router, gateways, restart_dhcp_service)
+                        # Fetch gateway from the add-interface
+                        #
+                        gw = add_remove_requests[dev_id]['params'].get('gateway')
+                        if not gw:
+                            gw = _request['message'].get('gateway')
+                        if gw:
+                            gateways.append(gw)
+
+                        # Move the request to the set of modify-interface-s
+                        #
+                        del add_remove_requests[dev_id]
+                        modify_requests[dev_id] = _request
+
+            if add_remove_requests and self.state_is_started():
+                restart_router = True
+            if modify_requests and self.state_is_started():
+                restart_dhcp_service = True
+            return (restart_router, gateways, restart_dhcp_service)
 
     def _preprocess_request(self, request):
         """Some requests require preprocessing. For example before handling
@@ -549,45 +559,9 @@ class FWROUTER_API(FwCfgRequestHandler):
                         This mix should include one original request and one or
                         more simulated requests.
         """
-
-        def _preprocess_modify_X(request):
-            _req    = request['message']
-            _params = request['params']
-            remove_req = _req.replace("modify-", "remove-")
-            old_params = self.cfg_db.get_request_params(request)
-            add_req    = _req.replace("modify-", "add-")
-            new_params = copy.deepcopy(old_params)
-            new_params.update(_params)
-
-            return [
-                { 'message': remove_req, 'params' : old_params },
-                { 'message': add_req,    'params' : new_params }
-            ]
-
-
         req     = request['message']
         params  = request.get('params')
         changes = {}
-
-        # 'modify-X' preprocessing:
-        #  1. Replace 'modify-X' with 'remove-X' and 'add-X' pair.
-        #     Implement real modification on demand :)
-        #
-        if re.match('modify-interface', req):
-            req     = 'aggregated'
-            params  = { 'requests' : _preprocess_modify_X(request) }
-            request = {'message': req, 'params': params}
-            changes['insert'] = True
-            # DON'T RETURN HERE !!! FURTHER PREPROCESSING IS NEEDED !!!
-        elif req == 'aggregated':
-            new_requests = []
-            for _request in params['requests']:
-                if re.match('modify-interface', _request['message']):
-                    new_requests += _preprocess_modify_X(_request)
-                    changes['insert'] = True
-                else:
-                    new_requests.append(_request)
-            params['requests'] = new_requests
 
         # For aggregated request go over all remove-X requests and replace their
         # parameters with current configuration for X stored in database.

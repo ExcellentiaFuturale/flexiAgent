@@ -22,6 +22,8 @@
 
 import fwglobals
 import fwutils
+
+import copy
 import traceback
 import json
 import re
@@ -101,14 +103,10 @@ class FwCfgRequestHandler(FwObject):
 
         :returns: dictionary with status code and optional error message.
         """
-        whitelist = None
         prev_logger = self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
         try:
             # Translate request to list of commands to be executed
-            if re.match('modify-', request['message']):
-                cmd_list, whitelist = self._translate_modify(request)
-            else:
-                cmd_list = self._translate(request)
+            cmd_list = self._translate(request)
 
             # Execute list of commands. Do it only if vpp runs.
             # Some 'remove-XXX' requests must be executed
@@ -125,7 +123,7 @@ class FwCfgRequestHandler(FwObject):
             # needed to restore VPP configuration on device reboot or start of
             # crashed VPP by watchdog.
             try:
-                self.cfg_db.update(request, cmd_list, execute, whitelist)
+                self.cfg_db.update(request, cmd_list, execute)
             except Exception as e:
                 self._revert(cmd_list)
                 self.set_logger(prev_logger)
@@ -213,7 +211,13 @@ class FwCfgRequestHandler(FwObject):
             cmd_list = func(request, self.cfg_db)
             return cmd_list
 
-        cmd_list = func(params) if params else func()
+        if re.match('modify-', req):
+            old_params = self.cfg_db.get_request_params(request)
+            cmd_list = func(params, old_params)
+        elif params:
+            cmd_list = func(params)
+        else:
+            cmd_list = func()
         return cmd_list
 
     def _execute(self, request, cmd_list, filter=None):
@@ -477,49 +481,6 @@ class FwCfgRequestHandler(FwObject):
         else:  # list
             params.remove(substs_element)
 
-    def _translate_modify(self, request):
-        """Translate modify request in a series of commands.
-
-        :param request: The request received from flexiManage.
-
-        :returns: list of commands.
-        """
-        whitelist = None
-        req    = request['message']
-        params = request.get('params')
-        old_params  = self.cfg_db.get_request_params(request)
-
-        # First of all check if the received parameters differs from the existing ones
-        same = fwutils.compare_request_params(params, old_params)
-        if same:
-            return ([], None)
-
-        api_defs = self.translators.get(req)
-        if not api_defs:
-            # This 'modify-X' is not supported (yet?)
-            return ([], None)
-
-        module = api_defs.get('module')
-        assert module, 'there is no module for request "%s"' % req
-
-        api = api_defs.get('api')
-        assert api, 'there is no api for request "%s"' % req
-
-        func = getattr(module, api)
-        assert func, 'there is no api function for request "%s"' % req
-
-        cmd_list = func(params, old_params)
-
-        if isinstance(cmd_list, list):
-            new_cmd_list = []
-            for cmd in cmd_list:
-                if 'modify' in cmd:
-                    whitelist = cmd['whitelist']
-                else:
-                    new_cmd_list.append(cmd)
-            return (new_cmd_list, whitelist)
-        else:
-            return (cmd_list, None)
 
     def _strip_noop_request(self, request):
         """Checks if the request has no impact on configuration.
@@ -539,7 +500,7 @@ class FwCfgRequestHandler(FwObject):
                 if aggregated_requests:
                     complement_req     = re.sub('(modify-|remove-)','add-', req)
                     complement_request = { 'message': complement_req, 'params': params }
-                    if _exist(complement_request, aggregated_requests):
+                    if _exist_in_list(complement_request, aggregated_requests):
                         noop = False
                 if noop:
                     return True
@@ -552,35 +513,40 @@ class FwCfgRequestHandler(FwObject):
                     if aggregated_requests:
                         complement_req     = re.sub('add-','remove-', req)
                         complement_request = { 'message': complement_req, 'params': params }
-                        if _exist(complement_request, aggregated_requests):
+                        if _exist_in_list(complement_request, aggregated_requests):
                             noop = False
                     if noop:
                         return True
             elif re.match('start-router', req) and fwutils.vpp_does_run():
                 # start-router & stop-router break add-/remove-/modify- convention.
                 return True
-            elif re.match('modify-interface', req):
-                # For modification request ensure that it goes to modify indeed:
-                # translate request into commands to execute in order to modify
-                # configuration item in Linux/VPP. If this list is empty,
-                # the request can be stripped out.
+            elif re.match('modify-', req):
+                # For modification request check if it goes to modify indeed.
+                # Firstly ensure that it brings changed set of parameters.
+                # If it does not, there is nothing to modify, so return True.
+                # Than check if it goes to modify only parameters that has
+                # no impact on configuration item, like 'publicPort' in
+                # 'modify-interface', just save the modified item into
+                # configuration database and strip this modify-X out. There is
+                # no need to execute it.
                 #
-                cmd_list, _ = self._translate_modify(__request)
-                if not cmd_list:
-                    # Save modify request into database, as it might contain parameters
-                    # that don't impact on interface configuration in Linux or in VPP,
-                    # like PublicPort, PublicIP, useStun, etc.
-                    #
-                    # !!!!!!!!!!!!!!!!!!!!!!! IMPORTANT !!!!!!!!!!!!!!!!!!!!!!!!
-                    # We assume the 'modify-interface' request includes full set of
-                    # parameters and not only modified ones!
-                    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                    #
-                    self.cfg_db.update(__request)
-                    return True
+                existing_params = self.cfg_db.get_request_params(__request)
+                if fwutils.compare_request_params(existing_params, __request.get('params')):
+                    return True   # Nothing to modify
+
+                api_defs = self.translators.get(req)
+                if api_defs:
+                    module   = api_defs.get('module')
+                    var_name = api_defs.get('ignored_params')
+                    if var_name:
+                        ignored_params = getattr(module, var_name)
+                        if ignored_params and self.compare_modify_params(__request, ignored_params):
+                            self.log.debug(f"'{req}' has not impacting modifications only -> save it without execution")
+                            self.cfg_db.update(__request)
+                            return True
             return False
 
-        def _exist(__request, requests):
+        def _exist_in_list(__request, requests):
             """Checks if the list of requests has request for the same
             configuration item as the one denoted by the provided __request.
             """
@@ -590,13 +556,68 @@ class FwCfgRequestHandler(FwObject):
                     return True
             return False
 
+        def _replace_modify(modify_request):
+            """The 'modify-X' requests are supposed to modify any parameter
+            of the configuration item, like IP address of the interface that was
+            added using the 'add-interface' request. But! At this stage we don't
+            support such pinpoint modifications. Instead we just replace
+            the 'modify-X' request with pair of the correspondent 'remove-X' and
+            'add-X' requests, thus recreating the configuration item from scratch.
+            The substituted 'remove-X' request uses parameters stored
+            in the configuration database, and the substituted 'add-X' request uses
+            modified parameters from the 'modify-X' request and all the rest of
+            parameters it takes from the configuration database. That makes it possible
+            the 'modify-X' request to hold only modified parameters. In addition it
+            should include the key parameters needed to identify the configuration item,
+            e.g. 'modify-tunnel' might include modified remote address 'dst' and it
+            should include the 'tunnel-id' key parameter.
+                Note some 'modify-X' requests are supported partially and don't
+            require recreation by remove & add. The related info is stored
+            in the translator modules.
 
+            :param modify_request: The original request with modified parameters
+                                    received from flexiManage.
+
+            :returns: The pair of pair of 'remove-X' and 'add-X' requests,
+                      if modification is not supported for this configuration
+                      item. Otherwise the original 'modify_request' is returned.
+            """
+            _req    = modify_request['message']
+            _params = modify_request['params']
+
+            api_defs = self.translators.get(_req)
+            if api_defs and api_defs.get('supported_params'):
+                # 'modify-X' is supported and list of parameters that can be modified is defined
+                module   = api_defs.get('module')
+                var_name = api_defs.get('supported_params')
+                if var_name:
+                    supported_params = getattr(module, var_name)
+                    if supported_params and self.compare_modify_params(modify_request, supported_params):
+                        # request contains only modifiable parameters -> no need to replace
+                        return [modify_request]
+
+            # At this point the 'modify-X' either is not supported at all,
+            # or set of supported for modification parameters was not defined for it.
+            # Go and replace it with pair of 'remove-X' and 'add-X'.
+            #
+            remove_req = _req.replace("modify-", "remove-")
+            old_params = self.cfg_db.get_request_params(modify_request)
+            add_req    = _req.replace("modify-", "add-")
+            new_params = copy.deepcopy(old_params)
+            fwutils.dict_deep_update(new_params, _params)
+            return [
+                { 'message': remove_req, 'params' : old_params },
+                { 'message': add_req,    'params' : new_params }
+            ]
+
+
+        out_requests = []
         if request['message'] != 'aggregated':
             if _should_be_stripped(request):
                 self.log.debug("_strip_noop_request: request has no impact: %s" % json.dumps(request))
                 return None
+            out_requests = [request]
         else:  # aggregated request
-            out_requests = []
             inp_requests = request['params']['requests']
             for _request in inp_requests:
                 if _should_be_stripped(_request, inp_requests):
@@ -608,8 +629,26 @@ class FwCfgRequestHandler(FwObject):
                 return None
             if len(out_requests) < len(inp_requests):
                 self.log.debug("_strip_noop_request: aggregation after strip: %s" % json.dumps(out_requests))
-            request['params']['requests'] = out_requests
-        return request
+
+        # At this point we have all no-op requests stripped out.
+        # Now handle modify-X requests. The native modification can be not supported
+        # for some requests. In this case we have to replace the modify-X with
+        # pair of remove-X and add-X to recreate the configuration item from scratch.
+        #
+        final_requests = []
+        for _request in out_requests:
+            if re.match('modify-', _request['message']):
+                final_requests += _replace_modify(_request)
+            else:
+                final_requests.append(_request)
+        if len(final_requests) > len(out_requests):
+            self.log.debug("_strip_noop_request: aggregation after modify-X replacement: %s" % json.dumps(final_requests))
+
+        if len(final_requests) == 1:
+            return final_requests[0]
+        return {'message': 'aggregated', 'params': {'requests': final_requests}}
+
+
 
     def restore_configuration(self, types=None):
         """Restore configuration.
@@ -676,4 +715,47 @@ class FwCfgRequestHandler(FwObject):
         else:
             return "%s()" % (cmd['name'])
 
+    def compare_modify_params(self, request, ignore_params):
+        """Helper function that detects if 'modify-X' request received from
+        flexiManage brings same parameters that already stored in configuration
+        database, except the ones specified by the 'ignore_params' argument.
+        In other words, it checks if the modify-X assumes real changes.
+        We use this function in two cases:
+            1. To spot if modify-X contains changes of modifable parameters only.
+        In this case it will be translated into list of commands and will be
+        executed. Otherwise it will be replaced with remove-X & add-X pair
+        to recreate the configuration item from scratch.
+            2. To spot if modify-X contains changes of not impacting parameters
+        only. In this case there is no need to execute it at all, just save
+        the update into configuration database. Example of not impacting
+        parameters can be 'PublicPort' and 'PublicIp' for 'modify-interface'.
+        They are no provisioned into VPP, just saved for FwStunWrapper needs.
 
+        :param request: the modify-X request received from flexiManage.
+                        Can include partial set of parameters of configuration item.
+                        Must include key parameters to identify the item.
+        :param ignore_params: the parameters that should be ignored while comparing
+                        modify-X parameters to stored parameters.
+
+        :return: True if all received parameters have same values as stored ones,
+                except the parameters specified by 'ignore_params'.
+        """
+
+        def _compare_modify_params(_modify_params, _existing_params, _ignore_params):
+            """Recursive function for dict deep comparison.
+            """
+            for key, value in _modify_params.items():
+                if isinstance(value, dict):
+                    if not _compare_modify_params(value,
+                                _existing_params.get(key,{}), _ignore_params.get(key,{})):
+                        return False
+                else:
+                    if key in _ignore_params:
+                        continue
+                    if value != _existing_params.get(key):
+                        self.log.debug(f"compare_modify_params: _modify_params['{key}']={value} != {_existing_params.get(key)}")
+                        return False
+            return True
+
+        existing_params = self.cfg_db.get_request_params(request)
+        return _compare_modify_params(request['params'], existing_params, ignore_params)
