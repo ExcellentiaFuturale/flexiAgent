@@ -21,16 +21,16 @@
 ################################################################################
 
 # Handle device statistics
-import fwikev2
 import fwutils
 import math
 import time
-import loadsimulator
+import threading
+import traceback
 import psutil
-
+import fwlte
+import fwwifi
 from fwtunnel_stats import tunnel_stats_get
 import fwglobals
-import fwtunnel_stats
 
 # Globals
 # Keep updates up to 1 hour ago
@@ -43,7 +43,31 @@ updates_list = []
 vpp_pid = ''
 
 # Keeps last stats
-stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'application_stats': {}, 'health':{}, 'period':0}
+stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'lte_stats': {}, 'wifi_stats': {}, 'application_stats': {}}
+
+
+def update_stats_tread(log, fwagent):
+
+    log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+
+    slept = 0
+
+    while fwagent.connected and not fwglobals.g.teardown:
+        try:  # Ensure thread doesn't exit on exception
+            timeout = 30
+            if (slept % timeout) == 0:
+                if fwglobals.g.loadsimulator:
+                    fwglobals.g.loadsimulator.update_stats()
+                else:
+                    update_stats()
+        except Exception as e:
+            log.excep("%s: %s (%s)" %
+                (threading.current_thread().getName(), str(e), traceback.format_exc()))
+            pass
+
+        # Sleep 1 second and make another iteration
+        time.sleep(1)
+        slept += 1
 
 def update_stats():
     """Update statistics dictionary using values retrieved from VPP interfaces.
@@ -115,6 +139,9 @@ def update_stats():
                 stats['period'] = stats['time'] - prev_stats['time']
                 stats['running'] = True if fwutils.vpp_does_run() else False
 
+    stats['lte_stats'] = fwlte.get_stats()
+    stats['wifi_stats'] = fwwifi.get_stats()
+
     # Add the update to the list of updates. If the list is full,
     # remove the oldest update before pushing the new one
     if len(updates_list) is UPDATE_LIST_MAX_SIZE:
@@ -126,9 +153,12 @@ def update_stats():
             'stats': stats['bytes'],
             'period': stats['period'],
             'tunnel_stats': stats['tunnel_stats'],
+            'lte_stats': stats['lte_stats'],
+            'wifi_stats': stats['wifi_stats'],
             'health': get_system_health(),
             'utc': time.time()
         })
+
 
 def get_system_health():
     # Get CPU info
@@ -179,7 +209,7 @@ def get_stats():
     # If the list of updates is empty, append a dummy update to
     # set the most up-to-date status of the router. If not, update
     # the last element in the list with the current status of the router
-    if loadsimulator.g.enabled():
+    if fwglobals.g.loadsimulator:
         status = True
         state = 'running'
         reason = ''
@@ -196,6 +226,8 @@ def get_stats():
             'stats': {},
             'application_stats': apps_stats,
             'tunnel_stats': {},
+            'lte_stats': {},
+            'wifi_stats': {},
             'health': {},
             'period': 0,
             'utc': time.time(),
@@ -231,4 +263,8 @@ def reset_stats():
     :returns: None.
     """
     global stats
-    stats = {'running': False, 'ok':0, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'application_stats': {}, 'health':{}, 'period':0, 'reconfig':False, 'ikev2':''}
+    stats = {
+        'running': False, 'ok':0, 'last':{}, 'bytes':{}, 'tunnel_stats':{},
+        'health':{}, 'period':0, 'reconfig':False, 'ikev2':'',
+        'lte_stats': {}, 'wifi_stats': {}, 'application_stats': {}
+    }

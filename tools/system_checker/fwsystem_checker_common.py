@@ -45,6 +45,8 @@ import fwglobals
 import fwlog
 import fwutils
 import fwnetplan
+import fwlte
+import fwwifi
 from fw_vpp_coredump_utils import FW_VPP_COREDUMP_FOLDER, FW_VPP_COREDUMP_PERMISSIONS
 from fwsystem_checker import TXT_COLOR
 
@@ -1142,7 +1144,7 @@ class Checker:
     def soft_check_wifi_driver(self, fix=False, silently=False, prompt=''):
         other_wifi_drivers = False
         for nicname, addrs in list(psutil.net_if_addrs().items()):
-            if not fwutils.is_wifi_interface(nicname):
+            if not fwwifi.is_wifi_interface(nicname):
                 continue
 
             driver = fwutils.get_interface_driver(nicname, cache=False)
@@ -1257,12 +1259,12 @@ class Checker:
         return True
 
     def lte_get_vendor_and_model(self, dev_id):
-        hardware_info, err = fwutils.lte_get_hardware_info(dev_id)
+        hardware_info, err = fwlte.get_hardware_info(dev_id)
         if err:
             # This seems strange, but sometimes (especially after switching from MBIM mode to QMI mode),
             # the first qmicli command that runs throws a timeout error,
             # and it succeeds for the second time. So below is a workaround for this strange issue.
-            hardware_info, err = fwutils.lte_get_hardware_info(dev_id)
+            hardware_info, err = fwlte.get_hardware_info(dev_id)
         if err:
             # If there is still an error, ask the user to reset the modem and try again
             msg = 'An error occurred while identifying your modem. Resetting the modem can help'
@@ -1271,10 +1273,10 @@ class Checker:
                 raise Exception(f'We are unable to detect your modem. {dev_id}')
 
             self.log.debug(f'Resetting the modem. Please wait')
-            fwutils.lte_reset_modem(dev_id)
+            fwlte.reset_modem(dev_id)
 
             # after reset try once again but last
-            hardware_info, err = fwutils.lte_get_hardware_info(dev_id)
+            hardware_info, err = fwlte.get_hardware_info(dev_id)
             if err:
                 raise Exception(f'We are unable to detect your modem. {dev_id}')
 
@@ -1293,15 +1295,15 @@ class Checker:
 
             hardware_info = self.lte_get_vendor_and_model(dev_id)
 
-            vendor = hardware_info['Vendor']
-            model =  hardware_info['Model']
+            vendor = hardware_info['vendor']
+            model =  hardware_info['model']
 
             self.log.debug(f'The modem is found. Vendor: {vendor}. Model: {model}')
 
             at_commands = []
             if 'Quectel' in vendor or re.match('Quectel', model, re.IGNORECASE): # Special fix for Quectel ec25 mini pci card
                 at_commands = ['AT+QCFG="usbnet",2']
-                at_serial_port = fwutils.lte_get_at_port(dev_id)
+                at_serial_port = fwlte.get_at_port(dev_id)
                 if at_serial_port and len(at_serial_port) > 0:
                     self.log.debug(f'The serial port is found. {at_serial_port[0]}')
                     ser = serial.Serial(at_serial_port[0])
@@ -1313,7 +1315,7 @@ class Checker:
                 else:
                     raise Exception(f'The serial port is not found. dev_id: {dev_id}')
             elif 'Sierra Wireless' in vendor:
-                fwutils._run_qmicli_command(dev_id, 'dms-swi-set-usb-composition=8')
+                fwlte._run_qmicli_command(dev_id, 'dms-swi-set-usb-composition=8')
             else:
                 self.log.error("Your card is not officially supported. It might work, But you have to switch manually to the MBIM modem")
                 raise Exception('vendor or model are not supported. (vendor: %s, model: %s)' % (vendor, model))
@@ -1322,7 +1324,7 @@ class Checker:
 
             # at this point the modem switched to mbim mode without errors
             # but we have to reset the modem in order to apply it
-            fwutils.lte_reset_modem(dev_id)
+            fwlte.reset_modem(dev_id)
 
             self.log.debug(f'The reset process was completed successfully')
 

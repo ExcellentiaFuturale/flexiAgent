@@ -32,6 +32,7 @@ import yaml
 import fwutils
 import threading
 import fw_vpp_coredump_utils
+import fwlte
 
 from sqlitedict import SqliteDict
 
@@ -336,6 +337,7 @@ class Fwglobals(FwObject):
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
+        self.loadsimulator = None
         self.cache   = self.FwCache()
         self.WAN_FAILOVER_SERVERS          = [ '1.1.1.1' , '8.8.8.8' ]
         self.WAN_FAILOVER_WND_SIZE         = 20         # 20 pings, every ping waits a second for response
@@ -346,8 +348,6 @@ class Fwglobals(FwObject):
         self.DUMP_FOLDER                   = '/var/log/flexiwan/fwdump'
         self.DEFAULT_DNS_SERVERS           = ['8.8.8.8', '8.8.4.4']
         self.request_lock                  = threading.RLock()   # lock to syncronize message processing
-        self.handle_request_counter        = 0
-        self.reconnect_agent               = False
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
@@ -411,7 +411,7 @@ class Fwglobals(FwObject):
         # We run it only if vpp is not running to make sure that we reload the driver
         # only on boot, and not if a user run `systemctl restart flexiwan-router` when vpp is running.
         if not fwutils.vpp_does_run():
-            fwutils.reload_lte_drivers_if_needed()
+            fwlte.reload_lte_drivers_if_needed()
 
         self.db           = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! Load data at the first place!
         self.fwagent      = FwAgent(handle_signals=False)
@@ -647,20 +647,10 @@ class Fwglobals(FwObject):
             handler_func = getattr(self, handler.get('name'))
 
             with self.request_lock:
-                self.handle_request_counter += 1
-                try:
-                    if result is None:
-                        reply = handler_func(request)
-                    else:
-                        reply = handler_func(request, result)
-                except Exception as e:
-                    raise e
-                finally:
-                    self.handle_request_counter -= 1
-                    if self.handle_request_counter == 0:
-                        if self.reconnect_agent:
-                            self.fwagent.reconnect()
-                        self.reconnect_agent = False
+                if result is None:
+                    reply = handler_func(request)
+                else:
+                    reply = handler_func(request, result)
 
             if reply['ok'] == 0:
                 vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
