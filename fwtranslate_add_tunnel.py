@@ -1428,13 +1428,16 @@ def add_tunnel(params):
     remote_loop0_ip = None
     routing = None
     loop0_cache_key='loop0_sw_if_index'
+    ospf_cost = ''
 
     if 'peer' in params:
         _add_peer(cmd_list, params, loop0_cache_key)
         loop0_ip  = params['peer']['addr']
         routing = params['peer'].get('routing')
+        ospf_cost = params['peer'].get('ospf-cost')
     else:
         routing                 = params['loopback-iface'].get('routing')
+        ospf_cost               = params['loopback-iface'].get('ospf-cost')
         encryption_mode         = params.get("encryption-mode", "psk")
         loop0_ip                = params['loopback-iface']['addr']
         remote_loop0_ip         = fwutils.build_tunnel_remote_loopback_ip(loop0_ip)       # 10.100.0.4 -> 10.100.0.5 / 10.100.0.5 -> 10.100.0.4
@@ -1502,11 +1505,10 @@ def add_tunnel(params):
         commands = {}
         commands['cmd'] = ["interface DEV-STUB", "ip ospf network point-to-point"]
         commands['revert'] = ["interface DEV-STUB", "no ip ospf network point-to-point"]
-        if 'ospf-cost' in params :
-            ospf_cost = params['ospf-cost']
-            if ospf_cost != '' :
-                commands['cmd'].append("ip ospf cost %s" % ospf_cost)
-                commands['revert'].append('no ip ospf cost')
+
+        if ospf_cost != '' :
+            commands['cmd'].append("ip ospf cost %s" % ospf_cost)
+            commands['revert'].append('no ip ospf cost')
 
         cmd = {}
         cmd['cmd'] = {}
