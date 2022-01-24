@@ -1499,6 +1499,14 @@ def add_tunnel(params):
     if routing == 'ospf':
 
         # Add point-to-point type of interface for the tunnel address
+        commands = {}
+        commands['cmd'] = ["interface DEV-STUB", "ip ospf network point-to-point"]
+        commands['revert'] = ["interface DEV-STUB", "no ip ospf network point-to-point"]
+        ospf_cost  = params['ospf-cost']
+        if ospf_cost :
+            commands['cmd'].append("ip ospf cost %s" % ospf_cost)
+            commands['revert'].append('no ip ospf cost')
+
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['name']   = "python"
@@ -1506,7 +1514,7 @@ def add_tunnel(params):
                 'module': 'fwutils',
                 'func': 'frr_vtysh_run',
                 'args': {
-                    'commands': ["interface DEV-STUB", "ip ospf network point-to-point"]
+                    'commands': commands['cmd']
                 },
                 'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':loop0_cache_key} ]
         }
@@ -1517,7 +1525,7 @@ def add_tunnel(params):
                 'module': 'fwutils',
                 'func': 'frr_vtysh_run',
                 'args': {
-                    'commands': ["interface DEV-STUB", "no ip ospf network point-to-point"]
+                    'commands': commands['revert']
                 },
                 'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':loop0_cache_key} ]
         }
