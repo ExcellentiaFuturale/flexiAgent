@@ -1502,10 +1502,11 @@ def add_tunnel(params):
         commands = {}
         commands['cmd'] = ["interface DEV-STUB", "ip ospf network point-to-point"]
         commands['revert'] = ["interface DEV-STUB", "no ip ospf network point-to-point"]
-        ospf_cost  = params['ospf-cost']
-        if ospf_cost :
-            commands['cmd'].append("ip ospf cost %s" % ospf_cost)
-            commands['revert'].append('no ip ospf cost')
+        if 'ospf-cost' in params :
+            ospf_cost = params['ospf-cost']
+            if ospf_cost != '' :
+                commands['cmd'].append("ip ospf cost %s" % ospf_cost)
+                commands['revert'].append('no ip ospf cost')
 
         cmd = {}
         cmd['cmd'] = {}
