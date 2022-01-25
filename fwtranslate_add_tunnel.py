@@ -1433,8 +1433,10 @@ def add_tunnel(params):
         _add_peer(cmd_list, params, loop0_cache_key)
         loop0_ip  = params['peer']['addr']
         routing = params['peer'].get('routing')
+        ospf_cost = params['peer'].get('ospf-cost')
     else:
         routing                 = params['loopback-iface'].get('routing')
+        ospf_cost               = params['loopback-iface'].get('ospf-cost')
         encryption_mode         = params.get("encryption-mode", "psk")
         loop0_ip                = params['loopback-iface']['addr']
         remote_loop0_ip         = fwutils.build_tunnel_remote_loopback_ip(loop0_ip)       # 10.100.0.4 -> 10.100.0.5 / 10.100.0.5 -> 10.100.0.4
@@ -1499,6 +1501,13 @@ def add_tunnel(params):
     if routing == 'ospf':
 
         # Add point-to-point type of interface for the tunnel address
+        ospf_if_commands_cmd = ["interface DEV-STUB", "ip ospf network point-to-point"]
+        ospf_if_commands_revert = ["interface DEV-STUB", "no ip ospf network point-to-point"]
+
+        if ospf_cost :
+            ospf_if_commands_cmd.append(f"ip ospf cost {ospf_cost}")
+            ospf_if_commands_revert.append('no ip ospf cost')
+
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['name']   = "python"
@@ -1506,7 +1515,7 @@ def add_tunnel(params):
                 'module': 'fwutils',
                 'func': 'frr_vtysh_run',
                 'args': {
-                    'commands': ["interface DEV-STUB", "ip ospf network point-to-point"]
+                    'commands': ospf_if_commands_cmd
                 },
                 'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':loop0_cache_key} ]
         }
@@ -1517,7 +1526,7 @@ def add_tunnel(params):
                 'module': 'fwutils',
                 'func': 'frr_vtysh_run',
                 'args': {
-                    'commands': ["interface DEV-STUB", "no ip ospf network point-to-point"]
+                    'commands': ospf_if_commands_revert
                 },
                 'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':loop0_cache_key} ]
         }
