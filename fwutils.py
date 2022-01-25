@@ -350,6 +350,10 @@ def get_all_interfaces():
         dev_id_ip_gw[dev_id] = {}
         dev_id_ip_gw[dev_id]['addr'] = ''
         dev_id_ip_gw[dev_id]['gw']   = ''
+
+        if not addrs:
+            return None
+
         for addr in addrs:
             if addr.family == socket.AF_INET:
                 ip = addr.address.split('%')[0]
