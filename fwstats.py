@@ -102,7 +102,9 @@ def update_stats():
                 fwglobals.g.stun_wrapper.handle_down_tunnels(tunnel_stats)
                 for intf, counts in list(stats['last'].items()):
                     if (intf.startswith('gre') or
-                        intf.startswith('loop')): continue
+                        intf.startswith('loop') or
+                        intf.startswith('ppp') or
+                        intf.startswith('tun')): continue
                     prev_stats_if = prev_stats['last'].get(intf, None)
                     if prev_stats_if != None:
                         rx_bytes = 1.0 * (counts['rx_bytes'] - prev_stats_if['rx_bytes'])
@@ -214,7 +216,7 @@ def get_stats():
         reconfig = ''
     else:
         status = True if fwutils.vpp_does_run() else False
-        (state, reason) = fwutils.get_router_state()
+        (state, reason) = fwutils.get_router_status()
     if not res_update_list:
         info = {
             'ok': stats['ok'],

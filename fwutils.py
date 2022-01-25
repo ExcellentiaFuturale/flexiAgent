@@ -36,6 +36,8 @@ import socket
 import re
 import fwglobals
 import fwnetplan
+import fwpppoe
+from fwpppoe import FwPppoeClient
 import fwstats
 import shutil
 import sys
@@ -270,6 +272,10 @@ def get_interface_gateway(if_name, if_dev_id=None):
     if if_dev_id:
         if_name = dev_id_to_tap(if_dev_id)
 
+    if fwglobals.g.pppoe.is_pppoe_interface(if_name=if_name):
+        pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
+        return pppoe_iface.gw, str(pppoe_iface.metric)
+
     try:
         cmd   = "ip route list match default | grep via | grep 'dev %s'" % if_name
         route = os.popen(cmd).read()
@@ -334,6 +340,13 @@ def get_all_interfaces():
                 nic_name = tap_name
                 addrs = interfaces.get(nic_name)
 
+        if fwglobals.g.pppoe.is_pppoe_interface(if_name=nic_name):
+            pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=nic_name)
+            if pppoe_iface.is_connected:
+                addrs = interfaces.get(pppoe_iface.ppp_if_name)
+            else:
+                addrs = []
+
         dev_id_ip_gw[dev_id] = {}
         dev_id_ip_gw[dev_id]['addr'] = ''
         dev_id_ip_gw[dev_id]['gw']   = ''
@@ -359,6 +372,10 @@ def get_interface_address(if_name, log=True, log_on_failure=None):
     """
     if log_on_failure == None:
         log_on_failure = log
+
+    ppp_if_name = fwpppoe.pppoe_get_ppp_if_name(if_name)
+    if ppp_if_name:
+        if_name = ppp_if_name
 
     interfaces = psutil.net_if_addrs()
     if if_name not in interfaces:
@@ -548,6 +565,7 @@ def get_linux_interfaces(cached=True):
 
             interface['dhcp'] = fwnetplan.get_dhcp_netplan_interface(if_name)
 
+            is_pppoe = fwglobals.g.pppoe.is_pppoe_interface(if_name=if_name)
             is_wifi = fwwifi.is_wifi_interface(if_name)
             is_lte = fwlte.is_lte_interface(if_name)
 
@@ -590,6 +608,14 @@ def get_linux_interfaces(cached=True):
             if is_wifi:
                 interface['deviceType'] = 'wifi'
                 interface['deviceParams'] = fwwifi.wifi_get_capabilities(dev_id)
+
+            if is_pppoe:
+                pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
+                interface['deviceType'] = 'pppoe'
+                if pppoe_iface.addr:
+                    address = IPNetwork(pppoe_iface.addr)
+                    interface['IPv4'] = str(address.ip)
+                    interface['IPv4Mask'] = str(address.prefixlen)
 
             # Add information specific for WAN interfaces
             #
@@ -941,7 +967,12 @@ def dev_id_to_vpp_sw_if_index(dev_id):
 
     :returns: sw_if_index.
     """
-    vpp_if_name = dev_id_to_vpp_if_name(dev_id)
+    if fwglobals.g.pppoe.is_pppoe_interface(dev_id=dev_id):
+        pppoe_iface = fwglobals.g.pppoe.get_interface(dev_id=dev_id)
+        vpp_if_name = pppoe_iface.tun_vpp_if_name
+    else:
+        vpp_if_name = dev_id_to_vpp_if_name(dev_id)
+
     fwglobals.log.debug("dev_id_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (dev_id, str(vpp_if_name)))
     if vpp_if_name is None:
         return None
@@ -1447,6 +1478,9 @@ def reset_device_config():
     with FwIKEv2() as ike:
         ike.clean()
 
+    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
+        pppoe.reset_interfaces()
+
     if 'lte' in fwglobals.g.db:
         fwglobals.g.db['lte'] = {}
 
@@ -1618,7 +1652,7 @@ def dump_system_config(full=False):
         cfg = system_cfg.dump(full)
     return cfg
 
-def get_router_state():
+def get_router_status():
     """Check if VPP is running.
 
      :returns: VPP state.
@@ -1633,6 +1667,15 @@ def get_router_state():
     else:
         state = 'stopped'
     return (state, reason)
+
+def is_router_running():
+    """Check if VPP is running.
+
+     :returns: True/False.
+    """
+    if hasattr(fwglobals.g, 'router_api'):
+        return fwglobals.g.router_api.state_is_started() or fwglobals.g.router_api.state_is_starting_stopping()
+    return False
 
 def _get_group_delimiter(lines, delimiter):
     """Helper function to iterate through a group lines by delimiter.
@@ -1910,6 +1953,10 @@ def is_interface_without_dev_id(if_name):
 
     # bridge interface that created for WiFi has no dev_id
     if if_name.startswith('br_'):
+        return True
+
+    # PPPoE interface has no dev_id
+    if if_name.startswith('ppp'):
         return True
 
     return False
