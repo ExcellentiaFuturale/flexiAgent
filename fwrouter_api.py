@@ -175,7 +175,9 @@ class FWROUTER_API(FwCfgRequestHandler):
                 for wan in wan_list:
                     dhcp = wan.get('dhcp', 'no')
                     device_type = wan.get('deviceType')
-                    if dhcp == 'no' or device_type == 'lte':
+                    is_pppoe = fwglobals.g.pppoe.is_pppoe_interface(dev_id=wan.get('dev_id'))
+
+                    if dhcp == 'no' or device_type == 'lte' or is_pppoe:
                         continue
 
                     name = fwutils.dev_id_to_tap(wan['dev_id'])
@@ -1004,6 +1006,8 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         fwnetplan.load_netplan_filenames()
 
+        fwglobals.g.pppoe.stop()
+
     def _on_start_router_after(self):
         """Handles post start VPP activities.
         :returns: None.
@@ -1027,6 +1031,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         with FwIKEv2() as ike:
             ike.clean()
         self._stop_threads()
+        fwglobals.g.pppoe.stop()
         fwglobals.g.cache.dev_id_to_vpp_tap_name.clear()
         self.log.info("router is being stopped: vpp_pid=%s" % str(fwutils.vpp_pid()))
 
@@ -1051,6 +1056,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             db_multilink.clean()
         with FwPolicies(fwglobals.g.POLICY_REC_DB_FILE) as db_policies:
             db_policies.clean()
+
+        fwglobals.g.pppoe.reset_interfaces()
 
     def _on_add_interface_after(self, type, sw_if_index):
         """add-interface postprocessing

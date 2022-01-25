@@ -113,6 +113,9 @@ def add_interface(params):
 
     is_wifi = fwwifi.is_wifi_interface_by_dev_id(dev_id)
     is_lte = fwlte.is_lte_interface_by_dev_id(dev_id) if not is_wifi else False
+    is_pppoe = fwglobals.g.pppoe.is_pppoe_interface(dev_id=dev_id)
+    if is_pppoe:
+        dhcp = 'no'
 
     if is_wifi or is_lte:
         cmd = {}
@@ -304,17 +307,42 @@ def add_interface(params):
         netplan_params['args']['ip'] = ''
         netplan_params['args']['validate_ip'] = False
 
-    cmd = {}
-    cmd['cmd'] = {}
-    cmd['cmd']['name']   = "python"
-    cmd['cmd']['params'] = netplan_params
-    cmd['cmd']['descr'] = "add interface into netplan config file"
-    cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
-    cmd['revert']['params'] = copy.deepcopy(netplan_params)
-    cmd['revert']['params']['args']['is_add'] = 0
-    cmd['revert']['descr'] = "remove interface from netplan config file"
-    cmd_list.append(cmd)
+    if is_pppoe:
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['name']      = "exec"
+        cmd['cmd']['descr']     = "UP interface %s in Linux"
+        cmd['cmd']['params']    = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'dev_id_to_tap', 'arg':dev_id} ]},
+                                    "sudo ip link set dev DEV-STUB up" ]
+        cmd['revert'] = {}
+        cmd['revert']['name']   = "exec"
+        cmd['revert']['descr']  = "DOWN interface %s in Linux"
+        cmd['revert']['params'] = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'dev_id_to_tap', 'arg':dev_id} ]},
+                                    "sudo ip link set dev DEV-STUB down" ]
+        cmd_list.append(cmd)
+
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['name']      = "python"
+        cmd['cmd']['descr']     = "Start PPPoE client"
+        cmd['cmd']['params']    = {
+                                    'object': 'fwglobals.g.pppoe',
+                                    'func'  : 'restart_interface',
+                                    'args'  : {'dev_id'   : dev_id}
+                                  }
+        cmd_list.append(cmd)
+    else:
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['name']   = "python"
+        cmd['cmd']['params'] = netplan_params
+        cmd['cmd']['descr'] = "add interface into netplan config file"
+        cmd['revert'] = {}
+        cmd['revert']['name']   = "python"
+        cmd['revert']['params'] = copy.deepcopy(netplan_params)
+        cmd['revert']['params']['args']['is_add'] = 0
+        cmd['revert']['descr'] = "remove interface from netplan config file"
+        cmd_list.append(cmd)
 
     if bridge_addr:
         cmd = {}
