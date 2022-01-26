@@ -251,6 +251,11 @@ class FWAPPLICATIONS_API(FwObject):
                 del apps_db[identifier]
                 self.applications_db = apps_db
 
+            # remove application stats
+            app_stats = self.apps_stats.get(identifier)
+            if app_stats:
+                del self.apps_stats[identifier]
+
             return { 'ok': 1 }
         except Exception as e:
             return { 'ok': 0, 'message': str(e) }
