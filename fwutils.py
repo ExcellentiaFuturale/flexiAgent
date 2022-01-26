@@ -352,7 +352,7 @@ def get_all_interfaces():
         dev_id_ip_gw[dev_id]['gw']   = ''
 
         if not addrs:
-            return None
+            addrs = []
 
         for addr in addrs:
             if addr.family == socket.AF_INET:
