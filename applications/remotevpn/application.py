@@ -82,6 +82,17 @@ def _openvpn_pid():
         pid = None
     return pid
 
+def _vpp_pid():
+    """Get pid of VPP process.
+
+    :returns:           process identifier.
+    """
+    try:
+        pid = subprocess.check_output(['pidof', 'vpp'])
+    except:
+        pid = None
+    return pid
+
 def configure(params):
     """Configure Open VPN server on host.
 
@@ -340,10 +351,13 @@ def router_is_being_to_stop(params):
 def start(params):
     try:
         vpnIsRun = True if _openvpn_pid() else False
-
         if vpnIsRun:
             os.system('sudo killall openvpn')
             time.sleep(5)  # 5 sec
+
+        router_is_running = True if _vpp_pid() else False
+        if not router_is_running:
+            return (True, None)
 
         os.system('sudo openvpn --config /etc/openvpn/server/server.conf --daemon')
 
