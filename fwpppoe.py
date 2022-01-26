@@ -57,6 +57,7 @@ class FwPppoeConnection(FwObject):
         self.metric = 0
         self.usepeerdns = False
         self.connected = False
+        self.opened = False
 
     def __str__(self):
         usepeerdns = ',usepeerdns' if self.usepeerdns else ''
@@ -117,13 +118,21 @@ class FwPppoeConnection(FwObject):
         return self.connected
 
     def open(self):
+        if self.opened:
+            return
+
         os.system(f'ifconfig {self.nic} up')
         os.system('pon %s' % self.filename)
+        self.opened = True
 
     def close(self):
+        if not self.opened:
+            return
+
         os.system('poff %s' % self.filename)
         self.clean_linux_ip()
         self.connected = False
+        self.opened = False
 
     def remove(self):
             try:
