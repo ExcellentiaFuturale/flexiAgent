@@ -449,7 +449,7 @@ def add_interface(params):
             cmd_list.append(cmd)
 
     # Setup NAT config on WAN interface
-    if 'type' not in params or params['type'].lower() == 'wan':
+    if 'type' not in params or params['type'].lower() == 'wan' and not is_pppoe:
         cmd_list.extend(fw_nat_command_helpers.get_nat_wan_setup_config(dev_id))
 
     # Update ospfd configuration.
