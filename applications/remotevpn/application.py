@@ -226,7 +226,7 @@ def _configure_server_file(params):
             f'server {ip.ip} {ip.netmask}',
 
             # Limit server to a maximum of concurrent clients.
-            f'max-clients {params.get("maxConnectionPerDevice")}',
+            f'max-clients {params.get("connections")}',
 
             # Maintain a record of client <-> virtual IP address associations in this file
             'ifconfig-pool-persist /etc/openvpn/server/ipp.txt',
