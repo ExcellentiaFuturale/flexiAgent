@@ -26,13 +26,18 @@ import copy
 import fwutils
 
 # Services enabled for access on WAN interface
-WAN_INTERFACE_SERVICES = [
+WAN_INTERFACE_SERVICES = {
+  "VXLAN Tunnel":
     {
-        "name": "VXLAN Tunnel",
         "port": 4789,
         "protocol": "udp"
-    }
-]
+    },
+  "WebSocket-to-flexiManage":
+    {
+        "port": 7646,
+        "protocol": "tcp"
+    },
+}
 
 def get_nat_forwarding_config(enable):
     """
@@ -138,30 +143,30 @@ def get_nat_wan_setup_config(dev_id):
     }
     cmd_list.append(cmd)
 
-    for service in WAN_INTERFACE_SERVICES:
+    for service_name, service_cfg in WAN_INTERFACE_SERVICES.items():
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['name'] = "nat44_add_del_identity_mapping"
         cmd['cmd']['descr'] = "Add NAT WAN identity mapping for port %s:%d Protocol: %s" % (
-            service['name'], service['port'], service['protocol'])
+            service_name, service_cfg['port'], service_cfg['protocol'])
         cmd['cmd']['params'] = {
             'substs': [
                 {'add_param': 'sw_if_index',
                  'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
             ],
-            'port': service['port'], 'protocol': fwutils.proto_map[service['protocol']], 'is_add': 1
+            'port': service_cfg['port'], 'protocol': fwutils.proto_map[service_cfg['protocol']], 'is_add': 1
         }
 
         cmd['revert'] = {}
         cmd['revert']['name'] = 'nat44_add_del_identity_mapping'
         cmd['revert']['descr'] = "Delete NAT WAN identity mapping for port %s:%d Protocol: %s" % (
-            service['name'], service['port'], service['protocol'])
+            service_name, service_cfg['port'], service_cfg['protocol'])
         cmd['revert']['params'] = {
             'substs': [
                 {'add_param': 'sw_if_index',
                  'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
             ],
-            'port': service['port'], 'protocol': fwutils.proto_map[service['protocol']], 'is_add': 0
+            'port': service_cfg['port'], 'protocol': fwutils.proto_map[service_cfg['protocol']], 'is_add': 0
         }
         cmd_list.append(cmd)
 

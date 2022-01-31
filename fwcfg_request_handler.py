@@ -685,6 +685,15 @@ class FwCfgRequestHandler(FwObject):
         if len(incoming_requests) == 0:
             return True
 
+        if full_sync:
+            self.sync_full(incoming_requests)
+            return
+
+        # At this point no full sync was requested, so try firstly the smart
+        # sync - sync without stopping VPP - just find configuration items
+        # out of sync and try to modify them.
+        # If that fails, we will try the full sync.
+        #
         sync_list = self.cfg_db.get_sync_list(incoming_requests)
 
         if len(sync_list) == 0 and not full_sync:
@@ -698,14 +707,17 @@ class FwCfgRequestHandler(FwObject):
             'params':    { 'requests': sync_list }
         }
 
-        reply = self.call(sync_request, dont_revert_on_failure=True)
+        try:
+            reply = self.call(sync_request, dont_revert_on_failure=True)
+            if reply['ok'] == 1:
+                self.log.debug("_sync_device: smart sync succeeded")
+                return
+            else:
+                self.log.error(f"_sync_device: smart sync failed, go to full sync: {str(reply['message'])}")
+        except Exception as e:
+            self.log.error(f"_sync_device: smart sync exception, go to full sync: {str(e)}")
 
-        if reply['ok'] == 1 and not full_sync:
-            self.log.debug("_sync_device: smart sync succeeded")
-            return True
-
-        # Full sync
-        return self.sync_full(incoming_requests)
+        self.sync_full(incoming_requests)
 
     def _dump_translation_cmd_params(self, cmd):
         if 'params' in cmd and type(cmd['params'])==dict:

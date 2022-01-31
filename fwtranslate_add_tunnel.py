@@ -22,12 +22,14 @@
 
 import copy
 import ipaddress
-
-import fwutils
-import fwglobals
 import socket
 
 from netaddr import *
+
+import fwglobals
+import fwlte
+import fwutils
+
 
 # add_tunnel
 # --------------------------------------
@@ -195,6 +197,9 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     addr = iface_params['addr']
     mac  = iface_params.get('mac')
     mtu  = iface_params['mtu']
+    mss  = iface_params.get('tcp-mss-clamp')
+    vpp_if_name = fwutils.tunnel_to_vpp_if_name(tunnel_params)
+
 
     # ret_attr  - attribute of the object returned by command,
     #             value of which is stored in cache to be available
@@ -223,6 +228,41 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     cmd['cmd']['params']  = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
                               'is_set':0 , 'feature_bitmap':1 }  # 1 stands for LEARN (see test\test_l2bd_multi_instance.py)
     cmd_list.append(cmd)
+
+    if not internal:
+        current_tunnel = fwglobals.g.router_cfg.get_tunnel(id)
+        current_mss    = current_tunnel.get('tcp-wss-clamp') if current_tunnel else None
+        if mss and current_mss:
+            vpp_cmd        = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {mss} ip6 tx ip6-mss  {mss}'
+            vpp_revert_cmd = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {current_mss} ip6 tx ip6-mss {current_mss}'
+        elif mss and not current_mss:
+            vpp_cmd        = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {mss} ip6 tx ip6-mss {mss}'
+            vpp_revert_cmd = f'set interface tcp-mss-clamp {vpp_if_name} ip4 disable ip6 disable'
+        elif not mss and current_mss:
+            vpp_cmd        = f'set interface tcp-mss-clamp {vpp_if_name} ip4 disable ip6 disable'
+            vpp_revert_cmd = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {current_mss} ip6 tx ip6-mss {current_mss}'
+        else: # not mss and not current_mss:
+            vpp_cmd = None
+
+        if vpp_cmd:
+            cmd = {}
+            cmd['cmd'] = {}
+            cmd['cmd']['name']    = "python"
+            cmd['cmd']['descr']   = f"set MSS {str(mss)} on loopback interface {addr}"
+            cmd['cmd']['params']  = {
+                            'module': 'fwutils',
+                            'func'  : 'vpp_cli_execute',
+                            'args'  : {'cmds':[vpp_cmd]}
+            }
+            cmd['revert'] = {}
+            cmd['revert']['name']    = "python"
+            cmd['revert']['descr']   = f"revert MSS to {str(current_mss)} on loopback interface {addr}"
+            cmd['revert']['params']  = {
+                            'module': 'fwutils',
+                            'func'  : 'vpp_cli_execute',
+                            'args'  : {'cmds':[vpp_revert_cmd]}
+            }
+            cmd_list.append(cmd)
 
     if internal:
         # interface.api.json: sw_interface_add_del_address (..., sw_if_index, is_add, prefix, ...)
@@ -591,7 +631,7 @@ def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
     dst_addr = ipaddress.ip_address(dst)
 
     # for lte interface, we need to get the current source IP, and not the one stored in DB. The IP may have changed due last 'add-interface' job.
-    if fwutils.is_lte_interface_by_dev_id(dev_id):
+    if fwlte.is_lte_interface_by_dev_id(dev_id):
         tap_name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True)
         if tap_name:
             source = fwutils.get_interface_address(tap_name)
@@ -1393,8 +1433,10 @@ def add_tunnel(params):
         _add_peer(cmd_list, params, loop0_cache_key)
         loop0_ip  = params['peer']['addr']
         routing = params['peer'].get('routing')
+        ospf_cost = params['peer'].get('ospf-cost')
     else:
         routing                 = params['loopback-iface'].get('routing')
+        ospf_cost               = params['loopback-iface'].get('ospf-cost')
         encryption_mode         = params.get("encryption-mode", "psk")
         loop0_ip                = params['loopback-iface']['addr']
         remote_loop0_ip         = fwutils.build_tunnel_remote_loopback_ip(loop0_ip)       # 10.100.0.4 -> 10.100.0.5 / 10.100.0.5 -> 10.100.0.4
@@ -1459,6 +1501,13 @@ def add_tunnel(params):
     if routing == 'ospf':
 
         # Add point-to-point type of interface for the tunnel address
+        ospf_if_commands_cmd = ["interface DEV-STUB", "ip ospf network point-to-point"]
+        ospf_if_commands_revert = ["interface DEV-STUB", "no ip ospf network point-to-point"]
+
+        if ospf_cost :
+            ospf_if_commands_cmd.append(f"ip ospf cost {ospf_cost}")
+            ospf_if_commands_revert.append('no ip ospf cost')
+
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['name']   = "python"
@@ -1466,7 +1515,7 @@ def add_tunnel(params):
                 'module': 'fwutils',
                 'func': 'frr_vtysh_run',
                 'args': {
-                    'commands': ["interface DEV-STUB", "ip ospf network point-to-point"]
+                    'commands': ospf_if_commands_cmd
                 },
                 'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':loop0_cache_key} ]
         }
@@ -1477,7 +1526,7 @@ def add_tunnel(params):
                 'module': 'fwutils',
                 'func': 'frr_vtysh_run',
                 'args': {
-                    'commands': ["interface DEV-STUB", "no ip ospf network point-to-point"]
+                    'commands': ospf_if_commands_revert
                 },
                 'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':loop0_cache_key} ]
         }

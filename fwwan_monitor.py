@@ -28,6 +28,7 @@ import time
 import traceback
 
 import fwglobals
+import fwlte
 import fwnetplan
 import fwroutes
 import fwutils
@@ -116,7 +117,7 @@ class FwWanMonitor(FwObject):
                 server = self._get_server()
                 routes = self._get_routes()
                 for r in routes:
-                    if fwutils.get_lte_cache(r.dev_id, 'state') == 'resetting':
+                    if fwlte.get_cache_val(r.dev_id, 'state') == 'resetting':
                         continue
                     self._check_connectivity(r, server)
 

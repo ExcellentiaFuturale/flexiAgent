@@ -32,7 +32,7 @@ import fwglobals
 import fwutils
 import fwnetplan
 import fwroutes
-
+import fwwifi
 from fwmultilink import FwMultilink
 from fwpolicies import FwPolicies
 from vpp_api import VPP_API
@@ -126,7 +126,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
                     fwutils.reset_traffic_control()             # Release LTE operations.
                     fwutils.remove_linux_bridges()              # Release bridges for wifi.
-                    fwutils.stop_hostapd()                      # Stop access point service
+                    fwwifi.stop_hostapd()                      # Stop access point service
 
                     self.state_change(FwRouterState.STOPPED)    # Reset state so configuration will applied correctly
                     self._restore_vpp()                         # Rerun VPP and apply configuration
@@ -174,7 +174,9 @@ class FWROUTER_API(FwCfgRequestHandler):
                 for wan in wan_list:
                     dhcp = wan.get('dhcp', 'no')
                     device_type = wan.get('deviceType')
-                    if dhcp == 'no' or device_type == 'lte':
+                    is_pppoe = fwglobals.g.pppoe.is_pppoe_interface(dev_id=wan.get('dev_id'))
+
+                    if dhcp == 'no' or device_type == 'lte' or is_pppoe:
                         continue
 
                     name = fwutils.dev_id_to_tap(wan['dev_id'])
@@ -347,14 +349,20 @@ class FWROUTER_API(FwCfgRequestHandler):
             request = new_request
 
             # Now find out if:
-            # -  VPP should be restarted as a result of request execution.
+            # 1. VPP should be restarted as a result of request execution.
             #    It should be restarted on addition/removal interfaces in order
             #    to capture new interface /release old interface back to Linux.
-            # -  Gateway of WAN interfaces are going to be modified.
+            # 2. Agent should reconnect proactively to flexiManage.
+            #    It should reconnect on add-/remove-/modify-interface, as they might
+            #    impact on connection under the connection legs. So it might take
+            #    a time for connection to detect the change, to report error and to
+            #    reconnect again by the agent infinite connection loop with random
+            #    sleep between retrials.
+            # 3. Gateway of WAN interfaces are going to be modified.
             #    In this case we have to ping the GW-s after modification.
             #    See explanations on that workaround later in this function.
             #
-            (restart_router, gateways, restart_dhcp_service) = self._analyze_request(request)
+            (restart_router, reconnect_agent, gateways, restart_dhcp_service) = self._analyze_request(request)
 
             # Some requests require preprocessing.
             # For example before handling 'add-application' the currently configured
@@ -385,6 +393,11 @@ class FWROUTER_API(FwCfgRequestHandler):
             if restart_dhcp_service:
                 if not restart_router: # on router restart DHCP service is restarted as well
                     fwutils.restart_service(service='isc-dhcp-server', timeout=5)
+
+            # Reconnect agent if needed
+            #
+            if reconnect_agent:
+                fwglobals.g.fwagent.reconnect()
 
 
             ########################################################################
@@ -480,6 +493,13 @@ class FWROUTER_API(FwCfgRequestHandler):
                         'remove-interface' was detected in request.
                         These operations require vpp restart as vpp should
                         capture or should release interfaces back to Linux.
+            reconnect_agent - Agent should reconnect proactively to flexiManage
+                        as add-/remove-/modify-interface was detected in request.
+                        These operations might cause connection failure on TCP
+                        timeout, which might take up to few minutes to detect!
+                        As well the connection retrials are performed with some
+                        interval. To short no connectivity periods we close and
+                        retries the connection proactively.
             gateways - List of gateways to be pinged after request handling
                         in order to solve following problem:
                         today 'modify-interface' request is replaced by pair of
@@ -500,20 +520,37 @@ class FWROUTER_API(FwCfgRequestHandler):
                         That causes DHCP service to stop monitoring of the recreated interface.
                         Therefor we have to restart it on modify-interface completion.
         """
-        (restart_router, gateways, restart_dhcp_service) = \
-        (False,          [],       False)
+
+        def _should_reconnect_agent_on_modify_interface(old_params, new_params):
+            if new_params.get('addr') and new_params.get('addr') != old_params.get('addr'):
+                return True
+            if new_params.get('gateway') != old_params.get('gateway'):
+                return True
+            if new_params.get('metric') != old_params.get('metric'):
+                return True
+            return False
+
+
+        (restart_router, reconnect_agent, gateways, restart_dhcp_service) = \
+        (False,          False,           [],       False)
 
         if re.match('(add|remove)-interface', request['message']):
             if self.state_is_started():
-                restart_router = True
-            return (restart_router, gateways, restart_dhcp_service)
+                restart_router  = True
+                reconnect_agent = True
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+        elif re.match('(start|stop)-router', request['message']):
+            reconnect_agent = True
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
         elif request['message'] != 'aggregated':
-            return (restart_router, gateways, restart_dhcp_service)
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
         else:   # aggregated request
             add_remove_requests = {}
             modify_requests = {}
             for _request in request['params']['requests']:
-                if re.match('(add|remove)-interface', _request['message']):
+                if re.match('(start|stop)-router', _request['message']):
+                    reconnect_agent = True
+                elif re.match('(add|remove)-interface', _request['message']):
                     dev_id = _request['params']['dev_id']
                     if not dev_id in add_remove_requests:
                         add_remove_requests[dev_id] = _request
@@ -524,9 +561,21 @@ class FWROUTER_API(FwCfgRequestHandler):
                         #
                         gw = add_remove_requests[dev_id]['params'].get('gateway')
                         if not gw:
-                            gw = _request['message'].get('gateway')
+                            gw = _request['params'].get('gateway')
                         if gw:
                             gateways.append(gw)
+
+                        # Find out if IP/metric/GW of WAN interface was modified.
+                        # If it was, the agent should be reconnected.
+                        #
+                        if (_request['message'] == 'add-interface'):
+                            new_params = _request['params']
+                            old_params = add_remove_requests[dev_id]['params']
+                        else:
+                            old_params = _request['params']
+                            new_params = add_remove_requests[dev_id]['params']
+                        if _should_reconnect_agent_on_modify_interface(old_params, new_params):
+                            reconnect_agent = True
 
                         # Move the request to the set of modify-interface-s
                         #
@@ -537,7 +586,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 restart_router = True
             if modify_requests and self.state_is_started():
                 restart_dhcp_service = True
-            return (restart_router, gateways, restart_dhcp_service)
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
 
     def _preprocess_request(self, request):
         """Some requests require preprocessing. For example before handling
@@ -940,6 +989,8 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         fwnetplan.load_netplan_filenames()
 
+        fwglobals.g.pppoe.stop()
+
     def _on_start_router_after(self):
         """Handles post start VPP activities.
         :returns: None.
@@ -953,6 +1004,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             # so we just log the error and return. Hopefully frr will not crash,
             # so the configuration file will be not needed.
             fwglobals.log.error(f"_on_apply_router_config: failed to flush frr configuration into file: {str(err)}")
+
+        fwglobals.g.pppoe.start()
         self.log.info("router was started: vpp_pid=%s" % str(fwutils.vpp_pid()))
 
     def _on_stop_router_before(self):
@@ -963,6 +1016,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         with FwIKEv2() as ike:
             ike.clean()
         self._stop_threads()
+        fwglobals.g.pppoe.stop()
         fwglobals.g.cache.dev_id_to_vpp_tap_name.clear()
         self.log.info("router is being stopped: vpp_pid=%s" % str(fwutils.vpp_pid()))
 
@@ -973,7 +1027,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         self.router_stopping = False
         fwutils.reset_traffic_control()
         fwutils.remove_linux_bridges()
-        fwutils.stop_hostapd()
+        fwwifi.stop_hostapd()
 
         # keep LTE connectivity on linux interface
         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
@@ -987,6 +1041,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             db_multilink.clean()
         with FwPolicies(fwglobals.g.POLICY_REC_DB_FILE) as db_policies:
             db_policies.clean()
+
+        fwglobals.g.pppoe.reset_interfaces()
 
     def _on_add_interface_after(self, type, sw_if_index):
         """add-interface postprocessing

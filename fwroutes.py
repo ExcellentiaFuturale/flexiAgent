@@ -227,7 +227,7 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
         if op == 'del':
             fwglobals.log.debug("'%s' failed: %s, ignore this error" % (cmd, str(e)))
             return (True, None)
-        return (False, "Exception: %s" % (str(e)))
+        return (False, str(e))
 
     # We need to re-apply Netplan configuration here to install default route that
     # could be removed in the flow before.
