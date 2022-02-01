@@ -366,6 +366,7 @@ class FwPppoeClient(FwObject):
             if not pppd_id:
                 return
 
+            os.system('poff -a')
             timeout-= 1
             time.sleep(1)
 
