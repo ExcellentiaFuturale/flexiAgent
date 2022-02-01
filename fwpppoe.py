@@ -151,12 +151,16 @@ class FwPppoeConnection(FwObject):
         cmds.append('set interface ip address %s %s' % (self.tun_vpp_if_name, self.addr))
         cmds.append('tap-inject map tap %u %s' % (self.if_index, self.tun_vpp_if_name))
         fwutils.vpp_cli_execute(cmds, debug=True)
+        fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id] = self.tun_vpp_if_name
+        fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name] = self.dev_id
 
     def remove_tun(self):
         cmds = []
         cmds.append('tap-inject map tap %u %s del' % (self.if_index, self.tun_vpp_if_name))
         cmds.append('delete tap %s' % self.tun_vpp_if_name)
         fwutils.vpp_cli_execute(cmds, debug=True)
+        del fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id]
+        del fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name]
         self.if_index = -1
 
     def add_linux_ip_route(self):
@@ -454,7 +458,7 @@ class FwPppoeClient(FwObject):
             if (pppoe_iface.is_enabled):
                 conn.open()
 
-    def restart_interface(self, dev_id, timeout = 30):
+    def restart_interface(self, dev_id, timeout = 60):
         conn = self.connections.get(dev_id)
         if_name = fwutils.dev_id_to_tap(dev_id)
         conn.nic = if_name
@@ -463,13 +467,13 @@ class FwPppoeClient(FwObject):
 
         while timeout >= 0:
             conn.scan()
-            if conn.addr:
-                return
+            if conn.connected:
+                return (True, None)
 
             timeout-= 1
             time.sleep(1)
 
-        self.log.info(f'{dev_id} is not connected')
+        return (False, f'PPPoE: {dev_id} is not connected')
 
     def pppoec_thread(self):
         """PPPoE client thread.

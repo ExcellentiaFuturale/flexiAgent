@@ -971,11 +971,7 @@ def dev_id_to_vpp_sw_if_index(dev_id):
 
     :returns: sw_if_index.
     """
-    if fwglobals.g.pppoe.is_pppoe_interface(dev_id=dev_id):
-        pppoe_iface = fwglobals.g.pppoe.get_interface(dev_id=dev_id)
-        vpp_if_name = pppoe_iface.tun_vpp_if_name
-    else:
-        vpp_if_name = dev_id_to_vpp_if_name(dev_id)
+    vpp_if_name = dev_id_to_vpp_if_name(dev_id)
 
     fwglobals.log.debug("dev_id_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (dev_id, str(vpp_if_name)))
     if vpp_if_name is None:
