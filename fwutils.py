@@ -2897,13 +2897,13 @@ def compare_request_params(params1, params2):
     for key in keys1_only:
         if type(params1[key]) == bool or params1[key]:
             # params1 has non-empty string/value that does not present in params2
-            fwglobals.log.debug(f"compare_request_params: params1[{key}] does not present in params2")
+            fwglobals.log.debug(f"compare_request_params: params1['{key}'] does not present in params2")
             return False
 
     for key in keys2_only:
         if type(params2[key]) == bool or params2[key]:
             # params2 has non-empty string/value that does not present in params1
-            fwglobals.log.debug(f"compare_request_params: params2[{key}] does not present in params1")
+            fwglobals.log.debug(f"compare_request_params: params2['{key}'] does not present in params1")
             return False
 
     for key in keys_common:
@@ -3530,3 +3530,17 @@ def get_thread_tid():
     except Exception as e:
         tid = f'<str({e})>'
     return tid
+
+
+def dict_deep_update(dst, src):
+    '''Implements recursive dict::update() method - the sub-dictionaries are
+    not replaced but updated with sub-dicts from 'src'. Eventually, this function
+    never removes keys from 'dst', but adds / updates them only.
+    '''
+    for key, value in src.items():
+        if isinstance(value, dict):
+            if not key in dst:
+                dst[key] = {}
+            dict_deep_update(dst[key], value)
+        else:
+            dst[key] = value

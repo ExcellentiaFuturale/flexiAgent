@@ -18,10 +18,8 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import json
 import glob
 import os
-import subprocess
 import sys
 
 code_root = os.path.realpath(__file__).replace('\\','/').split('/tests/')[0]
@@ -50,11 +48,13 @@ def test():
         expected_vpp_cfg  = sorted(glob.glob(cli_path + '/' + 'step*vpp*.json'))
         expected_dump_cfg = sorted(glob.glob(cli_path + '/' + 'step*dump*.json'))
 
-        for (idx,step) in enumerate(steps):
+        for (idx, step) in enumerate(steps):
 
             if idx == 0:
                 print("")
             print("   " + os.path.basename(step))
+
+            agent.clean_log()
 
             # Inject request.
             # Note the first request comes with 'daemon=True' to leave agent
@@ -68,16 +68,48 @@ def test():
                                     check_log=True)
             assert ok, err_str
 
-        # Ensure that vpp was restarted if needed.
-        # For now only steps #4 and #5 require restarts, so we expect 2 vpp starts
-        # to be printed in log for this steps. And one more start for initial
-        # configuration - step #1. Note remove-interface & add-interface in step
-        # #6 does not change interface actually, so it was just stripped out and
-        # did not cause restart.
-        #
-        lines = agent.grep_log('router was started: vpp_pid=', print_findings=False)
-        assert len(lines) == 3, "log has not expected number (%d, should be 3) of VPP starts: %d: %s" % \
-                                (len(lines), '\n'.join(lines))
+            # Get test index out of name,
+            # e.g. '5' out of '/home/.../step5_cfg_modify-tunnel_no_change.cli'
+            #
+            step_number = int(os.path.basename(step).split('_')[0].split('step')[1])
+
+            if step_number % 4 == 1:
+                # step1_cfg_modify-interface_no_change.cli
+                # step5_cfg_modify-tunnel_no_change.cli
+                #
+                lines = agent.grep_log('=== start execution', print_findings=False)
+                assert len(lines) == 0, "log has not expected executed requests: %s" % ('\n'.join(lines))
+                lines = agent.grep_log('_strip_noop_request: request has no impact', print_findings=False)
+                assert len(lines) == 1, "log has no expected 'no impact' notion: %s" % ('\n'.join(lines))
+
+            elif step_number == 2:
+                # step2_cfg_modify-interface_stripped_out_cfg_updated.cli
+                #
+                lines = agent.grep_log('=== start execution', print_findings=False)
+                assert len(lines) == 0, "log has not expected executed requests: %s" % ('\n'.join(lines))
+                lines = agent.grep_log('_strip_noop_request: request has no impact', print_findings=False)
+                assert len(lines) == 1, "log has no expected 'no impact' notion: %s" % ('\n'.join(lines))
+                lines = agent.grep_log('not impacting modifications', print_findings=False)
+                assert len(lines) == 1, "log has no expected 'not impacting modifications' notion: %s" % ('\n'.join(lines))
+
+            elif step_number == 3:
+                # step3_cfg_modify-interface_replaced_by_remove_add.cli
+                #
+                lines = agent.grep_log('=== start execution', print_findings=False)
+                assert len(lines) == 2, "log has no expected execution of remove-X & add-X pair: %s" % ('\n'.join(lines))
+
+            elif step_number == 6:
+                # step6_cfg_modify-tunnel_modified.cli - includes 2 modified tunnels
+                #
+                lines = agent.grep_log('=== start execution of modify-tunnel', print_findings=False)
+                assert len(lines) == 2, "log has not expected executed modify-tunnel: %s" % ('\n'.join(lines))
+
+            elif step_number == 7:
+                # step7_cfg_modify-tunnel_replace_by_remove_add.cli - includes 2 remove & add pairs
+                #
+                lines = agent.grep_log('=== start execution', print_findings=False)
+                assert len(lines) == 4, "log has no expected execution of remove-X & add-X pair: %s" % ('\n'.join(lines))
+
 
 
 if __name__ == '__main__':
