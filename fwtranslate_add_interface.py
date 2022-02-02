@@ -113,6 +113,9 @@ def add_interface(params):
 
     is_wifi = fwwifi.is_wifi_interface_by_dev_id(dev_id)
     is_lte = fwlte.is_lte_interface_by_dev_id(dev_id) if not is_wifi else False
+    is_pppoe = fwglobals.g.pppoe.is_pppoe_interface(dev_id=dev_id)
+    if is_pppoe:
+        dhcp = 'no'
 
     if is_wifi or is_lte:
         cmd = {}
@@ -304,17 +307,42 @@ def add_interface(params):
         netplan_params['args']['ip'] = ''
         netplan_params['args']['validate_ip'] = False
 
-    cmd = {}
-    cmd['cmd'] = {}
-    cmd['cmd']['name']   = "python"
-    cmd['cmd']['params'] = netplan_params
-    cmd['cmd']['descr'] = "add interface into netplan config file"
-    cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
-    cmd['revert']['params'] = copy.deepcopy(netplan_params)
-    cmd['revert']['params']['args']['is_add'] = 0
-    cmd['revert']['descr'] = "remove interface from netplan config file"
-    cmd_list.append(cmd)
+    if is_pppoe:
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['name']      = "exec"
+        cmd['cmd']['descr']     = "UP interface %s in Linux"
+        cmd['cmd']['params']    = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'dev_id_to_tap', 'arg':dev_id} ]},
+                                    "sudo ip link set dev DEV-STUB up" ]
+        cmd['revert'] = {}
+        cmd['revert']['name']   = "exec"
+        cmd['revert']['descr']  = "DOWN interface %s in Linux"
+        cmd['revert']['params'] = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'dev_id_to_tap', 'arg':dev_id} ]},
+                                    "sudo ip link set dev DEV-STUB down" ]
+        cmd_list.append(cmd)
+
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['name']      = "python"
+        cmd['cmd']['descr']     = "Start PPPoE client"
+        cmd['cmd']['params']    = {
+                                    'object': 'fwglobals.g.pppoe',
+                                    'func'  : 'restart_interface',
+                                    'args'  : {'dev_id'   : dev_id}
+                                  }
+        cmd_list.append(cmd)
+    else:
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['name']   = "python"
+        cmd['cmd']['params'] = netplan_params
+        cmd['cmd']['descr'] = "add interface into netplan config file"
+        cmd['revert'] = {}
+        cmd['revert']['name']   = "python"
+        cmd['revert']['params'] = copy.deepcopy(netplan_params)
+        cmd['revert']['params']['args']['is_add'] = 0
+        cmd['revert']['descr'] = "remove interface from netplan config file"
+        cmd_list.append(cmd)
 
     if bridge_addr:
         cmd = {}
@@ -699,41 +727,18 @@ def add_interface(params):
 
     return cmd_list
 
-def modify_interface(new_params, old_params):
-    """Generate commands to modify interface configuration in Linux and VPP
+# The modify_X_ignored_params variable represents set of parameters
+# that can be received from flexiManage within the 'modify-X' request
+# and that have no impact on device configuration. If the request includes
+# only such parameters, it should not be executed, we just update the configuration
+# database, so it will be in sync with device configuration on flexiManage.
+#
+modify_interface_ignored_params = {
+    'PublicIP': None,
+    'PublicPort': None,
+    'useStun': None,
+}
 
-    :param new_params:  The new configuration received from flexiManage.
-    :param old_params:  The current configuration of interface.
-
-    :returns: List of commands.
-    """
-    cmd_list = []
-
-    # For now we don't support real translation to command list.
-    # We just return empty list if new parameters have no impact on Linux or
-    # VPP, like PublicPort, and non-empty dummy list if parameters do have impact
-    # and translation is needed. In last case the modification will be performed
-    # by replacing modify-interface with pair of remove-interface & add-interface.
-    # I am an optimistic person, so I believe that hack will be removed at some
-    # point and real translation will be implemented.
-
-    # Remove all not impacting parameters from both new and old parameters and
-    # compare them. If they are same, no translation is needed.
-    #
-    not_impacting_params = [ 'PublicIP', 'PublicPort', 'useStun']
-    copy_old_params = copy.deepcopy(old_params)
-    copy_new_params = copy.deepcopy(new_params)
-
-    for param in not_impacting_params:
-        if param in copy_old_params:
-            del copy_old_params[param]
-        if param in copy_new_params:
-            del copy_new_params[param]
-
-    same = fwutils.compare_request_params(copy_new_params, copy_old_params)
-    if not same:    # There are different impacting parameters
-        cmd_list = [ 'stub' ]
-    return cmd_list
 
 def get_request_key(params):
     """Get add interface command key.

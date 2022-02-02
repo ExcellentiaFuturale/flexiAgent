@@ -1,0 +1,67 @@
+[
+{
+  "entity":  "agent",
+  "message": "modify-tunnel",
+  "params": {
+    "encryption-mode": "ikev2",
+    "src": "__INTERFACE_1__addr_no_mask",
+    "dev_id":"__INTERFACE_1__dev_id",
+    "tunnel-id": 2,
+    "ikev2": {
+      "role": "initiator",
+      "remote-device-id": "AFF9E8C5-D02A-4AF9-96E6-B8E3F6A12A75",
+      "lifetime": 3600,
+      "ike": {
+        "crypto-alg": "aes-cbc",
+        "integ-alg": "sha1-96",
+        "dh-group": "modp-2048",
+        "key-size": 256
+      },
+      "esp": {
+        "crypto-alg": "aes-cbc",
+        "integ-alg": "sha1-96",
+        "dh-group": "ecp-256",
+        "key-size": 256
+      },
+      "certificate": [
+  "-----BEGIN CERTIFICATE-----\n", 
+  "6666666666666666666666666666666666666666666666666666666666666666\n", 
+  "AxMkQUZGOUU4QzUtRDAyQS00QUY5LTk2RTYtQjhFM0Y2QTEyQTc1MB4XDTIwMTIy\n", 
+  "MTEwNTI1OFoXDTIzMTIyMTEwNTI1OFowLzEtMCsGA1UEAxMkQUZGOUU4QzUtRDAy\n", 
+  "QS00QUY5LTk2RTYtQjhFM0Y2QTEyQTc1MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A\n", 
+  "MIIBCgKCAQEAun1hhjnN+6y3Nxpb0Gyb249NjxTBj0lAUov5FOd/kF5HZdXxlV6P\n", 
+  "G+aNjmSbST6W/CFKTdqGQ2vG9v5P1EyV/nZw1LOYCnM28RGfM/m1gN4gphX/Lvyj\n", 
+  "py6Si7iI4+cLbr5HEz3erVlnyemW9a/gV6DgEXAHgjdmbKLmQnG+X6sMmagk3Pez\n", 
+  "FkmzEUO8pjj+cCJ1gw7+rJwNYBmOEMeBHXsAPNkgTYHUUO2IRZIl1utikfMtVjyR\n", 
+  "DZaXmopj1qRUDnIuPGduzSW/QFaSncj0U4Q7Bnj3h+ogIPU2tFIpgsgPij6H19tx\n", 
+  "NjzJBPlJN7qmlphkrj89RTx9ZsT+E5V0uwIDAQABMA0GCSqGSIb3DQEBCwUAA4IB\n", 
+  "AQCfGs+4m1wqpIpMMb8ihd0L6BD2BylIjRJQ7lPNCHs+TnxDfWDVpBNHYbsgdCIL\n", 
+  "vnJjcpr3xLUlJuH62SGMXhCa+dYa+t/mLk34EO9tBRmC/yar0v05JR6gRnLHS77l\n", 
+  "C0HOUgDRgFjuXZKvWd8P+hWyaxax5oF0OaRcdseeWPiOt86aRxcQ4h1JZDCLf9Aw\n", 
+  "540KedQOxeum5fU7ZfQoDNTomIIOPp7zZDdrqfKL2DBIMXo/PtkC+cszTstJAsKd\n", 
+  "lT0Z1e/wvvIYhPe3m3kmNvXCTp7+uGnWATRRvwB6TdcCToSjGUoBpGyupHw36/xE\n", 
+  "6BpIDbyJ0o4AJ9PqHQedbC1Y\n", 
+  "-----END CERTIFICATE-----\n"
+ ]
+    }
+  }
+}
+,
+{
+    "entity": "agent",
+    "message": "modify-tunnel",
+    "params": {
+        "encryption-mode": "ikev2",
+        "tunnel-id": 3,
+        "peer": {
+            "mtu": 1350,
+            "addr": "10.100.0.4/31",
+            "multilink": {
+               "labels": [ "green" ]
+            },
+            "urls": ["666.com"],
+            "ips": ["6.6.6.6"]
+        }
+    }
+}
+]

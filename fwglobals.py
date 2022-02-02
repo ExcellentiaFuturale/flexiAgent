@@ -51,6 +51,7 @@ from fwpolicies import FwPolicies
 from fwrouter_cfg import FwRouterCfg
 from fwsystem_cfg import FwSystemCfg
 from fwstun_wrapper import FwStunWrap
+from fwpppoe import FwPppoeClient
 from fwwan_monitor import FwWanMonitor
 from fwikev2 import FwIKEv2
 from fw_traffic_identification import FwTrafficIdentifications
@@ -321,6 +322,9 @@ class Fwglobals(FwObject):
         self.DHCPD_CONFIG_FILE_BACKUP = '/etc/dhcp/dhcpd.conf.fworig'
         self.ISC_DHCP_CONFIG_FILE = '/etc/default/isc-dhcp-server'
         self.ISC_DHCP_CONFIG_FILE_BACKUP = '/etc/default/isc-dhcp-server.fworig'
+        self.PPPOE_CONFIG_PATH   = '/etc/ppp/'
+        self.PPPOE_CONFIG_PROVIDER_FILE   = 'flexiwan-dsl-provider'
+        self.PPPOE_DB_FILE       = self.DATA_PATH + '.pppoe.sqlite'
         self.POLICY_REC_DB_FILE  = self.DATA_PATH + '.policy.sqlite'
         self.MULTILINK_DB_FILE   = self.DATA_PATH + '.multilink.sqlite'
         self.DATA_DB_FILE        = self.DATA_PATH + '.data.sqlite'
@@ -426,6 +430,7 @@ class Fwglobals(FwObject):
         self.wan_monitor  = FwWanMonitor(standalone)
         self.stun_wrapper = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
         self.ikev2        = FwIKEv2()
+        self.pppoe        = FwPppoeClient(self.PPPOE_DB_FILE, self.PPPOE_CONFIG_PATH, self.PPPOE_CONFIG_PROVIDER_FILE, standalone)
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 
@@ -441,6 +446,8 @@ class Fwglobals(FwObject):
         # Increase allowed max socket receive buffer size to 2Mb
         # VPPSB need that to handle more netlink events on a heavy load
         fwutils.set_linux_socket_max_receive_buffer_size(2048000)
+
+        self.pppoe.initialize()   # IMPORTANT! The PPPOE should be initialized before restore_vpp_if_needed!
 
         self.stun_wrapper.initialize()   # IMPORTANT! The STUN should be initialized before restore_vpp_if_needed!
 
@@ -586,6 +593,8 @@ class Fwglobals(FwObject):
                 func = getattr(self.ikev2, params['func'])
             elif params['object'] == 'fwglobals.g.traffic_identifications':
                 func = getattr(self.traffic_identifications, params['func'])
+            elif params['object'] == 'fwglobals.g.pppoe':
+                func = getattr(self.pppoe, params['func'])
             else:
                 raise Exception("object '%s' is not supported" % (params['object']))
         else:

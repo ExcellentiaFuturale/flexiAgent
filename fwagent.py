@@ -51,8 +51,9 @@ import fwutils
 import fwwebsocket
 import loadsimulator
 
-from fwobject import FwObject
 from fwapplications_api import FWAPPLICATIONS_API
+from fwobject import FwObject
+from fwpppoe import FwPppoeClient
 
 from fw_nat_command_helpers import WAN_INTERFACE_SERVICES
 
@@ -90,7 +91,6 @@ class FwAgent(FwObject):
         self.token                = None
         self.versions             = fwutils.get_device_versions(fwglobals.g.VERSIONS_FILE)
         self.thread_statistics    = None
-        self.thread_stun          = None
         self.pending_msg_replies  = []
         self.reconnecting         = False
 
@@ -605,7 +605,7 @@ def version():
 def dump(filename, path, clean_log):
     fwutils.dump(filename=filename, path=path, clean_log=clean_log)
 
-def reset(soft=False, quiet=False):
+def reset(soft=False, quiet=False, pppoe=False):
     """Handles 'fwagent reset' command.
     Resets device to the initial state. Once reset, the device MUST go through
     the registration procedure.
@@ -614,13 +614,19 @@ def reset(soft=False, quiet=False):
                   No re-registration is needed.
     :param quiet: Quiet reset: resets router configuration without confirmation
                   of device deletion in management.
+    :param pppoe: PPPoE reset: resets PPPoE configuration.
 
     :returns: None.
     """
+
     # prevent reset configuration when vpp is run
     if fwutils.vpp_does_run() and soft:
         print("Router must be stopped in order to reset the configuration")
         return
+
+    if pppoe:
+        with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
+            pppoe.clean()
 
     if soft:
         fwutils.reset_device_config()
@@ -752,7 +758,7 @@ def show(agent, configuration, database, status):
             except Pyro4.errors.CommunicationError:
                 fwglobals.log.info("not running")
         elif status == 'router':
-            fwglobals.log.info('Router state: %s (%s)' % (fwutils.get_router_state()[0], fwutils.get_router_state()[1]))
+            fwglobals.log.info('Router state: %s (%s)' % (fwutils.get_router_status()[0], fwutils.get_router_status()[1]))
 
 @Pyro4.expose
 class FwagentDaemon(FwObject):
@@ -864,6 +870,7 @@ class FwagentDaemon(FwObject):
         self.active  = True
         self.thread_main = threading.Thread(target=self.main, name='FwagentDaemon Main Thread')
         self.thread_main.start()
+
         self.log.debug("started")
 
     def stop(self, stop_router=True):
@@ -1139,7 +1146,7 @@ if __name__ == '__main__':
 
     command_functions = {
                     'version':lambda args: version(),
-                    'reset': lambda args: reset(soft=args.soft, quiet=args.quiet),
+                    'reset': lambda args: reset(soft=args.soft, quiet=args.quiet, pppoe=args.pppoe),
                     'stop': lambda args: stop(reset_device_config=args.reset_softly, stop_router=(not args.dont_stop_vpp)),
                     'start': lambda args: start(start_router=args.start_router),
                     'daemon': lambda args: daemon(standalone=args.dont_connect),
@@ -1170,6 +1177,8 @@ if __name__ == '__main__':
                         help="clean router configuration only, device remains registered")
     parser_reset.add_argument('-q', '--quiet', action='store_true',
                         help="don't print info onto screen, print into syslog only")
+    parser_reset.add_argument('-p', '--pppoe', action='store_true',
+                        help="clean pppoe configuration")
     parser_stop = subparsers.add_parser('stop', help='Stop router and reset interfaces')
     parser_stop.add_argument('-s', '--reset_softly', action='store_true',
                         help="reset router softly: clean router configuration")

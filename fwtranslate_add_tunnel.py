@@ -1433,8 +1433,10 @@ def add_tunnel(params):
         _add_peer(cmd_list, params, loop0_cache_key)
         loop0_ip  = params['peer']['addr']
         routing = params['peer'].get('routing')
+        ospf_cost = params['peer'].get('ospf-cost')
     else:
         routing                 = params['loopback-iface'].get('routing')
+        ospf_cost               = params['loopback-iface'].get('ospf-cost')
         encryption_mode         = params.get("encryption-mode", "psk")
         loop0_ip                = params['loopback-iface']['addr']
         remote_loop0_ip         = fwutils.build_tunnel_remote_loopback_ip(loop0_ip)       # 10.100.0.4 -> 10.100.0.5 / 10.100.0.5 -> 10.100.0.4
@@ -1499,6 +1501,13 @@ def add_tunnel(params):
     if routing == 'ospf':
 
         # Add point-to-point type of interface for the tunnel address
+        ospf_if_commands_cmd = ["interface DEV-STUB", "ip ospf network point-to-point"]
+        ospf_if_commands_revert = ["interface DEV-STUB", "no ip ospf network point-to-point"]
+
+        if ospf_cost :
+            ospf_if_commands_cmd.append(f"ip ospf cost {ospf_cost}")
+            ospf_if_commands_revert.append('no ip ospf cost')
+
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['name']   = "python"
@@ -1506,7 +1515,7 @@ def add_tunnel(params):
                 'module': 'fwutils',
                 'func': 'frr_vtysh_run',
                 'args': {
-                    'commands': ["interface DEV-STUB", "ip ospf network point-to-point"]
+                    'commands': ospf_if_commands_cmd
                 },
                 'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':loop0_cache_key} ]
         }
@@ -1517,7 +1526,7 @@ def add_tunnel(params):
                 'module': 'fwutils',
                 'func': 'frr_vtysh_run',
                 'args': {
-                    'commands': ["interface DEV-STUB", "no ip ospf network point-to-point"]
+                    'commands': ospf_if_commands_revert
                 },
                 'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':loop0_cache_key} ]
         }
@@ -1605,20 +1614,11 @@ def modify_peer_tunnel(new_params, old_params):
     if ips is None and urls is None:
         return []
 
-    whitelist = set()
     if urls is not None:
         old_params['peer']['urls'] = urls
-        whitelist.add('urls')
 
     if ips is not None:
         old_params['peer']['ips'] = ips
-        whitelist.add('ips')
-
-    # Modify whitelist
-    cmd = {}
-    cmd['modify'] = 'modify'
-    cmd['whitelist'] = whitelist
-    cmd_list.append(cmd)
 
     # Remove tunnel statistics entry for this tunnel
     cmd = {}
@@ -1657,12 +1657,6 @@ def modify_tunnel(new_params, old_params):
 
     certificate = new_params['ikev2'].get('certificate')
     if certificate:
-        # Add modify white list
-        cmd = {}
-        cmd['modify'] = 'modify'
-        cmd['whitelist'] = {'certificate'}
-        cmd_list.append(cmd)
-
         # Add public certificate file
         cmd = {}
         cmd['cmd'] = {}
@@ -1693,6 +1687,27 @@ def modify_tunnel(new_params, old_params):
         cmd_list.append(cmd)
 
     return cmd_list
+
+
+# The modify_X_supported_params variable represents set of modifiable parameters
+# that can be received from flexiManage within the 'modify-X' request.
+# If the received 'modify-X' includes parameters that do not present in this set,
+# the agent framework will not modify the configuration item, but will recreate
+# it from scratch. To do that it replaces 'modify-X' request with pair of 'remove-X'
+# and 'add-X' requests, where 'remove-X' request uses parameters stored
+# in the agent configuration database, and the 'add-X' request uses modified
+# parameters received with the 'modify-X' request and all the rest of parameters
+# are taken from the configuration database.
+#
+modify_tunnel_supported_params = {
+    'peer': {
+        'ips' : None,
+        'urls': None,
+    },
+    'ikev2': {
+        'certificate': None,
+    }
+}
 
 def get_request_key(params):
     """Get add-tunnel command.
