@@ -235,8 +235,13 @@ class FWAPPLICATIONS_API(FwObject):
         try:
             params = request['params']
             identifier = params.get('identifier')
-            success, val = self._call_application_api(identifier, 'uninstall', params)
 
+            apps_db = self.applications_db
+            app = apps_db.get(identifier)
+            if not app:
+                return { 'ok': 1, 'message': '' }
+
+            success, val = self._call_application_api(identifier, 'uninstall', params)
             if not success:
                 return { 'ok': 0, 'message': val }
 
@@ -245,11 +250,8 @@ class FWAPPLICATIONS_API(FwObject):
             os.system(f'rm -rf {target_path}')
 
             # remove application from db
-            apps_db = self.applications_db
-            app = apps_db.get(identifier)
-            if app:
-                del apps_db[identifier]
-                self.applications_db = apps_db
+            del apps_db[identifier]
+            self.applications_db = apps_db
 
             # remove application stats
             app_stats = self.apps_stats.get(identifier)

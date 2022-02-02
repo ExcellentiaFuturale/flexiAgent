@@ -42,18 +42,24 @@ def install(params):
         os.system('mkdir -p /etc/openvpn/server')
         os.system('mkdir -p /etc/openvpn/client')
 
-        commands = [
-            'wget -O - https://swupdate.openvpn.net/repos/repo-public.gpg|apt-key add -',
-            'echo "deb http://build.openvpn.net/debian/openvpn/release/2.5 bionic main" > /etc/apt/sources.list.d/openvpn-aptrepo.list',
-            'apt-get update && apt-get install -y openvpn',
-        ]
+        installed = os.popen("dpkg -l | grep -E '^ii' | grep openvpn").read()
+        if not installed:
+            commands = [
+                'wget -O - https://swupdate.openvpn.net/repos/repo-public.gpg|apt-key add -',
+                'echo "deb http://build.openvpn.net/debian/openvpn/release/2.5 bionic main" > /etc/apt/sources.list.d/openvpn-aptrepo.list',
+                'apt-get update && apt-get install -y openvpn',
+            ]
 
-        for command in commands:
-            ret = os.system(command)
-            if ret:
-                return (False, f'install: failed to run "{command}". error code is {ret}')
+            for command in commands:
+                ret = os.system(command)
+                if ret:
+                    return (False, f'install: failed to run "{command}". error code is {ret}')
 
-        print("RemoteVPN installed successfully")
+            print("RemoteVPN installed successfully")
+        else:
+            # if vpn is running but a user wants to install it again, stop it
+            # it will be started with the new config in the configure() function
+            stop({})
 
         configParams = params.get('configParams')
         if not configParams:
