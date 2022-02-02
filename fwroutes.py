@@ -99,6 +99,7 @@ class FwLinuxRoutes(dict):
                 dst = None # Default routes have no RTA_DST
                 metric = 0
                 gw = None
+                rt_table = 0
 
                 if route['proto'] == FwRouteProto.DHCP.value:
                     proto = 'dhcp'
@@ -122,6 +123,12 @@ class FwLinuxRoutes(dict):
                             for attr2 in elem['attrs']:
                                 if attr2[0] == 'RTA_GATEWAY':
                                     nexthops.append(FwRouteNextHop(attr2[1],dev))
+                    if attr[0] == 'RTA_TABLE':
+                        rt_table = int(attr[1])
+
+                if rt_table > 255:  # ignore bizare routes which are not in main/local tables
+                    continue        # See RT_TABLE_X in /usr/include/linux/rtnetlink.h
+
                 if not dst: # Default routes have no RTA_DST
                     dst = "0.0.0.0"
                 addr = "%s/%u" % (dst, route['dst_len'])
