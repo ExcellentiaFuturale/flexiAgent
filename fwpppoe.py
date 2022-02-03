@@ -22,7 +22,6 @@ import glob
 import os
 import psutil
 import socket
-import subprocess
 import threading
 import time
 import traceback
@@ -30,6 +29,7 @@ import traceback
 from sqlitedict import SqliteDict
 
 import fwglobals
+import fwnetplan
 import fwutils
 
 from fwobject import FwObject
@@ -276,6 +276,8 @@ class FwPppoeInterface():
         self.gw = ''
         self.tun_vpp_if_name = ''
         self.ppp_if_name = ''
+        self.netplan = ''
+        self.fname = ''
 
     def __str__(self):
         return f'user:{self.user}, password:{self.password}, mtu:{self.mtu}, mru:{self.mru}, usepeerdns:{self.usepeerdns}, metric:{self.metric}, enabled:{self.is_enabled}, connected:{self.is_connected}, addr:{self.addr}, gw:{self.gw}, tun:{self.tun_vpp_if_name}, ppp:{self.ppp_if_name}'
@@ -390,8 +392,16 @@ class FwPppoeClient(FwObject):
         for conn in self.connections.values():
             conn.save()
 
+    def _restore_netplan(self):
+        for dev_id, pppoe_iface in self.interfaces.items():
+            if_name = fwutils.dev_id_to_linux_if(dev_id)
+            pppoe_iface = self.interfaces[dev_id]
+            if pppoe_iface.fname:
+                fwnetplan.add_interface(if_name, pppoe_iface.fname, pppoe_iface.netplan)
+
     def clean(self):
         self._remove_files()
+        self._restore_netplan()
         self.interfaces.clear()
 
     def get_interface(self, if_name = None, dev_id = None):
@@ -415,10 +425,15 @@ class FwPppoeClient(FwObject):
                 self.log.error(f'add_interface: both dev_id and if_name are missing')
                 return
 
-        test_if_name = fwutils.dev_id_to_linux_if(dev_id)
-        if not test_if_name:
+        if_name = fwutils.dev_id_to_linux_if(dev_id)
+        if not if_name:
             self.log.error(f'add_interface: {dev_id} is missing on the device')
             return
+
+        fname, netplan = fwnetplan.remove_interface(if_name)
+        if fname:
+            pppoe_iface.fname = fname
+            pppoe_iface.netplan = netplan
 
         self.interfaces[dev_id] = pppoe_iface
         self.reset_interfaces()
@@ -427,7 +442,15 @@ class FwPppoeClient(FwObject):
         if not dev_id and if_name:
             dev_id = fwutils.get_interface_dev_id(if_name)
 
+        if_name = fwutils.dev_id_to_linux_if(dev_id)
+        if not if_name:
+            self.log.error(f'remove_interface: {dev_id} is missing on the device')
+            return
+
         if dev_id in self.interfaces:
+            pppoe_iface = self.interfaces[dev_id]
+            if pppoe_iface.fname:
+                fwnetplan.add_interface(if_name, pppoe_iface.fname, pppoe_iface.netplan)
             del self.interfaces[dev_id]
             self.reset_interfaces()
 
