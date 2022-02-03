@@ -383,10 +383,10 @@ def stop(params):
         if vpnIsRun:
             os.system('sudo killall openvpn')
             time.sleep(5)  # 5 sec
+            print("remoteVPN server is stopped!")
 
         # cleanup static log file
         os.system('echo "" > /etc/openvpn/server/openvpn-status.log')
-        print("remoteVPN server is stopped!")
         return (True, None)
     except Exception as e:
         return (False, str(e))

@@ -62,7 +62,7 @@ class FWAPPLICATIONS_API(FwObject):
     """Services class representation.
     """
 
-    def __init__(self):
+    def __init__(self, run_application_stats = True):
         """Constructor method.
         """
         FwObject.__init__(self)
@@ -70,7 +70,8 @@ class FWAPPLICATIONS_API(FwObject):
         self.applications_db = fwglobals.g.applications_db
         self.thread_apps_statistics    = None
         self.apps_stats    = {}
-        self.application_stats()
+        if run_application_stats:
+            self.application_stats()
 
     def __enter__(self):
         return self

@@ -1418,8 +1418,8 @@ def stop_vpp():
 
      :returns: Error message and status code.
      """
-    
-    fwglobals.g.applications_api.call_hook('router_is_being_to_stop')
+
+    call_applications_hook('router_is_being_to_stop')
 
     dpdk_ifs = []
     dpdk.devices = {}
@@ -1448,7 +1448,7 @@ def stop_vpp():
     fwstats.update_state(False)
     netplan_apply('stop_vpp')
 
-    fwglobals.g.applications_api.call_hook('router_is_stopped')
+    call_applications_hook('router_is_stopped')
 
     with FwIKEv2() as ike:
         ike.clean()
@@ -3566,3 +3566,8 @@ def dict_deep_update(dst, src):
             dict_deep_update(dst[key], value)
         else:
             dst[key] = value
+
+def call_applications_hook(hook):
+    with FWAPPLICATIONS_API(run_application_stats=False) as applications_api:
+        applications_api.call_hook(hook)
+        a = 'a'
