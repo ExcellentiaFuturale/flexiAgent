@@ -813,6 +813,20 @@ def _add_ikev2_common_profile(cmd_list, params, name, cache_key, auth_method, lo
     cmd['cmd']['descr']     = "set tunnel interface for IKEv2 profile %s" % name
     cmd_list.append(cmd)
 
+    # ikev2.api.json: ikev2_profile_set_gateway (...)
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['descr']     = "set gateway for IKEv2 profile %s" % name
+    cmd['cmd']['name']      = "ikev2_profile_set_gateway"
+    cmd['cmd']['params']    = {
+                                'name':name,
+                                'substs': [
+                                    {'add_param': 'next_hop_sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': params['dev_id']},
+                                    {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [params['dst'], params['dev_id']]}
+                                ]
+                              }
+    cmd_list.append(cmd)
+
     # ikev2.api.json: ikev2_profile_set_auth (..., auth_method)
     auth_data = ''
     if auth_method == 1:
