@@ -424,7 +424,7 @@ class Fwglobals(FwObject):
         self.agent_api    = FWAGENT_API()
         self.system_api   = FWSYSTEM_API(self.system_cfg)
         self.router_api   = FWROUTER_API(self.router_cfg, self.MULTILINK_DB_FILE)
-        self.applications_api = FWAPPLICATIONS_API()
+        self.applications_api = FWAPPLICATIONS_API(run_application_stats=True)
         self.os_api       = OS_API()
         self.policies     = FwPolicies(self.POLICY_REC_DB_FILE)
         self.wan_monitor  = FwWanMonitor(standalone)

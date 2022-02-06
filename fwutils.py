@@ -3568,6 +3568,6 @@ def dict_deep_update(dst, src):
             dst[key] = value
 
 def call_applications_hook(hook):
-    with FWAPPLICATIONS_API(run_application_stats=False) as applications_api:
+    with FWAPPLICATIONS_API() as applications_api:
         applications_api.call_hook(hook)
         a = 'a'
