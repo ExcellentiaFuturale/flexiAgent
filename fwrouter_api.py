@@ -1047,7 +1047,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             db_policies.clean()
 
         fwglobals.g.applications_api.call_hook('router_is_stopped')
-        
+
         fwglobals.g.pppoe.reset_interfaces()
 
     def _on_add_interface_after(self, type, sw_if_index):
