@@ -212,10 +212,12 @@ class Checker:
         ]
         succeeded = True
         for mod in modules:
-            ret = os.system('modinfo %s > /dev/null 2>&1' %  mod)
+            ret = os.system(f'modinfo {mod} > /dev/null 2>&1')
             if ret:
-                self.log.error(mod + ' not found')
-                succeeded = False
+                out = subprocess.check_output(f'find /lib/modules -name modules.builtin -exec grep {mod} {{}} \;', shell=True)
+                if not out:
+                    self.log.error(mod + ' not found')
+                    succeeded = False
         return succeeded
 
     def hard_check_nic_drivers(self, supported):
