@@ -658,6 +658,7 @@ def reset(soft=False, quiet=False, pppoe=False):
             fwlte.disconnect(dev_id, False)
 
         fwglobals.log.info("Reset operation done")
+        fwglobals.log.info("Note: this command doesn't clear pppoe configuration, use 'fwagent reset -p' to clear it")
     else:
         fwglobals.log.info("Reset operation aborted")
     daemon_rpc('start')     # Start daemon main loop if daemon is alive

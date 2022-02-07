@@ -221,7 +221,6 @@ class FwPppoeSecretsConfig(FwObject):
             with open(self.path + self.filename, 'w') as file:
                 file.write(pppoe_secrets_top)
                 for user in self.users.values():
-                    self.log.debug(str(user))
                     file.write(str(user) + os.linesep)
 
         except Exception as e:
