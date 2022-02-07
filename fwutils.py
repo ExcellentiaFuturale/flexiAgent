@@ -616,6 +616,7 @@ def get_linux_interfaces(cached=True):
             if is_pppoe:
                 pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
                 interface['deviceType'] = 'pppoe'
+                interface['dhcp'] = 'yes'
                 if pppoe_iface.addr:
                     address = IPNetwork(pppoe_iface.addr)
                     interface['IPv4'] = str(address.ip)
