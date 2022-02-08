@@ -190,7 +190,11 @@ class FwAgent(FwObject):
 
         :returns: `True` if succeeded, `False` otherwise.
         """
-        parsed_token = jwt.decode(token, options={"verify_signature": False})
+        try:
+            parsed_token = jwt.decode(token, options={"verify_signature": False})
+        except:
+            self.log.error(f"invalid token: '{token}'")
+            return False
 
         # If repository defined in token, make sure device works with that repo
         # Repo is sent if device is connected to a flexiManage that doesn't work with
