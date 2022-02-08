@@ -415,7 +415,7 @@ def get_monitoring(params):
 
             client_list = status[:routing_table_idx]
             for line in client_list[3:]:
-                # line = 'shneorp@flexiwan.com ,192.168.1.1:57662,22206,13194,2021-12-22 11:57:33'
+                # line = 'test@flexiwan.com ,192.168.1.1:57662,22206,13194,2021-12-22 11:57:33'
                 fields = line.split(',')
                 username = fields[0]
 

@@ -62,7 +62,7 @@ class FWAPPLICATIONS_API(FwObject):
     """Services class representation.
     """
 
-    def __init__(self, run_application_stats = True):
+    def __init__(self, run_application_stats = False):
         """Constructor method.
         """
         FwObject.__init__(self)
