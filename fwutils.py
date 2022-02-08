@@ -1446,6 +1446,8 @@ def stop_vpp():
     netplan_apply('stop_vpp')
     with FwIKEv2() as ike:
         ike.clean()
+    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
+        pppoe.reset_interfaces()
 
 def reset_device_config():
     """Reset router config by cleaning DB and removing config files.
