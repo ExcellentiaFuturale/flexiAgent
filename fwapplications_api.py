@@ -70,6 +70,7 @@ class FWAPPLICATIONS_API(FwObject):
         self.applications_db = fwglobals.g.applications_db
         self.thread_apps_statistics    = None
         self.apps_stats    = {}
+        self.processing_job = False
         if run_application_stats:
             self.application_stats()
 
@@ -103,7 +104,7 @@ class FWAPPLICATIONS_API(FwObject):
                 #
                 try:  # Ensure thread doesn't exit on exception
                     timeout = 10
-                    if (slept % timeout) == 0:
+                    if (slept % timeout) == 0 and not self.processing_job:
                         apps = dict(self.applications_db.items())
                         for identifier in apps:
                             is_installed = apps[identifier].get('installed')
@@ -147,7 +148,9 @@ class FWAPPLICATIONS_API(FwObject):
         handler_func = getattr(self, handler)
         assert handler_func, f'fwapplications_api: handler={handler} not found for req={request}'
 
+        self.processing_job = True
         reply = handler_func(request)
+        self.processing_job = False
         if reply['ok'] == 0:
             raise Exception(f'fwapplications_api: {handler_func}({format(params)}) failed: {reply["message"]}')
         return reply

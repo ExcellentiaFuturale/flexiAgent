@@ -111,23 +111,21 @@ def configure(params):
     """
     try:
         dir = os.path.dirname(os.path.realpath(__file__))
-        shutil.copyfile('{}/scripts/auth.sh'.format(dir), '/etc/openvpn/server/auth-script.sh')
+        shutil.copyfile('{}/scripts/auth.py'.format(dir), '/etc/openvpn/server/auth-script.py')
         shutil.copyfile('{}/scripts/up.py'.format(dir), '/etc/openvpn/server/up-script.py')
         shutil.copyfile('{}/scripts/down.py'.format(dir), '/etc/openvpn/server/down-script.py')
         shutil.copyfile('{}/scripts/client-connect.py'.format(dir), '/etc/openvpn/server/client-connect.py')
 
         # set global variable for VPN server - it will use by openvpn scripts
         escaped_url = re.escape(params['vpnPortalServer'])
-        os.system("sed -i 's/__VPN_SERVER__/%s/g' /etc/openvpn/server/auth-script.sh" % escaped_url)
+        os.system("sed -i 's/__VPN_SERVER__/%s/g' /etc/openvpn/server/auth-script.py" % escaped_url)
 
         commands = [
-            'chmod +x /etc/openvpn/server/auth-script.sh',
+            'chmod +x /etc/openvpn/server/auth-script.py',
             'chmod +x /etc/openvpn/server/up-script.py',
             'chmod +x /etc/openvpn/server/down-script.py',
             'chmod +x /etc/openvpn/server/client-connect.py',
 
-            # Convert DOS format to UNIX format
-            "sed -i 's/\r$//' /etc/openvpn/server/auth-script.sh",
 
             'echo "%s" > /etc/openvpn/server/ca.key' % params['caKey'],
             'echo "%s" > /etc/openvpn/server/ca.crt' % params['caCrt'],
@@ -151,7 +149,8 @@ def configure(params):
             raise Exception(err)
 
         if _openvpn_pid():
-            start(params)
+            # restart vpn server after configurations changed
+            start(params, restart=True)
 
         return (True, None)
     except Exception as e:
@@ -163,16 +162,13 @@ def uninstall(params):
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
 
+    stop({})
+
     commands = [
         'apt-get remove -y openvpn',
         'rm -rf /etc/openvpn/server/*',
         'rm -rf /etc/openvpn/client/*'
     ]
-
-    vpnIsRun = True if _openvpn_pid() else False
-
-    if vpnIsRun:
-        commands.insert(0, 'killall openvpn')
 
     try:
         for command in commands:
@@ -259,7 +255,7 @@ def _configure_server_file(params):
             'verb 3',
 
             # 'echo "plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so /tmp/script.sh" >> %s' % destFile,
-            'auth-user-pass-verify /etc/openvpn/server/auth-script.sh via-file',
+            'auth-user-pass-verify /etc/openvpn/server/auth-script.py via-file',
             'tmp-dir /dev/shm',
             'script-security 2',
 
@@ -346,7 +342,10 @@ def _configure_client_file(params):
         return (False, str(e))
 
 def router_is_started(params):
-    return start(params)
+    # This hook should start the VPN server immediately after the VPP is started.
+    # If the VPN is already running for some reason,
+    # we will restart it to make sure our unique settings to move traffic into the VPP are applied.
+    return start(params, restart=True)
 
 def router_is_stopped(params):
     return stop(params)
@@ -354,16 +353,20 @@ def router_is_stopped(params):
 def router_is_being_to_stop(params):
     return stop(params)
 
-def start(params):
+def start(params, restart=False):
     try:
-        vpnIsRun = True if _openvpn_pid() else False
-        if vpnIsRun:
-            os.system('sudo killall openvpn')
-            time.sleep(5)  # 5 sec
-
+        # don't start if vpp is down
         router_is_running = True if _vpp_pid() else False
         if not router_is_running:
             return (True, None)
+
+        # if vpn is already run, return true
+        vpnIsRun = True if _openvpn_pid() else False
+        if vpnIsRun:
+            if not restart:
+                return (True, None)
+            else:
+                stop({})
 
         os.system('sudo openvpn --config /etc/openvpn/server/server.conf --daemon')
 
@@ -379,7 +382,6 @@ def start(params):
 def stop(params):
     try:
         vpnIsRun = True if _openvpn_pid() else False
-
         if vpnIsRun:
             os.system('sudo killall openvpn')
             time.sleep(5)  # 5 sec
