@@ -1,0 +1,44 @@
+[
+    {
+        "entity": "agent",
+        "message": "add-interface",
+        "params": {
+            "dev_id": "__INTERFACE_3__dev_id",
+            "dhcp": "yes",
+            "addr": "192.168.1.52/24",
+            "useStun": true,
+            "monitorInternet": true,
+            "gateway": "192.168.1.1",
+            "routing": "NONE",
+            "type": "wan",
+            "multilink": {
+                "labels": []
+            }
+        }
+    },
+    {
+        "entity": "agent",
+        "message": "add-interface",
+        "params": {
+            "dev_id": "__INTERFACE_1__dev_id",
+            "addr": "192.168.2.52/24",
+            "gateway": "192.168.2.1",
+            "metric": "200",
+            "routing": "NONE",
+            "type": "lan"
+        }
+    },
+    {
+        "entity": "agent",
+        "message": "add-interface",
+        "params": {
+            "dev_id": "__INTERFACE_2__dev_id",
+            "addr": "192.168.3.52/24",
+            "monitorInternet": true,
+            "gateway": "192.168.3.1",
+            "metric": "300",
+            "routing": "NONE",
+            "type": "wan"
+        }
+    }
+]

@@ -1,0 +1,12 @@
+[
+    {
+        "entity": "agent",
+        "message": "modify-interface",
+        "params": {
+            "dev_id": "__INTERFACE_3__dev_id",
+            "dhcp": "yes",
+            "monitorInternet": true,
+            "metric": "100"
+        }
+    }
+]

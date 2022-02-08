@@ -1,0 +1,15 @@
+[
+    {
+        "entity": "agent",
+        "message": "modify-interface",
+        "params": {
+            "dev_id": "__INTERFACE_3__dev_id",
+            "dhcp": "no",
+            "addr": "192.168.1.52/24",
+            "gateway": "192.168.1.1",
+            "type": "WAN",
+            "monitorInternet": true,
+            "metric": 100
+        }
+    }
+]
