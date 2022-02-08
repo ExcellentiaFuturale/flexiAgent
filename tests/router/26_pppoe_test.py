@@ -46,7 +46,8 @@ def test(fixture_globals):
     client.scan()
     fwglobals.log.debug("PPPoE: %s" % str(client.get_interface(if_name=if_name, dev_id=dev_id)))
 
-    pppoe_iface = FwPppoeInterface('denis-2', 'password', 1492, 1492, True, 50, True)
+    pppoe_iface = client.get_interface(if_name=if_name, dev_id=dev_id)
+    pppoe_iface.is_enabled = True
     client.add_interface(pppoe_iface, if_name=if_name, dev_id=dev_id)
 
     time.sleep(10)

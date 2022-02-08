@@ -556,3 +556,38 @@ def _has_ip(if_name, dhcp):
             return True
 
     return False
+
+def remove_interface(if_name):
+    files = netplan_get_filepaths()
+
+    for fname in files:
+        config = None
+        with open(fname, 'r') as stream:
+            config = yaml.safe_load(stream)
+            if config is None:
+                continue
+            if 'network' in config:
+                network = config['network']
+                if 'ethernets' in network:
+                    ethernets = network['ethernets']
+                    if if_name in ethernets:
+                        removed_section = copy.deepcopy(ethernets[if_name])
+                        del ethernets[if_name]
+                        with open(fname, 'w') as file_stream:
+                            yaml.dump(config, file_stream)
+                        fwutils.netplan_apply('remove_interface_netplan')
+                        return (fname, removed_section)
+    return ('', '')
+
+def add_interface(if_name, fname, netplan_section):
+    config = None
+    with open(fname, 'r') as stream:
+        config = yaml.safe_load(stream)
+        if 'network' in config:
+            network = config['network']
+            if 'ethernets' in network:
+                ethernets = network['ethernets']
+                ethernets[if_name] = netplan_section
+                with open(fname, 'w') as file_stream:
+                    yaml.dump(config, file_stream)
+                fwutils.netplan_apply('add_interface_netplan')
