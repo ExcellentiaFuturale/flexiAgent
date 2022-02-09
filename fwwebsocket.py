@@ -88,7 +88,8 @@ class FwWebSocketClient(FwObject):
             #
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             if local_port and not fwglobals.g.loadsimulator:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)  # Avoid EADDRINUSE on reconnect
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)  # Avoid 98:EADDRINUSE on reconnect
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Avoid 99:EADDRNOTAVAIL on reconnect
                 sock.bind(('', local_port))
             sock.settimeout(timeout)
 
@@ -119,12 +120,11 @@ class FwWebSocketClient(FwObject):
             if self.ws:
                 self.ws.close()
                 self.ws = None
-            # No need to shutdown() and close() socket - websocket.create_connection()
-            # closes socket brutally on any error to my sorrow, so we will get exception here!
-            # ------------------------------------------------------------------------
-            #elif sock:
-            #    sock.shutdown(socket.SHUT_RDWR)
-            #    sock.close()
+            elif ssl_sock:
+                ssl_sock.close()
+            elif sock:
+                sock.shutdown(socket.SHUT_RDWR)
+                sock.close()
             self.log.error(f"failed to connect to {remote_host}: {str(e)}")
             raise e
 
