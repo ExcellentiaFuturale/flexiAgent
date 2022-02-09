@@ -18,10 +18,6 @@ try:
 
     # remove tc filter commands
     os.system('sudo tc qdisc delete dev t_vpp_remotevpn handle ffff: ingress')
-    os.system('sudo tc filter delete dev t_vpp_remotevpn parent ffff: protocol all u32 match u32 0 0 action mirred egress mirror dev t_remotevpn')
-
-    os.system('sudo tc qdisc delete dev t_remotevpn handle ffff: ingress')
-    os.system('sudo tc filter delete dev t_remotevpn parent ffff: protocol all u32 match u32 0 0 action mirred egress mirror dev t_vpp_remotevpn')
 
     # remove vpp tun interface
     with open(app_db_path, 'r') as json_file:

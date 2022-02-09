@@ -16,8 +16,9 @@ data['userName'] = username
 
 url = "__VPN_SERVER__/api/auth/tokens/verify"
 
+verify = False if 'local' in url else True
 headers = {'Authorization': f'Bearer {password}'}
-response = requests.post(url, json=data, headers=headers, verify=False)
+response = requests.post(url, json=data, headers=headers, verify=verify)
 
 status = response.status_code
 if status is not 200:

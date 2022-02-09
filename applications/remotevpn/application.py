@@ -200,7 +200,7 @@ def _configure_server_file(params):
             # set dev (NIC) name
             'dev t_remotevpn',
 
-            # use dev tap
+            # use dev tun
             'dev-type tun',
 
             # SSL/TLS root certificate
@@ -213,6 +213,9 @@ def _configure_server_file(params):
 
             # Select a cryptographic cipher.
             'auth SHA512',
+
+            # After successful user/password authentication, the OpenVPN server will generate tmp token valid for one day
+            'auth-gen-token 86400',
 
             # The server and each client must have a copy of this key
             'tls-crypt /etc/openvpn/server/tc.key',
@@ -259,7 +262,7 @@ def _configure_server_file(params):
             'tmp-dir /dev/shm',
             'script-security 2',
 
-            'verify-client-cert none',
+            'verify-client-cert require',
             'client-config-dir /etc/openvpn/client',
             'username-as-common-name',
             'reneg-sec 43200',
