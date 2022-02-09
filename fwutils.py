@@ -563,11 +563,14 @@ def get_linux_interfaces(cached=True):
                 'nat_type':         '',
                 'link':             '',
                 'tap_name':         '',
+                'mtu':              '',
             }
 
             interface['link'] = get_interface_link_state(if_name, dev_id)
 
             interface['dhcp'] = fwnetplan.get_dhcp_netplan_interface(if_name)
+
+            interface['mtu'] = get_linux_interface_mtu(if_name)
 
             is_pppoe = fwglobals.g.pppoe.is_pppoe_interface(if_name=if_name)
             is_wifi = fwwifi.is_wifi_interface(if_name)
@@ -580,6 +583,8 @@ def get_linux_interfaces(cached=True):
 
                 if is_lte or is_wifi:
                     tap_name = dev_id_to_tap(dev_id, check_vpp_state=True)
+                    if tap_name:
+                        interface['mtu'] = get_linux_interface_mtu(tap_name)
 
                 # bridged interface is only when vpp is running
                 bridge_addr = is_bridged_interface(dev_id)
@@ -617,6 +622,7 @@ def get_linux_interfaces(cached=True):
                 pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
                 interface['deviceType'] = 'pppoe'
                 interface['dhcp'] = 'yes'
+                interface['mtu'] = str(pppoe_iface.mtu)
                 if pppoe_iface.addr:
                     address = IPNetwork(pppoe_iface.addr)
                     interface['IPv4'] = str(address.ip)
@@ -3069,9 +3075,12 @@ def get_reconfig_hash():
 
         addr = addr.split('/')[0] if addr else ''
 
+        mtu = str(linux_interfaces[dev_id]['mtu'])
+
         res += 'addr:'    + addr + ','
         res += 'gateway:' + gw + ','
         res += 'metric:'  + metric + ','
+        res += 'mtu:'  + mtu + ','
         if gw and addr:
             res += 'public_ip:'   + linux_interfaces[dev_id]['public_ip'] + ','
             res += 'public_port:' + str(linux_interfaces[dev_id]['public_port']) + ','
@@ -3547,3 +3556,10 @@ def dict_deep_update(dst, src):
             dict_deep_update(dst[key], value)
         else:
             dst[key] = value
+
+def get_linux_interface_mtu(if_name):
+    net_if_stats = psutil.net_if_stats()
+    if if_name not in net_if_stats:
+        return ''
+
+    return str(net_if_stats[if_name].mtu)
