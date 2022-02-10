@@ -627,9 +627,11 @@ def reset(soft=False, quiet=False, pppoe=False):
         print("Router must be stopped in order to reset the configuration")
         return
 
-    if pppoe:
-        with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
-            pppoe.clean()
+    pppoe_configured = False
+    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe_client:
+        pppoe_configured = pppoe_client.is_pppoe_configured()
+        if pppoe:
+            pppoe_client.clean()
 
     if soft:
         fwutils.reset_device_config()
@@ -662,7 +664,8 @@ def reset(soft=False, quiet=False, pppoe=False):
             fwlte.disconnect(dev_id, False)
 
         fwglobals.log.info("Reset operation done")
-        fwglobals.log.info("Note: this command doesn't clear pppoe configuration, use 'fwagent reset -p' to clear it")
+        if not pppoe and pppoe_configured:
+            fwglobals.log.info("Note: this command doesn't clear pppoe configuration, use 'fwagent reset -p' to clear it")
     else:
         fwglobals.log.info("Reset operation aborted")
     daemon_rpc('start')     # Start daemon main loop if daemon is alive

@@ -399,6 +399,9 @@ class FwPppoeClient(FwObject):
                 fwnetplan.add_interface(if_name, pppoe_iface.fname, pppoe_iface.netplan)
 
     def clean(self):
+        if not self.is_pppoe_configured():
+            return
+
         self._remove_files()
         self._restore_netplan()
         self.interfaces.clear()
@@ -459,6 +462,9 @@ class FwPppoeClient(FwObject):
         self._create_files()
         self._save()
         self.start()
+
+    def is_pppoe_configured(self):
+        return bool(self.interfaces)
 
     def scan(self):
         for dev_id, conn in self.connections.items():
