@@ -26,8 +26,12 @@ import subprocess
 import time
 from netaddr import IPNetwork
 import re
+import json
+
+from fwutils import vpp_does_run
 
 OPENVPN_LOG_FILE    = '/var/log/openvpn/openvpn.log'
+APP_DB_PATH = '/etc/openvpn/server/fw_db'
 
 def install(params):
     """Install Remote VPN server on host.
@@ -405,6 +409,20 @@ def status(params):
 
 def get_log_file(params):
     return (True, OPENVPN_LOG_FILE)
+
+def get_lan_vpp_interface_names(params):
+    vpnIsRun = True if _openvpn_pid() else False
+    res = []
+    if not vpnIsRun:
+        return res
+
+    with open(APP_DB_PATH, 'r') as json_file:
+        data = json.load(json_file)
+        tun_vpp_if_name = data.get('tun_vpp_if_name')
+        if tun_vpp_if_name:
+            res.append(tun_vpp_if_name)
+
+    return (True, res)
 
 def get_monitoring(params):
     try:

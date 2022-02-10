@@ -980,8 +980,18 @@ def dev_id_to_vpp_sw_if_index(dev_id):
     :returns: sw_if_index.
     """
     vpp_if_name = dev_id_to_vpp_if_name(dev_id)
-
     fwglobals.log.debug("dev_id_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (dev_id, str(vpp_if_name)))
+    return vpp_if_name_to_vpp_sw_if_index(vpp_if_name)
+
+# 'vpp_if_name_to_vpp_sw_if_index' function maps interface referenced by vpp interface name, e.g tun0
+# into index of this interface in VPP, eg. 1.
+def vpp_if_name_to_vpp_sw_if_index(vpp_if_name):
+    """Convert VPP interface name into VPP sw_if_index.
+
+    :param vpp_if_name:      VPP interface name
+
+    :returns: sw_if_index.
+    """
     if vpp_if_name is None:
         return None
 
@@ -989,7 +999,7 @@ def dev_id_to_vpp_sw_if_index(dev_id):
     for sw_if in sw_ifs:
         if re.match(vpp_if_name, sw_if.interface_name):    # Use regex, as sw_if.interface_name might include trailing whitespaces
             return sw_if.sw_if_index
-    fwglobals.log.debug("dev_id_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (dev_id, yaml.dump(sw_ifs, canonical=True)))
+    fwglobals.log.debug("vpp_if_name_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (vpp_if_name, yaml.dump(sw_ifs, canonical=True)))
 
     return None
 
@@ -2261,7 +2271,14 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order,
     bvi_vpp_name_list      = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['switch'].keys())
     lan_vpp_name_list      = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['lan'].keys())
     loopback_vpp_name_list = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['tunnel'].keys())
-    vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list
+
+    # get LAN interfaces for each application
+    # the result is a dictionary with keys as application identifiers and value is array of vpp interfaces names
+    # e.g. { 'com.flexiwan.vpn': ['tun0'] }
+    app_lans = call_applications_hook('get_lan_vpp_interface_names')
+    app_lans_list = [vpp_if_name for vpp_if_names in app_lans.values() for vpp_if_name in vpp_if_names]
+
+    vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list + app_lans_list
 
     if attach_to_wan:
         wan_vpp_name_list  = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['wan'].keys())
@@ -3581,7 +3598,7 @@ def dict_deep_update(dst, src):
 
 def call_applications_hook(hook):
     with FWAPPLICATIONS_API() as applications_api:
-        applications_api.call_hook(hook)
+        return applications_api.call_hook(hook)
 
 def get_linux_interface_mtu(if_name):
     net_if_stats = psutil.net_if_stats()

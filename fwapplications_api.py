@@ -45,17 +45,18 @@ fwapplications_handlers = {
 # all hooks supported with a flag indicating whether it is a mandatory hook,
 # meaning that if it does not exist, an error will be thrown.
 fwapplications_hooks = {
-    'install':                 True,
-    'uninstall':               True,
-    'status':                  True,
-    'configure':               True,
-    'get_log_file':            False,
-    'get_monitoring':          False,
-    'router_is_started':       False,
-    'router_is_being_to_stop': False,
-    'router_is_stopped':       False,
-    'agent_reset':             False,
-    'start':                   False,
+    'install':                     True,
+    'uninstall':                   True,
+    'status':                      True,
+    'configure':                   True,
+    'get_log_file':                False,
+    'get_monitoring':              False,
+    'router_is_started':           False,
+    'router_is_being_to_stop':     False,
+    'router_is_stopped':           False,
+    'agent_reset':                 False,
+    'start':                       False,
+    'get_lan_vpp_interface_names': False
 }
 
 class FWAPPLICATIONS_API(FwObject):
@@ -174,6 +175,7 @@ class FWAPPLICATIONS_API(FwObject):
         return result
 
     def call_hook(self, hook_type, params={}, identifier=None):
+        res = {}
         for app_identifier in self.applications_db:
             try:
                 # skip applications if filter is passed
@@ -181,12 +183,14 @@ class FWAPPLICATIONS_API(FwObject):
                     continue
 
                 params['identifier'] = app_identifier
-                self._call_application_api(app_identifier, hook_type, params)
+                success, val = self._call_application_api(app_identifier, hook_type, params)
+                if success:
+                    res[app_identifier] = val
             except Exception as e:
                 self.log.debug(f'call_hook: hook "{hook_type}" failed. identifier={app_identifier}. err={str(e)}')
                 pass
 
-        return { 'ok': 1, 'message': '' }
+        return res
 
     def install(self, request):
         try:
