@@ -153,6 +153,8 @@ class FwPppoeConnection(FwObject):
         fwutils.vpp_cli_execute(cmds, debug=True)
         fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id] = self.tun_vpp_if_name
         fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name] = self.dev_id
+        fwglobals.log.debug('create_tun')
+        fwglobals.log.debug(str(fwglobals.g.cache.dev_id_to_vpp_if_name))
 
     def remove_tun(self):
         cmds = []
@@ -161,6 +163,8 @@ class FwPppoeConnection(FwObject):
         fwutils.vpp_cli_execute(cmds, debug=True)
         del fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id]
         del fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name]
+        fwglobals.log.debug('remove_tun')
+        fwglobals.log.debug(str(fwglobals.g.cache.dev_id_to_vpp_if_name))
         self.if_index = -1
 
     def add_linux_ip_route(self):
