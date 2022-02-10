@@ -507,7 +507,7 @@ class FwPppoeClient(FwObject):
             time.sleep(1)
 
             try:  # Ensure thread doesn't exit on exception
-                if fwglobals.g.router_api.state_is_started() or fwglobals.g.router_api.state_is_stopped():
+                if not fwglobals.g.router_api.state_is_starting_stopping():
                     self.scan()
             except Exception as e:
                 self.log.error("%s: %s (%s)" %
