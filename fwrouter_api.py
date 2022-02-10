@@ -327,6 +327,10 @@ class FWROUTER_API(FwCfgRequestHandler):
         return (self.router_state == FwRouterState.STARTING or \
                 self.router_state == FwRouterState.STOPPING)
 
+    def state_is_starting_or_started(self):
+        return (self.router_state == FwRouterState.STARTED or \
+                self.router_state == FwRouterState.STARTING)
+
     def call(self, request, dont_revert_on_failure=False):
         """Executes router configuration request: 'add-X','remove-X' or 'modify-X'.
 
@@ -1041,8 +1045,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             db_multilink.clean()
         with FwPolicies(fwglobals.g.POLICY_REC_DB_FILE) as db_policies:
             db_policies.clean()
-
-        fwglobals.g.pppoe.reset_interfaces()
 
     def _on_add_interface_after(self, type, sw_if_index):
         """add-interface postprocessing
