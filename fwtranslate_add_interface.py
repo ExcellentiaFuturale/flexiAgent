@@ -324,10 +324,18 @@ def add_interface(params):
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['name']      = "python"
-        cmd['cmd']['descr']     = "Start PPPoE client"
+        cmd['cmd']['descr']     = "Restart PPPoE interface"
         cmd['cmd']['params']    = {
                                     'object': 'fwglobals.g.pppoe',
                                     'func'  : 'restart_interface',
+                                    'args'  : {'dev_id'   : dev_id}
+                                  }
+        cmd['revert'] = {}
+        cmd['revert']['name']   = "python"
+        cmd['revert']['descr']  = "Stop PPPoE interface"
+        cmd['revert']['params'] = {
+                                    'object': 'fwglobals.g.pppoe',
+                                    'func'  : 'stop_interface',
                                     'args'  : {'dev_id'   : dev_id}
                                   }
         cmd_list.append(cmd)
