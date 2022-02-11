@@ -505,6 +505,11 @@ class FwPppoeClient(FwObject):
 
         return (False, f'PPPoE: {dev_id} is not connected')
 
+    def stop_interface(self, dev_id):
+        conn = self.connections.get(dev_id)
+        conn.close()
+        return (True, None)
+
     def pppoec_thread(self):
         """PPPoE client thread.
         Its function is to monitor state of interfaces with PPPoE.
