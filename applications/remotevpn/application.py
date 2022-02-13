@@ -196,7 +196,7 @@ def _configure_server_file(params):
             # f'local {params.get("wanIp")}',
 
             # Which TCP/UDP port should OpenVPN listen on?
-            f'port {params.get("serverPort", "1194")}',
+            f'port {params.get("port", "1194")}',
 
             # TCP or UDP server?
             'proto udp',
