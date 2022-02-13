@@ -23,7 +23,9 @@
 import copy
 
 import fwglobals
+import fwlte
 import fwutils
+import fwwifi
 import fw_nat_command_helpers
 
 # add_interface
@@ -109,8 +111,11 @@ def add_interface(params):
     if bridge_addr:
         iface_addr = bridge_addr
 
-    is_wifi = fwutils.is_wifi_interface_by_dev_id(dev_id)
-    is_lte = fwutils.is_lte_interface_by_dev_id(dev_id) if not is_wifi else False
+    is_wifi = fwwifi.is_wifi_interface_by_dev_id(dev_id)
+    is_lte = fwlte.is_lte_interface_by_dev_id(dev_id) if not is_wifi else False
+    is_pppoe = fwglobals.g.pppoe.is_pppoe_interface(dev_id=dev_id)
+    if is_pppoe:
+        dhcp = 'no'
 
     if is_wifi or is_lte:
         cmd = {}
@@ -147,7 +152,7 @@ def add_interface(params):
             cmd['cmd'] = {}
             cmd['cmd']['name']   = "python"
             cmd['cmd']['params'] = {
-                    'module': 'fwutils',
+                    'module': 'fwwifi',
                     'func': 'configure_hostapd',
                     'args': { 'dev_id': dev_id, 'configuration': params.get('configuration', None) }
             }
@@ -157,14 +162,14 @@ def add_interface(params):
             cmd['cmd'] = {}
             cmd['cmd']['name']   = "python"
             cmd['cmd']['params'] = {
-                    'module': 'fwutils',
+                    'module': 'fwwifi',
                     'func': 'start_hostapd'
             }
             cmd['cmd']['descr']  = "start hostpad"
             cmd['revert'] = {}
             cmd['revert']['name']   = "python"
             cmd['revert']['params'] = {
-                    'module': 'fwutils',
+                    'module': 'fwwifi',
                     'func': 'stop_hostapd'
             }
             cmd['revert']['descr']  = "stop hostpad"
@@ -243,8 +248,8 @@ def add_interface(params):
             cmd['cmd'] = {}
             cmd['cmd']['name']   = "python"
             cmd['cmd']['params'] = {
-                        'module': 'fwutils',
-                        'func': 'lte_connect',
+                        'module': 'fwlte',
+                        'func': 'connect',
                         'args': { 'params': configs }
             }
             cmd['cmd']['descr'] = "connect modem to lte cellular network provider"
@@ -290,29 +295,62 @@ def add_interface(params):
 
     if is_lte:
         netplan_params['substs'] = [
-            { 'add_param':'ip', 'val_by_func':'lte_get_ip_configuration', 'arg': [dev_id, 'ip'] },
-            { 'add_param':'gw', 'val_by_func':'lte_get_ip_configuration', 'arg': [dev_id, 'gateway'] },
+            { 'add_param':'ip', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'ip'] },
+            { 'add_param':'gw', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'gateway'] },
         ]
 
         # If a user doesn't configure static dns servers, we use the servers received from ISP
         if len(dnsServers) == 0:
-            netplan_params['substs'].append({ 'add_param':'dnsServers', 'val_by_func':'lte_get_ip_configuration', 'arg': [dev_id, 'dns_servers'] })
+            netplan_params['substs'].append({ 'add_param':'dnsServers', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'dns_servers'] })
 
     if bridge_addr:
         netplan_params['args']['ip'] = ''
         netplan_params['args']['validate_ip'] = False
 
-    cmd = {}
-    cmd['cmd'] = {}
-    cmd['cmd']['name']   = "python"
-    cmd['cmd']['params'] = netplan_params
-    cmd['cmd']['descr'] = "add interface into netplan config file"
-    cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
-    cmd['revert']['params'] = copy.deepcopy(netplan_params)
-    cmd['revert']['params']['args']['is_add'] = 0
-    cmd['revert']['descr'] = "remove interface from netplan config file"
-    cmd_list.append(cmd)
+    if is_pppoe:
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['name']      = "exec"
+        cmd['cmd']['descr']     = "UP interface %s in Linux"
+        cmd['cmd']['params']    = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'dev_id_to_tap', 'arg':dev_id} ]},
+                                    "sudo ip link set dev DEV-STUB up" ]
+        cmd['revert'] = {}
+        cmd['revert']['name']   = "exec"
+        cmd['revert']['descr']  = "DOWN interface %s in Linux"
+        cmd['revert']['params'] = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'dev_id_to_tap', 'arg':dev_id} ]},
+                                    "sudo ip link set dev DEV-STUB down" ]
+        cmd_list.append(cmd)
+
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['name']      = "python"
+        cmd['cmd']['descr']     = "Restart PPPoE interface"
+        cmd['cmd']['params']    = {
+                                    'object': 'fwglobals.g.pppoe',
+                                    'func'  : 'restart_interface',
+                                    'args'  : {'dev_id'   : dev_id}
+                                  }
+        cmd['revert'] = {}
+        cmd['revert']['name']   = "python"
+        cmd['revert']['descr']  = "Stop PPPoE interface"
+        cmd['revert']['params'] = {
+                                    'object': 'fwglobals.g.pppoe',
+                                    'func'  : 'stop_interface',
+                                    'args'  : {'dev_id'   : dev_id}
+                                  }
+        cmd_list.append(cmd)
+    else:
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['name']   = "python"
+        cmd['cmd']['params'] = netplan_params
+        cmd['cmd']['descr'] = "add interface into netplan config file"
+        cmd['revert'] = {}
+        cmd['revert']['name']   = "python"
+        cmd['revert']['params'] = copy.deepcopy(netplan_params)
+        cmd['revert']['params']['args']['is_add'] = 0
+        cmd['revert']['descr'] = "remove interface from netplan config file"
+        cmd_list.append(cmd)
 
     if bridge_addr:
         cmd = {}
@@ -509,32 +547,40 @@ def add_interface(params):
             cmd_list.append(cmd)
 
     if is_lte:
+        substs = [ {'replace':'DEV-STUB', 'key': 'cmds', 'val_by_func':'dev_id_to_vpp_if_name', 'arg': dev_id},
+                   {'replace':'LTE-GW', 'key': 'cmds', 'val_by_func':'fwlte.get_ip_configuration', 'arg':[dev_id, 'gateway']} ]
+
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']   = "python"
-        cmd['cmd']['params'] = {
-                    'module': 'fwutils',
-                    'func': 'vpp_add_static_arp',
-                    'args': {
-                            'dev_id'  : dev_id,
-                            'gw'      : '',
-                            'mac'     : 'ff:ff:ff:ff:ff:ff',
-                    },
-                    'substs': [ { 'add_param':'gw', 'val_by_func':'lte_get_ip_configuration', 'arg':[dev_id, 'gateway'] }]
+        cmd['cmd']['name']    = "python"
+        cmd['cmd']['descr']   = f"add arp static entry to vpp for LTE device {dev_id}"
+        cmd['cmd']['params']  = {
+                        'substs': substs,
+                        'module': 'fwutils',
+                        'func'  : 'vpp_cli_execute',
+                        'args'  : {'cmds':['set ip neighbor static DEV-STUB LTE-GW ff:ff:ff:ff:ff:ff']}
         }
-        cmd['cmd']['descr']         = "create static arp entry for dev_id %s" % dev_id
+        cmd['revert'] = {}
+        cmd['revert']['name']    = "python"
+        cmd['revert']['descr']   = f"remove arp static entry from vpp for LTE device {dev_id}"
+        cmd['revert']['params']  = {
+                        'substs': substs,
+                        'module': 'fwutils',
+                        'func'  : 'vpp_cli_execute',
+                        'args'  : {'cmds':['set ip neighbor del static DEV-STUB LTE-GW ff:ff:ff:ff:ff:ff']}
+        }
         cmd_list.append(cmd)
 
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['name'] = "exec"
-        cmd['cmd']['params'] = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'lte_get_ip_configuration', 'arg': [dev_id, 'gateway'] } ]},
+        cmd['cmd']['params'] = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'gateway'] } ]},
                                 "sudo arp -s DEV-STUB 00:00:00:00:00:00" ]
         cmd['cmd']['descr'] = "set arp entry on linux for lte interface"
         cmd['revert'] = {}
         cmd['revert']['name']   = "exec"
         cmd['revert']['descr']  = "remove arp entry on linux for lte interface"
-        cmd['revert']['params'] = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'lte_get_ip_configuration', 'arg': [dev_id, 'gateway'] } ]},
+        cmd['revert']['params'] = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'gateway'] } ]},
                                     "sudo arp -d DEV-STUB || true" ]
         cmd_list.append(cmd)
 
@@ -689,41 +735,18 @@ def add_interface(params):
 
     return cmd_list
 
-def modify_interface(new_params, old_params):
-    """Generate commands to modify interface configuration in Linux and VPP
+# The modify_X_ignored_params variable represents set of parameters
+# that can be received from flexiManage within the 'modify-X' request
+# and that have no impact on device configuration. If the request includes
+# only such parameters, it should not be executed, we just update the configuration
+# database, so it will be in sync with device configuration on flexiManage.
+#
+modify_interface_ignored_params = {
+    'PublicIP': None,
+    'PublicPort': None,
+    'useStun': None,
+}
 
-    :param new_params:  The new configuration received from flexiManage.
-    :param old_params:  The current configuration of interface.
-
-    :returns: List of commands.
-    """
-    cmd_list = []
-
-    # For now we don't support real translation to command list.
-    # We just return empty list if new parameters have no impact on Linux or
-    # VPP, like PublicPort, and non-empty dummy list if parameters do have impact
-    # and translation is needed. In last case the modification will be performed
-    # by replacing modify-interface with pair of remove-interface & add-interface.
-    # I am an optimistic person, so I believe that hack will be removed at some
-    # point and real translation will be implemented.
-
-    # Remove all not impacting parameters from both new and old parameters and
-    # compare them. If they are same, no translation is needed.
-    #
-    not_impacting_params = [ 'PublicIP', 'PublicPort', 'useStun']
-    copy_old_params = copy.deepcopy(old_params)
-    copy_new_params = copy.deepcopy(new_params)
-
-    for param in not_impacting_params:
-        if param in copy_old_params:
-            del copy_old_params[param]
-        if param in copy_new_params:
-            del copy_new_params[param]
-
-    same = fwutils.compare_request_params(copy_new_params, copy_old_params)
-    if not same:    # There are different impacting parameters
-        cmd_list = [ 'stub' ]
-    return cmd_list
 
 def get_request_key(params):
     """Get add interface command key.

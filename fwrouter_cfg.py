@@ -38,7 +38,7 @@ class FwRouterCfg(FwCfgDatabase):
     :param db_file: SQLite DB file name.
     """
 
-    def update(self, request, cmd_list=None, executed=False, whitelist=None):
+    def update(self, request, cmd_list=None, executed=False):
         # The `start-router` does not conform `add-X`, `remove-X`, `modify-X` format
         # handled by the superclass update(), so we handle it here.
         # All the rest are handled by FwCfgDatabase.update().
@@ -52,7 +52,7 @@ class FwRouterCfg(FwCfgDatabase):
                 req_key = self._get_request_key(request)
                 self.db[req_key] = { 'request' : req , 'params' : params , 'cmd_list' : cmd_list , 'executed' : executed }
             else:
-                FwCfgDatabase.update(self, request, cmd_list, executed, whitelist)
+                FwCfgDatabase.update(self, request, cmd_list, executed)
         except KeyError:
             pass
         except Exception as e:
@@ -210,17 +210,8 @@ class FwRouterCfg(FwCfgDatabase):
                     # The configuration item should be modified.
                     # Rename requests in input list with 'modify-X'.
                     #
-                    # At this stage only 'modify-interface' is supported,
-                    # so for the rest types of configuration items we add
-                    # the correspondent 'remove-X' request with current
-                    # parameters to the output list and later in this function
-                    # we will add the 'add-X' request from the input list.
-                    #
-                    if dumped_request['message'] == 'add-interface':
-                        input_requests[dumped_key]['message'] = 'modify-interface'
-                    else:
-                        dumped_request['message'] = dumped_request['message'].replace('add-', 'remove-')
-                        output_requests.append(dumped_request)
+                    request = input_requests[dumped_key]
+                    request['message'] = request['message'].replace('add-', 'modify-')
             else:
                 # The configuration item does not present in the input list.
                 # So it stands for item to be removed. Add correspondent request

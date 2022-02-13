@@ -9,6 +9,7 @@
     {
       "Key": "add-interface:__INTERFACE_1__dev_id",
       "Params": {
+        "PublicIP": "66.66.66.66",
         "PublicPort": 6666,
         "addr": "__INTERFACE_1__addr",
         "dev_id": "__INTERFACE_1__dev_id",
@@ -20,7 +21,8 @@
             "red"
           ]
         },
-        "type": "wan"
+        "type": "wan",
+        "useStun": true
       }
     },
     {
@@ -110,4 +112,3 @@
     }
   ]
 }
-

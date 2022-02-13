@@ -19,9 +19,9 @@
 ################################################################################
 
 import copy
+import ctypes
 import binascii
 import datetime
-import enum
 import glob
 import hashlib
 import inspect
@@ -33,33 +33,36 @@ import platform
 import subprocess
 import psutil
 import socket
-import threading
 import re
 import fwglobals
-import fwikev2
 import fwnetplan
+import fwpppoe
+from fwpppoe import FwPppoeClient
 import fwstats
-import fwtunnel_stats
 import shutil
 import sys
 import traceback
 import yaml
-from netaddr import IPNetwork, IPAddress
-import threading
-import serial
 import ipaddress
 import zlib
 import base64
-from tools.common.fw_vpp_startupconf import FwStartupConf
 
-from fwrouter_cfg   import FwRouterCfg
-from fwsystem_cfg   import FwSystemCfg
+from netaddr import IPNetwork, IPAddress
+
+import fwlte
+import fwwifi
+import fwtranslate_add_switch
+
+from fwikev2        import FwIKEv2
 from fwmultilink    import FwMultilink
 from fwpolicies     import FwPolicies
+from fwrouter_cfg   import FwRouterCfg
+from fwsystem_cfg   import FwSystemCfg
 from fwwan_monitor  import get_wan_failover_metric
-from fwikev2        import FwIKEv2
 from fw_traffic_identification import FwTrafficIdentifications
-import fwtranslate_add_switch
+from tools.common.fw_vpp_startupconf import FwStartupConf
+
+libc = None
 
 proto_map = {'any': 0, 'icmp': 1, 'tcp': 6, 'udp': 17}
 
@@ -269,6 +272,10 @@ def get_interface_gateway(if_name, if_dev_id=None):
     if if_dev_id:
         if_name = dev_id_to_tap(if_dev_id)
 
+    if fwglobals.g.pppoe.is_pppoe_interface(if_name=if_name):
+        pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
+        return pppoe_iface.gw, str(pppoe_iface.metric)
+
     try:
         cmd   = "ip route list match default | grep via | grep 'dev %s'" % if_name
         route = os.popen(cmd).read()
@@ -327,15 +334,26 @@ def get_all_interfaces():
         if not dev_id:
             continue
 
-        if is_lte_interface(nic_name):
+        if fwlte.is_lte_interface(nic_name):
             tap_name = dev_id_to_tap(dev_id, check_vpp_state=True)
             if tap_name:
                 nic_name = tap_name
                 addrs = interfaces.get(nic_name)
 
+        if fwglobals.g.pppoe.is_pppoe_interface(if_name=nic_name):
+            pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=nic_name)
+            if pppoe_iface.is_connected:
+                addrs = interfaces.get(pppoe_iface.ppp_if_name)
+            else:
+                addrs = []
+
         dev_id_ip_gw[dev_id] = {}
         dev_id_ip_gw[dev_id]['addr'] = ''
         dev_id_ip_gw[dev_id]['gw']   = ''
+
+        if not addrs:
+            addrs = []
+
         for addr in addrs:
             if addr.family == socket.AF_INET:
                 ip = addr.address.split('%')[0]
@@ -358,6 +376,10 @@ def get_interface_address(if_name, log=True, log_on_failure=None):
     """
     if log_on_failure == None:
         log_on_failure = log
+
+    ppp_if_name = fwpppoe.pppoe_get_ppp_if_name(if_name)
+    if ppp_if_name:
+        if_name = ppp_if_name
 
     interfaces = psutil.net_if_addrs()
     if if_name not in interfaces:
@@ -541,14 +563,18 @@ def get_linux_interfaces(cached=True):
                 'nat_type':         '',
                 'link':             '',
                 'tap_name':         '',
+                'mtu':              '',
             }
 
             interface['link'] = get_interface_link_state(if_name, dev_id)
 
             interface['dhcp'] = fwnetplan.get_dhcp_netplan_interface(if_name)
 
-            is_wifi = is_wifi_interface(if_name)
-            is_lte = is_lte_interface(if_name)
+            interface['mtu'] = get_linux_interface_mtu(if_name)
+
+            is_pppoe = fwglobals.g.pppoe.is_pppoe_interface(if_name=if_name)
+            is_wifi = fwwifi.is_wifi_interface(if_name)
+            is_lte = fwlte.is_lte_interface(if_name)
 
             # Some interfaces need special logic to get their ip
             # For LTE/WiFi/Bridged interfaces - we need to take it from the tap
@@ -557,6 +583,8 @@ def get_linux_interfaces(cached=True):
 
                 if is_lte or is_wifi:
                     tap_name = dev_id_to_tap(dev_id, check_vpp_state=True)
+                    if tap_name:
+                        interface['mtu'] = get_linux_interface_mtu(tap_name)
 
                 # bridged interface is only when vpp is running
                 bridge_addr = is_bridged_interface(dev_id)
@@ -582,13 +610,23 @@ def get_linux_interfaces(cached=True):
                 interface['deviceType'] = 'lte'
                 interface['dhcp'] = 'yes'
                 interface['deviceParams'] = {
-                    'initial_pin1_state': lte_get_pin_state(dev_id),
-                    'default_settings':   lte_get_default_settings(dev_id)
+                    'initial_pin1_state': fwlte.get_pin_state(dev_id),
+                    'default_settings':   fwlte.get_default_settings(dev_id)
                 }
 
             if is_wifi:
                 interface['deviceType'] = 'wifi'
-                interface['deviceParams'] = wifi_get_capabilities(dev_id)
+                interface['deviceParams'] = fwwifi.wifi_get_capabilities(dev_id)
+
+            if is_pppoe:
+                pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
+                interface['deviceType'] = 'pppoe'
+                interface['dhcp'] = 'yes'
+                interface['mtu'] = str(pppoe_iface.mtu)
+                if pppoe_iface.addr:
+                    address = IPNetwork(pppoe_iface.addr)
+                    interface['IPv4'] = str(address.ip)
+                    interface['IPv4Mask'] = str(address.prefixlen)
 
             # Add information specific for WAN interfaces
             #
@@ -833,7 +871,7 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
     # with the tap1 interface. This is done as follows:
     # Then we can substr the dev_name and get back the linux interface name. Then we can get the dev_id of this interface.
     #
-    taps = fwglobals.g.router_api.vpp_api.vpp.api.sw_interface_tap_v2_dump()
+    taps = fwglobals.g.router_api.vpp_api.call('sw_interface_tap_v2_dump')
     for tap in taps:
         vpp_tap = tap.dev_name                      # fetch tap0
         linux_tap = tap.host_if_name                # fetch tap_wwan0
@@ -868,7 +906,7 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
             fwglobals.g.cache.dev_id_to_vpp_if_name[full_addr] = v
             fwglobals.g.cache.vpp_if_name_to_dev_id[v] = full_addr
 
-    vmxnet3hw = fwglobals.g.router_api.vpp_api.vpp.api.vmxnet3_dump()
+    vmxnet3hw = fwglobals.g.router_api.vpp_api.call('vmxnet3_dump')
     for hw_if in vmxnet3hw:
         vpp_if_name = hw_if.if_name.rstrip(' \t\r\n\0')
         pci_addr = 'pci:%s' % pci_bytes_to_str(hw_if.pci_addr)
@@ -941,11 +979,12 @@ def dev_id_to_vpp_sw_if_index(dev_id):
     :returns: sw_if_index.
     """
     vpp_if_name = dev_id_to_vpp_if_name(dev_id)
+
     fwglobals.log.debug("dev_id_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (dev_id, str(vpp_if_name)))
     if vpp_if_name is None:
         return None
 
-    sw_ifs = fwglobals.g.router_api.vpp_api.vpp.api.sw_interface_dump()
+    sw_ifs = fwglobals.g.router_api.vpp_api.call('sw_interface_dump')
     for sw_if in sw_ifs:
         if re.match(vpp_if_name, sw_if.interface_name):    # Use regex, as sw_if.interface_name might include trailing whitespaces
             return sw_if.sw_if_index
@@ -965,7 +1004,7 @@ def bridge_addr_to_bvi_interface_tap(bridge_addr):
         fwglobals.log.error('bridge_addr_to_bvi_interface_tap: failed to fetch bridge id for address: %s' % str(bridge_addr))
         return None
 
-    vpp_bridges_det = fwglobals.g.router_api.vpp_api.vpp.api.bridge_domain_dump(bd_id=bd_id)
+    vpp_bridges_det = fwglobals.g.router_api.vpp_api.call('bridge_domain_dump', bd_id=bd_id)
     if not vpp_bridges_det:
         fwglobals.log.error('bridge_addr_to_bvi_interface_tap: failed to fetch vpp bridges for bd_id %s' % str(bd_id))
         return None
@@ -1065,9 +1104,9 @@ def tunnel_to_tap(params):
 def vpp_enable_tap_inject():
     """Enable tap-inject plugin
      """
-    vppctl_cmd = "enable tap-inject"
-    fwglobals.log.debug("vppctl " + vppctl_cmd)
-    subprocess.check_call("vppctl %s" % vppctl_cmd, shell=True)
+    out = _vppctl_read("enable tap-inject").strip()
+    if out == None:
+        return (False, "'vppctl enable tap-inject' failed")
 
     if not vpp_does_run():
         return (False, "VPP is not running")
@@ -1241,16 +1280,6 @@ def vpp_tap_connect(linux_tap_if_name):
     fwglobals.log.debug("vppctl " + vppctl_cmd)
     subprocess.check_call("sudo vppctl %s" % vppctl_cmd, shell=True)
 
-def vpp_add_static_arp(dev_id, gw, mac):
-    try:
-        vpp_if_name = dev_id_to_vpp_if_name(dev_id)
-        vppctl_cmd = "set ip neighbor static %s %s %s" % (vpp_if_name, gw, mac)
-        fwglobals.log.debug("vppctl " + vppctl_cmd)
-        subprocess.check_call("sudo vppctl %s" % vppctl_cmd, shell=True)
-        return (True, None)
-    except Exception as e:
-        return (False, "Failed to add static arp in vpp for dev_id: %s\nOutput: %s" % (dev_id, str(e)))
-
 def vpp_sw_if_index_to_name(sw_if_index):
     """Convert VPP sw_if_index into VPP interface name.
 
@@ -1266,7 +1295,7 @@ def vpp_sw_if_index_to_name(sw_if_index):
 
     # Now go to the heavy route.
     #
-    sw_interfaces = fwglobals.g.router_api.vpp_api.vpp.api.sw_interface_dump(sw_if_index=sw_if_index)
+    sw_interfaces = fwglobals.g.router_api.vpp_api.call('sw_interface_dump', sw_if_index=sw_if_index)
     if not sw_interfaces:
         fwglobals.log.debug(f"vpp_sw_if_index_to_name({sw_if_index}): not found")
         return None
@@ -1314,7 +1343,7 @@ def vpp_get_interface_status(sw_if_index):
     status = 'down'
 
     try:
-        interfaces = fwglobals.g.router_api.vpp_api.vpp.api.sw_interface_dump(sw_if_index=sw_if_index)
+        interfaces = fwglobals.g.router_api.vpp_api.call('sw_interface_dump', sw_if_index=sw_if_index)
         if len(interfaces) == 1:
             flags = interfaces[0].flags
             # flags are equal to IF_STATUS_API_FLAG_LINK_UP|IF_STATUS_API_FLAG_ADMIN_UP when interface is up
@@ -1333,6 +1362,15 @@ def _vppctl_read(cmd, wait=True):
 
     :returns: Output returned bu vppctl.
     """
+
+    # Give one optimistic shot before going into cycles
+    try:
+        output = subprocess.check_output("vppctl " + cmd, shell=True).decode()
+        return output
+    except Exception as e:
+        fwglobals.log.debug(f"'vppctl {cmd}' failed: {str(e)}, start retrials")
+        pass
+
     retries = 200
     retries_sleep = 1
     if wait == False:
@@ -1414,6 +1452,8 @@ def stop_vpp():
     netplan_apply('stop_vpp')
     with FwIKEv2() as ike:
         ike.clean()
+    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
+        pppoe.reset_interfaces()
 
 def reset_device_config():
     """Reset router config by cleaning DB and removing config files.
@@ -1446,6 +1486,9 @@ def reset_device_config():
     fwnetplan.restore_linux_netplan_files()
     with FwIKEv2() as ike:
         ike.clean()
+
+    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
+        pppoe.reset_interfaces()
 
     if 'lte' in fwglobals.g.db:
         fwglobals.g.db['lte'] = {}
@@ -1618,7 +1661,7 @@ def dump_system_config(full=False):
         cfg = system_cfg.dump(full)
     return cfg
 
-def get_router_state():
+def get_router_status():
     """Check if VPP is running.
 
      :returns: VPP state.
@@ -1633,6 +1676,16 @@ def get_router_state():
     else:
         state = 'stopped'
     return (state, reason)
+
+def is_router_running():
+    """Check if VPP is running.
+
+     :returns: True/False.
+    """
+    if hasattr(fwglobals.g, 'router_api'):
+        # The STOPPING state is omitted on purpose to accommodate PPPoE needs
+        return fwglobals.g.router_api.state_is_starting_or_started()
+    return False
 
 def _get_group_delimiter(lines, delimiter):
     """Helper function to iterate through a group lines by delimiter.
@@ -1912,6 +1965,10 @@ def is_interface_without_dev_id(if_name):
     if if_name.startswith('br_'):
         return True
 
+    # PPPoE interface has no dev_id
+    if if_name.startswith('ppp'):
+        return True
+
     return False
 
 def get_lte_interfaces_names():
@@ -1920,7 +1977,7 @@ def get_lte_interfaces_names():
 
     for nic_name, _ in list(interfaces.items()):
         dev_id = get_interface_dev_id(nic_name)
-        if dev_id and is_lte_interface(nic_name):
+        if dev_id and fwlte.is_lte_interface(nic_name):
             names.append(nic_name)
 
     return names
@@ -2085,7 +2142,7 @@ def modify_dhcpd(is_add, params):
     try:
         output = subprocess.check_output(exec_string, shell=True).decode()
     except Exception as e:
-        return (False, "Exception: %s" % str(e))
+        return (False, str(e))
 
     return True
 
@@ -2147,19 +2204,34 @@ def vpp_multilink_update_labels(labels, remove, next_hop=None, dev_id=None, sw_i
     return (True, None)
 
 
-def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl_id=None, priority=None):
+def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order,
+                                     acl_id=None, priority=None, override_default_route=False,
+                                     attach_to_wan=False):
     """Updates VPP with flexiwan policy rules.
     In general, policy rules instruct VPP to route packets to specific interface,
     which is marked with multilink label that noted in policy rule.
-
-        REMARK: this function is temporary solution as it uses VPP CLI to
-    configure policy rules. Remove it, when correspondent Python API will be added.
-    In last case the API should be called directly from translation.
 
     :param params: params - rule parameters:
                         policy-id - the policy id (two byte integer)
                         labels    - labels of interfaces to be used for packet forwarding
                         remove    - True to remove rule, False to add.
+                        override_default_route - If True, the policy links will be enforced,
+                                    even if FIB lookup brings default route and this route
+                                    does not use one of policy links.
+                                    This logic is needed for the so called Branch-to-HQ topology,
+                                    (another name - Internet Gateway use case), where all internet
+                                    designated traffic on Branch device is pushed into tunnels
+                                    that go to the Head Quarters (HQ) machine, and there it goes
+                                    out to internet. On branch machine we have to ignore routes
+                                    for default route packets - Internet designated packets,
+                                    and to push it into tunnels to HQ machine.
+                        attach_to_wan - If True the policy will be attached to the WAN
+                                    interfaces. This is addition to the attachment to the LAN
+                                    and the Tunnel loopback interfaces that are always performed.
+                                    This logic is needed for the Branch-to-HQ topology,
+                                    see explanation above. We need attachment to WAN in order
+                                    to choose proper tunnel on the HQ machine for the downstream
+                                    packets - packets received from internet.
 
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
@@ -2170,6 +2242,11 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
     loopback_vpp_name_list = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['tunnel'].keys())
     vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list
 
+    if attach_to_wan:
+        wan_vpp_name_list  = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['wan'].keys())
+        vpp_if_names += wan_vpp_name_list
+
+
     if not add:
         for vpp_if_name in vpp_if_names:
             vppctl_cmd = 'fwabf attach ip4 del policy %d priority %d %s' % (int(policy_id), priority, vpp_if_name)
@@ -2178,11 +2255,12 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order, acl
 
     fallback = 'fallback drop' if re.match(fallback, 'drop') else ''
     order    = 'select_group random' if re.match(order, 'load-balancing') else ''
+    override_dr = 'override_default_route' if override_default_route else ''
 
     if acl_id is None:
-        vppctl_cmd = 'fwabf policy %s id %d action %s %s' % (op, policy_id, fallback, order)
+        vppctl_cmd = 'fwabf policy %s id %d %s action %s %s' % (op, policy_id, override_dr, fallback, order)
     else:
-        vppctl_cmd = 'fwabf policy %s id %d acl %d action %s %s' % (op, policy_id, acl_id, fallback, order)
+        vppctl_cmd = 'fwabf policy %s id %d acl %d %s action %s %s' % (op, policy_id, acl_id, override_dr, fallback, order)
 
     group_id = 1
     for link in links:
@@ -2523,251 +2601,6 @@ def connect_to_wifi(params):
 
     return False
 
-def is_lte_interface_by_dev_id(dev_id):
-    if_name = dev_id_to_linux_if(dev_id)
-    if not if_name:
-        return False
-    return is_lte_interface(if_name)
-
-def is_lte_interface(if_name):
-    """Check if interface is LTE.
-
-    :param dev_id: Bus address of interface to check.
-
-    :returns: Boolean.
-    """
-    driver = get_interface_driver(if_name)
-    supported_lte_drivers = ['cdc_mbim']
-    if driver in supported_lte_drivers:
-        return True
-
-    return False
-
-def lte_get_saved_apn():
-    cmd = 'cat /etc/mbim-network.conf'
-    try:
-        out = subprocess.check_output(cmd, shell=True).decode().strip()
-        configs = out.split('=')
-        if configs[0] == "APN":
-            return configs[1]
-        return ''
-    except subprocess.CalledProcessError:
-        return ''
-
-    return ''
-
-def configure_hostapd(dev_id, configuration):
-    try:
-
-        for band in configuration:
-            config = configuration[band]
-
-            if config['enable'] == False:
-                continue
-
-            if_name = dev_id_to_linux_if(dev_id)
-            data = {
-                'ssid'                 : config.get('ssid', 'fwrouter_ap_%s' % band),
-                'interface'            : if_name,
-                'macaddr_acl'          : 0,
-                'driver'               : 'nl80211',
-                'auth_algs'            : 3,
-                'ignore_broadcast_ssid': 1 if config.get('hideSsid', 0) == True else 0,
-                'eap_server'           : 0,
-                'logger_syslog'        : -1,
-                'logger_syslog_level'  : 2,
-                'logger_stdout'        : -1,
-                'logger_stdout_level'  : 2,
-                'max_num_sta'          : 128,
-                'ctrl_interface'       : '/var/run/hostapd',
-                'ctrl_interface_group' : 0,
-                'wmm_enabled'          : 1
-            }
-
-            if band == '5GHz':
-                data['uapsd_advertisement_enabled'] = 1
-                data['wmm_ac_bk_cwmin'] = 4
-                data['wmm_ac_bk_cwmax'] = 10
-                data['wmm_ac_bk_aifs'] = 7
-                data['wmm_ac_bk_txop_limit'] = 0
-                data['wmm_ac_bk_acm'] = 0
-                data['wmm_ac_be_aifs'] = 3
-                data['wmm_ac_be_cwmin'] = 4
-                data['wmm_ac_be_cwmax'] = 10
-                data['wmm_ac_be_txop_limit'] = 0
-                data['wmm_ac_be_acm'] = 0
-                data['wmm_ac_vi_aifs'] = 2
-                data['wmm_ac_vi_cwmin'] = 3
-                data['wmm_ac_vi_cwmax'] = 4
-                data['wmm_ac_vi_txop_limit'] = 94
-                data['wmm_ac_vi_acm'] = 0
-                data['wmm_ac_vo_aifs'] = 2
-                data['wmm_ac_vo_cwmin'] = 2
-                data['wmm_ac_vo_cwmax'] = 3
-                data['wmm_ac_vo_txop_limit'] = 47
-                data['wmm_ac_vo_acm'] = 0
-
-                data['tx_queue_data3_aifs'] = 7
-                data['tx_queue_data3_cwmin'] = 15
-                data['tx_queue_data3_cwmax'] = 1023
-                data['tx_queue_data3_burst'] = 0
-                data['tx_queue_data2_aifs'] = 3
-                data['tx_queue_data2_cwmin'] = 15
-                data['tx_queue_data2_cwmax'] = 63
-                data['tx_queue_data2_burst'] = 0
-                data['tx_queue_data1_aifs'] = 1
-                data['tx_queue_data1_cwmin'] = 7
-                data['tx_queue_data1_cwmax'] = 15
-                data['tx_queue_data1_burst'] = 3.0
-                data['tx_queue_data0_aifs'] = 1
-                data['tx_queue_data0_cwmin'] = 3
-                data['tx_queue_data0_cwmax'] = 7
-                data['tx_queue_data0_burst'] = 1.5
-
-            # Channel
-            channel = config.get('channel', '0')
-            data['channel'] = channel
-
-            country_code = config.get('region', 'US')
-            data['country_code'] = country_code
-            if channel == '0':
-                data['ieee80211d'] = 1
-            data['ieee80211h'] = 0
-
-            ap_mode = config.get('operationMode', 'g')
-
-            if ap_mode == "g":
-                data['hw_mode']       = 'g'
-
-            elif ap_mode == "n":
-                if band == '5GHz':
-                    data['hw_mode']       = 'a'
-                else:
-                    data['hw_mode']       = 'g'
-
-                data['ieee80211n']    = 1
-                data['ht_capab']      = '[HT40+][LDPC][SHORT-GI-20][SHORT-GI-40][TX-STBC][RX-STBC1][DSSS_CCK-40]'
-
-            elif ap_mode == "a":
-                data['hw_mode']       = 'a'
-                data['ieee80211n']    = 1
-                data['ieee80211ac']   = 0
-                data['wmm_enabled']   = 0
-
-            elif ap_mode == "ac":
-                data['hw_mode']       = 'a'
-                data['ieee80211ac']   = 1
-                data['ieee80211n']    = 1
-                data['ht_capab']      = '[HT40+][LDPC][SHORT-GI-20][SHORT-GI-40][TX-STBC][RX-STBC1][DSSS_CCK-40]'
-                data['wmm_enabled']   = 1
-                data['vht_oper_chwidth']   = 0
-                data['vht_capab']      = '[MAX-MPDU-11454][RXLDPC][SHORT-GI-80][TX-STBC-2BY1][RX-STBC-1]'
-
-            security_mode = config.get('securityMode', 'wpa2-psk')
-
-            if security_mode == "wep":
-                data['wep_default_key']       = 1
-                data['wep_key1']              = '"%s"' % config.get('password', 'fwrouter_ap')
-                data['wep_key_len_broadcast'] = 5
-                data['wep_key_len_unicast']   = 5
-                data['wep_rekey_period']      = 300
-            elif security_mode == "wpa-psk":
-                data['wpa'] = 1
-                data['wpa_passphrase'] = config.get('password', 'fwrouter_ap')
-                data['wpa_pairwise']   = 'TKIP CCMP'
-            elif security_mode == "wpa2-psk":
-                data['wpa'] = 2
-                data['wpa_passphrase'] = config.get('password', 'fwrouter_ap')
-                data['wpa_pairwise']   = 'CCMP'
-                data['rsn_pairwise']   = 'CCMP'
-                data['wpa_key_mgmt']   = 'WPA-PSK'
-            elif security_mode == "wpa-psk/wpa2-psk":
-                data['wpa'] = 3
-                data['wpa_passphrase'] = config.get('password', 'fwrouter_ap')
-                data['wpa_pairwise']   = 'TKIP CCMP'
-                data['rsn_pairwise']   = 'CCMP'
-
-            with open(fwglobals.g.HOSTAPD_CONFIG_DIRECTORY + 'hostapd_%s_fwrun.conf' % band, 'w+') as f:
-                txt = ''
-                for key in data:
-                    txt += '%s=%s\n' % (key, data[key])
-
-                file_write_and_flush(f, txt)
-
-        return (True, None)
-    except Exception as e:
-        return (False, "Exception: %s" % str(e))
-
-def wifi_ap_get_clients(interface_name):
-    response = []
-    try:
-        output = subprocess.check_output('iw dev %s station dump' % interface_name, shell=True).decode()
-        if output:
-            data = output.splitlines()
-            for (idx, line) in enumerate(data):
-                if 'Station' in line:
-                    mac = line.split(' ')[1]
-                    signal =  data[idx + 2].split(':')[-1].strip().replace("'", '') if 'signal' in data[idx + 2] else ''
-                    ip = ''
-
-                    try:
-                        arp_output = subprocess.check_output('arp -a -n | grep %s' % mac, shell=True).decode()
-                    except:
-                        arp_output = None
-
-                    if arp_output:
-                        ip = arp_output[arp_output.find("(")+1:arp_output.find(")")]
-
-                    entry = {
-                        'mac'   : mac,
-                        'ip'    : ip,
-                        'signal': signal
-                    }
-                    response.append(entry)
-    except Exception:
-        pass
-    return response
-
-def start_hostapd():
-    try:
-
-        if pid_of('hostapd'):
-            return (True, None)
-
-        files = glob.glob("%s*fwrun.conf" % fwglobals.g.HOSTAPD_CONFIG_DIRECTORY)
-        fwglobals.log.debug("get_hostapd_filenames: %s" % files)
-
-        if files:
-            files = ' '.join(files)
-
-            # Start hostapd in background
-            subprocess.check_call('sudo hostapd %s -B -t -f %s' % (files, fwglobals.g.HOSTAPD_LOG_FILE), stderr=subprocess.STDOUT, shell=True)
-            time.sleep(2)
-
-            pid = pid_of('hostapd')
-            if pid:
-                return (True, None)
-
-        return (False, 'Error in activating your access point. Your hardware may not support the selected settings')
-    except subprocess.CalledProcessError as err:
-        stop_hostapd()
-        return (False, str(err.output))
-
-def stop_hostapd():
-    try:
-        if pid_of('hostapd'):
-            os.system('killall hostapd')
-
-        files = glob.glob("%s*fwrun.conf" % fwglobals.g.HOSTAPD_CONFIG_DIRECTORY)
-        for filePath in files:
-            try:
-                os.remove(filePath)
-            except:
-                print("Error while deleting file : ", filePath)
-        return (True, None)
-    except Exception as e:
-        return (False, "Exception: %s" % str(e))
-
 def get_inet6_by_linux_name(inf_name):
     interfaces = psutil.net_if_addrs()
     if inf_name in interfaces:
@@ -2779,742 +2612,6 @@ def get_inet6_by_linux_name(inf_name):
                 return inet6
 
     return None
-
-def get_lte_interfaces_dev_ids():
-    out = {}
-    interfaces = psutil.net_if_addrs()
-    for nic_name, _ in list(interfaces.items()):
-        if is_lte_interface(nic_name):
-            dev_id = get_interface_dev_id(nic_name)
-            if dev_id:
-                out[dev_id] = nic_name
-    return out
-
-def configure_lte_interface(params):
-    '''
-    To get LTE connectivity, two steps are required:
-    1. Creating a connection between the modem and cellular provider.
-    2. Setting up the Linux interface with the IP/gateway received from the cellular provider
-    This function is responsible for the second stage.
-    If the vpp is running, we have special logic to configure LTE. This logic handled by the add_interface translator.
-    '''
-    try:
-        dev_id = params['dev_id']
-        if vpp_does_run() and is_interface_assigned_to_vpp(dev_id):
-            # Make sure interface is up. It might be down due to suddenly disconnected
-            nic_name = dev_id_to_linux_if(dev_id)
-            os.system('ifconfig %s up' % nic_name)
-            return (True, None)
-
-        if not is_lte_interface_by_dev_id(dev_id):
-            return (False, "dev_id %s is not a lte interface" % dev_id)
-
-        ip_config = lte_get_ip_configuration(dev_id)
-        ip = ip_config['ip']
-        gateway = ip_config['gateway']
-        metric = params.get('metric', '0')
-        if not metric:
-            metric = '0'
-
-        nic_name = dev_id_to_linux_if(dev_id)
-        os.system('ifconfig %s %s up' % (nic_name, ip))
-
-        # remove old default router
-        output = os.popen('ip route list match default | grep %s' % nic_name).read()
-        if output:
-            routes = output.splitlines()
-            for r in routes:
-                os.system('ip route del %s' % r)
-        # set updated default route
-        os.system('route add -net 0.0.0.0 gw %s metric %s' % (gateway, metric))
-
-        # configure dns servers for the interface.
-        # If the LTE interface is configured in netplan, the user must set the dns servers manually in netplan.
-        set_dns_str = ' '.join(map(lambda server: '--set-dns=' + server, ip_config['dns_servers']))
-        if set_dns_str:
-            os.system('systemd-resolve %s --interface %s' % (set_dns_str, nic_name))
-
-        clear_linux_interfaces_cache() # remove this code when move ip configuration to netplan
-        return (True , None)
-    except Exception as e:
-        return (False, "Failed to configure lte for dev_id %s. (%s)" % (dev_id, str(e)))
-
-def dev_id_to_usb_device(dev_id):
-    try:
-        usb_device = get_lte_cache(dev_id, 'usb_device')
-        if usb_device:
-            return usb_device
-
-        driver = get_interface_driver_by_dev_id(dev_id)
-        usb_addr = dev_id.split('/')[-1]
-        output = subprocess.check_output('ls /sys/bus/usb/drivers/%s/%s/usbmisc/' % (driver, usb_addr), shell=True).decode().strip()
-        set_lte_cache(dev_id, 'usb_device', output)
-        return output
-    except subprocess.CalledProcessError:
-        return None
-
-def _run_qmicli_command(dev_id, flag, print_error=False):
-    try:
-        device = dev_id_to_usb_device(dev_id) if dev_id else 'cdc-wdm0'
-        qmicli_cmd = 'qmicli --device=/dev/%s --device-open-proxy --%s' % (device, flag)
-        fwglobals.log.debug("_run_qmicli_command: %s" % qmicli_cmd)
-        output = subprocess.check_output(qmicli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
-        if output:
-            return (output.splitlines(), None)
-        else:
-            fwglobals.log.debug('_run_qmicli_command: no output from command (%s)' % qmicli_cmd)
-            return ([], None)
-    except subprocess.CalledProcessError as err:
-        if print_error:
-            fwglobals.log.debug('_run_qmicli_command: flag: %s. err: %s' % (flag, err.output.strip()))
-        return ([], err.output.strip())
-
-def _run_mbimcli_command(dev_id, cmd, print_error=False):
-    try:
-        device = dev_id_to_usb_device(dev_id) if dev_id else 'cdc-wdm0'
-        mbimcli_cmd = 'mbimcli --device=/dev/%s --device-open-proxy %s' % (device, cmd)
-        fwglobals.log.debug("_run_mbimcli_command: %s" % mbimcli_cmd)
-        output = subprocess.check_output(mbimcli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
-        if output:
-            return (output.splitlines(), None)
-        else:
-            fwglobals.log.debug('_run_mbimcli_command: no output from command (%s)' % mbimcli_cmd)
-            return ([], None)
-    except subprocess.CalledProcessError as err:
-        if print_error:
-            fwglobals.log.debug('_run_mbimcli_command: cmd: %s. err: %s' % (cmd, err.output.strip()))
-        return ([], err.output.strip())
-
-def qmi_get_simcard_status(dev_id):
-    return _run_qmicli_command(dev_id, 'uim-get-card-status')
-
-def qmi_get_signals_state(dev_id):
-    return _run_qmicli_command(dev_id, 'nas-get-signal-strength')
-
-def qmi_get_ip_configuration(dev_id):
-    try:
-        ip = None
-        gateway = None
-        primary_dns = None
-        secondary_dns = None
-        cmd = 'wds-get-current-settings | grep "IPv4 address\\|IPv4 subnet mask\\|IPv4 gateway address\\|IPv4 primary DNS\\|IPv4 secondary DNS"'
-        lines, _ = _run_qmicli_command(dev_id, cmd)
-        for idx, line in enumerate(lines):
-            if 'IPv4 address:' in line:
-                ip_without_mask = line.split(':')[-1].strip().replace("'", '')
-                mask = lines[idx + 1].split(':')[-1].strip().replace("'", '')
-                ip = ip_without_mask + '/' + str(IPAddress(mask).netmask_bits())
-                continue
-            if 'IPv4 gateway address:' in line:
-                gateway = line.split(':')[-1].strip().replace("'", '')
-                continue
-            if 'IPv4 primary DNS:' in line:
-                primary_dns = line.split(':')[-1].strip().replace("'", '')
-                continue
-            if 'IPv4 secondary DNS:' in line:
-                secondary_dns = line.split(':')[-1].strip().replace("'", '')
-                break
-        return (ip, gateway, primary_dns, secondary_dns)
-    except Exception:
-        return (None, None, None, None)
-
-def qmi_get_operator_name(dev_id):
-    return _run_qmicli_command(dev_id, 'nas-get-operator-name')
-
-def qmi_get_home_network(dev_id):
-    return _run_qmicli_command(dev_id, 'nas-get-home-network')
-
-def qmi_get_system_info(dev_id):
-    return _run_qmicli_command(dev_id, 'nas-get-system-info')
-
-def qmi_get_packet_service_state(dev_id):
-    '''
-    The function will return the connection status.
-    This is not about existsin session to the modem. But connectivity between modem to the cellular provider
-    '''
-    return _run_qmicli_command(dev_id, 'wds-get-channel-rates')
-
-def qmi_get_manufacturer(dev_id):
-    return _run_qmicli_command(dev_id, 'dms-get-manufacturer')
-
-def qmi_get_model(dev_id):
-    return _run_qmicli_command(dev_id, 'dms-get-model')
-
-def qmi_get_imei(dev_id):
-    return _run_qmicli_command(dev_id, 'dms-get-ids')
-
-def qmi_get_default_settings(dev_id):
-    return _run_qmicli_command(dev_id, 'wds-get-default-settings=3gpp')
-
-def qmi_sim_power_off(dev_id):
-    return _run_qmicli_command(dev_id, 'uim-sim-power-off=1')
-
-def qmi_sim_power_on(dev_id):
-    return _run_qmicli_command(dev_id, 'uim-sim-power-on=1')
-
-def qmi_get_phone_number(dev_id):
-    return _run_qmicli_command(dev_id, 'dms-get-msisdn')
-
-def lte_get_phone_number(dev_id):
-    lines, _ = qmi_get_phone_number(dev_id)
-    for line in lines:
-        if 'MSISDN:' in line:
-            return line.split(':')[-1].strip().replace("'", '')
-    return ''
-
-def lte_get_at_port(dev_id):
-    at_ports = []
-    try:
-        _, addr = dev_id_parse(dev_id)
-        search_dev = '/'.join(addr.split('/')[:-1])
-        output = subprocess.check_output('find /sys/bus/usb/devices/%s*/ -name dev' % search_dev, shell=True).decode().splitlines()
-        pattern = '(ttyUSB[0-9])'
-        tty_devices = []
-
-        if output:
-            for line in output:
-                match = re.search(pattern, line)
-                if match:
-                    tty_devices.append(match.group(1))
-
-        if len(tty_devices) > 0:
-            for usb_port in tty_devices:
-                try:
-                    with serial.Serial('/dev/%s' % usb_port, 115200, timeout=1) as ser:
-                        ser.write(bytes('AT\r', 'utf-8')) # check response to AT command
-                        t_end = time.time() + 1
-                        while time.time() < t_end:
-                            response = ser.readline().decode()
-                            if "OK" in response:
-                                at_ports.append(ser.name)
-                                break
-                        ser.close()
-                except:
-                    pass
-        return at_ports
-    except:
-        return at_ports
-
-
-def lte_get_default_settings(dev_id):
-    default_settings = get_lte_cache(dev_id, 'default_settings')
-    if not default_settings:
-        lines, _ = qmi_get_default_settings(dev_id)
-        default_settings = {
-            'APN'     : '',
-            'UserName': '',
-            'Password': '',
-            'Auth'    : ''
-        }
-        for line in lines:
-            if 'APN' in line:
-                default_settings['APN'] = line.split(':')[-1].strip().replace("'", '')
-                continue
-            if 'UserName' in line:
-                default_settings['UserName'] = line.split(':')[-1].strip().replace("'", '')
-                continue
-            if 'Password' in line:
-                default_settings['Password'] = line.split(':')[-1].strip().replace("'", '')
-                continue
-            if 'Auth' in line:
-                default_settings['Auth'] = line.split(':')[-1].strip().replace("'", '')
-                continue
-
-        set_lte_cache(dev_id, 'default_settings', default_settings)
-    return default_settings
-
-def lte_get_pin_state(dev_id):
-    res = {
-        'PIN1_STATUS': '',
-        'PIN1_RETRIES': '',
-        'PUK1_RETRIES': '',
-    }
-    lines, _ = qmi_get_simcard_status(dev_id)
-    for index, line in enumerate(lines):
-        if 'PIN1 state:' in line:
-            res['PIN1_STATUS']= line.split(':')[-1].strip().replace("'", '').split(' ')[0]
-            res['PIN1_RETRIES']= lines[index + 1].split(':')[-1].strip().replace("'", '').split(' ')[0]
-            res['PUK1_RETRIES']= lines[index + 2].split(':')[-1].strip().replace("'", '').split(' ')[0]
-            break
-    return res
-
-def lte_sim_status(dev_id):
-    lines, err = qmi_get_simcard_status(dev_id)
-    if err:
-        raise Exception(err)
-
-    for line in lines:
-        if 'Card state:' in line:
-            state = line.split(':')[-1].strip().replace("'", '').split(' ')[0]
-            return state
-    return ''
-
-
-def lte_is_sim_inserted(dev_id):
-    status = lte_sim_status(dev_id)
-    return status == "present"
-
-def get_lte_db_entry(dev_id, key):
-    lte_db = fwglobals.g.db.get('lte' ,{})
-    dev_id_entry = lte_db.get(dev_id ,{})
-    return dev_id_entry.get(key)
-
-def set_lte_db_entry(dev_id, key, value):
-    lte_db = fwglobals.g.db.get('lte' ,{})
-    dev_id_entry = lte_db.get(dev_id ,{})
-    dev_id_entry[key] = value
-
-    lte_db[dev_id] = dev_id_entry
-    fwglobals.g.db['lte'] = lte_db # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
-
-def get_lte_cache(dev_id, key):
-    cache = fwglobals.g.cache.lte
-    lte_interface = cache.get(dev_id, {})
-    return lte_interface.get(key)
-
-def set_lte_cache(dev_id, key, value):
-    cache = fwglobals.g.cache.lte
-    lte_interface = cache.get(dev_id)
-    if not lte_interface:
-        fwglobals.g.cache.lte[dev_id] = {}
-        lte_interface = fwglobals.g.cache.lte[dev_id]
-    lte_interface[key] = value
-
-def lte_disconnect(dev_id, hard_reset_service=False):
-    try:
-        session = get_lte_cache(dev_id, 'session')
-        if_name = get_lte_cache(dev_id, 'if_name')
-        if not session:
-            session = '0' # default session
-        if not if_name:
-            if_name = dev_id_to_linux_if(dev_id)
-
-        _run_mbimcli_command(dev_id, '--disconnect=%s' % session)
-        os.system('sudo ip link set dev %s down && sudo ip addr flush dev %s' % (if_name, if_name))
-
-        # update the cache
-        set_lte_cache(dev_id, 'ip', '')
-        set_lte_cache(dev_id, 'gateway', '')
-
-        if hard_reset_service:
-            _run_qmicli_command(dev_id, 'wds-reset')
-            _run_qmicli_command(dev_id, 'nas-reset')
-            _run_qmicli_command(dev_id, 'uim-reset')
-
-        clear_linux_interfaces_cache() # remove this code when move ip configuration to netplan
-
-        return (True, None)
-    except subprocess.CalledProcessError as e:
-        return (False, "Exception: %s" % (str(e)))
-
-def lte_prepare_connection_params(params):
-    connection_params = []
-    if 'apn' in params and params['apn']:
-        connection_params.append('apn=%s' % params['apn'])
-    if 'user' in params and params['user']:
-        connection_params.append('username=%s' % params['user'])
-    if 'password' in params and params['password']:
-        connection_params.append('password=%s' % params['password'])
-    if 'auth' in params and params['auth']:
-        connection_params.append('auth=%s' % params['auth'])
-
-    return ",".join(connection_params)
-
-def qmi_verify_pin(dev_id, pin):
-    fwglobals.log.debug('verifying lte pin number')
-    lines, err = _run_qmicli_command(dev_id, 'uim-verify-pin=PIN1,%s' % pin)
-    time.sleep(2)
-    return (lte_get_pin_state(dev_id), err)
-
-def qmi_set_pin_protection(dev_id, pin, is_enable):
-    lines, err = _run_qmicli_command(dev_id, 'uim-set-pin-protection=PIN1,%s,%s' % ('enable' if is_enable else 'disable', pin))
-    time.sleep(1)
-    return (lte_get_pin_state(dev_id), err)
-
-def qmi_change_pin(dev_id, old_pin, new_pin):
-    lines, err = _run_qmicli_command(dev_id, 'uim-change-pin=PIN1,%s,%s' % (old_pin, new_pin))
-    time.sleep(1)
-    return (lte_get_pin_state(dev_id), err)
-
-def qmi_unblocked_pin(dev_id, puk, new_pin):
-    _run_qmicli_command(dev_id, 'uim-unblock-pin=PIN1,%s,%s' % (puk, new_pin))
-    time.sleep(1)
-    return lte_get_pin_state(dev_id)
-
-def mbim_connection_state(dev_id):
-    lines, _ = _run_mbimcli_command(dev_id, '--query-connection-state')
-    for line in lines:
-        if 'Activation state' in line:
-            return line.split(':')[-1].strip().replace("'", '')
-    return ''
-
-def mbim_is_connected(dev_id):
-    return mbim_connection_state(dev_id) == 'activated'
-
-def mbim_registration_state(dev_id):
-    res = {
-        'register_state': '',
-        'network_error' : '',
-    }
-    lines, _ = _run_mbimcli_command(dev_id, '--query-registration-state --no-open=3 --no-close')
-    for line in lines:
-        if 'Network error:' in line:
-            res['network_error'] = line.split(':')[-1].strip().replace("'", '')
-            continue
-        if 'Register state:' in line:
-            res['register_state'] = line.split(':')[-1].strip().replace("'", '')
-            break
-    return res
-
-def lte_reset_modem(dev_id):
-
-    def _wait_for_interface_to_be_restored(if_name):
-        retries = 30
-        for _ in range(retries):
-            try:
-                output = subprocess.check_output("sudo ls -l /sys/class/net/ | grep -v tap_ | grep " + if_name, shell=True).decode()
-                if output:
-                    return True
-            except:
-                pass
-
-            time.sleep(1)
-
-        return False
-
-    def _wait_for_interface_to_be_removed(if_name):
-        retries = 30
-        for _ in range(retries):
-            try:
-                # if vpp runs, we have the tap_wwan0 interfae, so we filter it out to make sure that LTE pyshical interface does not exists
-                output = subprocess.check_output("sudo ls -l /sys/class/net/ | grep -v tap_ | grep " + if_name, shell=True).decode()
-            except:
-                return True
-
-            time.sleep(1)
-
-        return False
-
-    set_lte_cache(dev_id, 'state', 'resetting')
-    try:
-        # If the modem switched between QMI and MBIM modes, the dev_id might change.
-        # Hence, we check the reset by interface name, which is a consistent name in both modes.
-        lte_if_name = dev_id_to_linux_if(dev_id)
-
-        fwglobals.log.debug('reset_modem: reset starting')
-
-        _run_qmicli_command(dev_id,'dms-set-operating-mode=offline')
-        _run_qmicli_command(dev_id,'dms-set-operating-mode=reset')
-
-        # After resetting, the modem should be deleted from Linux and then back up.
-        # We verify these two steps to make sure the reset process is completed successfully
-        ifc_removed = _wait_for_interface_to_be_removed(lte_if_name)
-        if not ifc_removed:
-            raise Exception('the modem exists after reset. it was expected to be temporarily removed')
-        ifc_restored = _wait_for_interface_to_be_restored(lte_if_name)
-        if not ifc_restored:
-            raise Exception('The modem has not recovered from the reset')
-
-        _run_qmicli_command(dev_id,'dms-set-operating-mode=online')
-
-        # To re-apply set-name for LTE interface we have to call netplan apply here
-        netplan_apply("reset_modem")
-
-        fwglobals.log.debug('reset_modem: reset finished')
-    finally:
-        set_lte_cache(dev_id, 'state', '')
-        # clear wrong PIN cache on reset
-        set_lte_db_entry(dev_id, 'wrong_pin', None)
-
-def lte_connect(params):
-    dev_id = params['dev_id']
-
-    # To avoid wan failover monitor and lte watchdog at this time
-    set_lte_cache(dev_id, 'state', 'connecting')
-
-    try:
-        # check if sim exists
-        if not lte_is_sim_inserted(dev_id):
-            qmi_sim_power_off(dev_id)
-            time.sleep(1)
-            qmi_sim_power_on(dev_id)
-            time.sleep(1)
-            inserted = lte_is_sim_inserted(dev_id)
-            if not inserted:
-                raise Exception("Sim is not presented")
-
-        # check PIN status
-        pin_state = lte_get_pin_state(dev_id).get('PIN1_STATUS', 'disabled')
-        if pin_state not in ['disabled', 'enabled-verified']:
-            pin = params.get('pin')
-            if not pin:
-                raise Exception("PIN is required")
-
-            # If a user enters a wrong pin, the function will fail, but flexiManage will send three times `sync` jobs.
-            # As a result, the SIM may be locked. So we save the wrong pin in the cache
-            # and we will not try again with this wrong one.
-            wrong_pin = get_lte_db_entry(dev_id, 'wrong_pin')
-            if wrong_pin and wrong_pin == pin:
-                raise Exception("PIN is wrong")
-
-            _, err = qmi_verify_pin(dev_id, pin)
-            if err:
-                set_lte_db_entry(dev_id, 'wrong_pin', pin)
-                raise Exception("PIN is wrong")
-
-        # At this point, we sure that the sim is unblocked.
-        # After a block, the sim might open it from different places (manually qmicli command, for example),
-        # so we need to make sure to clear this cache
-        set_lte_db_entry(dev_id, 'wrong_pin', None)
-
-        # Check if modem already connected to ISP.
-        is_modem_connected = mbim_is_connected(dev_id)
-        if is_modem_connected:
-            set_lte_cache(dev_id, 'state', '')
-            return (True, None)
-
-        if_name = dev_id_to_linux_if(dev_id)
-        set_lte_cache(dev_id, 'if_name', dev_id_to_linux_if(dev_id))
-
-        # Make sure context is released and set the interface to up
-        lte_disconnect(dev_id)
-        os.system('ifconfig %s up' % if_name)
-
-        connection_params = lte_prepare_connection_params(params)
-        mbim_commands = [
-            r'--query-subscriber-ready-status --no-close',
-            r'--query-registration-state --no-open=3 --no-close',
-            r'--attach-packet-service --no-open=4 --no-close',
-            r'--connect=%s --no-open=5 --no-close | grep "Session ID\|IP\|Gateway\|DNS"' % connection_params
-        ]
-        for cmd in mbim_commands:
-            lines, err = _run_mbimcli_command(dev_id, cmd, True)
-            if err:
-                raise Exception(err)
-
-        for idx, line in enumerate(lines) :
-            if 'Session ID:' in line:
-                session = line.split(':')[-1].strip().replace("'", '')
-                set_lte_cache(dev_id, 'session', session)
-                continue
-            if 'IP [0]:' in line:
-                ip = line.split(':')[-1].strip().replace("'", '')
-                set_lte_cache(dev_id, 'ip', ip)
-                continue
-            if 'Gateway:' in line:
-                gateway = line.split(':')[-1].strip().replace("'", '')
-                set_lte_cache(dev_id, 'gateway', gateway)
-                continue
-            if 'DNS [0]:' in line:
-                dns_primary = line.split(':')[-1].strip().replace("'", '')
-                dns_secondary = lines[idx + 1].split(':')[-1].strip().replace("'", '')
-                set_lte_cache(dev_id, 'dns_servers', [dns_primary, dns_secondary])
-                break
-
-        set_lte_cache(dev_id, 'state', '')
-        return (True, None)
-    except Exception as e:
-        fwglobals.log.debug('lte_connect: faild to connect lte. %s' % str(e))
-        set_lte_cache(dev_id, 'state', '')
-        return (False, "Exception: %s" % str(e))
-
-def lte_get_system_info(dev_id):
-    result = {
-        'Cell_Id'        : '',
-        'Operator_Name'  : '',
-        'MCC'            : '',
-        'MNC'            : ''
-    }
-    try:
-        lines, _ = qmi_get_system_info(dev_id)
-        for line in lines:
-            if 'Cell ID' in line:
-                result['Cell_Id'] = line.split(':')[-1].strip().replace("'", '')
-                continue
-            if 'MCC' in line:
-                result['MCC'] = line.split(':')[-1].strip().replace("'", '')
-                continue
-            if 'MNC' in line:
-                result['MNC'] = line.split(':')[-1].strip().replace("'", '')
-                continue
-
-        lines, _ = qmi_get_operator_name(dev_id)
-        for line in lines:
-            if '\tName' in line:
-                name = line.split(':', 1)[-1].strip().replace("'", '')
-                result['Operator_Name'] = name if bool(re.match("^[a-zA-Z0-9_ :]*$", name)) else ''
-                break
-
-    except Exception:
-        pass
-    return result
-
-def lte_get_hardware_info(dev_id):
-    result = {
-        'Vendor'   : '',
-        'Model'    : '',
-        'Imei': '',
-    }
-    try:
-        lines, err = qmi_get_manufacturer(dev_id)
-        if err:
-            raise Exception(err)
-        for line in lines:
-            if 'Manufacturer' in line:
-                result['Vendor'] = line.split(':')[-1].strip().replace("'", '')
-                break
-
-        lines, err = qmi_get_model(dev_id)
-        if err:
-            raise Exception(err)
-        for line in lines:
-            if 'Model' in line:
-                result['Model'] = line.split(':')[-1].strip().replace("'", '')
-                break
-
-        lines, err = qmi_get_imei(dev_id)
-        if err:
-            raise Exception(err)
-        for line in lines:
-            if 'IMEI' in line:
-                result['Imei'] = line.split(':')[-1].strip().replace("'", '')
-                break
-    except Exception as e:
-        return (result, str(e))
-    return (result, None)
-
-def lte_get_packets_state(dev_id):
-    result = {
-        'Uplink_speed'  : 0,
-        'Downlink_speed': 0
-    }
-    try:
-        lines, _ = qmi_get_packet_service_state(dev_id)
-        for line in lines:
-            if 'Max TX rate' in line:
-                result['Uplink_speed'] = line.split(':')[-1].strip().replace("'", '')
-                continue
-            if 'Max RX rate' in line:
-                result['Downlink_speed'] = line.split(':')[-1].strip().replace("'", '')
-                continue
-    except Exception:
-        pass
-    return result
-
-def lte_get_radio_signals_state(dev_id):
-    result = {
-        'RSSI' : 0,
-        'RSRP' : 0,
-        'RSRQ' : 0,
-        'SINR' : 0,
-        'SNR'  : 0,
-        'text' : ''
-    }
-    try:
-        lines, _ = qmi_get_signals_state(dev_id)
-        for index, line in enumerate(lines):
-            if 'RSSI' in line:
-                result['RSSI'] = lines[index + 1].split(':')[-1].strip().replace("'", '')
-                dbm_num = int(result['RSSI'].split(' ')[0])
-                if -95 >= dbm_num:
-                    result['text'] = 'Marginal'
-                elif -85 >= dbm_num:
-                    result['text'] = 'Very low'
-                elif -80 >= dbm_num:
-                    result['text'] = 'Low'
-                elif -70 >= dbm_num:
-                    result['text'] = 'Good'
-                elif -60 >= dbm_num:
-                    result['text'] = 'Very Good'
-                else:
-                    result['text'] = 'Excellent'
-                continue
-            if 'SINR' in line:
-                result['SINR'] = line.split(':')[-1].strip().replace("'", '')
-                continue
-            if 'RSRQ' in line:
-                result['RSRQ'] = lines[index + 1].split(':')[-1].strip().replace("'", '')
-                continue
-            if 'SNR' in line:
-                result['SNR'] = lines[index + 1].split(':')[-1].strip().replace("'", '')
-                continue
-            if 'RSRP' in line:
-                result['RSRP'] = lines[index + 1].split(':')[-1].strip().replace("'", '')
-                continue
-    except Exception:
-        pass
-    return result
-
-def mbim_get_ip_configuration(dev_id):
-    ip = None
-    gateway = None
-    try:
-        lines, _ = _run_mbimcli_command(dev_id, '--query-ip-configuration --no-close --no-open=6')
-        for line in lines:
-            if 'IP [0]:' in line:
-                ip = line.split(':')[-1].strip().replace("'", '')
-                continue
-            if 'Gateway:' in line:
-                gateway = line.split(':')[-1].strip().replace("'", '')
-                break
-        return (ip, gateway)
-    except Exception:
-        return (ip, gateway)
-
-def lte_get_ip_configuration(dev_id, key=None, cache=True):
-    response = {
-        'ip'           : '',
-        'gateway'      : '',
-        'dns_servers'  : []
-    }
-    try:
-        # try to get it from cache
-        ip = get_lte_cache(dev_id, 'ip')
-        gateway =  get_lte_cache(dev_id, 'gateway')
-        dns_servers =  get_lte_cache(dev_id, 'dns_servers')
-
-        # if not exists in cache, take from modem and update cache
-        if not ip or not gateway or not dns_servers or cache == False:
-            ip, gateway, primary_dns, secondary_dns = qmi_get_ip_configuration(dev_id)
-
-            if ip:
-                set_lte_cache(dev_id, 'ip', ip)
-            if gateway:
-                set_lte_cache(dev_id, 'gateway', gateway)
-            if primary_dns and secondary_dns:
-                dns_servers = [primary_dns, secondary_dns]
-                set_lte_cache(dev_id, 'dns_servers', dns_servers)
-
-        response['ip'] = ip
-        response['gateway'] = gateway
-        response['dns_servers'] = dns_servers
-
-        if key:
-            return response[key]
-    except Exception:
-        pass
-    return response
-
-def is_wifi_interface_by_dev_id(dev_id):
-    linux_if = dev_id_to_linux_if(dev_id)
-    return is_wifi_interface(linux_if)
-
-def is_wifi_interface(if_name):
-    """Check if interface is WIFI.
-
-    :param if_name: Interface name to check.
-
-    :returns: Boolean.
-    """
-    try:
-        lines = subprocess.check_output('iwconfig | grep %s' % if_name, shell=True, stderr=subprocess.STDOUT).decode().splitlines()
-        for line in lines:
-            if if_name in line and not 'no wireless extensions' in line:
-                return True
-    except Exception:
-        return False
-
-    return False
 
 def get_ethtool_value(if_name, ethtool_key):
     """Gets requested value from ethtool command output
@@ -3629,9 +2726,9 @@ def is_non_dpdk_interface(dev_id):
     # 0000:0a:00.00 'Ethernet Connection X553 1GbE' if=eth4 drv=ixgbe unused= 10.0.0.1
     # 0000:07:00.00 'I210 Gigabit Network Connection' if=eth2 drv=igb unused=vfio-pci,uio_pci_generic =192.168.0.1
 
-    if is_wifi_interface_by_dev_id(dev_id):
+    if fwwifi.is_wifi_interface_by_dev_id(dev_id):
         return True
-    if is_lte_interface_by_dev_id(dev_id):
+    if fwlte.is_lte_interface_by_dev_id(dev_id):
         return True
 
     return False
@@ -3699,9 +2796,9 @@ def frr_setup_config():
     # Setup basics on frr.conf.
     frr_commands = [
         "password zebra",
-        "log file /var/log/frr/ospfd.log informational",
-        "log stdout",
-        "log syslog informational"
+        f"log file {fwglobals.g.OSPF_LOG_FILE} notifications",
+        "log stdout notifications",
+        "log syslog notifications"
     ]
 
     # Setup route redistribution, so the static routes configured by 'add-route'
@@ -3748,10 +2845,8 @@ def netplan_apply(caller_name=None):
         # If it will be changed as a result of netplan apply, we return True.
         #
         if fwglobals.g.fwagent:
-            (_, _, dr_dev_id_before, _) = get_default_route()
+            (_, _, dr_pci_before, _) = get_default_route()
 
-        # Now go and apply the netplan
-        #
         cmd = 'netplan apply'
         log_str = caller_name + ': ' + cmd if caller_name else cmd
         fwglobals.log.debug(log_str)
@@ -3769,11 +2864,11 @@ def netplan_apply(caller_name=None):
         # Find out if the default route was changed. If it was - reconnect agent.
         #
         if fwglobals.g.fwagent:
-            (_, _, dr_dev_id_after, _) = get_default_route()
-            if dr_dev_id_before != dr_dev_id_after:
+            (_, _, dr_pci_after, _) = get_default_route()
+            if dr_pci_before != dr_pci_after:
                 fwglobals.log.debug(
                     "%s: netplan_apply: default route changed (%s->%s) - reconnect" % \
-                    (caller_name, dr_dev_id_before, dr_dev_id_after))
+                    (caller_name, dr_pci_before, dr_pci_after))
                 fwglobals.g.fwagent.reconnect()
 
     except Exception as e:
@@ -3792,11 +2887,16 @@ def compare_request_params(params1, params2):
         Note! The normalization is done for top level keys only!
     """
     if not params1 or not params2:
+        fwglobals.log.debug("compare_request_params: either params1 or params2 is None/''/[]")
         return False
     if type(params1) != type(params2):
+        fwglobals.log.debug(f"compare_request_params: type(params1)={str(type(params1))} != type(params2)={str(type(params2))}")
         return False
     if type(params1) != dict:
-        return (params1 == params2)
+        same = (params1 == params2)
+        if not same:
+            fwglobals.log.debug(f"compare_request_params: params1 != params2: param1={format(params1)}, params2={format(params2)}")
+        return same
 
     set_keys1   = set(params1.keys())
     set_keys2   = set(params2.keys())
@@ -3807,11 +2907,13 @@ def compare_request_params(params1, params2):
     for key in keys1_only:
         if type(params1[key]) == bool or params1[key]:
             # params1 has non-empty string/value that does not present in params2
+            fwglobals.log.debug(f"compare_request_params: params1['{key}'] does not present in params2")
             return False
 
     for key in keys2_only:
         if type(params2[key]) == bool or params2[key]:
             # params2 has non-empty string/value that does not present in params1
+            fwglobals.log.debug(f"compare_request_params: params2['{key}'] does not present in params1")
             return False
 
     for key in keys_common:
@@ -3824,16 +2926,19 @@ def compare_request_params(params1, params2):
         if val1 and val2:
             if (type(val1) == str) and (type(val2) == str):
                 if val1.lower() != val2.lower():
+                    fwglobals.log.debug(f"compare_request_params: '{key}': '{val1}' != '{val2}'")
                     return False    # Strings are not equal
             elif type(val1) != type(val2):
+                fwglobals.log.debug(f"compare_request_params: '{key}': {str(type(val1))} != {str(type(val2))}")
                 return False        # Types are not equal
             elif val1 != val2:
+                fwglobals.log.debug(f"compare_request_params: '{key}': '{format(val1)}' != '{format(val2)}'")
                 return False        # Values are not equal
 
-        # If False booleans or
-        # if one of values not exists or empty string
+        # If False booleans or if one of values not exists or empty string.
         #
         elif (val1 and not val2) or (not val1 and val2):
+            fwglobals.log.debug(f"compare_request_params: '{key}': '{format(val1)}' != '{format(val2)}'")
             return False
 
     return True
@@ -3971,9 +3076,12 @@ def get_reconfig_hash():
 
         addr = addr.split('/')[0] if addr else ''
 
+        mtu = str(linux_interfaces[dev_id]['mtu'])
+
         res += 'addr:'    + addr + ','
         res += 'gateway:' + gw + ','
         res += 'metric:'  + metric + ','
+        res += 'mtu:'  + mtu + ','
         if gw and addr:
             res += 'public_ip:'   + linux_interfaces[dev_id]['public_ip'] + ','
             res += 'public_port:' + str(linux_interfaces[dev_id]['public_port']) + ','
@@ -4033,88 +3141,6 @@ def get_min_metric_device(skip_dev_id):
             metric_min_dev_id = wan['dev_id']
 
     return (metric_min_dev_id, metric_min)
-
-def vpp_nat_add_del_identity_mapping(vpp_if_name, protocol, port, is_add):
-
-    del_str = '' if is_add else 'del'
-    vppctl_cmd = 'nat44 add identity mapping external %s %s %d vrf 0 %s' %\
-        (vpp_if_name, protocol, port, del_str)
-    out = _vppctl_read(vppctl_cmd, wait=False)
-    if out is None:
-        fwglobals.log.error("Failed vppctl command: %s" % vppctl_cmd)
-    else:
-        fwglobals.log.debug("Executed nat44 mapping command: %s" % vppctl_cmd)
-
-
-def wifi_get_capabilities(dev_id):
-
-    result = {
-        'Band 1': {
-            # 'Frequencies': [],
-            # 'Bitrates': [],
-            'Exists': False
-        },
-        'Band 2': {
-            # 'Frequencies': [],
-            # 'Capabilities': [],
-            # 'Bitrates': [],
-            'Exists': False
-        }
-    }
-
-    def _get_band(output, band_number):
-        regex = r'(Band ' + str(band_number) + r':.*?\\n\\t(?!\\t))'
-        match = re.search(regex, output,  re.MULTILINE | re.IGNORECASE)
-        if match:
-            return match.group(1)
-
-        return ""
-
-    def _parse_key_data(text, output, negative_look_count = 1):
-        match = re.search(text, output,  re.MULTILINE | re.IGNORECASE)
-
-        res = list()
-
-        if match:
-            result = match.group()
-            splitted = result.replace('\\t', '\t').replace('\\n', '\n').splitlines()
-            for line in splitted[1:-1]:
-                res.append(line.lstrip('\t').strip(' *'))
-            return res
-
-        return res
-
-    try:
-        output = subprocess.check_output('iw dev', shell=True).decode().splitlines()
-        linux_if = dev_id_to_linux_if(dev_id)
-        if linux_if in output[1]:
-            phy_name = output[0].replace('#', '')
-            #output = subprocess.check_output('cat /tmp/jaga', shell=True).replace('\\\\t', '\\t').replace('\\\\n', '\\n').decode()
-            # banda1 = _get_band(output2, 1)
-            # banda2 = _get_band(output2, 2)
-
-            output = subprocess.check_output('iw %s info' % phy_name, shell=True).decode().replace('\t', '\\t').replace('\n', '\\n')
-            result['SupportedModes'] = _parse_key_data('Supported interface modes', output)
-
-
-            band1 = _get_band(output, 1)
-            band2 = _get_band(output, 2)
-
-            if band1:
-                result['Band 1']['Exists'] = True
-                # result['Band 1']['Frequencies'] = _parse_key_data('Frequencies', band1)
-                # result['Band 1']['Bitrates'] = _parse_key_data('Bitrates', band1, 2)
-                # result['Band 1']['Capabilities'] = _parse_key_data('Capabilities', band1, 2)
-
-            if band2:
-                result['Band 2']['Exists'] = True
-                # result['Band 2']['Frequencies'] = _parse_key_data('Frequencies', band2)
-                # result['Band 2']['Bitrates'] = _parse_key_data('Bitrates', band2, 2)
-                # result['Band 2']['Capabilities'] = _parse_key_data('Capabilities', band2, 2)
-
-        return result
-    except Exception:
-        return result
 
 def dump(filename=None, path=None, clean_log=False):
     '''This function invokes 'fwdump' utility while ensuring no DoS on disk space.
@@ -4324,34 +3350,6 @@ def is_need_to_reload_lte_drivers():
         return True
     return False
 
-def reload_lte_drivers_if_needed():
-    if is_need_to_reload_lte_drivers():
-        reload_lte_drivers()
-
-def reload_lte_drivers():
-    modules = [
-        'cdc_mbim',
-        'qmi_wwan',
-        'option',
-        'cdc_wdm',
-        'cdc_ncm',
-        'usbnet',
-        'qcserial',
-        'usb_wwan',
-        'mii',
-        'usbserial'
-    ]
-
-    for module in modules:
-        os.system('rmmod %s 2>/dev/null' % module)
-
-    for module in modules:
-        os.system('modprobe %s' % module)
-
-    time.sleep(2)
-
-    netplan_apply("reload_lte_drivers")
-
 def send_udp_packet(src_ip, src_port, dst_ip, dst_port, dev_name, msg):
     """
     This function sends a UDP packet with provided source/destination parameters and payload.
@@ -4534,3 +3532,35 @@ def load_linux_modules(modules):
         if err:
             return (False, err)
     return (True, None)
+
+def get_thread_tid():
+    '''Returns OS thread id'''
+    try:
+        global libc
+        if not libc:
+            libc = ctypes.cdll.LoadLibrary('libc.so.6')
+        tid = str(libc.syscall(186)) # gettid defined in /usr/include/x86_64-linux-gnu/asm/unistd_64.h
+    except Exception as e:
+        tid = f'<str({e})>'
+    return tid
+
+
+def dict_deep_update(dst, src):
+    '''Implements recursive dict::update() method - the sub-dictionaries are
+    not replaced but updated with sub-dicts from 'src'. Eventually, this function
+    never removes keys from 'dst', but adds / updates them only.
+    '''
+    for key, value in src.items():
+        if isinstance(value, dict):
+            if not key in dst:
+                dst[key] = {}
+            dict_deep_update(dst[key], value)
+        else:
+            dst[key] = value
+
+def get_linux_interface_mtu(if_name):
+    net_if_stats = psutil.net_if_stats()
+    if if_name not in net_if_stats:
+        return ''
+
+    return str(net_if_stats[if_name].mtu)

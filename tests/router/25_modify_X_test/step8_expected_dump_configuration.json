@@ -9,9 +9,12 @@
     {
       "Key": "add-interface:__INTERFACE_1__dev_id",
       "Params": {
+        "PublicIP": "6.6.6.6",
+        "PublicPort": 7777,
         "addr": "__INTERFACE_1__addr",
         "dev_id": "__INTERFACE_1__dev_id",
         "gateway": "__INTERFACE_1__gateway",
+        "mtu": 6666,
         "multilink": {
           "labels": [
             "green",
@@ -70,44 +73,6 @@
         "src": "__INTERFACE_1__addr_no_mask",
         "tunnel-id": 1
       }
-    },
-    {
-      "Key": "add-tunnel:2",
-      "Params": {
-        "dev_id": "__INTERFACE_1__dev_id",
-        "dst": "30.0.0.4",
-        "ipsec": {
-          "local-sa": {
-            "crypto-alg": "aes-cbc-128",
-            "crypto-key": "1030aa794f574265564551694d653768",
-            "integr-alg": "sha1-96",
-            "integr-key": "1030ff4b55523947594d6d3547666b45764e6a58",
-            "spi": 1030
-          },
-          "remote-sa": {
-            "crypto-alg": "aes-cbc-128",
-            "crypto-key": "3010aa794f574265564551694d653768",
-            "integr-alg": "sha1-96",
-            "integr-key": "3010ff4b55523947594d6d3547666b45764e6a58",
-            "spi": 3010
-          }
-        },
-        "loopback-iface": {
-          "addr": "10.100.0.3/31",
-          "mac": "08:00:27:fd:00:03",
-          "mtu": 1420,
-          "multilink": {
-            "labels": [
-              "gray",
-              "black"
-            ]
-          },
-          "routing": "ospf"
-        },
-        "src": "__INTERFACE_1__addr_no_mask",
-        "tunnel-id": 2
-      }
     }
   ]
 }
-

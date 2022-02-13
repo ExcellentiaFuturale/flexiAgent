@@ -20,16 +20,17 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import copy
 import glob
 import os
-import time
-import subprocess
 import re
-import fwglobals
-import fwutils
-import shutil
+import subprocess
+import time
 import yaml
-import copy
+
+import fwglobals
+import fwlte
+import fwutils
 
 from fwwan_monitor import get_wan_failover_metric
 
@@ -380,7 +381,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         # But if the user has configured in the netplan file also the LTE with set-name option,
         # we need to make sure that in any action, of any kind, that set-name will apply to the physical interface.
         # Note the comments below in the appropriate places.
-        is_lte = fwutils.is_lte_interface_by_dev_id(dev_id)
+        is_lte = fwlte.is_lte_interface_by_dev_id(dev_id)
 
         if is_add == 1:
             '''
@@ -555,3 +556,38 @@ def _has_ip(if_name, dhcp):
             return True
 
     return False
+
+def remove_interface(if_name):
+    files = netplan_get_filepaths()
+
+    for fname in files:
+        config = None
+        with open(fname, 'r') as stream:
+            config = yaml.safe_load(stream)
+            if config is None:
+                continue
+            if 'network' in config:
+                network = config['network']
+                if 'ethernets' in network:
+                    ethernets = network['ethernets']
+                    if if_name in ethernets:
+                        removed_section = copy.deepcopy(ethernets[if_name])
+                        del ethernets[if_name]
+                        with open(fname, 'w') as file_stream:
+                            yaml.dump(config, file_stream)
+                        fwutils.netplan_apply('remove_interface_netplan')
+                        return (fname, removed_section)
+    return ('', '')
+
+def add_interface(if_name, fname, netplan_section):
+    config = None
+    with open(fname, 'r') as stream:
+        config = yaml.safe_load(stream)
+        if 'network' in config:
+            network = config['network']
+            if 'ethernets' in network:
+                ethernets = network['ethernets']
+                ethernets[if_name] = netplan_section
+                with open(fname, 'w') as file_stream:
+                    yaml.dump(config, file_stream)
+                fwutils.netplan_apply('add_interface_netplan')

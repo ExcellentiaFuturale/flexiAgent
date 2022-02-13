@@ -336,6 +336,8 @@ class FwStunWrap(FwObject):
         Its function is to send STUN requests for address:4789 in a timely manner
         according to some algorithm-based calculations.
         """
+        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+
         slept = 1
         reset_all_timeout = 10 * 60
         update_cache_from_os_timeout = 2 * 60
@@ -575,15 +577,21 @@ class FwStunWrap(FwObject):
             stats = tunnel_stats.get(tunnel_id)
             if stats and stats.get('status') == 'down':
                 vni = self._get_vni(tunnel_id, encryption_mode)
-                if vni in probe_tunnels:
-                    if tunnel['dst'] != probe_tunnels[vni]["dst"] or tunnel['dstPort'] != probe_tunnels[vni]["dstPort"]:
-                        self.log.debug("Remove tunnel: %s" %(tunnel))
-                        fwglobals.g.handle_request({'message':'remove-tunnel', "params": tunnel})
-
-                        tunnel['dst'] = probe_tunnels[vni]["dst"]
-                        tunnel['dstPort'] = probe_tunnels[vni]["dstPort"]
-                        self.log.debug("Add tunnel: %s" %(tunnel))
-                        fwglobals.g.handle_request({'message':'add-tunnel', "params": tunnel})
+                probe_tunnel = probe_tunnels.get(vni)
+                if probe_tunnel:
+                    new_ip, new_port = probe_tunnel["dst"], str(probe_tunnel["dstPort"])
+                    if new_ip != tunnel['dst'] or new_port != tunnel['dstPort']:
+                        self.log.debug("modify tunnel %d: dst %s:%s -> %s:%s" % \
+                            (tunnel_id, tunnel['dst'], tunnel['dstPort'], new_ip, new_port))
+                        request = {
+                            "message": "modify-tunnel",
+                            "params": {
+                                "tunnel-id": tunnel_id,
+                                "dst":       new_ip,
+                                "dstPort":   new_port,
+                            }
+                        }
+                        fwglobals.g.handle_request(request)
 
     def _send_symmetric_nat(self):
         """ For IKEv2 tunnels, if we are behind symmetric NAT, and if we are IKE responder,

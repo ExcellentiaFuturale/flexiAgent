@@ -118,7 +118,10 @@ def tunnel_stats_get_ping_time(tunnels):
 
     for row in rows:
         host_rtt = [x.strip() for x in row.strip().split(':')]
-        float_rtt = float(host_rtt[1]) if host_rtt[1] != '-' else 0.0
+        try:
+            float_rtt = float(host_rtt[1]) if host_rtt[1] != '-' else 0.0
+        except ValueError:
+            float_rtt = 0.0
         tunnel_id = tunnels.get(host_rtt[0])
         if tunnel_id:
             ret[tunnel_id] = float_rtt
@@ -305,8 +308,8 @@ def tunnel_stats_add(params):
         stats_entry['vpp_if_name'] = fwutils.tunnel_to_vpp_if_name(params)
 
     if 'peer' in params:
-        hosts_to_ping = params['peer']['ips']
-        hosts_to_ping += params['peer']['urls']
+        hosts_to_ping =  copy.deepcopy(params['peer']['ips'])
+        hosts_to_ping += copy.deepcopy(params['peer']['urls'])
     else:
         hosts_to_ping = [fwutils.build_tunnel_remote_loopback_ip(params['loopback-iface']['addr'])]
     stats_entry['hosts_to_ping'] = hosts_to_ping

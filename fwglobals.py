@@ -32,6 +32,7 @@ import yaml
 import fwutils
 import threading
 import fw_vpp_coredump_utils
+import fwlte
 
 from sqlitedict import SqliteDict
 
@@ -49,6 +50,7 @@ from fwpolicies import FwPolicies
 from fwrouter_cfg import FwRouterCfg
 from fwsystem_cfg import FwSystemCfg
 from fwstun_wrapper import FwStunWrap
+from fwpppoe import FwPppoeClient
 from fwwan_monitor import FwWanMonitor
 from fwikev2 import FwIKEv2
 from fw_traffic_identification import FwTrafficIdentifications
@@ -312,6 +314,9 @@ class Fwglobals(FwObject):
         self.DHCPD_CONFIG_FILE_BACKUP = '/etc/dhcp/dhcpd.conf.fworig'
         self.ISC_DHCP_CONFIG_FILE = '/etc/default/isc-dhcp-server'
         self.ISC_DHCP_CONFIG_FILE_BACKUP = '/etc/default/isc-dhcp-server.fworig'
+        self.PPPOE_CONFIG_PATH   = '/etc/ppp/'
+        self.PPPOE_CONFIG_PROVIDER_FILE   = 'flexiwan-dsl-provider'
+        self.PPPOE_DB_FILE       = self.DATA_PATH + '.pppoe.sqlite'
         self.POLICY_REC_DB_FILE  = self.DATA_PATH + '.policy.sqlite'
         self.MULTILINK_DB_FILE   = self.DATA_PATH + '.multilink.sqlite'
         self.DATA_DB_FILE        = self.DATA_PATH + '.data.sqlite'
@@ -326,6 +331,7 @@ class Fwglobals(FwObject):
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
+        self.loadsimulator = None
         self.cache   = self.FwCache()
         self.WAN_FAILOVER_SERVERS          = [ '1.1.1.1' , '8.8.8.8' ]
         self.WAN_FAILOVER_WND_SIZE         = 20         # 20 pings, every ping waits a second for response
@@ -398,7 +404,7 @@ class Fwglobals(FwObject):
         # We run it only if vpp is not running to make sure that we reload the driver
         # only on boot, and not if a user run `systemctl restart flexiwan-router` when vpp is running.
         if not fwutils.vpp_does_run():
-            fwutils.reload_lte_drivers_if_needed()
+            fwlte.reload_lte_drivers_if_needed()
 
         self.db           = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! Load data at the first place!
         self.fwagent      = FwAgent(handle_signals=False)
@@ -412,6 +418,7 @@ class Fwglobals(FwObject):
         self.wan_monitor  = FwWanMonitor(standalone)
         self.stun_wrapper = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
         self.ikev2        = FwIKEv2()
+        self.pppoe        = FwPppoeClient(self.PPPOE_DB_FILE, self.PPPOE_CONFIG_PATH, self.PPPOE_CONFIG_PROVIDER_FILE, standalone)
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 
@@ -427,6 +434,8 @@ class Fwglobals(FwObject):
         # Increase allowed max socket receive buffer size to 2Mb
         # VPPSB need that to handle more netlink events on a heavy load
         fwutils.set_linux_socket_max_receive_buffer_size(2048000)
+
+        self.pppoe.initialize()   # IMPORTANT! The PPPOE should be initialized before restore_vpp_if_needed!
 
         self.stun_wrapper.initialize()   # IMPORTANT! The STUN should be initialized before restore_vpp_if_needed!
 
@@ -500,7 +509,7 @@ class Fwglobals(FwObject):
         return self.os_api.call_simple(request)
 
     def _call_vpp_api(self, request, result=None):
-        return self.router_api.vpp_api.call_simple(request, result)
+        return self.router_api.vpp_api.call_by_request(request, result)
 
     def _call_python_api(self, request, result=None):
         '''Handle request that describe python function.
@@ -567,6 +576,8 @@ class Fwglobals(FwObject):
                 func = getattr(self.ikev2, params['func'])
             elif params['object'] == 'fwglobals.g.traffic_identifications':
                 func = getattr(self.traffic_identifications, params['func'])
+            elif params['object'] == 'fwglobals.g.pppoe':
+                func = getattr(self.pppoe, params['func'])
             else:
                 raise Exception("object '%s' is not supported" % (params['object']))
         else:
@@ -632,6 +643,7 @@ class Fwglobals(FwObject):
                     reply = handler_func(request)
                 else:
                     reply = handler_func(request, result)
+
             if reply['ok'] == 0:
                 vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
                 os.system('sudo vppctl api trace save %s' % (vpp_trace_file))
