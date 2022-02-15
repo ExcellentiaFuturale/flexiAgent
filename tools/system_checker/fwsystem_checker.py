@@ -56,7 +56,7 @@ FW_EXIT_CODE_ERROR_ABORTED_BY_USER                    = 0x8
 
 hard_checkers = [
     { 'hard_check_sse42'              : [ True , 'critical' , 'Support in SSE 4.2 is required' ] },
-    { 'hard_check_ram'                : [ 4 ,    'critical' , 'At least 4GB RAM is required' ] },
+    { 'hard_check_ram'                : [ 3.9 ,  'critical' , 'At least 4GB RAM is required' ] },
     { 'hard_check_cpu_number'         : [ 2,     'critical' , 'At least 2 logical CPU-s are required' ] },
     { 'hard_check_nic_number'         : [ 2,     'critical' , 'At least 2 Network Interfaces are required' ] },
     { 'hard_check_nic_drivers'        : [ True , 'optional' , 'Supported network cards' ] },
