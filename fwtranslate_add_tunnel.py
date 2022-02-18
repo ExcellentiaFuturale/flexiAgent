@@ -856,19 +856,26 @@ def _add_ikev2_common_profile(cmd_list, params, name, cache_key, auth_method, lo
     cmd['cmd']['descr']     = "set tunnel interface for IKEv2 profile %s" % name
     cmd_list.append(cmd)
 
-    # ikev2.api.json: ikev2_profile_set_gateway (...)
-    cmd = {}
-    cmd['cmd'] = {}
-    cmd['cmd']['descr']     = "set gateway for IKEv2 profile %s" % name
-    cmd['cmd']['name']      = "ikev2_profile_set_gateway"
-    cmd['cmd']['params']    = {
-                                'name':name,
-                                'substs': [
-                                    {'add_param': 'next_hop_sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': params['dev_id']},
-                                    {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [params['dst'], params['dev_id']]}
-                                ]
-                              }
-    cmd_list.append(cmd)
+    # Bind IKE traffic of peer tunnels to the proper WAN in multi-WAN setups.
+    # There is no need to do the same for regular IKE tunnels, as they use
+    # internal loopback as destination (10.101.0.X), so the traffic goes through
+    # the dedicated VxLAN tunnel which is bound to the proper WAN in same approach -
+    # see call to get_tunnel_gateway() from within _add_vxlan_tunnel().
+    #
+    if 'peer' in params:
+        # ikev2.api.json: ikev2_profile_set_gateway (...)
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['descr']     = "set gateway for IKEv2 profile %s" % name
+        cmd['cmd']['name']      = "ikev2_profile_set_gateway"
+        cmd['cmd']['params']    = {
+                                    'name':name,
+                                    'substs': [
+                                        {'add_param': 'next_hop_sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': params['dev_id']},
+                                        {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [params['dst'], params['dev_id']]}
+                                    ]
+                                }
+        cmd_list.append(cmd)
 
     # ikev2.api.json: ikev2_profile_set_auth (..., auth_method)
     auth_data = ''
