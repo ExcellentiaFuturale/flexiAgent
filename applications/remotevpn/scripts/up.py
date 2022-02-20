@@ -33,7 +33,11 @@ try:
     os.system('sudo tc filter add dev t_vpp_remotevpn parent ffff: protocol all u32 match u32 0 0 action mirred egress mirror dev t_remotevpn')
 
     os.system('sudo tc qdisc add dev t_remotevpn handle ffff: ingress')
-    os.system('sudo tc filter add dev t_remotevpn parent ffff: protocol all u32 match u32 0 0 action mirred egress mirror dev t_vpp_remotevpn')
+
+    # don't mirror traffic that its destination address it the vpn server itself (traffic originated by linux).
+    os.system(f'sudo tc filter add dev t_remotevpn parent ffff: protocol all priority 1 u32 match ip dst {ifconfig_local_ip}/32 action pass')
+    # mirror all incoming (expect of the above rule) traffic to vpn interface to vpp's tun interface.
+    os.system('sudo tc filter add dev t_remotevpn parent ffff: protocol all priority 2 u32 match u32 0 0 action mirred egress mirror dev t_vpp_remotevpn')
 except:
     pass
 
