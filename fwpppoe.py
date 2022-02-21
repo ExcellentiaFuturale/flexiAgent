@@ -49,6 +49,8 @@ class FwPppoeConnection(FwObject):
         self.mtu = 0
         self.mru = 0
         self.tun_vpp_if_name = ''
+        self.loop_if_name = ''
+        self.loop_vpp_if_name = ''
         self.ppp_if_name = 'ppp%u' % id
         self.addr = ''
         self.gw = ''
@@ -108,6 +110,7 @@ class FwPppoeConnection(FwObject):
                 if router_started:
                     self.create_tun()
                     self.create_tc_mirror()
+                    self.create_loopback()
                 self.add_linux_ip_route()
             else:
                 self.log.debug(f'pppoe disconnected: {self}, router_started: {router_started}')
@@ -144,12 +147,10 @@ class FwPppoeConnection(FwObject):
 
     def create_tun(self):
         self.tun_vpp_if_name = 'tun%u' % self.id
-        self.if_index = socket.if_nametoindex(self.ppp_if_name)
         cmds = []
         cmds.append('create tap id %u tun' % self.id)
         cmds.append('set interface state %s up' % self.tun_vpp_if_name)
         cmds.append('set interface ip address %s %s' % (self.tun_vpp_if_name, self.addr))
-        cmds.append('tap-inject map tap %u %s' % (self.if_index, self.tun_vpp_if_name))
         fwutils.vpp_cli_execute(cmds, debug=True)
         fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id] = self.tun_vpp_if_name
         fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name] = self.dev_id
@@ -163,8 +164,27 @@ class FwPppoeConnection(FwObject):
         del fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name]
         self.if_index = -1
 
+    def create_loopback(self):
+        cmds = []
+        cmds.append('create loopback interface mac 02:00:27:ff:00:01 instance 0')
+        self.loop_vpp_if_name = 'loop0'
+        cmds.append('tap-inject map interface %s %s' % (self.loop_vpp_if_name, self.tun_vpp_if_name))
+        fwutils.vpp_cli_execute(cmds, debug=True)
+
+        self.loop_if_name = fwutils.vpp_if_name_to_tap(self.loop_vpp_if_name)
+
+        os.system(f'ifconfig {self.loop_if_name} 30.30.30.1 netmask 255.255.255.0')
+        self.if_index = socket.if_nametoindex(self.loop_if_name)
+
+        cmds = []
+        cmds.append('tap-inject map tap %u %s' % (self.if_index, self.tun_vpp_if_name))
+        fwutils.vpp_cli_execute(cmds, debug=True)
+
     def add_linux_ip_route(self):
-        os.system(f'ip r add default via {self.gw} metric {self.metric} proto static')
+        if fwutils.is_router_running():
+            os.system(f'ip r add default dev {self.loop_if_name} metric {self.metric} proto static')
+        else:
+            os.system(f'ip r add default via {self.gw} metric {self.metric} proto static')
 
     def clean_linux_ip(self):
         os.system(f'ifconfig {self.nic} down')
