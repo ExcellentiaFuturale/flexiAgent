@@ -171,7 +171,7 @@ class FwPppoeConnection(FwObject):
 
     def _tc_mirror_set(self, ifname_1, ifname_2, op):
         os.system('tc qdisc %s dev %s handle ffff: ingress' % (op, ifname_1))
-        os.system('tc filter %s dev %s parent ffff: protocol all u32 match u32 0 0 action mirred egress mirror dev %s' % (op, ifname_1, ifname_2))
+        os.system('tc filter %s dev %s parent ffff: protocol all u32 match u32 0 0 action mirred egress mirror dev %s pipe action drop' % (op, ifname_1, ifname_2))
 
     def create_tc_mirror(self):
         self._tc_mirror_set(self.tun_vpp_if_name, self.ppp_if_name, 'add')
