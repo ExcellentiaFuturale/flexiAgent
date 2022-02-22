@@ -45,37 +45,36 @@ reset_modem_error_triggers = [
     "couldn't create client for the"
 ]
 
-def do_reset_if_needed(err_str, dev_id, flag, print_error, qmi=False, mbim=False):
-    # The qmi and mbim commands can sometimes get stuck and return errors.
-    # It is not clear if this is the modem that get stuck or the way commands are run to it.
-    # The solution we found is to do a modem reset.
-    # But, to avoid a loop of error -> reset -> error -> reset,
-    # we will only perform it if a period of time has passed since the last reset.
+def reset_modem_if_needed(err_str, dev_id):
+    '''The qmi and mbim commands can sometimes get stuck and return errors.
+    It is not clear if this is the modem that get stuck or the way commands are run to it.
+    The solution we found is to do a modem reset.
+    But, to avoid a loop of error -> reset -> error -> reset,
+    we will only perform it if a period of time has passed since the last reset.
+
+    :param err_str: the error string returned from the mbim/qmi clients
+    :param dev_id: lte dev id
+
+    :return: boolean indicates if reset is performed or not.
+
+    '''
     if not any(x in err_str for x in reset_modem_error_triggers):
-        return ([], err_str)
+        return False
 
     last_reset_time = get_cache_val(dev_id, 'healing_reset_last_time')
 
     now = datetime.now()
-    one_hour_ago = now - timedelta(hours=1)
-
     if last_reset_time:
         last_reset_time = datetime.fromtimestamp(last_reset_time)
-        if last_reset_time > one_hour_ago:
-            return ([], err_str)
+        if last_reset_time > (now - timedelta(hours=1)):
+            return False
 
     # do reset
-    fwglobals.log.debug(f"do_reset_if_needed: resetting modem while error. err: {err_str}. flag={flag}")
+    fwglobals.log.debug(f"reset_modem_if_needed: resetting modem while error. err: {err_str}")
 
     set_cache_val(dev_id, 'healing_reset_last_time', datetime.timestamp(now))
     reset_modem(dev_id)
-    if qmi:
-        return _run_qmicli_command(dev_id, flag, print_error)
-    elif mbim:
-        return _run_mbimcli_command(dev_id, flag, print_error)
-
-    return ([], err_str)
-
+    return True
 
 def _run_qmicli_command(dev_id, flag, print_error=False):
     try:
@@ -93,7 +92,10 @@ def _run_qmicli_command(dev_id, flag, print_error=False):
         if print_error:
             fwglobals.log.debug('_run_qmicli_command: flag: %s. err: %s' % (flag, err_str))
 
-        return do_reset_if_needed(err_str, dev_id, flag, print_error, qmi=True)
+        modem_resetted = reset_modem_if_needed(err_str, dev_id)
+        if modem_resetted:
+            return _run_qmicli_command(dev_id, flag, print_error)
+        return ([], err_str)
 
 def _run_mbimcli_command(dev_id, cmd, print_error=False):
     try:
@@ -111,8 +113,10 @@ def _run_mbimcli_command(dev_id, cmd, print_error=False):
         if print_error:
             fwglobals.log.debug('_run_mbimcli_command: cmd: %s. err: %s' % (cmd, err_str))
 
-        return do_reset_if_needed(err_str, dev_id, cmd, print_error, mbim=True)
-
+        modem_resetted = reset_modem_if_needed(err_str, dev_id)
+        if modem_resetted:
+            return _run_mbimcli_command(dev_id, cmd, print_error)
+        return ([], err_str)
 
 def qmi_get_simcard_status(dev_id):
     return _run_qmicli_command(dev_id, 'uim-get-card-status')
