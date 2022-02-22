@@ -218,9 +218,14 @@ class FwAgent(FwObject):
 
         :returns: `True` if registered, `False` otherwise.
         """
-        if os.path.exists(fwglobals.g.DEVICE_TOKEN_FILE):
-            return True
-        return False
+        try:
+            with open(fwglobals.g.DEVICE_TOKEN_FILE, 'r') as fin:
+                device_token = fin.readline()
+                if device_token:
+                    return True
+            return False
+        except:
+            return False
 
     def register(self, machine_id=None):
         """Registers device with the flexiManage.
@@ -976,9 +981,14 @@ class FwagentDaemon(FwObject):
 
             # Store device token on disk, so no registration will be performed
             # on next daemon start.
+            # Ensure that there is token to be stored.
+            # On rare condition, like restarting daemon during registration,
+            # the self.agent.register() might return None and registration loop
+            #  exits due to self.active False.
             #
-            with open(fwglobals.g.DEVICE_TOKEN_FILE, 'w') as f:
-                fwutils.file_write_and_flush(f, device_token)
+            if device_token:
+                with open(fwglobals.g.DEVICE_TOKEN_FILE, 'w') as f:
+                    fwutils.file_write_and_flush(f, device_token)
 
         # Establish main connection to Manager.
         # That start infinite receive-send loop in Fwagent::connect().
