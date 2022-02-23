@@ -41,12 +41,6 @@ class LTE_ERROR_MESSAGES():
     PUK_IS_WRONG = 'PUK_IS_WRONG'
     PUK_IS_REQUIRED = 'PUK_IS_REQUIRED'
 
-reset_modem_error_triggers = [
-    "couldn't create client for the",
-    "operation failed: Failure",
-    "operation failed: Busy"
-]
-
 def reset_modem_if_needed(err_str, dev_id):
     '''The qmi and mbim commands can sometimes get stuck and return errors.
     It is not clear if this is the modem that get stuck or the way commands are run to it.
@@ -60,6 +54,12 @@ def reset_modem_if_needed(err_str, dev_id):
     :return: boolean indicates if reset is performed or not.
 
     '''
+    reset_modem_error_triggers = [
+        "couldn't create client for the",
+        "operation failed: Failure",
+        "operation failed: Busy"
+    ]
+
     if not any(x in err_str for x in reset_modem_error_triggers):
         return False
 
