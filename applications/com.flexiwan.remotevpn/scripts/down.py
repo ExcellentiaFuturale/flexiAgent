@@ -1,10 +1,13 @@
 #! /usr/bin/python3
 
+# This script is called by OpenVpn after TUN/TAP device close
+
 import sys
 import os
 from netaddr import IPAddress
 import json
 
+# get OpenVpn settings
 tup_dev = sys.argv[1]
 tup_mtu = sys.argv[2]
 link_mtu = sys.argv[3]
@@ -17,7 +20,7 @@ try:
     mask = IPAddress(ifconfig_netmask).netmask_bits()
 
     # remove tc filter commands
-    os.system('sudo tc qdisc delete dev t_vpp_remotevpn handle ffff: ingress')
+    os.system('sudo tc qdisc delete dev t_vpp_remotevpn ingress')
 
     # remove vpp tun interface
     with open(app_db_path, 'r') as json_file:
@@ -26,7 +29,7 @@ try:
         if tun_vpp_if_name:
             os.system(f'sudo vppctl delete tap {tun_vpp_if_name}')
 
-    # remove network from ospf
+    # remove the openvpn network from ospf
     vtysh_cmd = f'sudo /usr/bin/vtysh -c "configure" -c "router ospf" -c "no network {ifconfig_local_ip}/{mask} area 0.0.0.0"'
     output = os.system(vtysh_cmd)
 except:

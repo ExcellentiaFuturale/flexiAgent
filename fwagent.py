@@ -660,6 +660,7 @@ def reset(soft=False, quiet=False, pppoe=False):
             print("stopping the router...")
         daemon_rpc('stop', stop_router=True)
 
+        # uninstall the applications
         with FWAPPLICATIONS_API() as app_api:
             app_api.call_hook('uninstall')
             app_api.reset_db()

@@ -70,7 +70,6 @@ def main():
         print ("Shutting down flexiwan-router...")
     fwglobals.initialize(quiet=arg_quiet)
     os.system('systemctl stop flexiwan-router')
-
     fwutils.stop_vpp()
     fwutils.remove_linux_bridges()
     fwutils.reset_traffic_control()

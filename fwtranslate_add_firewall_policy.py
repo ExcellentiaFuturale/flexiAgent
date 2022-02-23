@@ -152,7 +152,7 @@ def add_firewall_policy(params):
         cmd_list = []
 
         # get LAN interfaces for each application
-        # the result is a dictionary with keys as application identifiers and value is array of vpp interfaces names
+        # the result is a dictionary when the keys are application identifiers, and the values are arrays of vpp interface names
         # e.g. { 'com.flexiwan.vpn': ['tun0'] }
         app_lans = fwutils.call_applications_hook('get_lan_vpp_interface_names')
 
@@ -191,7 +191,7 @@ def add_firewall_policy(params):
 
                 # for applications interfaces we are using
                 # the prefix 'app_' and the identifier name as the key.
-                # if interfaces are sent from flexiManage, it is sent this way as well
+                # if interfaces are specified by flexiManage, it is sent this way as well
                 for app_identifier in app_lans:
                     dev_id_params.append(f'app_{app_identifier}')
 

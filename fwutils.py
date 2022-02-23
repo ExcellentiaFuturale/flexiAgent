@@ -2274,7 +2274,7 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order,
     loopback_vpp_name_list = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['tunnel'].keys())
 
     # get LAN interfaces for each application
-    # the result is a dictionary with keys as application identifiers and value is array of vpp interfaces names
+    # the result is a dictionary when the keys are application identifiers, and the values are arrays of vpp interface names
     # e.g. { 'com.flexiwan.vpn': ['tun0'] }
     app_lans = call_applications_hook('get_lan_vpp_interface_names')
     app_lans_list = [vpp_if_name for vpp_if_names in app_lans.values() for vpp_if_name in vpp_if_names]

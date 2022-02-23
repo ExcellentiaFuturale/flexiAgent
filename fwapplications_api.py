@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2022  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -20,17 +20,16 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import copy
 import importlib.util
-import requests
-import fwglobals
+import multiprocessing as mp
 import os
 import tarfile
-from sqlitedict import SqliteDict
 import threading
-import multiprocessing as mp
 import time
 import traceback
-import copy
+
+import fwglobals
 import fwutils
 from fwobject import FwObject
 
@@ -69,7 +68,7 @@ class FWAPPLICATIONS_API(FwObject):
         FwObject.__init__(self)
 
         self.applications_db = fwglobals.g.applications_db
-        self.thread_apps_statistics    = None
+        self.thread_apps_statistics = None
         self.apps_stats    = {}
         self.processing_job = False
         if run_application_stats:
@@ -101,7 +100,7 @@ class FWAPPLICATIONS_API(FwObject):
         def run(*args):
             slept = 0
             while not fwglobals.g.teardown:
-                # Every 10 seconds collection the application status and monitoring
+                # Every 10 seconds collect the application status and monitoring
                 #
                 try:  # Ensure thread doesn't exit on exception
                     timeout = 10
@@ -111,7 +110,8 @@ class FWAPPLICATIONS_API(FwObject):
                             is_installed = apps[identifier].get('installed')
                             if not is_installed:
                                 continue
-
+                            
+                            # make sure that installed application is running
                             is_app_running = self.is_app_running(identifier)
                             if not is_app_running:
                                 self.start(is_installed)
@@ -193,33 +193,37 @@ class FWAPPLICATIONS_API(FwObject):
         return res
 
     def install(self, request):
+        '''
+        {
+            "entity": "agent",
+            "message": "application-install",
+            "params": {
+                "name": "Remote Worker VPN",
+                "identifier": "com.flexiwan.remotevpn",
+                "configParams": { ... }
+            }
+        }
+        '''
         try:
             params = request['params']
-            path_type = params.get('installationPathType')
             identifier = params.get('identifier')
-            path = params.get('installationFilePath')
+            
+            # check if install.tar.gz file exists
+            source_installation_file = os.getcwd() + '/applications/' + identifier + '/install.tar.gz'
+            if not os.path.exists(source_installation_file):
+                raise Exception(f'install file ({source_installation_file}) is not exists')
 
             target_path = fwglobals.g.APPLICATIONS_DIR + identifier + '/'
 
             # create the application directory if not exists
             os.system(f'mkdir -p {target_path}')
 
-            if path_type == 'url':
-                response = requests.get(path, allow_redirects=True, stream=True)
-                if response.status_code == 200:
-                    with open(target_path, 'wb') as f:
-                        f.write(response.raw.read())
+            # move the install.tar.gz file to the applications directory
+            rc = os.system(f'cp {source_installation_file} {target_path}')
+            if rc:
+                raise Exception(f'failed to move {source_installation_file} to {target_path}')
 
-            elif (path_type == 'local'):
-                path = os.path.abspath(path)
-                if not os.path.exists(path):
-                    raise Exception(f'path {path} is not exists')
-
-                # move install file to application directory
-                rc = os.system(f'cp {path} {target_path}')
-                if rc:
-                    raise Exception(f'failed to move {path} to the applications directory')
-
+            # extract the install.tar.gz file
             file = tarfile.open(target_path + 'install.tar.gz')
             file.extractall(target_path)
             file.close()
@@ -290,7 +294,6 @@ class FWAPPLICATIONS_API(FwObject):
 
             if not success:
                 return { 'ok': 0, 'message': val }
-
 
             return { 'ok': 1 }
         except Exception as e:

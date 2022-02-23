@@ -127,8 +127,8 @@ request_handlers = {
     'application-install':           {'name': '_call_applications_api', 'sign': True},
     'application-uninstall':         {'name': '_call_applications_api', 'sign': True},
     'application-configure':         {'name': '_call_applications_api', 'sign': True},
-    'application-status':            {'name': '_call_applications_api', 'sign': True},
-    'application-call':              {'name': '_call_applications_api', 'sign': True},
+    'application-status':            {'name': '_call_applications_api'},
+    'application-call':              {'name': '_call_applications_api'},
 
     ##############################################################
     # INTERNAL API-s
@@ -488,7 +488,6 @@ class Fwglobals(FwObject):
         del self.router_api
         del self.agent_api
         del self.applications_api
-
         del self.logger_add_application
         del self.fwagent
         self.fwagent = None

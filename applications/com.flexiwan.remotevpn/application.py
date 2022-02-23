@@ -20,15 +20,14 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import json
 import os
+import re
 import shutil
 import subprocess
 import time
-from netaddr import IPNetwork
-import re
-import json
 
-from fwutils import vpp_does_run
+from netaddr import IPNetwork
 
 OPENVPN_LOG_FILE    = '/var/log/openvpn/openvpn.log'
 APP_DB_PATH = '/etc/openvpn/server/fw_db'
@@ -36,16 +35,16 @@ APP_DB_PATH = '/etc/openvpn/server/fw_db'
 def install(params):
     """Install Remote VPN server on host.
 
-    :param params: params - remote vpn parameters:
-        version - the version to be installed
+    :param params: params - remote vpn parameters
 
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
-
     try:
+        # create open vpn directories
         os.system('mkdir -p /etc/openvpn/server')
         os.system('mkdir -p /etc/openvpn/client')
 
+        # check if openvpn is already installed
         installed = os.popen("dpkg -l | grep -E '^ii' | grep openvpn").read()
         if not installed:
             commands = [
@@ -61,10 +60,11 @@ def install(params):
 
             print("RemoteVPN installed successfully")
         else:
-            # if vpn is running but a user wants to install it again, stop it
+            # if vpn already installed and *running* and the user wants to install it again, stop it
             # it will be started with the new config in the configure() function
             stop({})
 
+        # in the installation job we send configuration params as well
         configParams = params.get('configParams')
         if not configParams:
             raise Exception('configParams is missing')
@@ -106,37 +106,36 @@ def _vpp_pid():
 def configure(params):
     """Configure Open VPN server on host.
 
-    :param params: params - open vpn parameters:
-        local - the dev id of interface to listen on
-        vpnNetwork    -
-        routeAllTrafficOverVpn    - false to use split tunnel
+    :param params: params - open vpn parameters   
 
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
     try:
+        # copy scripts to openvpn directory
         dir = os.path.dirname(os.path.realpath(__file__))
         shutil.copyfile('{}/scripts/auth.py'.format(dir), '/etc/openvpn/server/auth-script.py')
         shutil.copyfile('{}/scripts/up.py'.format(dir), '/etc/openvpn/server/up-script.py')
         shutil.copyfile('{}/scripts/down.py'.format(dir), '/etc/openvpn/server/down-script.py')
         shutil.copyfile('{}/scripts/client-connect.py'.format(dir), '/etc/openvpn/server/client-connect.py')
 
-        # set global variable for VPN server - it will use by openvpn scripts
+        # replace scripts variables
         escaped_url = re.escape(params['vpnPortalServer'])
         os.system("sed -i 's/__VPN_SERVER__/%s/g' /etc/openvpn/server/auth-script.py" % escaped_url)
 
+        # run several commands for configurations
         commands = [
-            'chmod +x /etc/openvpn/server/auth-script.py',
-            'chmod +x /etc/openvpn/server/up-script.py',
-            'chmod +x /etc/openvpn/server/down-script.py',
-            'chmod +x /etc/openvpn/server/client-connect.py',
-
-
             'echo "%s" > /etc/openvpn/server/ca.key' % params['caKey'],
             'echo "%s" > /etc/openvpn/server/ca.crt' % params['caCrt'],
             'echo "%s" > /etc/openvpn/server/server.key' % params['serverKey'],
             'echo "%s" > /etc/openvpn/server/server.crt' % params['serverCrt'],
             'echo "%s" > /etc/openvpn/server/tc.key' % params['tlsKey'],
             'echo "%s" > /etc/openvpn/server/dh.pem' % params['dhKey'],
+
+            'chmod +x /etc/openvpn/server/auth-script.py',
+            'chmod +x /etc/openvpn/server/up-script.py',
+            'chmod +x /etc/openvpn/server/down-script.py',
+            'chmod +x /etc/openvpn/server/client-connect.py',
+            'chmod 600 /etc/openvpn/server/server.key',
         ]
 
         for command in commands:
@@ -152,8 +151,8 @@ def configure(params):
         if not success:
             raise Exception(err)
 
+        # if vpn already runs, restart it
         if _openvpn_pid():
-            # restart vpn server after configurations changed
             start(params, restart=True)
 
         return (True, None)
@@ -192,9 +191,6 @@ def _configure_server_file(params):
         ip = IPNetwork(params['vpnNetwork'])
 
         commands = [
-            # Which local IP address should OpenVPN listen on
-            # f'local {params.get("wanIp")}',
-
             # Which TCP/UDP port should OpenVPN listen on?
             f'port {params.get("port", "1194")}',
 
@@ -238,16 +234,13 @@ def _configure_server_file(params):
             f'max-clients {params.get("connections")}',
 
             # Maintain a record of client <-> virtual IP address associations in this file
-            'ifconfig-pool-persist /etc/openvpn/server/ipp.txt',
+            # 'ifconfig-pool-persist /etc/openvpn/server/ipp.txt',
 
             'keepalive 10 120',
 
             # Select a cryptographic cipher.
             'data-ciphers AES-256-CBC',
             'cipher AES-256-CBC',
-
-            #'echo "user nobody" >> %s' % destFile,
-            #'echo "group nogroup" >> %s' % destFile,
 
             # The persist options will try to avoid ccessing certain resources on restart
             # that may no longer be accessible because of the privilege downgrade.
@@ -260,19 +253,35 @@ def _configure_server_file(params):
 
             # Set the appropriate level of log file verbosity.
             'verb 3',
-
-            # 'echo "plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so /tmp/script.sh" >> %s' % destFile,
+            
+            # Require the client to provide a username/password for authentication.
+            # OpenVPN will run this script to validate the username/password provided by the client.
             'auth-user-pass-verify /etc/openvpn/server/auth-script.py via-file',
+
+            # Specify a directory dir for temporary files
             'tmp-dir /dev/shm',
+
             'script-security 2',
 
+            # The client is required to supply a valid certificate
             'verify-client-cert require',
-            'client-config-dir /etc/openvpn/client',
+
+            # 'client-config-dir /etc/openvpn/client',
+            
+            # Use the authenticated username as the common name
             'username-as-common-name',
+
             'reneg-sec 43200',
+
+            # Allow multiple clients with the same common name to concurrently connect
             'duplicate-cn',
+
+            # OpenVPN will internally route client-to-client traffic rather than pushing all client-originating traffic to the TUN/TAP interface.
             'client-to-client',
+
             'explicit-exit-notify',
+
+            # call these scripts once OpenVPN starts and stops
             'up /etc/openvpn/server/up-script.py',
             'down /etc/openvpn/server/down-script.py'
         ]
@@ -283,6 +292,7 @@ def _configure_server_file(params):
             # network gateway through the VPN
             commands.append('push \\"redirect-gateway def1 bypass-dhcp\\"')
         else:
+            # we are using client-connect script only if we need to send ospf routes to the client dynamically
             commands.append('client-connect /etc/openvpn/server/client-connect.py')
 
         # DNS options
@@ -295,13 +305,14 @@ def _configure_server_file(params):
         # clean the config file
         os.system(f' > {destFile}')
 
-        # tun the commands
+        # run the commands
         for command in commands:
             ret = os.system(f'echo "{command}" >> {destFile}')
             if ret:
                 return (False, f'install: failed to run "{command}". error code is {ret}')
 
         print("remoteVPN server.conf configured successfully")
+
         return (True, None)
     except Exception as e:
         print("Failed to configure remoteVPN server.conf")
@@ -349,9 +360,9 @@ def _configure_client_file(params):
         return (False, str(e))
 
 def router_is_started(params):
-    # This hook should start the VPN server immediately after the VPP is started.
+    # This hook should start the VPN server immediately after the VPP is begun.
     # If the VPN is already running for some reason,
-    # we will restart it to make sure our unique settings to move traffic into the VPP are applied.
+    # we restart it to make sure our unique settings to mirror traffic into the VPP are applied.
     return start(params, restart=True)
 
 def router_is_stopped(params):
@@ -367,16 +378,18 @@ def start(params, restart=False):
         if not router_is_running:
             return (True, None)
 
-        # if vpn is already run, return true
+        # check if vpn is already running
         vpnIsRun = True if _openvpn_pid() else False
         if vpnIsRun:
-            if not restart:
-                return (True, None)
-            else:
+            if restart:
                 stop({})
-
+            else:
+                # no need to run it again
+                return (True, None)
+                
         os.system('sudo openvpn --config /etc/openvpn/server/server.conf --daemon')
 
+        # make sure openvpn started. Otherwise it means that it failed (we can find the reason in the log file)
         vpnIsRun = True if _openvpn_pid() else False
         if not vpnIsRun:
             raise Exception('removeVPN failed to start')
