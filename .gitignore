@@ -23,3 +23,6 @@ pytestdebug.log
 
 #Swap files
 *.sw[g-p]
+
+# includes application isntallallation files
+!install.tar.gz
