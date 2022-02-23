@@ -162,6 +162,7 @@ request_handlers = {
     'ikev2_profile_set_auth':       {'name': '_call_vpp_api'},
     'ikev2_profile_set_id':         {'name': '_call_vpp_api'},
     'ikev2_profile_set_ts':         {'name': '_call_vpp_api'},
+    'ikev2_profile_set_gateway':    {'name': '_call_vpp_api'},
     'ikev2_set_esp_transforms':     {'name': '_call_vpp_api'},
     'ikev2_set_ike_transforms':     {'name': '_call_vpp_api'},
     'ikev2_set_local_key':          {'name': '_call_vpp_api'},

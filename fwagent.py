@@ -219,9 +219,14 @@ class FwAgent(FwObject):
 
         :returns: `True` if registered, `False` otherwise.
         """
-        if os.path.exists(fwglobals.g.DEVICE_TOKEN_FILE):
-            return True
-        return False
+        try:
+            with open(fwglobals.g.DEVICE_TOKEN_FILE, 'r') as fin:
+                device_token = fin.readline()
+                if device_token:
+                    return True
+            return False
+        except:
+            return False
 
     def register(self, machine_id=None):
         """Registers device with the flexiManage.
@@ -628,9 +633,11 @@ def reset(soft=False, quiet=False, pppoe=False):
         print("Router must be stopped in order to reset the configuration")
         return
 
-    if pppoe:
-        with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
-            pppoe.clean()
+    pppoe_configured = False
+    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe_client:
+        pppoe_configured = pppoe_client.is_pppoe_configured()
+        if pppoe:
+            pppoe_client.clean()
 
     if soft:
         fwutils.reset_device_config()
@@ -668,7 +675,8 @@ def reset(soft=False, quiet=False, pppoe=False):
             fwlte.disconnect(dev_id, False)
 
         fwglobals.log.info("Reset operation done")
-        fwglobals.log.info("Note: this command doesn't clear pppoe configuration, use 'fwagent reset -p' to clear it")
+        if not pppoe and pppoe_configured:
+            fwglobals.log.info("Note: this command doesn't clear pppoe configuration, use 'fwagent reset -p' to clear it")
     else:
         fwglobals.log.info("Reset operation aborted")
     daemon_rpc('start')     # Start daemon main loop if daemon is alive
@@ -981,9 +989,14 @@ class FwagentDaemon(FwObject):
 
             # Store device token on disk, so no registration will be performed
             # on next daemon start.
+            # Ensure that there is token to be stored.
+            # On rare condition, like restarting daemon during registration,
+            # the self.agent.register() might return None and registration loop
+            #  exits due to self.active False.
             #
-            with open(fwglobals.g.DEVICE_TOKEN_FILE, 'w') as f:
-                fwutils.file_write_and_flush(f, device_token)
+            if device_token:
+                with open(fwglobals.g.DEVICE_TOKEN_FILE, 'w') as f:
+                    fwutils.file_write_and_flush(f, device_token)
 
         # Establish main connection to Manager.
         # That start infinite receive-send loop in Fwagent::connect().

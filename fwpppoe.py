@@ -399,6 +399,9 @@ class FwPppoeClient(FwObject):
                 fwnetplan.add_interface(if_name, pppoe_iface.fname, pppoe_iface.netplan)
 
     def clean(self):
+        if not self.is_pppoe_configured():
+            return
+
         self._remove_files()
         self._restore_netplan()
         self.interfaces.clear()
@@ -460,6 +463,9 @@ class FwPppoeClient(FwObject):
         self._save()
         self.start()
 
+    def is_pppoe_configured(self):
+        return bool(self.interfaces)
+
     def scan(self):
         for dev_id, conn in self.connections.items():
             connected = conn.scan()
@@ -499,6 +505,11 @@ class FwPppoeClient(FwObject):
 
         return (False, f'PPPoE: {dev_id} is not connected')
 
+    def stop_interface(self, dev_id):
+        conn = self.connections.get(dev_id)
+        conn.close()
+        return (True, None)
+
     def pppoec_thread(self):
         """PPPoE client thread.
         Its function is to monitor state of interfaces with PPPoE.
@@ -507,7 +518,8 @@ class FwPppoeClient(FwObject):
             time.sleep(1)
 
             try:  # Ensure thread doesn't exit on exception
-                self.scan()
+                if not fwglobals.g.router_api.state_is_starting_stopping():
+                    self.scan()
             except Exception as e:
                 self.log.error("%s: %s (%s)" %
                     (threading.current_thread().getName(), str(e), traceback.format_exc()))

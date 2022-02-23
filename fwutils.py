@@ -1715,7 +1715,8 @@ def is_router_running():
      :returns: True/False.
     """
     if hasattr(fwglobals.g, 'router_api'):
-        return fwglobals.g.router_api.state_is_started() or fwglobals.g.router_api.state_is_starting_stopping()
+        # The STOPPING state is omitted on purpose to accommodate PPPoE needs
+        return fwglobals.g.router_api.state_is_starting_or_started()
     return False
 
 def _get_group_delimiter(lines, delimiter):
