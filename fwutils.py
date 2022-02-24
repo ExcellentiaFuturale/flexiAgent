@@ -877,13 +877,16 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
         linux_tap = tap.host_if_name                # fetch tap_wwan0
         linux_dev_name = linux_tap.split('_')[-1]   # tap_wwan0 - > wwan0
 
-        # if the lte/wifi interface name is long (more than 15 letters),
-        # It's not enough to slice tap_wwan0 and get the linux interface name from the last part.
-        # So we take it from the /sys/class/net by filter out the tap_wwan0,
-        # then we can get the complete name
+        # In some cases, when lte/wifi interface name is long (more than 15 letters), e.g wwp0s21u1i12,
+        # when we creating the tap interface for them, we have to keep its name up to 15 letters,
+        # for example: tap_wp0s21u1i12.
+        # Hence, It's not enough to slice tap_wp0s21u1i12 and get the linux interface name from the last part.
+        # So we are taking it from the /sys/class/net by filter out the tap_wwan0, then we can get the complete name.
         #
         cmd =  "ls -l /sys/class/net | grep -v %s | grep %s" % (linux_tap, linux_dev_name)
-        linux_dev_name = subprocess.check_output(cmd, shell=True).decode().strip().split('/')[-1]
+        complete_linux_dev_name = os.popen(cmd).read()
+        if complete_linux_dev_name:
+            linux_dev_name = complete_linux_dev_name.split('/')[-1].strip()
 
         bus = build_interface_dev_id(linux_dev_name)            # fetch bus address of wwan0
         if bus:
