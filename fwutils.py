@@ -1131,7 +1131,7 @@ def vpp_get_tap_info(vpp_if_name=None, vpp_sw_if_index=None, tap_if_name=None):
      """
     if not vpp_does_run():
         fwglobals.log.debug("vpp_get_tap_info: VPP is not running")
-        return ({}, {}, 'None')
+        return (None, None)
 
     if vpp_if_name:
         vppctl_cmd = f"show tap-inject {vpp_if_name}"
@@ -3564,3 +3564,14 @@ def get_linux_interface_mtu(if_name):
         return ''
 
     return str(net_if_stats[if_name].mtu)
+
+def os_system(cmd, log_prefix="", log=False, print_error=True):
+    if log:
+        fwglobals.log.debug(cmd)
+
+    rc = os.system(cmd)
+    if rc and print_error:
+        prefix = f'{log_prefix}: ' if log_prefix else ''
+        fwglobals.log.error(f'{prefix}command failed: {cmd}')
+
+    return True if rc else False
