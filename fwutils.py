@@ -864,25 +864,33 @@ def vpp_if_name_to_dev_id(vpp_if_name):
 #
 def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
 
-    # Note, tap interfaces created by "create tap" are handled as follows:
-    # the commands "create tap host-if-name tap_wwan0" and "enable tap-inject" create three interfaces:
-    # Two on Linux (tap_wwan0, vpp1) and one on vpp (tap1).
-    # Note, we use "tap_" prefix in "tap_wwan0" in order to be able to associate the wwan0 physical interface
-    # with the tap1 interface. This is done as follows:
-    # Then we can substr the dev_name and get back the linux interface name. Then we can get the dev_id of this interface.
+    # For tap interfaces we don't use 'vpp_if_name', but fetch Linux name of interface from vpp.
+    # Tap interfaces are created as follows:
+    # The commands "create tap host-if-name tap_wwan0" and "enable tap-inject" create three interfaces:
+    # Two on Linux (tap_wwan0, vpp1) and one on vpp (tap0).
+    # We compose name of tap interface (tap_wwan0) of two parts: "tap_" and "wwan0", so we can
+    # fetch name of Linux interface (wwan0) out of the tap name by a simple string split.
     #
     taps = fwglobals.g.router_api.vpp_api.call('sw_interface_tap_v2_dump')
     for tap in taps:
+        if not re.match("tap_", tap.host_if_name):
+            continue   # pppoe interfaces don't follow "tap_" convention
+
         vpp_tap = tap.dev_name                      # fetch tap0
         linux_tap = tap.host_if_name                # fetch tap_wwan0
         linux_dev_name = linux_tap.split('_')[-1]   # tap_wwan0 - > wwan0
 
-        # if the lte/wifi interface name is long (more than 15 letters),
-        # It's not enough to slice tap_wwan0 and get the linux interface name from the last part.
-        # So we take it from the /sys/class/net by filter out the tap_wwan0,
-        # then we can get the complete name
+        # 'linux_dev_name' might include truncated name of linux interface.
+        # This is because Linux limits length of interface names to be no more than 15 characters.
+        # So, when we create tap interface for linux interface with long name, e.g. wwp0s21u1i12m,
+        # we can get "tap_wwp0s21u1i12" that exceeds the limit. So we have to short it.
+        # We chop the beginning of the name as the end of the name is unique for interfaces.
+        # So the final version of tap will be "tap_wp0s21u1i12". Note missing the first "w".
+        #   To get Linux interface name out of truncated 'linux_dev_name' we use the '/sys/class/net'.
+        # 'grep -v {linux_tap}' is used to filter out "tap_wp0s21u1i12",
+        # 'grep {linux_dev_name}' is used to find full name (wwp0s21u1i12) based on truncated name (wp0s21u1i12).
         #
-        cmd =  "ls -l /sys/class/net | grep -v %s | grep %s" % (linux_tap, linux_dev_name)
+        cmd =  f"ls -l /sys/class/net | grep -v {linux_tap} | grep {linux_dev_name}"
         linux_dev_name = subprocess.check_output(cmd, shell=True).decode().strip().split('/')[-1]
 
         bus = build_interface_dev_id(linux_dev_name)            # fetch bus address of wwan0
