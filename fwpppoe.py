@@ -26,6 +26,7 @@ import threading
 import time
 import traceback
 
+from netaddr import IPNetwork
 from sqlitedict import SqliteDict
 
 import fwglobals
@@ -48,11 +49,12 @@ class FwPppoeConnection(FwObject):
         self.user = ''
         self.mtu = 0
         self.mru = 0
+        self.tun_vppsb_if_name = ''
         self.tun_vpp_if_name = ''
+        self.tun_if_name = ''
         self.ppp_if_name = 'ppp%u' % id
         self.addr = ''
         self.gw = ''
-        self.if_index = -1
         self.dev_id = ''
         self.metric = 0
         self.usepeerdns = False
@@ -121,15 +123,19 @@ class FwPppoeConnection(FwObject):
         if self.opened:
             return
 
-        os.system(f'ifconfig {self.nic} up')
-        os.system('pon %s' % self.filename)
+        sys_cmd = f'ip link set dev {self.nic} up'
+        fwutils.os_system(sys_cmd, 'PPPoE open')
+
+        sys_cmd = 'pon %s' % self.filename
+        fwutils.os_system(sys_cmd, 'PPPoE open')
         self.opened = True
 
     def close(self):
         if not self.opened:
             return
 
-        os.system('poff %s' % self.filename)
+        sys_cmd = 'poff %s' % self.filename
+        fwutils.os_system(sys_cmd, 'PPPoE close')
         self.clean_linux_ip()
         self.connected = False
         self.opened = False
@@ -144,42 +150,48 @@ class FwPppoeConnection(FwObject):
 
     def create_tun(self):
         self.tun_vpp_if_name = 'tun%u' % self.id
-        self.if_index = socket.if_nametoindex(self.ppp_if_name)
-        cmds = []
-        cmds.append('create tap id %u tun' % self.id)
-        cmds.append('set interface state %s up' % self.tun_vpp_if_name)
-        cmds.append('set interface ip address %s %s' % (self.tun_vpp_if_name, self.addr))
-        cmds.append('tap-inject map tap %u %s' % (self.if_index, self.tun_vpp_if_name))
-        fwutils.vpp_cli_execute(cmds, debug=True)
+        self.tun_vppsb_if_name = 'vpp_tun%u' % self.id
+        self.tun_if_name = 'pppoe%u' % self.id
+        fwutils.vpp_cli_execute([f'create tap host-if-name {self.tun_if_name} tun'], debug=True)
+        sys_cmd = f'ip addr add {self.addr} dev {self.tun_vppsb_if_name}'
+        fwutils.os_system(sys_cmd, 'PPPoE create_tun')
+        sys_cmd = f'ip link set dev {self.tun_vppsb_if_name} up'
+        fwutils.os_system(sys_cmd, 'PPPoE create_tun')
         fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id] = self.tun_vpp_if_name
         fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name] = self.dev_id
 
     def remove_tun(self):
         cmds = []
-        cmds.append('tap-inject map tap %u %s del' % (self.if_index, self.tun_vpp_if_name))
         cmds.append('delete tap %s' % self.tun_vpp_if_name)
         fwutils.vpp_cli_execute(cmds, debug=True)
         del fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id]
         del fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name]
-        self.if_index = -1
 
     def add_linux_ip_route(self):
-        os.system(f'ip r add default via {self.gw} metric {self.metric} proto static')
+        if fwutils.is_router_running():
+            address = IPNetwork(self.addr)
+            sys_cmd = f'ip r add default via {address.ip} dev {self.tun_vppsb_if_name} metric {self.metric} proto static'
+        else:
+            sys_cmd = f'ip r add default via {self.gw} metric {self.metric} proto static'
+        fwutils.os_system(sys_cmd, 'PPPoE add_linux_ip_route')
 
     def clean_linux_ip(self):
-        os.system(f'ifconfig {self.nic} down')
+        sys_cmd = f'ip link set dev {self.nic} down'
+        fwutils.os_system(sys_cmd, 'PPPoE clean_linux_ip')
 
     def _tc_mirror_set(self, ifname_1, ifname_2, op):
-        os.system('tc qdisc %s dev %s handle ffff: ingress' % (op, ifname_1))
-        os.system('tc filter %s dev %s parent ffff: protocol all u32 match u32 0 0 action mirred egress mirror dev %s' % (op, ifname_1, ifname_2))
+        sys_cmd = 'tc qdisc %s dev %s handle ffff: ingress' % (op, ifname_1)
+        fwutils.os_system(sys_cmd, 'PPPoE _tc_mirror_set')
+        sys_cmd = 'tc filter %s dev %s parent ffff: protocol all u32 match u32 0 0 action mirred egress mirror dev %s pipe action drop' % (op, ifname_1, ifname_2)
+        fwutils.os_system(sys_cmd, 'PPPoE _tc_mirror_set')
 
     def create_tc_mirror(self):
-        self._tc_mirror_set(self.tun_vpp_if_name, self.ppp_if_name, 'add')
-        self._tc_mirror_set(self.ppp_if_name, self.tun_vpp_if_name, 'add')
+        self._tc_mirror_set(self.tun_if_name, self.ppp_if_name, 'add')
+        self._tc_mirror_set(self.ppp_if_name, self.tun_if_name, 'add')
 
     def remove_tc_mirror(self):
-        self._tc_mirror_set(self.tun_vpp_if_name, self.ppp_if_name, 'del')
-        self._tc_mirror_set(self.ppp_if_name, self.tun_vpp_if_name, 'del')
+        self._tc_mirror_set(self.tun_if_name, self.ppp_if_name, 'del')
+        self._tc_mirror_set(self.ppp_if_name, self.tun_if_name, 'del')
 
 class FwPppoeConnections(dict):
     """The object that represents all PPPoE connections.
@@ -371,7 +383,8 @@ class FwPppoeClient(FwObject):
             if not pppd_id:
                 return
 
-            os.system('poff -a')
+            sys_cmd = 'poff -a'
+            fwutils.os_system(sys_cmd, 'PPPoE stop')
             timeout-= 1
             time.sleep(1)
 
