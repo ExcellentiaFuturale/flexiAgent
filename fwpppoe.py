@@ -193,18 +193,6 @@ class FwPppoeConnection(FwObject):
         self._tc_mirror_set(self.tun_if_name, self.ppp_if_name, 'del')
         self._tc_mirror_set(self.ppp_if_name, self.tun_if_name, 'del')
 
-class FwPppoeConnections(dict):
-    """The object that represents all PPPoE connections.
-    """
-    def __getitem__(self, item):
-        return self[item]
-
-    def __str__(self):
-        contents = ''
-        for key, item in self.items():
-            contents += f'{key}: {item}; '
-        return contents
-
 class FwPppoeSecretsConfig(FwObject):
     """The object that represents PPPoE PAP/CHAP configuration file.
     It manages secrets config files inside /etc/ppp/ folder.
@@ -305,7 +293,7 @@ class FwPppoeClient(FwObject):
         self.db_filename = db_file
         self.interfaces = SqliteDict(db_file, 'interfaces', autocommit=True)
         self.id = 0
-        self.connections = FwPppoeConnections()
+        self.connections = {}
         self.path = path + 'peers/'
         self.filename = filename
         self.chap_config = FwPppoeSecretsConfig(path, 'chap-secrets')
@@ -480,20 +468,16 @@ class FwPppoeClient(FwObject):
         return bool(self.interfaces)
 
     def scan(self):
-        for dev_id, conn in self.connections.items():
+        for dev_id, pppoe_iface in self.interfaces.items():
+            conn = self.connections[dev_id]
             connected = conn.scan()
-
-            if dev_id not in self.interfaces:
-                self.log.error(f'{dev_id} is missing in DB')
-                continue
-
-            pppoe_iface = self.interfaces[dev_id]
-            pppoe_iface.is_connected = connected
-            pppoe_iface.addr = conn.addr
-            pppoe_iface.gw = conn.gw
-            pppoe_iface.tun_vpp_if_name = conn.tun_vpp_if_name
-            pppoe_iface.ppp_if_name = conn.ppp_if_name
-            self.interfaces[dev_id] = pppoe_iface
+            if connected != pppoe_iface.is_connected:
+                pppoe_iface.is_connected = connected
+                pppoe_iface.addr = conn.addr
+                pppoe_iface.gw = conn.gw
+                pppoe_iface.tun_vpp_if_name = conn.tun_vpp_if_name
+                pppoe_iface.ppp_if_name = conn.ppp_if_name
+                self.interfaces[dev_id] = pppoe_iface
 
     def start(self):
         for dev_id, conn in self.connections.items():
