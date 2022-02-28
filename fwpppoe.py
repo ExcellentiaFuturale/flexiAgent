@@ -365,7 +365,8 @@ class FwPppoeClient(FwObject):
             os.remove(fname)
 
     def stop(self, timeout = 120):
-        for dev_id, conn in self.connections.items():
+        for dev_id in self.interfaces.keys():
+            conn = self.connections.get(dev_id)
             conn.close()
 
         while timeout >= 0:
@@ -391,7 +392,8 @@ class FwPppoeClient(FwObject):
     def _save(self):
         self.chap_config.save()
         self.pap_config.save()
-        for conn in self.connections.values():
+        for dev_id in self.interfaces.keys():
+            conn = self.connections.get(dev_id)
             conn.save()
 
     def _restore_netplan(self):
@@ -470,7 +472,7 @@ class FwPppoeClient(FwObject):
 
     def scan(self):
         for dev_id, pppoe_iface in self.interfaces.items():
-            conn = self.connections[dev_id]
+            conn = self.connections.get(dev_id)
             connected = conn.scan()
             if connected != pppoe_iface.is_connected:
                 pppoe_iface.is_connected = connected
@@ -481,9 +483,9 @@ class FwPppoeClient(FwObject):
                 self.interfaces[dev_id] = pppoe_iface
 
     def start(self):
-        for dev_id, conn in self.connections.items():
-            pppoe_iface = self.get_interface(dev_id=dev_id)
-            if (pppoe_iface.is_enabled):
+        for dev_id, pppoe_iface in self.interfaces.items():
+            if pppoe_iface.is_enabled:
+                conn = self.connections.get(dev_id)
                 conn.open()
 
     def restart_interface(self, dev_id, timeout = 60):
