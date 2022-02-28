@@ -720,7 +720,7 @@ def build_interface_dev_id(linux_dev_name, sys_class_net=None):
         return ""
 
     if linux_dev_name.startswith('ppp'):
-        return fwglobals.g.pppoe.pppoe_get_dev_id_from_ppp(linux_dev_name)
+        return fwpppoe.pppoe_get_dev_id_from_ppp(linux_dev_name)
 
     if sys_class_net is None:
         cmd = "sudo ls -l /sys/class/net"

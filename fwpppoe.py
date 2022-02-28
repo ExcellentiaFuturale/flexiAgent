@@ -539,3 +539,11 @@ def pppoe_get_ppp_if_name(if_name):
         return pppoe_iface.ppp_if_name
     else:
         return None
+
+def pppoe_get_dev_id_from_ppp(ppp_if_name):
+    if hasattr(fwglobals.g, 'pppoe'):
+        return fwglobals.g.pppoe.pppoe_get_dev_id_from_ppp(ppp_if_name)
+    else:
+        with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
+            return pppoe.pppoe_get_dev_id_from_ppp(ppp_if_name)
+    return None
