@@ -274,7 +274,7 @@ def get_interface_gateway(if_name, if_dev_id=None):
 
     if fwglobals.g.pppoe.is_pppoe_interface(if_name=if_name):
         pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
-        return pppoe_iface.gw, str(pppoe_iface.metric)
+        return pppoe_iface.conn.gw, str(pppoe_iface.metric)
 
     try:
         cmd   = "ip route list match default | grep via | grep 'dev %s'" % if_name
@@ -343,7 +343,7 @@ def get_all_interfaces():
         if fwglobals.g.pppoe.is_pppoe_interface(if_name=nic_name):
             pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=nic_name)
             if pppoe_iface.is_connected:
-                addrs = interfaces.get(pppoe_iface.ppp_if_name)
+                addrs = interfaces.get(pppoe_iface.conn.ppp_if_name)
             else:
                 addrs = []
 
@@ -623,8 +623,8 @@ def get_linux_interfaces(cached=True):
                 interface['deviceType'] = 'pppoe'
                 interface['dhcp'] = 'yes'
                 interface['mtu'] = str(pppoe_iface.mtu)
-                if pppoe_iface.addr:
-                    address = IPNetwork(pppoe_iface.addr)
+                if pppoe_iface.conn.addr:
+                    address = IPNetwork(pppoe_iface.conn.addr)
                     interface['IPv4'] = str(address.ip)
                     interface['IPv4Mask'] = str(address.prefixlen)
 

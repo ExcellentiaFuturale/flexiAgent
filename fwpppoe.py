@@ -271,25 +271,15 @@ class FwPppoeInterface():
         self.usepeerdns = usepeerdns
         self.metric = metric
         self.is_enabled = enabled
-        self.is_connected = False
-        self.addr = ''
-        self.gw = ''
-        self.tun_vpp_if_name = ''
-        self.ppp_if_name = ''
         self.netplan = ''
         self.fname = ''
 
     def __str__(self):
-        return f'user:{self.user}, password:{self.password}, mtu:{self.mtu}, mru:{self.mru}, usepeerdns:{self.usepeerdns}, metric:{self.metric}, enabled:{self.is_enabled}, connected:{self.is_connected}, addr:{self.addr}, gw:{self.gw}, tun:{self.tun_vpp_if_name}, ppp:{self.ppp_if_name}'
+        return f'user:{self.user}, password:{self.password}, mtu:{self.mtu}, mru:{self.mru}, usepeerdns:{self.usepeerdns}, metric:{self.metric}, enabled:{self.is_enabled}'
 
     def scan(self):
         connected = self.conn.scan()
         if connected != self.is_connected:
-            self.is_connected = connected
-            self.addr = self.conn.addr
-            self.gw = self.conn.gw
-            self.tun_vpp_if_name = self.conn.tun_vpp_if_name
-            self.ppp_if_name = self.conn.ppp_if_name
             return True
         return False
 
@@ -351,7 +341,6 @@ class FwPppoeClient(FwObject):
         self.id += 1
         conn.nic = if_name
         conn.dev_id = dev_id
-        conn.nic = if_name
         conn.user = pppoe_iface.user
         conn.mtu = pppoe_iface.mtu
         conn.mru = pppoe_iface.mru
@@ -506,7 +495,7 @@ class FwPppoeClient(FwObject):
             changed = pppoe_iface.scan()
             if changed:
                 self.interfaces[dev_id] = pppoe_iface
-            if pppoe_iface.is_connected:
+            if pppoe_iface.conn.connected:
                 return (True, None)
 
             timeout-= 1
@@ -537,7 +526,7 @@ class FwPppoeClient(FwObject):
 
     def pppoe_get_dev_id_from_ppp(self, ppp_if_name):
         for dev_id, pppoe_iface in self.interfaces.items():
-            if pppoe_iface.ppp_if_name == ppp_if_name:
+            if pppoe_iface.conn.ppp_if_name == ppp_if_name:
                 return dev_id
 
 def pppoe_get_ppp_if_name(if_name):
@@ -548,7 +537,7 @@ def pppoe_get_ppp_if_name(if_name):
             pppoe_iface = pppoe.get_interface(if_name=if_name)
 
     if pppoe_iface:
-        return pppoe_iface.ppp_if_name
+        return pppoe_iface.conn.ppp_if_name
     else:
         return None
 
