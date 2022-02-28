@@ -330,26 +330,28 @@ class FwPppoeClient(FwObject):
             self.thread_pppoec.join()
             self.thread_pppoec = None
 
+    def _create_connection(self, dev_id, pppoe_iface):
+        if fwutils.is_router_running():
+            if_name = fwutils.dev_id_to_tap(dev_id)
+        else:
+            if_name = fwutils.dev_id_to_linux_if(dev_id)
+
+        conn = FwPppoeConnection(self.id, self.path, self.filename)
+        self.id += 1
+        conn.nic = if_name
+        conn.dev_id = dev_id
+        conn.nic = if_name
+        conn.user = pppoe_iface.user
+        conn.mtu = pppoe_iface.mtu
+        conn.mru = pppoe_iface.mru
+        conn.metric = pppoe_iface.metric
+        conn.usepeerdns = pppoe_iface.usepeerdns
+        self.connections[dev_id] = conn
+
     def _create_files(self):
         for dev_id, pppoe_iface in self.interfaces.items():
             self._add_user(pppoe_iface.user, pppoe_iface.password)
-
-            if fwutils.is_router_running():
-                if_name = fwutils.dev_id_to_tap(dev_id)
-            else:
-                if_name = fwutils.dev_id_to_linux_if(dev_id)
-
-            conn = FwPppoeConnection(self.id, self.path, self.filename)
-            self.id += 1
-            conn.nic = if_name
-            conn.dev_id = dev_id
-            conn.nic = if_name
-            conn.user = pppoe_iface.user
-            conn.mtu = pppoe_iface.mtu
-            conn.mru = pppoe_iface.mru
-            conn.metric = pppoe_iface.metric
-            conn.usepeerdns = pppoe_iface.usepeerdns
-            self.connections[dev_id] = conn
+            self._create_connection(dev_id, pppoe_iface)
 
     def _remove_files(self):
         self.stop()
