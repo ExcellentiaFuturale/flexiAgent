@@ -457,7 +457,6 @@ class FwPppoeClient(FwObject):
             if pppoe_iface.fname:
                 fwnetplan.add_interface(if_name, pppoe_iface.fname, pppoe_iface.netplan)
             del self.interfaces[dev_id]
-            del self.connections[dev_id]
             self.reset_interfaces()
 
     def reset_interfaces(self):
