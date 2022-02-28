@@ -91,6 +91,7 @@ class FwPppoeConnection(FwObject):
             self.log.error("save: %s" % str(e))
 
     def scan(self):
+        connected = False
         interfaces = psutil.net_if_addrs()
         if self.ppp_if_name in interfaces:
             connected = True
@@ -281,6 +282,17 @@ class FwPppoeInterface():
     def __str__(self):
         return f'user:{self.user}, password:{self.password}, mtu:{self.mtu}, mru:{self.mru}, usepeerdns:{self.usepeerdns}, metric:{self.metric}, enabled:{self.is_enabled}, connected:{self.is_connected}, addr:{self.addr}, gw:{self.gw}, tun:{self.tun_vpp_if_name}, ppp:{self.ppp_if_name}'
 
+    def scan(self):
+        connected = self.conn.scan()
+        if connected != self.is_connected:
+            self.is_connected = connected
+            self.addr = self.conn.addr
+            self.gw = self.conn.gw
+            self.tun_vpp_if_name = self.conn.tun_vpp_if_name
+            self.ppp_if_name = self.conn.ppp_if_name
+            return True
+        return False
+
 class FwPppoeClient(FwObject):
     """The object that represents PPPoE client.
     It is used as a high level API from Flexiagent and EdgeUI.
@@ -293,7 +305,6 @@ class FwPppoeClient(FwObject):
         self.db_filename = db_file
         self.interfaces = SqliteDict(db_file, 'interfaces', autocommit=True)
         self.id = 0
-        self.connections = {}
         self.path = path + 'peers/'
         self.filename = filename
         self.chap_config = FwPppoeSecretsConfig(path, 'chap-secrets')
@@ -346,28 +357,28 @@ class FwPppoeClient(FwObject):
         conn.mru = pppoe_iface.mru
         conn.metric = pppoe_iface.metric
         conn.usepeerdns = pppoe_iface.usepeerdns
-        self.connections[dev_id] = conn
+        pppoe_iface.conn = conn
 
     def _fill_collections(self):
         for dev_id, pppoe_iface in self.interfaces.items():
             self._add_user(pppoe_iface.user, pppoe_iface.password)
             self._create_connection(dev_id, pppoe_iface)
+            self.interfaces[dev_id] = pppoe_iface
 
     def _remove_files(self):
         self.stop()
         self.chap_config.clear()
         self.pap_config.clear()
         self.id = 0
-        self.connections.clear()
         files = glob.glob(self.path + self.filename + '*')
 
         for fname in files:
             os.remove(fname)
 
     def stop(self, timeout = 120):
-        for dev_id in self.interfaces.keys():
-            conn = self.connections.get(dev_id)
-            conn.close()
+        for dev_id, pppoe_iface in self.interfaces.items():
+            pppoe_iface.conn.close()
+            self.interfaces[dev_id] = pppoe_iface
 
         while timeout >= 0:
             pppd_id = fwutils.pid_of('pppd')
@@ -392,9 +403,9 @@ class FwPppoeClient(FwObject):
     def _save(self):
         self.chap_config.save()
         self.pap_config.save()
-        for dev_id in self.interfaces.keys():
-            conn = self.connections.get(dev_id)
-            conn.save()
+        for dev_id, pppoe_iface in self.interfaces.items():
+            pppoe_iface.conn.save()
+            self.interfaces[dev_id] = pppoe_iface
 
     def _restore_netplan(self):
         for dev_id, pppoe_iface in self.interfaces.items():
@@ -472,32 +483,30 @@ class FwPppoeClient(FwObject):
 
     def scan(self):
         for dev_id, pppoe_iface in self.interfaces.items():
-            conn = self.connections.get(dev_id)
-            connected = conn.scan()
-            if connected != pppoe_iface.is_connected:
-                pppoe_iface.is_connected = connected
-                pppoe_iface.addr = conn.addr
-                pppoe_iface.gw = conn.gw
-                pppoe_iface.tun_vpp_if_name = conn.tun_vpp_if_name
-                pppoe_iface.ppp_if_name = conn.ppp_if_name
+            changed = pppoe_iface.scan()
+            if changed:
                 self.interfaces[dev_id] = pppoe_iface
 
     def start(self):
         for dev_id, pppoe_iface in self.interfaces.items():
             if pppoe_iface.is_enabled:
-                conn = self.connections.get(dev_id)
-                conn.open()
+                pppoe_iface.conn.open()
+                self.interfaces[dev_id] = pppoe_iface
 
     def restart_interface(self, dev_id, timeout = 60):
-        conn = self.connections.get(dev_id)
+        pppoe_iface = self.interfaces.get(dev_id)
         if_name = fwutils.dev_id_to_tap(dev_id)
-        conn.nic = if_name
-        conn.save()
-        conn.open()
+        pppoe_iface.conn.nic = if_name
+        self.interfaces[dev_id] = pppoe_iface
+        pppoe_iface.conn.save()
+        pppoe_iface.conn.open()
+        self.interfaces[dev_id] = pppoe_iface
 
         while timeout >= 0:
-            conn.scan()
-            if conn.connected:
+            changed = pppoe_iface.scan()
+            if changed:
+                self.interfaces[dev_id] = pppoe_iface
+            if pppoe_iface.is_connected:
                 return (True, None)
 
             timeout-= 1
@@ -506,8 +515,9 @@ class FwPppoeClient(FwObject):
         return (False, f'PPPoE: {dev_id} is not connected')
 
     def stop_interface(self, dev_id):
-        conn = self.connections.get(dev_id)
-        conn.close()
+        pppoe_iface = self.interfaces.get(dev_id)
+        pppoe_iface.conn.close()
+        self.interfaces[dev_id] = pppoe_iface
         return (True, None)
 
     def pppoec_thread(self):
