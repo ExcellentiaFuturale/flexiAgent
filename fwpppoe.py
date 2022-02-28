@@ -298,7 +298,7 @@ class FwPppoeClient(FwObject):
         self.filename = filename
         self.chap_config = FwPppoeSecretsConfig(path, 'chap-secrets')
         self.pap_config = FwPppoeSecretsConfig(path, 'pap-secrets')
-        self._create_files()
+        self._fill_collections()
 
     def initialize(self):
         if self.standalone:
@@ -348,7 +348,7 @@ class FwPppoeClient(FwObject):
         conn.usepeerdns = pppoe_iface.usepeerdns
         self.connections[dev_id] = conn
 
-    def _create_files(self):
+    def _fill_collections(self):
         for dev_id, pppoe_iface in self.interfaces.items():
             self._add_user(pppoe_iface.user, pppoe_iface.password)
             self._create_connection(dev_id, pppoe_iface)
@@ -462,7 +462,7 @@ class FwPppoeClient(FwObject):
 
     def reset_interfaces(self):
         self._remove_files()
-        self._create_files()
+        self._fill_collections()
         self._save()
         self.start()
 
