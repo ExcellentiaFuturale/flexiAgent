@@ -524,6 +524,11 @@ class FwPppoeClient(FwObject):
                     (threading.current_thread().getName(), str(e), traceback.format_exc()))
                 pass
 
+    def pppoe_get_dev_id_from_ppp(self, ppp_if_name):
+        for dev_id, pppoe_iface in self.interfaces.items():
+            if pppoe_iface.ppp_if_name == ppp_if_name:
+                return dev_id
+
 def pppoe_get_ppp_if_name(if_name):
     if hasattr(fwglobals.g, 'pppoe'):
         pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
