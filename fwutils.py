@@ -720,7 +720,7 @@ def build_interface_dev_id(linux_dev_name, sys_class_net=None):
         return ""
 
     if linux_dev_name.startswith('ppp'):
-        return fwglobals.g.pppoe.pppoe_get_dev_id_from_ppp(linux_dev_name)
+        return fwpppoe.pppoe_get_dev_id_from_ppp(linux_dev_name)
 
     if sys_class_net is None:
         cmd = "sudo ls -l /sys/class/net"
@@ -1697,6 +1697,13 @@ def is_router_running():
         # The STOPPING state is omitted on purpose to accommodate PPPoE needs
         return fwglobals.g.router_api.state_is_starting_or_started()
     return False
+
+def dev_id_to_if_name(dev_id):
+    """Convert dev_id to if_name.
+
+     :returns: if_name.
+    """
+    return dev_id_to_tap(dev_id) if is_router_running() else dev_id_to_linux_if(dev_id)
 
 def _get_group_delimiter(lines, delimiter):
     """Helper function to iterate through a group lines by delimiter.
