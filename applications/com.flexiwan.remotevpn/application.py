@@ -106,7 +106,7 @@ def _vpp_pid():
 def configure(params):
     """Configure Open VPN server on host.
 
-    :param params: params - open vpn parameters   
+    :param params: params - open vpn parameters
 
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
@@ -214,9 +214,6 @@ def _configure_server_file(params):
             # Select a cryptographic cipher.
             'auth SHA512',
 
-            # After successful user/password authentication, the OpenVPN server will generate tmp token valid for one day
-            'auth-gen-token 86400',
-
             # The server and each client must have a copy of this key
             'tls-crypt /etc/openvpn/server/tc.key',
 
@@ -253,7 +250,7 @@ def _configure_server_file(params):
 
             # Set the appropriate level of log file verbosity.
             'verb 3',
-            
+
             # Require the client to provide a username/password for authentication.
             # OpenVPN will run this script to validate the username/password provided by the client.
             'auth-user-pass-verify /etc/openvpn/server/auth-script.py via-file',
@@ -267,11 +264,17 @@ def _configure_server_file(params):
             'verify-client-cert require',
 
             # 'client-config-dir /etc/openvpn/client',
-            
+
             # Use the authenticated username as the common name
             'username-as-common-name',
 
-            'reneg-sec 43200',
+
+            # keep renegotiate after 3600 seconds (default)
+            # 'reneg-sec 3600',
+
+            # After successful user/password authentication, the OpenVPN server will generate tmp token valid for 12 hours
+            # On the following renegotiations, the OpenVPN client will pass this token instead of the users password
+            f'auth-gen-token {params.get("vpnTmpTokenTime", "43200")}',
 
             # Allow multiple clients with the same common name to concurrently connect
             'duplicate-cn',
@@ -386,7 +389,7 @@ def start(params, restart=False):
             else:
                 # no need to run it again
                 return (True, None)
-                
+
         os.system('sudo openvpn --config /etc/openvpn/server/server.conf --daemon')
 
         # make sure openvpn started. Otherwise it means that it failed (we can find the reason in the log file)
@@ -419,6 +422,12 @@ def status(params):
         return (True, vpnIsRun)
     except Exception as e:
         return (False, str(e))
+
+def watchdog_test(params):
+    vpnIsRun = True if _openvpn_pid() else False
+    router_is_running = params.get('router_is_running')
+    if not vpnIsRun and router_is_running:
+        start(params)
 
 def get_log_file(params):
     return (True, OPENVPN_LOG_FILE)

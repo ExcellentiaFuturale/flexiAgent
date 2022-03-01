@@ -48,6 +48,7 @@ fwapplications_hooks = {
     'uninstall':                   True,
     'status':                      True,
     'configure':                   True,
+    'watchdog_test':               False,
     'get_log_file':                False,
     'get_monitoring':              False,
     'router_is_started':           False,
@@ -110,14 +111,11 @@ class FWAPPLICATIONS_API(FwObject):
                             is_installed = apps[identifier].get('installed')
                             if not is_installed:
                                 continue
-                            
-                            # make sure that installed application is running
-                            is_app_running = self.is_app_running(identifier)
-                            if not is_app_running:
-                                self.start(is_installed)
+
+                            self.watchdog_test(is_installed)
 
                             new_stats = {}
-                            new_stats['running'] = is_app_running
+                            new_stats['running'] = self.is_app_running(identifier)
                             new_stats['monitoring'] = self.get_monitoring_info(identifier)
                             self.apps_stats[identifier] = new_stats
                         slept = 0
@@ -207,7 +205,7 @@ class FWAPPLICATIONS_API(FwObject):
         try:
             params = request['params']
             identifier = params.get('identifier')
-            
+
             # check if install.tar.gz file exists
             source_installation_file = os.getcwd() + '/applications/' + identifier + '/install.tar.gz'
             if not os.path.exists(source_installation_file):
@@ -279,6 +277,21 @@ class FWAPPLICATIONS_API(FwObject):
             params = request['params']
             identifier = params.get('identifier')
             success, val = self._call_application_api(identifier, 'status')
+            if not success:
+                return { 'ok': 0, 'message': val }
+
+            return { 'ok': 1, 'message': val }
+        except Exception as e:
+            return { 'ok': 0, 'message': str(e) }
+
+    def watchdog_test(self, request):
+        try:
+            params = request['params']
+            identifier = params.get('identifier')
+
+            params['router_is_running'] = fwglobals.g.router_api.state_is_started()
+
+            success, val = self._call_application_api(identifier, 'watchdog_test', params)
             if not success:
                 return { 'ok': 0, 'message': val }
 
