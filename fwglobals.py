@@ -121,74 +121,10 @@ request_handlers = {
     'add-lte':                        {'name': '_call_system_api'},
     'remove-lte':                     {'name': '_call_system_api'},
 
-    ##############################################################
-    # INTERNAL API-s
-    # ------------------------------------------------------------
-    # These API-s are invoked locally by handlers of server
-    # requests, e.g. by FWROUTER_API module.
-    # The FWROUTER_API module translates received requests
-    # into lists of commands that might be not executed immediately.
-    # These internal commands represent the INTERNAL API-s
-    # listed below. They are recorded into database and are invoked
-    # later, when router is started.
-    ##############################################################
-
     # OS API
     'cpuutil':                      {'name': '_call_os_api'},
     'exec':                         {'name': '_call_os_api'},
     'exec_timeout':                 {'name': '_call_os_api'},
-
-    # VPP API
-    'abf_itf_attach_add_del':       {'name': '_call_vpp_api'},
-    'abf_policy_add_del':           {'name': '_call_vpp_api'},
-    'acl_add_replace':              {'name': '_call_vpp_api'},
-    'acl_del':                      {'name': '_call_vpp_api'},
-    'acl_interface_set_acl_list':   {'name': '_call_vpp_api'},
-    'bridge_domain_add_del':        {'name': '_call_vpp_api'},
-    'create_loopback_instance':     {'name': '_call_vpp_api'},
-    'delete_loopback':              {'name': '_call_vpp_api'},
-    'gre_tunnel_add_del':           {'name': '_call_vpp_api'},
-    'ikev2_initiate_sa_init':       {'name': '_call_vpp_api'},
-    'ikev2_profile_add_del':        {'name': '_call_vpp_api'},
-    'ikev2_profile_set_auth':       {'name': '_call_vpp_api'},
-    'ikev2_profile_set_id':         {'name': '_call_vpp_api'},
-    'ikev2_profile_set_ts':         {'name': '_call_vpp_api'},
-    'ikev2_profile_set_gateway':    {'name': '_call_vpp_api'},
-    'ikev2_set_esp_transforms':     {'name': '_call_vpp_api'},
-    'ikev2_set_ike_transforms':     {'name': '_call_vpp_api'},
-    'ikev2_set_local_key':          {'name': '_call_vpp_api'},
-    'ikev2_set_responder':          {'name': '_call_vpp_api'},
-    'ikev2_set_sa_lifetime':        {'name': '_call_vpp_api'},
-    'ikev2_set_tunnel_interface':   {'name': '_call_vpp_api'},
-    'ipip_add_tunnel':              {'name': '_call_vpp_api'},
-    'ipip_del_tunnel':              {'name': '_call_vpp_api'},
-    'ip_neighbor_add_del':          {'name': '_call_vpp_api'},
-    'ipsec_sad_entry_add_del':      {'name': '_call_vpp_api'},
-    'ipsec_spd_add_del':            {'name': '_call_vpp_api'},
-    'ipsec_interface_add_del_spd':  {'name': '_call_vpp_api'},
-    'ipsec_spd_add_del_entry':      {'name': '_call_vpp_api'},
-    'ipsec_tunnel_protect_del':     {'name': '_call_vpp_api'},
-    'ipsec_tunnel_protect_update':  {'name': '_call_vpp_api'},
-    'l2_flags':                     {'name': '_call_vpp_api'},
-    'nat44_add_del_identity_mapping':           {'name': '_call_vpp_api'},
-    'nat44_add_del_interface_addr':             {'name': '_call_vpp_api'},
-    'nat44_interface_add_del_output_feature':   {'name': '_call_vpp_api'},
-    'nat44_forwarding_enable_disable':          {'name': '_call_vpp_api'},
-    'nat44_plugin_enable_disable':              {'name': '_call_vpp_api'},
-    'nat44_add_del_static_mapping':             {'name': '_call_vpp_api'},
-    'nat44_add_del_identity_mapping':           {'name': '_call_vpp_api'},
-    'sw_interface_add_del_address': {'name': '_call_vpp_api'},
-    'sw_interface_set_flags':       {'name': '_call_vpp_api'},
-    'sw_interface_set_l2_bridge':   {'name': '_call_vpp_api'},
-    'sw_interface_set_mac_address': {'name': '_call_vpp_api'},
-    'sw_interface_set_mtu':         {'name': '_call_vpp_api'},
-    'sw_interface_set_unnumbered':  {'name': '_call_vpp_api'},
-    'vmxnet3_create':               {'name': '_call_vpp_api'},
-    'vmxnet3_delete':               {'name': '_call_vpp_api'},
-    'vxlan_add_del_tunnel':         {'name': '_call_vpp_api'},
-
-    # Python API
-    'python':                       {'name': '_call_python_api'}
 }
 
 global g_initialized
@@ -508,114 +444,11 @@ class Fwglobals(FwObject):
     def _call_os_api(self, request):
         return self.os_api.call_simple(request)
 
-    def _call_vpp_api(self, request, result=None):
-        return self.router_api.vpp_api.call_by_request(request, result)
-
-    def _call_python_api(self, request, result=None):
-        '''Handle request that describe python function.
-
-        :param request: the request like:
-            {
-                'name':   "python"
-                'descr':  "add multilink labels into interface %s %s: %s" % (iface_addr, iface_dev_id, labels)
-                'params': {
-                    'module': 'fwutils',
-                    'func'  : 'vpp_multilink_update_labels',
-                    'args'  : {
-                        'labels':   labels,
-                        'next_hop': gw,
-                        'dev_id':   iface_dev_id,
-                        'remove':   False
-                    }
-                }
-            }
-
-        :param result: the cache where the python function should store data,
-                       required by the request sender. Today this cache is
-                       managed by the router_api executor and it is used
-                       to fulfill substitutions in function arguments,
-                       specified by the 'substs' parameter of the request.
-                       The format of the 'result' is as follows:
-            {
-                'result_attr': <name of variable inside python function,
-                                value of which the function should set into cache>
-                'cache':       <the python dict used as a cache>
-                'key':         <the key for the value to be cached>
-            }
-        '''
-        func = self._call_python_api_get_func(request['params'])
-        args = request['params'].get('args')
-
-        if result:
-            args = copy.deepcopy(args) if args else {}
-            args.update({ 'result_cache': result })
-
-        ret = func(**args) if args else func()
-        (ok, val) = self._call_python_api_parse_result(ret)
-        if not ok:
-            func_str = request['params'].get('func')
-            if args:
-                args_str = ', '.join([ "%s=%s" % (arg_name, args[arg_name]) for arg_name in args ])
-            else:
-                args_str = ''
-            log.error('_call_python_api: %s(%s) failed: %s' % (func_str, args_str, val))
-        reply = {'ok':ok, 'message':val}
-        return reply
-
-    def _call_python_api_get_func(self, params):
-        if 'module' in params:
-            func = getattr(__import__(params['module']), params['func'])
-        elif 'object' in params:
-            if params['object'] == 'fwglobals.g':
-                func = getattr(self, params['func'])
-            elif params['object'] == 'fwglobals.g.router_api':
-                func = getattr(self.router_api, params['func'])
-            elif params['object'] == 'fwglobals.g.router_api.vpp_api':
-                func = getattr(self.router_api.vpp_api, params['func'])
-            elif params['object'] == 'fwglobals.g.ikev2':
-                func = getattr(self.ikev2, params['func'])
-            elif params['object'] == 'fwglobals.g.traffic_identifications':
-                func = getattr(self.traffic_identifications, params['func'])
-            elif params['object'] == 'fwglobals.g.pppoe':
-                func = getattr(self.pppoe, params['func'])
-            else:
-                raise Exception("object '%s' is not supported" % (params['object']))
-        else:
-            raise Exception("neither 'module' nor 'object' was provided for '%s'" % (params['func']))
-        return func
-
-    def _call_python_api_parse_result(self, ret):
-        val = None
-        if ret is None:
-            ok  = 1
-        elif type(ret) == tuple:
-            ok  = ret[0]
-            val = ret[1]
-        elif type(ret) == dict:
-            ok  = ret.get('ok', 0)
-            val = ret.get('ret')
-        elif type(ret) == bool:
-            ok = 1 if ret else 0
-        else:
-            ok = 0
-            val = '_call_python_api_parse_result: unsupported type of return: %s' % type(ret)
-        return (ok, val)
-
-
-    # result - how to store result of command.
-    #          It is dict of {<attr> , <cache>, <cache key>}.
-    #          On success we fetch value of attribute <attr> of the object,
-    #          returned by 'cmd' command and store it in the <cache> by key <cache key>.
-    #          Note <attr> may be used for any semantic, depeneding on the command.
-    #          For example, it might contain pattern for grep to be run
-    #          on command output.
-    #
-    def handle_request(self, request, result=None, received_msg=None):
-        """Handle request.
+    def handle_request(self, request, received_msg=None):
+        """Handle request received from flexiManage or injected locally.
 
         :param request:      The request received from flexiManage after
                              transformation by fwutils.fix_received_message().
-        :param result:       Place for result.
         :param received_msg: The original message received from flexiManage.
 
         :returns: Dictionary with error string and status code.
@@ -624,30 +457,15 @@ class Fwglobals(FwObject):
             req    = request['message']
             params = request.get('params')
 
-            handler = request_handlers.get(req)
-            assert handler, 'fwglobals: "%s" request is not supported' % req
-
-            # received_msg indicate that request is received from flexiManage
-            received_from_server = (received_msg != None)
-
-            # Keep copy of the request aside for signature purposes,
-            # as the original request might by modified by preprocessing.
-            #
-            if handler.get('sign', False) == True and received_msg is None:
-                received_msg = copy.deepcopy(request)
-
+            handler      = request_handlers.get(req)
             handler_func = getattr(self, handler.get('name'))
 
             with self.request_lock:
-                if result is None:
-                    reply = handler_func(request)
-                else:
-                    reply = handler_func(request, result)
-
-            if reply['ok'] == 0:
-                vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
-                os.system('sudo vppctl api trace save %s' % (vpp_trace_file))
-                raise Exception(reply['message'])
+                reply = handler_func(request)
+                if reply['ok'] == 0:
+                    vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
+                    os.system('sudo vppctl api trace save %s' % (vpp_trace_file))
+                    raise Exception(reply['message'])
 
             # On router configuration request, e.g. add-interface,
             # remove-tunnel, etc. update the configuration database
@@ -658,7 +476,7 @@ class Fwglobals(FwObject):
             # but retrieve it into replies for all requests. This is to simplify
             # flexiManage code.
             #
-            if reply['ok'] == 1 and handler.get('sign', False) == True and received_from_server:
+            if reply['ok'] == 1 and handler.get('sign') and received_msg:
                 fwutils.update_device_config_signature(received_msg)
             reply['router-cfg-hash'] = fwutils.get_device_config_signature()
 

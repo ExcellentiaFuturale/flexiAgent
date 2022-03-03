@@ -51,9 +51,13 @@ def get_nat_forwarding_config(enable):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name'] = "nat44_forwarding_enable_disable"
+    cmd['cmd']['func']  = "call_vpp_api"
     cmd['cmd']['descr'] = "Set NAT forwarding"
-    cmd['cmd']['params'] = {'enable': enable}
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params'] = {
+                    'api': "nat44_forwarding_enable_disable",
+                    'args': {'enable': enable}
+    }
     return cmd
 
 def get_nat_wan_setup_config(dev_id):
@@ -70,103 +74,111 @@ def get_nat_wan_setup_config(dev_id):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name'] = "nat44_interface_add_del_output_feature"
+    cmd['cmd']['func']   = "call_vpp_api"
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['descr'] = "Enable NAT output feature on interface %s " % (
         dev_id)
     cmd['cmd']['params'] = {
-        'substs': [
-            {'add_param': 'sw_if_index',
-             'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
-        ],
-        'is_add': 1
+                    'api': "nat44_interface_add_del_output_feature",
+                    'args': {
+                        'is_add': 1,
+                        'substs': [
+                            {'add_param': 'sw_if_index',
+                            'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
+                        ]
+                    }
     }
     cmd['revert'] = {}
-    cmd['revert']['name'] = "nat44_interface_add_del_output_feature"
+    cmd['revert']['func']   = "call_vpp_api"
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['revert']['descr'] = "Disable NAT output feature on interface %s " % (
         dev_id)
     cmd['revert']['params'] = {
-        'substs': [
-            {'add_param': 'sw_if_index',
-             'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
-        ],
-        'is_add': 0
+                    'api': "nat44_interface_add_del_output_feature",
+                    'args': {
+                        'is_add': 0,
+                        'substs': [
+                            {'add_param': 'sw_if_index',
+                            'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
+                        ]
+                    }
     }
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name'] = "python"
+    cmd['cmd']['func']   = "vpp_nat_interface_add"
+    cmd['cmd']['module'] = "fwutils"
     cmd['cmd']['descr'] = "enable NAT for interface address %s" % dev_id
     cmd['cmd']['params'] = {
-        'module': 'fwutils',
-        'func':   'vpp_nat_interface_add',
-        'args':   {
-            'dev_id': dev_id,
-            'remove': False
-        }
+                    'dev_id': dev_id,
+                    'remove': False,
     }
     cmd['revert'] = {}
-    cmd['revert']['name'] = "python"
+    cmd['revert']['func']   = "vpp_nat_interface_add"
+    cmd['revert']['module'] = "fwutils"
     cmd['revert']['descr'] = "disable NAT for interface %s" % dev_id
     cmd['revert']['params'] = {
-        'module': 'fwutils',
-        'func':   'vpp_nat_interface_add',
-        'args':   {
-            'dev_id': dev_id,
-            'remove': True
-        }
+                        'dev_id': dev_id,
+                        'remove': True,
     }
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name'] = "python"
+    cmd['cmd']['func']   = "vpp_wan_tap_inject_configure"
+    cmd['cmd']['module'] = "fwutils"
     cmd['cmd']['descr'] = "enable forward of tap-inject to ip4-output features %s" % dev_id
     cmd['cmd']['params'] = {
-        'module': 'fwutils',
-        'func':   'vpp_wan_tap_inject_configure',
-        'args':   {
-            'dev_id': dev_id,
-            'remove': False
-        }
+                    'dev_id': dev_id,
+                    'remove': False,
     }
     cmd['revert'] = {}
-    cmd['revert']['name'] = "python"
+    cmd['revert']['func']   = "vpp_wan_tap_inject_configure"
+    cmd['revert']['module'] = "fwutils"
     cmd['revert']['descr'] = "disable forward of tap-inject to ip4-output features %s" % dev_id
     cmd['revert']['params'] = {
-        'module': 'fwutils',
-        'func':   'vpp_wan_tap_inject_configure',
-        'args':   {
-            'dev_id': dev_id,
-            'remove': True
-        }
+                        'dev_id': dev_id,
+                        'remove': True,
     }
     cmd_list.append(cmd)
 
     for service_name, service_cfg in WAN_INTERFACE_SERVICES.items():
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name'] = "nat44_add_del_identity_mapping"
+        cmd['cmd']['func']   = "call_vpp_api"
+        cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
         cmd['cmd']['descr'] = "Add NAT WAN identity mapping for port %s:%d Protocol: %s" % (
             service_name, service_cfg['port'], service_cfg['protocol'])
         cmd['cmd']['params'] = {
-            'substs': [
-                {'add_param': 'sw_if_index',
-                 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
-            ],
-            'port': service_cfg['port'], 'protocol': fwutils.proto_map[service_cfg['protocol']], 'is_add': 1
+                        'api': "nat44_add_del_identity_mapping",
+                        'args': {
+                            'port':     service_cfg['port'],
+                            'protocol': fwutils.proto_map[service_cfg['protocol']],
+                            'is_add':   1,
+                            'substs': [
+                                {'add_param': 'sw_if_index',
+                                'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
+                            ]
+                        },
         }
 
         cmd['revert'] = {}
-        cmd['revert']['name'] = 'nat44_add_del_identity_mapping'
+        cmd['revert']['func']   = "call_vpp_api"
+        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
         cmd['revert']['descr'] = "Delete NAT WAN identity mapping for port %s:%d Protocol: %s" % (
             service_name, service_cfg['port'], service_cfg['protocol'])
         cmd['revert']['params'] = {
-            'substs': [
-                {'add_param': 'sw_if_index',
-                 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
-            ],
-            'port': service_cfg['port'], 'protocol': fwutils.proto_map[service_cfg['protocol']], 'is_add': 0
+                        'api': "nat44_add_del_identity_mapping",
+                        'args': {
+                            'port': service_cfg['port'],
+                            'protocol': fwutils.proto_map[service_cfg['protocol']],
+                            'is_add': 0,
+                            'substs': [
+                                {'add_param': 'sw_if_index',
+                                'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
+                            ]
+                        },
         }
         cmd_list.append(cmd)
 
@@ -199,14 +211,22 @@ def get_nat_1to1_config(sw_if_index, internal_ip):
     revert_params['is_add'] = 0
 
     cmd['cmd'] = {}
-    cmd['cmd']['name'] = "nat44_add_del_static_mapping"
+    cmd['cmd']['func']   = "call_vpp_api"
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['descr'] = "Add NAT 1:1 rule"
-    cmd['cmd']['params'] = add_params
+    cmd['cmd']['params'] = {
+                    'api':  "nat44_add_del_static_mapping",
+                    'args': add_params
+    }
 
     cmd['revert'] = {}
-    cmd['revert']['name'] = "nat44_add_del_static_mapping"
+    cmd['revert']['func']   = "call_vpp_api"
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['revert']['descr'] = "Delete NAT 1:1 rule"
-    cmd['revert']['params'] = revert_params
+    cmd['revert']['params'] = {
+                    'api':  "nat44_add_del_static_mapping",
+                    'args': revert_params
+    }
 
     cmd_list.append(cmd)
 
@@ -261,14 +281,22 @@ def get_nat_port_forward_config(sw_if_index, protocols, ports, internal_ip,
             revert_params['is_add'] = 0
 
             cmd['cmd'] = {}
-            cmd['cmd']['name'] = "nat44_add_del_static_mapping"
+            cmd['cmd']['func']   = "call_vpp_api"
+            cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
             cmd['cmd']['descr'] = "Add NAT Port Forward rule"
-            cmd['cmd']['params'] = add_params
+            cmd['cmd']['params'] = {
+                            'api': "nat44_add_del_static_mapping",
+                            'args': add_params
+            }
 
             cmd['revert'] = {}
-            cmd['revert']['name'] = "nat44_add_del_static_mapping"
+            cmd['revert']['func']   = "call_vpp_api"
+            cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
             cmd['revert']['descr'] = "Delete NAT Port Forward rule"
-            cmd['revert']['params'] = revert_params
+            cmd['revert']['params'] = {
+                            'api': "nat44_add_del_static_mapping",
+                            'args': revert_params
+            }
 
             cmd_list.append(cmd)
         port_iter += 1
@@ -315,14 +343,22 @@ def get_nat_identity_config(sw_if_index, protocols, ports):
             revert_params['is_add'] = 0
 
             cmd['cmd'] = {}
-            cmd['cmd']['name'] = "nat44_add_del_identity_mapping"
+            cmd['cmd']['func']   = "call_vpp_api"
+            cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
             cmd['cmd']['descr'] = "Add NAT identity mapping rule"
-            cmd['cmd']['params'] = add_params
+            cmd['cmd']['params'] = {
+                            'api': "nat44_add_del_identity_mapping",
+                            'args': add_params
+            }
 
             cmd['revert'] = {}
-            cmd['revert']['name'] = "nat44_add_del_identity_mapping"
+            cmd['revert']['func']   = "call_vpp_api"
+            cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
             cmd['revert']['descr'] = "Delete NAT identity mapping rule"
-            cmd['revert']['params'] = revert_params
+            cmd['revert']['params'] = {
+                            'api': "nat44_add_del_identity_mapping",
+                            'args': revert_params
+            }
 
             cmd_list.append(cmd)
 

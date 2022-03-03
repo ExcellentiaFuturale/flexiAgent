@@ -210,23 +210,40 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     mac_bytes = fwutils.mac_str_to_bytes(mac) if mac else 0
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']          = "create_loopback_instance"
-    cmd['cmd']['params']        = { 'mac_address':mac_bytes, 'is_specified': 1, 'user_instance': id }
+    cmd['cmd']['func']   = "call_vpp_api"
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params'] = {
+                    'api':  "create_loopback_instance",
+                    'args': { 'mac_address':mac_bytes, 'is_specified': 1, 'user_instance': id }
+    }
     cmd['cmd']['cache_ret_val'] = (ret_attr,cache_key)
     cmd['cmd']['descr']         = "create loopback interface (mac=%s, id=%d)" % (mac, id)
     cmd['revert'] = {}
-    cmd['revert']['name']       = 'delete_loopback'
-    cmd['revert']['params']     = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ] }
+    cmd['revert']['func']   = 'call_vpp_api'
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['params'] = {
+                    'api':  "delete_loopback",
+                    'args': {
+                        'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                    },
+    }
     cmd['revert']['descr']      = "delete loopback interface (mac=%s, id=%d)" % (mac, id)
     cmd_list.append(cmd)
 
     # l2.api.json: l2_flags (..., sw_if_index, bd_id, is_set, flags, ...)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "l2_flags"
+    cmd['cmd']['func']    = "call_vpp_api"
+    cmd['cmd']['object']  = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['descr']   = "disable learning on loopback interface %s" % addr
-    cmd['cmd']['params']  = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
-                              'is_set':0 , 'feature_bitmap':1 }  # 1 stands for LEARN (see test\test_l2bd_multi_instance.py)
+    cmd['cmd']['params']  = {
+                    'api':    "l2_flags",
+                    'args':   {
+                        'is_set':         0,
+                        'feature_bitmap': 1,    # 1 stands for LEARN (see test\test_l2bd_multi_instance.py)
+                        'substs': [{ 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
+                    },
+    }
     cmd_list.append(cmd)
 
     if not internal:
@@ -247,21 +264,15 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
         if vpp_cmd:
             cmd = {}
             cmd['cmd'] = {}
-            cmd['cmd']['name']    = "python"
+            cmd['cmd']['func']    = "vpp_cli_execute"
+            cmd['cmd']['module']  = "fwutils"
             cmd['cmd']['descr']   = f"set MSS {str(mss)} on loopback interface {addr}"
-            cmd['cmd']['params']  = {
-                            'module': 'fwutils',
-                            'func'  : 'vpp_cli_execute',
-                            'args'  : {'cmds':[vpp_cmd]}
-            }
+            cmd['cmd']['params']  = {'cmds':[vpp_cmd]}
             cmd['revert'] = {}
-            cmd['revert']['name']    = "python"
+            cmd['revert']['func']    = "vpp_cli_execute"
+            cmd['revert']['module']  = "fwutils"
             cmd['revert']['descr']   = f"revert MSS to {str(current_mss)} on loopback interface {addr}"
-            cmd['revert']['params']  = {
-                            'module': 'fwutils',
-                            'func'  : 'vpp_cli_execute',
-                            'args'  : {'cmds':[vpp_revert_cmd]}
-            }
+            cmd['revert']['params']  = {'cmds':[vpp_revert_cmd]}
             cmd_list.append(cmd)
 
     if internal:
@@ -270,39 +281,70 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
         # So executor takes it out of the cache while executing this command.
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']      = "sw_interface_add_del_address"
+        cmd['cmd']['func']      = "call_vpp_api"
+        cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
         cmd['cmd']['descr']     = "set %s to loopback interface" % addr
-        cmd['cmd']['params']    = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
-                                    'is_add':1, 'prefix':addr }
+        cmd['cmd']['params']    = {
+                        'api':    "sw_interface_add_del_address",
+                        'args':   {
+                            'is_add': 1,
+                            'prefix': addr,
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                        },
+        }
         cmd['revert'] = {}
-        cmd['revert']['name']   = "sw_interface_add_del_address"
+        cmd['revert']['func']   = "call_vpp_api"
+        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
         cmd['revert']['descr']  = "unset %s from loopback interface" % addr
-        cmd['revert']['params'] = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
-                                    'is_add':0, 'prefix':addr }
+        cmd['revert']['params'] = {
+                        'api':    "sw_interface_add_del_address",
+                        'args':   {
+                            'is_add': 0,
+                            'prefix': addr,
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                        },
+        }
         cmd_list.append(cmd)
 
         # interface.api.json: sw_interface_set_flags (..., sw_if_index, flags, ...)
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']      = "sw_interface_set_flags"
+        cmd['cmd']['func']      = "call_vpp_api"
+        cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
         cmd['cmd']['descr']     = "UP loopback interface %s" % addr
-        cmd['cmd']['params']    = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
-                                    'flags':1 # VppEnum.vl_api_if_status_flags_t.IF_STATUS_API_FLAG_ADMIN_UP
-                                  }
+        cmd['cmd']['params']    = {
+                        'api':    "sw_interface_set_flags",
+                        'args': {
+                            'flags':  1, # VppEnum.vl_api_if_status_flags_t.IF_STATUS_API_FLAG_ADMIN_UP
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                        },
+        }
         cmd['revert'] = {}
-        cmd['revert']['name']   = "sw_interface_set_flags"
+        cmd['revert']['func']   = "call_vpp_api"
+        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
         cmd['revert']['descr']  = "DOWN loopback interface %s" % addr
-        cmd['revert']['params'] = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
-                                    'flags':0 }
+        cmd['revert']['params'] = {
+                        'api':  "sw_interface_set_flags",
+                        'args': {
+                            'flags':  0,
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                        },
+        }
         cmd_list.append(cmd)
 
     # interface.api.json: sw_interface_set_mtu (..., sw_if_index, mtu, ...)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "sw_interface_set_mtu"
+    cmd['cmd']['func']    = "call_vpp_api"
+    cmd['cmd']['object']  = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['descr']   = "set mtu=%s to loopback interface" % mtu
-    cmd['cmd']['params']  = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
-                              'mtu': [ mtu , 0, 0, 0 ] }
+    cmd['cmd']['params']  = {
+                    'api':  "sw_interface_set_mtu",
+                    'args': {
+                        'mtu': [ mtu , 0, 0, 0 ],
+                        'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                    }
+    }
     cmd_list.append(cmd)
 
     # interface.api.json: sw_interface_flexiwan_label_add_del (..., sw_if_index, n_labels, labels, ...)
@@ -313,22 +355,20 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
             next_hop = str(IPNetwork(addr).ip ^ IPAddress("0.0.0.1"))
             cmd = {}
             cmd['cmd'] = {}
-            cmd['cmd']['name']    = "python"
+            cmd['cmd']['func']    = "vpp_multilink_update_labels"
+            cmd['cmd']['module']  = "fwutils"
             cmd['cmd']['descr']   = "add multilink labels into loopback interface %s: %s" % (addr, labels)
             cmd['cmd']['params']  = {
                             'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
-                            'module': 'fwutils',
-                            'func'  : 'vpp_multilink_update_labels',
-                            'args'  : { 'labels': labels, 'next_hop': next_hop, 'remove': False }
+                            'labels': labels, 'next_hop': next_hop, 'remove': False
             }
             cmd['revert'] = {}
-            cmd['revert']['name']   = "python"
+            cmd['revert']['func']   = "vpp_multilink_update_labels"
+            cmd['revert']['module'] = "fwutils"
             cmd['revert']['descr']  = "remove multilink labels from loopback interface %s: %s" % (addr, labels)
             cmd['revert']['params'] = {
                             'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
-                            'module': 'fwutils',
-                            'func'  : 'vpp_multilink_update_labels',
-                            'args'  : { 'labels': labels, 'next_hop': next_hop, 'remove': True }
+                            'labels': labels, 'next_hop': next_hop, 'remove': True
             }
             cmd_list.append(cmd)
 
@@ -346,55 +386,68 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
         #
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']    = "python"
+        cmd['cmd']['func']    = "_update_cache_sw_if_index"
+        cmd['cmd']['object']  = "fwglobals.g.router_api"
         cmd['cmd']['descr']   = "add sw_if_index to router_api cache"
         cmd['cmd']['params']  = {
-                        'object': 'fwglobals.g.router_api',
-                        'func'  : '_update_cache_sw_if_index',
-                        'args'  : {'type': 'tunnel', 'params': tunnel_params, 'add': True },
+                        'type': 'tunnel', 'params': tunnel_params, 'add': True,
                         'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
         }
         cmd['revert'] = {}
-        cmd['revert']['name']   = "python"
+        cmd['revert']['func']   = "_update_cache_sw_if_index"
+        cmd['revert']['object'] = "fwglobals.g.router_api"
         cmd['revert']['descr']  = "remove sw_if_index from router_api cache"
         cmd['revert']['params'] = {
-                        'object': 'fwglobals.g.router_api',
-                        'func'  : '_update_cache_sw_if_index',
-                        'args'  : {'type': 'tunnel', 'params': tunnel_params, 'add': False },
+                        'type': 'tunnel', 'params': tunnel_params, 'add': False,
                         'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
         }
         cmd_list.append(cmd)
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']      = "exec"
+        cmd['cmd']['func']      = "exec"
+        cmd['cmd']['module']    = "fwutils"
         cmd['cmd']['descr']     = "set %s to loopback interface in Linux" % addr
-        cmd['cmd']['params']    = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]},
-                                    "sudo ip addr add %s dev DEV-STUB" % (addr) ]
+        cmd['cmd']['params']    = {
+                        'cmd':    f"sudo ip addr add {addr} dev DEV-STUB",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
+        }
         cmd['revert'] = {}
-        cmd['revert']['name']   = "exec"
+        cmd['revert']['func']   = "exec"
+        cmd['revert']['module'] = "fwutils"
         cmd['revert']['descr']  = "unset %s from loopback interface in Linux" % addr
-        cmd['revert']['params'] = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]},
-                                    "sudo ip addr del %s dev DEV-STUB" % (addr) ]
+        cmd['revert']['params'] = {
+                        'cmd':    f"sudo ip addr del {addr} dev DEV-STUB",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
+        }
         cmd_list.append(cmd)
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']      = "exec"
+        cmd['cmd']['func']      = "exec"
+        cmd['cmd']['module']    = "fwutils"
         cmd['cmd']['descr']     = "UP loopback interface %s in Linux" % addr
-        cmd['cmd']['params']    = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]},
-                                    "sudo ip link set dev DEV-STUB up" ]
+        cmd['cmd']['params']    = {
+                        'cmd':    "sudo ip link set dev DEV-STUB up",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
+        }
         cmd['revert'] = {}
-        cmd['revert']['name']   = "exec"
+        cmd['revert']['func']   = "exec"
+        cmd['revert']['module'] = "fwutils"
         cmd['revert']['descr']  = "DOWN loopback interface %s in Linux" % addr
-        cmd['revert']['params'] = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]},
-                                    "sudo ip link set dev DEV-STUB down" ]
+        cmd['revert']['params'] = {
+                        'cmd':    "sudo ip link set dev DEV-STUB down",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
+        }
         cmd_list.append(cmd)
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']    = "exec"
+        cmd['cmd']['func']    = "exec"
+        cmd['cmd']['module']  = "fwutils"
         cmd['cmd']['descr']   = "set mtu=%s into loopback interface %s in Linux" % (mtu, addr)
-        cmd['cmd']['params']  = [ {'substs': [ {'replace':'DEV-STUB', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]},
-                                "sudo ip link set dev DEV-STUB mtu %s" % mtu ]
+        cmd['cmd']['params']  = {
+                        'cmd':    f"sudo ip link set dev DEV-STUB mtu {mtu}",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
+        }
         cmd_list.append(cmd)
 
 def _add_bridge(cmd_list, bridge_id):
@@ -408,12 +461,28 @@ def _add_bridge(cmd_list, bridge_id):
     # l2.api.json: bridge_domain_add_del (..., bd_id, is_add, ...)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "bridge_domain_add_del"
-    cmd['cmd']['params']    = { 'bd_id':bridge_id , 'is_add':1, 'learn':1, 'forward':1, 'uu_flood':1, 'flood':1, 'arp_term':0 }
+    cmd['cmd']['func']      = "call_vpp_api"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params']    = {
+                    'api':  "bridge_domain_add_del",
+                    'args': {
+                        'bd_id':    bridge_id,
+                        'is_add':   1,
+                        'learn':    1,
+                        'forward':  1,
+                        'uu_flood': 1,
+                        'flood':    1,
+                        'arp_term': 0
+                    }
+    }
     cmd['cmd']['descr']     = "create bridge"
     cmd['revert'] = {}
-    cmd['revert']['name']   = 'bridge_domain_add_del'
-    cmd['revert']['params'] = { 'bd_id':bridge_id , 'is_add':0 }
+    cmd['revert']['func']   = "call_vpp_api"
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['params'] = {
+                    'api':  "bridge_domain_add_del",
+                    'args': { 'bd_id':bridge_id , 'is_add':0 }
+    }
     cmd['revert']['descr']  = "delete bridge"
     cmd_list.append(cmd)
 
@@ -432,15 +501,31 @@ def _add_interface_to_bridge(cmd_list, iface_description, bridge_id, bvi, shg, c
     # l2.api.json: sw_interface_set_l2_bridge (..., rx_sw_if_index, bd_id, port_type, ...)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "sw_interface_set_l2_bridge"
+    cmd['cmd']['func']    = "call_vpp_api"
+    cmd['cmd']['object']  = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['descr']   = "add interface %s to bridge" % iface_description
-    cmd['cmd']['params']  = { 'substs': [ { 'add_param':'rx_sw_if_index', 'val_by_key':cache_key} ],
-                              'bd_id':bridge_id , 'enable':1, 'port_type':bvi, 'shg':shg }         # port_type 1 stands for BVI (see test\vpp_l2.py)
+    cmd['cmd']['params']  = {
+                    'api':   "sw_interface_set_l2_bridge",
+                    'args':  {
+                        'bd_id':     bridge_id,
+                        'enable':    1,
+                        'port_type': bvi,
+                        'shg':       shg,  # port_type 1 stands for BVI (see test\vpp_l2.py)
+                        'substs':    [ { 'add_param':'rx_sw_if_index', 'val_by_key':cache_key} ]
+                    },
+    }
     cmd['revert'] = {}
-    cmd['revert']['name']   = 'sw_interface_set_l2_bridge'
+    cmd['revert']['func']   = "call_vpp_api"
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['revert']['descr']  = "remove interface %s from bridge" % iface_description
-    cmd['revert']['params'] = { 'substs': [ { 'add_param':'rx_sw_if_index', 'val_by_key':cache_key} ],
-                              'bd_id':bridge_id , 'enable':0 }
+    cmd['revert']['params'] = {
+                    'api':    "sw_interface_set_l2_bridge",
+                    'args':   {
+                        'bd_id':  bridge_id,
+                        'enable': 0,
+                        'substs': [ { 'add_param':'rx_sw_if_index', 'val_by_key':cache_key} ]
+                    },
+    }
     cmd_list.append(cmd)
 
 def _add_gre_tunnel(cmd_list, cache_key, src, dst, local_sa_id = None, remote_sa_id = None, up = True):
@@ -470,13 +555,21 @@ def _add_gre_tunnel(cmd_list, cache_key, src, dst, local_sa_id = None, remote_sa
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']          = "gre_tunnel_add_del"
-    cmd['cmd']['params']        = {'is_add': 1, 'tunnel': tunnel}
+    cmd['cmd']['func']          = "call_vpp_api"
+    cmd['cmd']['object']        = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params']        = {
+                    'api':  "gre_tunnel_add_del",
+                    'args': { 'is_add': 1, 'tunnel': tunnel }
+    }
     cmd['cmd']['cache_ret_val'] = (ret_attr , cache_key)
     cmd['cmd']['descr']         = "create gre tunnel %s -> %s" % (src, dst)
     cmd['revert'] = {}
-    cmd['revert']['name']       = 'gre_tunnel_add_del'
-    cmd['revert']['params']     = {'is_add': 0, 'tunnel': tunnel}
+    cmd['revert']['func']       = "call_vpp_api"
+    cmd['revert']['object']     = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['params']     = {
+                    'api':  "gre_tunnel_add_del",
+                    'args': { 'is_add': 0, 'tunnel': tunnel }
+    }
     cmd['revert']['descr']      = "delete gre tunnel %s -> %s" % (src, dst)
     cmd_list.append(cmd)
 
@@ -491,12 +584,23 @@ def _add_gre_tunnel(cmd_list, cache_key, src, dst, local_sa_id = None, remote_sa
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']          = "ipsec_tunnel_protect_update"
-        cmd['cmd']['params']        = {'tunnel': tunnel}
+        cmd['cmd']['func']   = "call_vpp_api"
+        cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+        cmd['cmd']['params'] = {
+                        'api':  "ipsec_tunnel_protect_update",
+                        'args': { 'tunnel': tunnel }
+        }
         cmd['cmd']['descr']         = "add tunnel ipsec protect %s -> %s" % (src, dst)
         cmd['revert'] = {}
-        cmd['revert']['name']       = 'ipsec_tunnel_protect_del'
-        cmd['revert']['params']     = {'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ], 'nh': "0.0.0.0"}
+        cmd['revert']['func']   = "call_vpp_api"
+        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+        cmd['revert']['params'] = {
+                        'api':    "ipsec_tunnel_protect_del",
+                        'args':   {
+                            'nh':     "0.0.0.0",
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                        },
+        }
         cmd['revert']['descr']      = "delete tunnel ipsec protect %s -> %s" % (src, dst)
         cmd_list.append(cmd)
 
@@ -504,11 +608,16 @@ def _add_gre_tunnel(cmd_list, cache_key, src, dst, local_sa_id = None, remote_sa
         # interface.api.json: sw_interface_set_flags (..., sw_if_index, flags, ...)
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']    = "sw_interface_set_flags"
+        cmd['cmd']['func']    = "call_vpp_api"
+        cmd['cmd']['object']  = "fwglobals.g.router_api.vpp_api"
         cmd['cmd']['descr']   = "UP GRE tunnel %s -> %s" % (src, dst)
-        cmd['cmd']['params']  = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
-                                  'flags':1 # VppEnum.vl_api_if_status_flags_t.IF_STATUS_API_FLAG_ADMIN_UP
-                                }
+        cmd['cmd']['params']  = {
+                        'api':    "sw_interface_set_flags",
+                        'args':   {
+                            'flags':  1,   # VppEnum.vl_api_if_status_flags_t.IF_STATUS_API_FLAG_ADMIN_UP
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                        },
+        }
         cmd_list.append(cmd)
 
 def _add_ipip_tunnel(cmd_list, cache_key, params, addr, instance):
@@ -534,46 +643,65 @@ def _add_ipip_tunnel(cmd_list, cache_key, params, addr, instance):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']          = "ipip_add_tunnel"
-    cmd['cmd']['params']        = {'tunnel': tunnel}
+    cmd['cmd']['func']          = "call_vpp_api"
+    cmd['cmd']['object']        = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params']        = {'api': "ipip_add_tunnel", 'args': {'tunnel': tunnel}}
     cmd['cmd']['cache_ret_val'] = ('sw_if_index', cache_key)
     cmd['cmd']['descr']         = "create ipip tunnel %s -> %s" % (src, dst)
     cmd['revert'] = {}
-    cmd['revert']['name']       = 'ipip_del_tunnel'
-    cmd['revert']['params']     = {'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]}
+    cmd['revert']['func']       = "call_vpp_api"
+    cmd['revert']['object']     = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['params']     = {
+                    'api':    "ipip_del_tunnel",
+                    'args':   {
+                        'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                    },
+    }
     cmd['revert']['descr']      = "delete ipip tunnel %s -> %s" % (src, dst)
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "sw_interface_add_del_address"
+    cmd['cmd']['func']      = "call_vpp_api"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['descr']     = "set %s to tunnel interface" % addr
-    cmd['cmd']['params']    = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
-                                'is_add':1, 'prefix':addr }
+    cmd['cmd']['params']    = {
+                    'api':    "sw_interface_add_del_address",
+                    'args':   {
+                        'is_add': 1,
+                        'prefix': addr,
+                        'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                    },
+    }
     cmd['revert'] = {}
-    cmd['revert']['name']   = "sw_interface_add_del_address"
+    cmd['revert']['func']   = "call_vpp_api"
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['revert']['descr']  = "unset %s from tunnel interface" % addr
-    cmd['revert']['params'] = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
-                                'is_add':0, 'prefix':addr }
+    cmd['revert']['params'] = {
+                    'api':    "sw_interface_add_del_address",
+                    'args':   {
+                        'is_add': 0,
+                        'prefix': addr,
+                        'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
+                    },
+    }
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "python"
+    cmd['cmd']['func']    = "_update_cache_sw_if_index"
+    cmd['cmd']['object']  = "fwglobals.g.router_api"
     cmd['cmd']['descr']   = "add  peer tunnel sw_if_index to router_api cache"
     cmd['cmd']['params']  = {
-                    'object': 'fwglobals.g.router_api',
-                    'func'  : '_update_cache_sw_if_index',
-                    'args'  : {'type': 'peer-tunnel', 'params': params, 'add': True },
+                    'type': 'peer-tunnel', 'params': params, 'add': True,
                     'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
     }
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
+    cmd['revert']['func']   = "_update_cache_sw_if_index"
+    cmd['revert']['object'] = "fwglobals.g.router_api"
     cmd['revert']['descr']  = "remove  peer tunnel sw_if_index from router_api cache"
     cmd['revert']['params'] = {
-                    'object': 'fwglobals.g.router_api',
-                    'func'  : '_update_cache_sw_if_index',
-                    'args'  : {'type': 'peer-tunnel', 'params': params, 'add': False },
+                    'type': 'peer-tunnel', 'params': params, 'add': False,
                     'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
     }
     cmd_list.append(cmd)
@@ -594,20 +722,19 @@ def _add_ipip_multicast_rule(cmd_list, tunnel_id, src_ip, group_ip):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "python"
+    cmd['cmd']['func']    = "vpp_cli_execute"
+    cmd['cmd']['module']  = "fwutils"
     cmd['cmd']['descr']   = f"register peer tunnel id={tunnel_id} with multicast FIB (group={group_ip}, src={addr})"
     cmd['cmd']['params']  = {
-                    'module': 'fwutils',
-                    'func'  : 'vpp_cli_execute',
-                    'args'  : {'cmds':['ip mroute add %s' % str1, 'ip mroute add %s' % str2], 'debug':True}
+                    'cmds':['ip mroute add %s' % str1, 'ip mroute add %s' % str2],
+                    'debug':True
     }
     cmd['revert'] = {}
-    cmd['revert']['name']    = "python"
+    cmd['revert']['func']    = "vpp_cli_execute"
+    cmd['revert']['module']  = "fwutils"
     cmd['revert']['descr']   = f"un-register peer tunnel id={tunnel_id} from multicast FIB: (group={group_ip}, src={addr})"
     cmd['revert']['params']  = {
-                    'module': 'fwutils',
-                    'func'  : 'vpp_cli_execute',
-                    'args'  : {'cmds':['ip mroute del %s' % str1, 'ip mroute del %s' % str2]}
+                    'cmds':['ip mroute del %s' % str1, 'ip mroute del %s' % str2]
     }
     cmd_list.append(cmd)
 
@@ -652,25 +779,38 @@ def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
     }
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']          = "vxlan_add_del_tunnel"
-    cmd['cmd']['params']        = cmd_params
+    cmd['cmd']['func']   = "call_vpp_api"
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params'] = {
+                    'api':  "vxlan_add_del_tunnel",
+                    'args': cmd_params
+    }
     cmd['cmd']['cache_ret_val'] = (ret_attr , cache_key)
     cmd['cmd']['descr']         = "create vxlan tunnel %s -> %s" % (src, dst)
     cmd['revert'] = {}
-    cmd['revert']['name']       = 'vxlan_add_del_tunnel'
-    cmd['revert']['params']     = copy.deepcopy(cmd_params)
-    cmd['revert']['params']['is_add'] = 0
+    cmd['revert']['func']   = "call_vpp_api"
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['params'] = {
+                    'api':  "vxlan_add_del_tunnel",
+                    'args': copy.deepcopy(cmd_params)
+    }
+    cmd['revert']['params']['args']['is_add'] = 0
     cmd['revert']['descr']      = "delete vxlan tunnel %s -> %s" % (src, dst)
     cmd_list.append(cmd)
 
     # interface.api.json: sw_interface_set_flags (..., sw_if_index, flags, ...)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "sw_interface_set_flags"
+    cmd['cmd']['func']    = "call_vpp_api"
+    cmd['cmd']['object']  = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['descr']   = "UP vxlan tunnel %s -> %s" % (src, dst)
-    cmd['cmd']['params']  = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
-                              'flags':1 # VppEnum.vl_api_if_status_flags_t.IF_STATUS_API_FLAG_ADMIN_UP
-                            }
+    cmd['cmd']['params']  = {
+                    'api':    "sw_interface_set_flags",
+                    'args':   {
+                        'flags':  1, # VppEnum.vl_api_if_status_flags_t.IF_STATUS_API_FLAG_ADMIN_UP
+                        'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                    },
+    }
     cmd_list.append(cmd)
 
 def _add_ipsec_sa(cmd_list, local_sa, local_sa_id):
@@ -739,12 +879,20 @@ def _add_ipsec_sa(cmd_list, local_sa, local_sa_id):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "ipsec_sad_entry_add_del"
-    cmd['cmd']['params']  = {'is_add': 1, 'entry': entry}
+    cmd['cmd']['func']   = "call_vpp_api"
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params'] = {
+                    'api':  "ipsec_sad_entry_add_del",
+                    'args': { 'is_add': 1, 'entry': entry }
+    }
     cmd['cmd']['descr']   = "add SA rule no.%d (spi=%d, crypto=%s, integrity=%s)" % (local_sa_id, local_sa['spi'], local_sa['crypto-alg'] , local_sa['integr-alg'])
     cmd['revert'] = {}
-    cmd['revert']['name']   = 'ipsec_sad_entry_add_del'
-    cmd['revert']['params'] = {'is_add': 0, 'entry': entry}
+    cmd['revert']['func']   = "call_vpp_api"
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['params'] = {
+                    'api':  'ipsec_sad_entry_add_del',
+                    'args': { 'is_add': 0, 'entry': entry }
+    }
     cmd['revert']['descr']  = "remove SA rule no.%d (spi=%d, crypto=%s, integrity=%s)" % (local_sa_id, local_sa['spi'], local_sa['crypto-alg'] , local_sa['integr-alg'])
     cmd_list.append(cmd)
 
@@ -781,8 +929,12 @@ def _add_ikev2_traffic_selector(cmd_list, name, params, is_local, ts_section):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "ikev2_profile_set_ts"
-    cmd['cmd']['params']    = { 'name':name, 'ts':ts }
+    cmd['cmd']['func']   = "call_vpp_api"
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params'] = {
+                    'api':  "ikev2_profile_set_ts",
+                    'args': { 'name':name, 'ts':ts }
+    }
     cmd['cmd']['descr']     = "set IKEv2 traffic selector, profile %s" % name
     cmd_list.append(cmd)
 
@@ -812,12 +964,22 @@ def _add_ikev2_id(cmd_list, name, is_local, id, id_type):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "ikev2_profile_set_id"
+    cmd['cmd']['func']   = "call_vpp_api"
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
     if id_type == 'ip4-addr' or id_type == 'ip6-addr':
         data = ipaddress.ip_address(id).packed
     else:
         data = id.encode()
-    cmd['cmd']['params']    = { 'name':name, 'is_local':is_local, 'id_type':id_types[id_type], 'data':data, 'data_len':len(data) }
+    cmd['cmd']['params'] = {
+                    'api':  "ikev2_profile_set_id",
+                    'args': {
+                        'name':     name,
+                        'is_local': is_local,
+                        'id_type':  id_types[id_type],
+                        'data':     data,
+                        'data_len': len(data)
+                    }
+    }
     cmd['cmd']['descr']     = "set IKEv2 id, profile %s" % name
     cmd_list.append(cmd)
 
@@ -839,20 +1001,35 @@ def _add_ikev2_common_profile(cmd_list, params, name, cache_key, auth_method, lo
     # ikev2.api.json: ikev2_profile_add_del (...)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "ikev2_profile_add_del"
-    cmd['cmd']['params']    = { 'name':name , 'is_add':1 }
+    cmd['cmd']['func']      = "call_vpp_api"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params']    = {
+                    'api':  "ikev2_profile_add_del",
+                    'args': { 'name':name , 'is_add':1 }
+    }
     cmd['cmd']['descr']     = "create IKEv2 profile %s" % name
     cmd['revert'] = {}
-    cmd['revert']['name']   = 'ikev2_profile_add_del'
-    cmd['revert']['params'] = { 'name':name , 'is_add':0 }
+    cmd['revert']['func']   = "call_vpp_api"
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['params'] = {
+                    'api':  'ikev2_profile_add_del',
+                    'args': { 'name':name , 'is_add':0 }
+    }
     cmd['revert']['descr']  = "delete IKEv2 profile %s" % name
     cmd_list.append(cmd)
 
     # ikev2.api.json: ikev2_set_tunnel_interface (...)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "ikev2_set_tunnel_interface"
-    cmd['cmd']['params']    = { 'name':name , 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ], }
+    cmd['cmd']['func']   = "call_vpp_api"
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params'] = {
+                    'api':    "ikev2_set_tunnel_interface",
+                    'args':   {
+                        'name':   name,
+                        'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
+                    },
+    }
     cmd['cmd']['descr']     = "set tunnel interface for IKEv2 profile %s" % name
     cmd_list.append(cmd)
 
@@ -867,14 +1044,18 @@ def _add_ikev2_common_profile(cmd_list, params, name, cache_key, auth_method, lo
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['descr']     = "set gateway for IKEv2 profile %s" % name
-        cmd['cmd']['name']      = "ikev2_profile_set_gateway"
+        cmd['cmd']['func']      = "call_vpp_api"
+        cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
         cmd['cmd']['params']    = {
-                                    'name':name,
-                                    'substs': [
-                                        {'add_param': 'next_hop_sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': params['dev_id']},
-                                        {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [params['dst'], params['dev_id']]}
-                                    ]
-                                }
+                        'api':  "ikev2_profile_set_gateway",
+                        'args': {
+                            'name': name,
+                            'substs': [
+                                {'add_param': 'next_hop_sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': params['dev_id']},
+                                {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [params['dst'], params['dev_id']]}
+                            ]
+                        },
+        }
         cmd_list.append(cmd)
 
     # ikev2.api.json: ikev2_profile_set_auth (..., auth_method)
@@ -886,8 +1067,17 @@ def _add_ikev2_common_profile(cmd_list, params, name, cache_key, auth_method, lo
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "ikev2_profile_set_auth"
-    cmd['cmd']['params']    = { 'name':name, 'auth_method':auth_method, 'data':auth_data, 'data_len':len(auth_data) }
+    cmd['cmd']['func']      = "call_vpp_api"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params']    = {
+                    'api':  "ikev2_profile_set_auth",
+                    'args': {
+                        'name':         name,
+                        'auth_method':  auth_method,
+                        'data':         auth_data,
+                        'data_len':     len(auth_data)
+                    }
+    }
     cmd['cmd']['descr']     = "set IKEv2 auth method, profile %s" % name
     cmd_list.append(cmd)
 
@@ -917,21 +1107,22 @@ def _add_ikev2_certificates(cmd_list, remote_device_id, certificate):
     # ikev2.api.json: ikev2_set_local_key (...)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "ikev2_set_local_key"
-    cmd['cmd']['params']    = { 'key_file':fwglobals.g.ikev2.IKEV2_PRIVATE_KEY_FILE }
+    cmd['cmd']['func']   = "call_vpp_api"
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params'] = {
+                    'api':  "ikev2_set_local_key",
+                    'args': { 'key_file': fwglobals.g.ikev2.IKEV2_PRIVATE_KEY_FILE }
+    }
     cmd['cmd']['descr']     = "set IKEv2 local key"
     cmd_list.append(cmd)
 
     # Add public certificate file
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "python"
+    cmd['cmd']['func']      = "add_public_certificate"
+    cmd['cmd']['object']    = "fwglobals.g.ikev2"
     cmd['cmd']['descr']     = "add IKEv2 public certificate for %s" % remote_device_id
-    cmd['cmd']['params']    = {
-                                'object': 'fwglobals.g.ikev2',
-                                'func'  : 'add_public_certificate',
-                                'args'  : {'device_id': remote_device_id, 'certificate': certificate}
-                                }
+    cmd['cmd']['params']    = {'device_id': remote_device_id, 'certificate': certificate}
     cmd_list.append(cmd)
 
 def _add_ikev2_initiator_profile(cmd_list, name, lifetime,
@@ -1032,8 +1223,12 @@ def _add_ikev2_initiator_profile(cmd_list, name, lifetime,
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "ikev2_set_responder"
-    cmd['cmd']['params']    = { 'name':name, 'responder':responder }
+    cmd['cmd']['func']      = "call_vpp_api"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params']    = {
+                    'api':  "ikev2_set_responder",
+                    'args': { 'name':name, 'responder':responder }
+    }
     cmd['cmd']['descr']     = "set IKEv2 responder, profile %s" % name
     cmd_list.append(cmd)
 
@@ -1047,8 +1242,12 @@ def _add_ikev2_initiator_profile(cmd_list, name, lifetime,
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "ikev2_set_ike_transforms"
-    cmd['cmd']['params']    = { 'name':name, 'tr':ike_tr }
+    cmd['cmd']['func']      = "call_vpp_api"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params']    = {
+                    'api': "ikev2_set_ike_transforms",
+                    'args': { 'name':name, 'tr':ike_tr }
+    }
     cmd['cmd']['descr']     = "set IKEv2 crypto algorithms, profile %s" % name
     cmd_list.append(cmd)
 
@@ -1061,24 +1260,39 @@ def _add_ikev2_initiator_profile(cmd_list, name, lifetime,
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "ikev2_set_esp_transforms"
-    cmd['cmd']['params']    = { 'name':name, 'tr':esp_tr }
+    cmd['cmd']['func']   = "call_vpp_api"
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params'] = {
+                    'api': "ikev2_set_esp_transforms",
+                    'args': { 'name':name, 'tr':esp_tr }
+    }
     cmd['cmd']['descr']     = "set IKEv2 ESP crypto algorithms, profile %s" % name
     cmd_list.append(cmd)
 
     # ikev2.api.json: ikev2_set_sa_lifetime (...)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "ikev2_set_sa_lifetime"
-    cmd['cmd']['params']    = { 'name':name, 'lifetime':lifetime, 'lifetime_jitter':10, 'handover':5, 'lifetime_maxdata':0 }
+    cmd['cmd']['func']      = "call_vpp_api"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params']    = {
+                    'api':  "ikev2_set_sa_lifetime",
+                    'args': {
+                        'name':             name,
+                        'lifetime':         lifetime,
+                        'lifetime_jitter':  10,
+                        'handover':         5,
+                        'lifetime_maxdata': 0
+                    }
+    }
     cmd['cmd']['descr']     = "set IKEv2 connection lifetime, profile %s" % name
     cmd_list.append(cmd)
 
     # ikev2.api.json: ikev2_initiate_sa_init (...)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "ikev2_initiate_sa_init"
-    cmd['cmd']['params']    = { 'name':name }
+    cmd['cmd']['func']      = "call_vpp_api"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params']    = {'api': "ikev2_initiate_sa_init", 'args': {'name':name}}
     cmd['cmd']['descr']     = "initialize IKEv2 connection, profile %s" % name
     cmd_list.append(cmd)
 
@@ -1304,12 +1518,20 @@ def _add_loop_bridge_vxlan(cmd_list, params, loop_cfg, remote_loop_cfg, vxlan_ip
         # ip_neighbor.api.json: ip_neighbor_add_del (...)
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']      = "ip_neighbor_add_del"
-        cmd['cmd']['params']    = { 'neighbor': neighbor, 'is_add':1 }
+        cmd['cmd']['func']      = "call_vpp_api"
+        cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+        cmd['cmd']['params']    = {
+                        'api': "ip_neighbor_add_del",
+                        'args': { 'neighbor': neighbor, 'is_add':1 }
+        }
         cmd['cmd']['descr']     = "add static arp entry %s %s" % (remote_loop_ip, remote_loop_mac)
         cmd['revert'] = {}
-        cmd['revert']['name']   = 'ip_neighbor_add_del'
-        cmd['revert']['params'] = { 'neighbor': neighbor, 'is_add':0 }
+        cmd['revert']['func']   = "call_vpp_api"
+        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+        cmd['revert']['params'] = {
+                        'api': 'ip_neighbor_add_del',
+                        'args': { 'neighbor': neighbor, 'is_add':0 }
+        }
         cmd['revert']['descr']  = "delete static arp entry %s %s" % (remote_loop_ip, remote_loop_mac)
         cmd_list.append(cmd)
 
@@ -1360,53 +1582,55 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "python"
+    cmd['cmd']['func']    = "vpp_cli_execute"
+    cmd['cmd']['module']  = "fwutils"
     cmd['cmd']['descr']   = "add interface mapping"
     cmd['cmd']['params']  = {
                     'substs': substs,
-                    'module': 'fwutils',
-                    'func'  : 'vpp_cli_execute',
-                    'args'  : {'cmds':['tap-inject map interface DEV1-STUB DEV2-STUB']}
+                    'cmds':['tap-inject map interface DEV1-STUB DEV2-STUB'],
     }
     cmd['revert'] = {}
-    cmd['revert']['name']    = "python"
+    cmd['revert']['func']    = "vpp_cli_execute"
+    cmd['revert']['module']  = "fwutils"
     cmd['revert']['descr']   = "remove interface mapping"
     cmd['revert']['params']  = {
                     'substs': substs,
-                    'module': 'fwutils',
-                    'func'  : 'vpp_cli_execute',
-                    'args'  : {'cmds':['tap-inject map interface DEV1-STUB DEV2-STUB del']}
+                    'cmds':['tap-inject map interface DEV1-STUB DEV2-STUB del'],
     }
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "python"
+    cmd['cmd']['func']    = "vpp_cli_execute"
+    cmd['cmd']['module']  = "fwutils"
     cmd['cmd']['descr']   = "add l3xc connection"
     cmd['cmd']['params']  = {
                     'substs': substs,
-                    'module': 'fwutils',
-                    'func'  : 'vpp_cli_execute',
-                    'args'  : {'cmds':['l3xc add DEV1-STUB via DEV2-STUB']}
+                    'cmds':['l3xc add DEV1-STUB via DEV2-STUB'],
     }
     cmd['revert'] = {}
-    cmd['revert']['name']    = "python"
+    cmd['revert']['func']    = "vpp_cli_execute"
+    cmd['revert']['module']  = "fwutils"
     cmd['revert']['descr']   = "remove l3xc connection"
     cmd['revert']['params']  = {
                     'substs': substs,
-                    'module': 'fwutils',
-                    'func'  : 'vpp_cli_execute',
-                    'args'  : {'cmds':['l3xc del DEV1-STUB via DEV2-STUB']}
+                    'cmds':['l3xc del DEV1-STUB via DEV2-STUB'],
     }
     cmd_list.append(cmd)
 
     # interface.api.json: sw_interface_set_mtu (..., sw_if_index, mtu, ...)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "sw_interface_set_mtu"
+    cmd['cmd']['func']    = "call_vpp_api"
+    cmd['cmd']['object']  = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['descr']   = "set mtu=%s to ipip interface" % mtu
-    cmd['cmd']['params']  = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':tunnel_cache_key} ],
-                              'mtu': [ mtu , 0, 0, 0 ] }
+    cmd['cmd']['params']  = {
+                    'api':    "sw_interface_set_mtu",
+                    'args':   {
+                        'mtu':    [ mtu , 0, 0, 0 ],
+                        'substs': [ { 'add_param':'sw_if_index', 'val_by_key':tunnel_cache_key} ]
+                    },
+    }
     cmd_list.append(cmd)
 
     # interface.api.json: sw_interface_flexiwan_label_add_del (..., sw_if_index, n_labels, labels, ...)
@@ -1416,22 +1640,20 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
             # next_hop is a remote gateway
             cmd = {}
             cmd['cmd'] = {}
-            cmd['cmd']['name']    = "python"
+            cmd['cmd']['func']    = "vpp_multilink_update_labels"
+            cmd['cmd']['module']  = "fwutils"
             cmd['cmd']['descr']   = "add multilink labels into tunnel interface %s: %s" % (params['src'], labels)
             cmd['cmd']['params']  = {
                             'substs': [ { 'add_param':'sw_if_index', 'val_by_key':tunnel_cache_key} ],
-                            'module': 'fwutils',
-                            'func'  : 'vpp_multilink_update_labels',
-                            'args'  : { 'labels': labels, 'next_hop': next_hop, 'remove': False }
+                            'labels': labels, 'next_hop': next_hop, 'remove': False,
             }
             cmd['revert'] = {}
-            cmd['revert']['name']   = "python"
+            cmd['revert']['func']   = "vpp_multilink_update_labels"
+            cmd['revert']['module'] = "fwutils"
             cmd['revert']['descr']  = "remove multilink labels from tunnel interface %s: %s" % (params['src'], labels)
             cmd['revert']['params'] = {
                             'substs': [ { 'add_param':'sw_if_index', 'val_by_key':tunnel_cache_key} ],
-                            'module': 'fwutils',
-                            'func'  : 'vpp_multilink_update_labels',
-                            'args'  : { 'labels': labels, 'next_hop': next_hop, 'remove': True }
+                            'labels': labels, 'next_hop': next_hop, 'remove': True,
             }
             cmd_list.append(cmd)
 
@@ -1481,15 +1703,10 @@ def add_tunnel(params):
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']      = "python"
+        cmd['cmd']['func']      = "validate_tunnel_id"
+        cmd['cmd']['module']    = "fwtranslate_add_tunnel"
         cmd['cmd']['descr']     = "validate tunnel id"
-        cmd['cmd']['params']    = {
-                                    'module': 'fwtranslate_add_tunnel',
-                                    'func':   'validate_tunnel_id',
-                                    'args': {
-                                        'tunnel_id': params['tunnel-id']
-                                    }
-                                }
+        cmd['cmd']['params']    = { 'tunnel_id': params['tunnel-id'] }
         cmd_list.append(cmd)
 
         if encryption_mode == "none":
@@ -1531,24 +1748,18 @@ def add_tunnel(params):
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']   = "python"
+        cmd['cmd']['func']   = "frr_vtysh_run"
+        cmd['cmd']['module'] = "fwutils"
         cmd['cmd']['params'] = {
-                'module': 'fwutils',
-                'func': 'frr_vtysh_run',
-                'args': {
-                    'commands': ospf_if_commands_cmd
-                },
+                'commands': ospf_if_commands_cmd,
                 'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':loop0_cache_key} ]
         }
         cmd['cmd']['descr']   = "add loopback interface %s to ospf as point-to-point" % loop0_ip
         cmd['revert'] = {}
-        cmd['revert']['name']   = "python"
+        cmd['revert']['func']   = "frr_vtysh_run"
+        cmd['revert']['module'] = "fwutils"
         cmd['revert']['params'] = {
-                'module': 'fwutils',
-                'func': 'frr_vtysh_run',
-                'args': {
-                    'commands': ospf_if_commands_revert
-                },
+                'commands': ospf_if_commands_revert,
                 'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':loop0_cache_key} ]
         }
         cmd['revert']['descr']   = "remove loopback interface %s from ospf as point-to-point" % loop0_ip
@@ -1557,70 +1768,56 @@ def add_tunnel(params):
         # Add network for the tunnel interface.
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']   = "python"
+        cmd['cmd']['func']   = "frr_vtysh_run"
+        cmd['cmd']['module'] = "fwutils"
         cmd['cmd']['params'] = {
-                'module': 'fwutils',
-                'func': 'frr_vtysh_run',
-                'args': {
                     'commands': ["router ospf", "network %s area 0.0.0.0" % loop0_ip]
-                }
         }
         cmd['cmd']['descr']   = "add loopback interface %s to ospf" % loop0_ip
         cmd['revert'] = {}
-        cmd['revert']['name']   = "python"
+        cmd['revert']['func']   = "frr_vtysh_run"
+        cmd['revert']['module'] = "fwutils"
         cmd['revert']['params'] = {
-                'module': 'fwutils',
-                'func': 'frr_vtysh_run',
-                'args': {
                     'commands': ["router ospf", "no network %s area 0.0.0.0" % loop0_ip],
 
                     # Use 'wait_after' to ensure that redistributed routes that might be received over tunnel
                     # are removed from kernel and from vpp FIB
                     #
                     'wait_after': 2
-                }
         }
         cmd['revert']['descr']   = "remove loopback interface %s from ospf" % loop0_ip
         cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "python"
+    cmd['cmd']['func']    = "tunnel_stats_add"
+    cmd['cmd']['module']  = "fwtunnel_stats"
     cmd['cmd']['descr']   = "tunnel stats add"
-    cmd['cmd']['params']  = {
-                    'module': 'fwtunnel_stats',
-                    'func'  : 'tunnel_stats_add',
-                    'args'  : {'params': params}
-    }
+    cmd['cmd']['params']  = {'params': params}
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
+    cmd['revert']['func']   = "tunnel_stats_remove"
+    cmd['revert']['module'] = "fwtunnel_stats"
     cmd['revert']['descr']  = "tunnel stats remove"
-    cmd['revert']['params'] = {
-                    'module': 'fwtunnel_stats',
-                    'func'  : 'tunnel_stats_remove',
-                    'args'  : { 'tunnel_id': params['tunnel-id']}
-    }
+    cmd['revert']['params'] = { 'tunnel_id': params['tunnel-id']}
     cmd_list.append(cmd)
 
     tunnel_interface_cache_key = 'ipip_tunnel_sw_if_index' if 'peer' in params else loop0_cache_key
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "python"
+    cmd['cmd']['func']    = "_on_add_tunnel_after"
+    cmd['cmd']['object']  = "fwglobals.g.router_api"
     cmd['cmd']['descr']   = "postprocess add-tunnel"
     cmd['cmd']['params']  = {
-                    'object': 'fwglobals.g.router_api',
-                    'func'  : '_on_add_tunnel_after',
-                    'args'  : {'params':params},
+                    'params':params,
                     'substs': [ { 'add_param':'sw_if_index', 'val_by_key':tunnel_interface_cache_key} ]
     }
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
+    cmd['revert']['func']   = "_on_remove_tunnel_before"
+    cmd['revert']['object'] = "fwglobals.g.router_api"
     cmd['revert']['descr']  = "preprocess remove-tunnel"
     cmd['revert']['params'] = {
-                    'object': 'fwglobals.g.router_api',
-                    'func'  : '_on_remove_tunnel_before',
-                    'args'  : {'params':params},
+                    'params':params,
                     'substs': [ { 'add_param':'sw_if_index', 'val_by_key':tunnel_interface_cache_key} ]
     }
     cmd_list.append(cmd)
@@ -1644,25 +1841,19 @@ def modify_peer_tunnel(new_params, old_params):
     # Remove tunnel statistics entry for this tunnel
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']   = "python"
+    cmd['cmd']['func']   = "tunnel_stats_remove"
+    cmd['cmd']['module'] = "fwtunnel_stats"
     cmd['cmd']['descr']  = "tunnel stats remove"
-    cmd['cmd']['params'] = {
-                    'module': 'fwtunnel_stats',
-                    'func'  : 'tunnel_stats_remove',
-                    'args'  : { 'tunnel_id': old_params['tunnel-id']}
-    }
+    cmd['cmd']['params'] = { 'tunnel_id': old_params['tunnel-id']}
     cmd_list.append(cmd)
 
     # Add tunnel statistics entry for this tunnel
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "python"
+    cmd['cmd']['func']    = "tunnel_stats_add"
+    cmd['cmd']['module']  = "fwtunnel_stats"
     cmd['cmd']['descr']   = "tunnel stats add"
-    cmd['cmd']['params']  = {
-                    'module': 'fwtunnel_stats',
-                    'func'  : 'tunnel_stats_add',
-                    'args'  : {'params': old_params}
-    }
+    cmd['cmd']['params']  = {'params': old_params}
     cmd_list.append(cmd)
 
     return cmd_list
@@ -1681,14 +1872,13 @@ def modify_tunnel(new_params, old_params):
         # Add public certificate file
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']      = "python"
+        cmd['cmd']['func']      = "modify_certificate"
+        cmd['cmd']['object']    = "fwglobals.g.ikev2"
         cmd['cmd']['descr']     = "modify IKEv2 public certificate for %s" % remote_device_id
         cmd['cmd']['params']    = {
-                                    'object': 'fwglobals.g.ikev2',
-                                    'func'  : 'modify_certificate',
-                                    'args'  : {'device_id'   : remote_device_id,
-                                               'certificate' : certificate,
-                                               'tunnel_id'   : new_params['tunnel-id']}
+                                    'device_id'   : remote_device_id,
+                                    'certificate' : certificate,
+                                    'tunnel_id'   : new_params['tunnel-id'],
                                   }
         cmd_list.append(cmd)
 
@@ -1697,14 +1887,10 @@ def modify_tunnel(new_params, old_params):
         # Reinitiate IKEv2 session
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']      = "python"
+        cmd['cmd']['func']      = "reinitiate_session"
+        cmd['cmd']['object']    = "fwglobals.g.ikev2"
         cmd['cmd']['descr']     = "Reinitiate IKEv2 session with %s" % remote_device_id
-        cmd['cmd']['params']    = {
-                                    'object': 'fwglobals.g.ikev2',
-                                    'func'  : 'reinitiate_session',
-                                    'args'  : {'tunnel_id': new_params['tunnel-id'],
-                                               'role'     : role}
-                                  }
+        cmd['cmd']['params']    = {'tunnel_id': new_params['tunnel-id'], 'role': role}
         cmd_list.append(cmd)
 
     return cmd_list

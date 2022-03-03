@@ -295,18 +295,28 @@ def add_multilink_policy(params):
         # acl.api.json: acl_add_replace (..., tunnel <type vl_api_acl_rule_t>, ...)
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name'] = "acl_add_replace"
+        cmd['cmd']['func']   = "call_vpp_api"
+        cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
         cmd['cmd']['params'] = {
-                                'acl_index': ctypes.c_uint(-1).value,
-                                'count':     len(acl_rules),
-                                'r':         acl_rules,
-                                'tag':       tag
+                        'api':  "acl_add_replace",
+                        'args': {
+                            'acl_index': ctypes.c_uint(-1).value,
+                            'count':     len(acl_rules),
+                            'r':         acl_rules,
+                            'tag':       tag
+                        }
         }
         cmd['cmd']['cache_ret_val'] = ('acl_index', cache_key)
         cmd['cmd']['descr'] = f"add ACL for policy {rule['id']}"
         cmd['revert'] = {}
-        cmd['revert']['name'] = "acl_del"
-        cmd['revert']['params'] = {'substs': [ { 'add_param':'acl_index', 'val_by_key':cache_key} ]}
+        cmd['revert']['func']   = "call_vpp_api"
+        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+        cmd['revert']['params'] = {
+                        'api':  "acl_del",
+                        'args': {
+                            'substs': [ {'add_param':'acl_index', 'val_by_key':cache_key} ]
+                        },
+        }
         cmd['revert']['descr'] = f"remove ACL for policy {rule['id']}"
         cmd_list.append(cmd)
 
@@ -322,27 +332,25 @@ def add_multilink_policy(params):
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']    = "python"
+        cmd['cmd']['func']    = "vpp_multilink_update_policy_rule"
+        cmd['cmd']['module']  = "fwutils"
         cmd['cmd']['descr']   = f"add policy (id={policy_id}, {rule['id']})"
         cmd['cmd']['params']  = {
-                        'module': 'fwutils',
-                        'func':   'vpp_multilink_update_policy_rule',
-                        'args'  : { 'add': True, 'links': links, 'policy_id': policy_id,
-                                    'fallback': fallback, 'order': order, 'priority': priority,
-                                    'override_default_route': override_default_route,
-                                    'attach_to_wan': attach_to_wan },
+                        'add': True, 'links': links, 'policy_id': policy_id,
+                        'fallback': fallback, 'order': order, 'priority': priority,
+                        'override_default_route': override_default_route,
+                        'attach_to_wan': attach_to_wan,
                         'substs' : [{'add_param': 'acl_id', 'val_by_key': cache_key}]
         }
         cmd['revert'] = {}
-        cmd['revert']['name']   = "python"
+        cmd['revert']['func']   = "vpp_multilink_update_policy_rule"
+        cmd['revert']['module'] = "fwutils"
         cmd['revert']['descr']  = f"remove policy (id={policy_id}, {rule['id']})"
         cmd['revert']['params'] = {
-                        'module': 'fwutils',
-                        'func':   'vpp_multilink_update_policy_rule',
-                        'args'  : { 'add': False, 'links': links, 'policy_id': policy_id,
-                                    'fallback': fallback, 'order': order, 'priority': priority,
-                                    'override_default_route': override_default_route,
-                                    'attach_to_wan': attach_to_wan },
+                        'add': False, 'links': links, 'policy_id': policy_id,
+                        'fallback': fallback, 'order': order, 'priority': priority,
+                        'override_default_route': override_default_route,
+                        'attach_to_wan': attach_to_wan,
                         'substs' : [{'add_param': 'acl_id', 'val_by_key': cache_key}]
         }
         cmd_list.append(cmd)

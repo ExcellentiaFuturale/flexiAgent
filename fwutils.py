@@ -871,7 +871,7 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
     # with the tap1 interface. This is done as follows:
     # Then we can substr the dev_name and get back the linux interface name. Then we can get the dev_id of this interface.
     #
-    taps = fwglobals.g.router_api.vpp_api.call('sw_interface_tap_v2_dump')
+    taps = fwglobals.g.router_api.vpp_api.vpp.call('sw_interface_tap_v2_dump')
     for tap in taps:
         vpp_tap = tap.dev_name                      # fetch tap0
         linux_tap = tap.host_if_name                # fetch tap_wwan0
@@ -906,7 +906,7 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
             fwglobals.g.cache.dev_id_to_vpp_if_name[full_addr] = v
             fwglobals.g.cache.vpp_if_name_to_dev_id[v] = full_addr
 
-    vmxnet3hw = fwglobals.g.router_api.vpp_api.call('vmxnet3_dump')
+    vmxnet3hw = fwglobals.g.router_api.vpp_api.vpp.call('vmxnet3_dump')
     for hw_if in vmxnet3hw:
         vpp_if_name = hw_if.if_name.rstrip(' \t\r\n\0')
         pci_addr = 'pci:%s' % pci_bytes_to_str(hw_if.pci_addr)
@@ -984,7 +984,7 @@ def dev_id_to_vpp_sw_if_index(dev_id):
     if vpp_if_name is None:
         return None
 
-    sw_ifs = fwglobals.g.router_api.vpp_api.call('sw_interface_dump')
+    sw_ifs = fwglobals.g.router_api.vpp_api.vpp.call('sw_interface_dump')
     for sw_if in sw_ifs:
         if re.match(vpp_if_name, sw_if.interface_name):    # Use regex, as sw_if.interface_name might include trailing whitespaces
             return sw_if.sw_if_index
@@ -1004,7 +1004,7 @@ def bridge_addr_to_bvi_interface_tap(bridge_addr):
         fwglobals.log.error('bridge_addr_to_bvi_interface_tap: failed to fetch bridge id for address: %s' % str(bridge_addr))
         return None
 
-    vpp_bridges_det = fwglobals.g.router_api.vpp_api.call('bridge_domain_dump', bd_id=bd_id)
+    vpp_bridges_det = fwglobals.g.router_api.vpp_api.vpp.call('bridge_domain_dump', bd_id=bd_id)
     if not vpp_bridges_det:
         fwglobals.log.error('bridge_addr_to_bvi_interface_tap: failed to fetch vpp bridges for bd_id %s' % str(bd_id))
         return None
@@ -1295,7 +1295,7 @@ def vpp_sw_if_index_to_name(sw_if_index):
 
     # Now go to the heavy route.
     #
-    sw_interfaces = fwglobals.g.router_api.vpp_api.call('sw_interface_dump', sw_if_index=sw_if_index)
+    sw_interfaces = fwglobals.g.router_api.vpp_api.vpp.call('sw_interface_dump', sw_if_index=sw_if_index)
     if not sw_interfaces:
         fwglobals.log.debug(f"vpp_sw_if_index_to_name({sw_if_index}): not found")
         return None
@@ -1343,7 +1343,7 @@ def vpp_get_interface_status(sw_if_index):
     status = 'down'
 
     try:
-        interfaces = fwglobals.g.router_api.vpp_api.call('sw_interface_dump', sw_if_index=sw_if_index)
+        interfaces = fwglobals.g.router_api.vpp_api.vpp.call('sw_interface_dump', sw_if_index=sw_if_index)
         if len(interfaces) == 1:
             flags = interfaces[0].flags
             # flags are equal to IF_STATUS_API_FLAG_LINK_UP|IF_STATUS_API_FLAG_ADMIN_UP when interface is up
@@ -3183,6 +3183,27 @@ def linux_check_gateway_exist(gw):
                     return True
 
     return False
+
+def exec(cmd, timeout=60):
+    """Runs bash command and return result in format suitable for
+    fwcfg_request_handler (see _parse_result() function for details).
+
+    :param cmd: bash command
+
+    :returns: tuple of (<boolean success>, <output/error string>)
+    """
+    success = False
+    try:
+        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        (out, err) = p.communicate(timeout=timeout)
+        if p.returncode != 0:
+            return (False, err)
+        return (True, out)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        return (False, f"timeout ({timeout} seconds) on waiting for command to return")
+    except Exception as err:
+        return (False, str(err))
 
 def exec_with_timeout(cmd, timeout=60):
     """Run bash command with timeout option
