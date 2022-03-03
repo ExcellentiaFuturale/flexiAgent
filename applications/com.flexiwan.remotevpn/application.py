@@ -124,7 +124,7 @@ def configure(params):
 
         # run several commands for configurations
         commands = [
-            'echo "%s" > /etc/openvpn/server/ca.key' % params['caKey'],
+            # 'echo "%s" > /etc/openvpn/server/ca.key' % params['caKey'],
             'echo "%s" > /etc/openvpn/server/ca.crt' % params['caCrt'],
             'echo "%s" > /etc/openvpn/server/server.key' % params['serverKey'],
             'echo "%s" > /etc/openvpn/server/server.crt' % params['serverCrt'],
