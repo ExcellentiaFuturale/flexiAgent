@@ -187,7 +187,9 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
     if addr == 'default':
         return (True, None)
 
-    if not fwutils.linux_check_gateway_exist(via):
+    check_subnet = False if dev.startswith('ppp') else True
+
+    if not fwutils.linux_check_gateway_exist(via, check_subnet):
         return (True, None)
 
     if not remove:

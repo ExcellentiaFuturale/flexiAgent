@@ -720,6 +720,9 @@ def build_interface_dev_id(linux_dev_name, sys_class_net=None):
     if not linux_dev_name:
         return ""
 
+    if linux_dev_name.startswith('ppp'):
+        return fwpppoe.pppoe_get_dev_id_from_ppp(linux_dev_name)
+
     if sys_class_net is None:
         cmd = "sudo ls -l /sys/class/net"
         try:
@@ -1727,6 +1730,13 @@ def is_router_running():
         return fwglobals.g.router_api.state_is_starting_or_started()
     return False
 
+def dev_id_to_if_name(dev_id):
+    """Convert dev_id to if_name.
+
+     :returns: if_name.
+    """
+    return dev_id_to_tap(dev_id) if is_router_running() else dev_id_to_linux_if(dev_id)
+
 def _get_group_delimiter(lines, delimiter):
     """Helper function to iterate through a group lines by delimiter.
 
@@ -2003,10 +2013,6 @@ def is_interface_without_dev_id(if_name):
 
     # bridge interface that created for WiFi has no dev_id
     if if_name.startswith('br_'):
-        return True
-
-    # PPPoE interface has no dev_id
-    if if_name.startswith('ppp'):
         return True
 
     return False
@@ -3218,15 +3224,18 @@ def dump(filename=None, path=None, clean_log=False):
     except Exception as e:
         fwglobals.log.error("failed to dump: %s" % (str(e)))
 
-def linux_check_gateway_exist(gw):
+def linux_check_gateway_exist(gw, check_subnet=True):
     interfaces = psutil.net_if_addrs()
     net_if_stats = psutil.net_if_stats()
+
     for if_name in interfaces:
         addresses = interfaces[if_name]
         for address in addresses:
             if address.family == socket.AF_INET:
                 network = IPNetwork(address.address + '/' + address.netmask)
-                if net_if_stats[if_name].isup and is_ip_in_subnet(gw, str(network)):
+                if check_subnet and not is_ip_in_subnet(gw, str(network)):
+                    return False
+                if net_if_stats[if_name].isup:
                     return True
 
     return False
