@@ -24,6 +24,7 @@ import copy
 import importlib.util
 import multiprocessing as mp
 import os
+import pathlib
 import tarfile
 import threading
 import time
@@ -155,7 +156,7 @@ class FWAPPLICATIONS_API(FwObject):
         return reply
 
     def _call_application_api(self, identifier, method, params = {}):
-        path = fwglobals.g.APPLICATIONS_DIR + identifier
+        path = self.get_installation_dir(identifier)
 
         # check if the given hook is supported and if it required
         required_hook = fwapplications_hooks.get(method)
@@ -190,6 +191,11 @@ class FWAPPLICATIONS_API(FwObject):
 
         return res
 
+    def get_installation_dir(self, identifier):
+        current_dir = str(pathlib.Path(__file__).parent.resolve())
+        source_installation_dir = current_dir + '/applications/' + identifier
+        return source_installation_dir
+
     def install(self, request):
         '''
         {
@@ -207,23 +213,15 @@ class FWAPPLICATIONS_API(FwObject):
             identifier = params.get('identifier')
 
             # check if install.tar.gz file exists
-            source_installation_file = os.getcwd() + '/applications/' + identifier + '/install.tar.gz'
+            # check if install.tar.gz file exists
+            installation_dir = self.get_installation_dir(identifier)
+            source_installation_file = installation_dir + '/install.tar.gz'
             if not os.path.exists(source_installation_file):
                 raise Exception(f'install file ({source_installation_file}) is not exists')
 
-            target_path = fwglobals.g.APPLICATIONS_DIR + identifier + '/'
-
-            # create the application directory if not exists
-            os.system(f'mkdir -p {target_path}')
-
-            # move the install.tar.gz file to the applications directory
-            rc = os.system(f'cp {source_installation_file} {target_path}')
-            if rc:
-                raise Exception(f'failed to move {source_installation_file} to {target_path}')
-
             # extract the install.tar.gz file
-            file = tarfile.open(target_path + 'install.tar.gz')
-            file.extractall(target_path)
+            file = tarfile.open(source_installation_file)
+            file.extractall(installation_dir)
             file.close()
 
             # before the installation make sure that tap related modules are enabled
@@ -259,10 +257,6 @@ class FWAPPLICATIONS_API(FwObject):
             success, val = self._call_application_api(identifier, 'uninstall', params)
             if not success:
                 return { 'ok': 0, 'message': val }
-
-            # remove the application directory
-            target_path = fwglobals.g.APPLICATIONS_DIR + identifier + '/'
-            os.system(f'rm -rf {target_path}')
 
             # remove application from db
             del apps_db[identifier]

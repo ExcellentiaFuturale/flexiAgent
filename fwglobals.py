@@ -337,7 +337,6 @@ class Fwglobals(FwObject):
         self.FWAGENT_DAEMON_HOST = '127.0.0.1'
         self.FWAGENT_DAEMON_PORT = 9090
         self.FWAGENT_DAEMON_URI  = 'PYRO:%s@%s:%d' % (self.FWAGENT_DAEMON_NAME, self.FWAGENT_DAEMON_HOST, self.FWAGENT_DAEMON_PORT)
-        self.APPLICATIONS_DIR    = '/usr/share/flexiwan/agent/applications/'
         self.APPLICATIONS_DB     = self.DATA_PATH + '.applications.sqlite'
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
