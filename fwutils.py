@@ -3589,6 +3589,12 @@ def load_linux_modules(modules):
             return (False, err)
     return (True, None)
 
+def load_tap_related_modules():
+    return load_linux_modules(['tap', 'vhost', 'vhost-net'])
+
+def load_tc_related_modules():
+    return load_linux_modules(['act_gact', 'act_mirred', 'act_pedit', 'cls_u32', 'sch_htb', 'sch_ingress', 'uio'])
+
 def get_thread_tid():
     '''Returns OS thread id'''
     try:

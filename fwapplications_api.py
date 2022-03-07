@@ -226,6 +226,11 @@ class FWAPPLICATIONS_API(FwObject):
             file.extractall(target_path)
             file.close()
 
+            # before the installation make sure that tap related modules are enabled
+            # Many applications may use them.
+            fwutils.load_tap_related_modules()
+            fwutils.load_tc_related_modules()
+
             extended_params = dict(params)
             extended_params['router_is_running'] = fwglobals.g.router_api.state_is_started()
 
