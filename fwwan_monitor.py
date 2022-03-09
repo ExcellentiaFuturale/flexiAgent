@@ -30,6 +30,7 @@ import traceback
 import fwglobals
 import fwlte
 import fwnetplan
+import fwpppoe
 import fwroutes
 import fwutils
 
@@ -286,7 +287,8 @@ class FwWanMonitor(FwObject):
         #
         db_if = fwglobals.g.router_cfg.get_interfaces(dev_id=route.dev_id) if route.dev_id else []
         assigned = (not route.dev_id) or (db_if)
-        if fwglobals.g.router_api.state_is_started() and assigned:
+        is_pppoe = fwpppoe.is_pppoe_interface(dev_id=route.dev_id)
+        if fwglobals.g.router_api.state_is_started() and assigned and not is_pppoe:
 
             # Update netplan yaml-s in order to:
             # 1. Ensure that if 'netplan apply' is called due to some reason

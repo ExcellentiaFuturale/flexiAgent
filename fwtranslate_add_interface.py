@@ -24,6 +24,7 @@ import copy
 
 import fwglobals
 import fwlte
+import fwpppoe
 import fwutils
 import fwwifi
 import fw_nat_command_helpers
@@ -113,7 +114,7 @@ def add_interface(params):
 
     is_wifi = fwwifi.is_wifi_interface_by_dev_id(dev_id)
     is_lte = fwlte.is_lte_interface_by_dev_id(dev_id) if not is_wifi else False
-    is_pppoe = fwglobals.g.pppoe.is_pppoe_interface(dev_id=dev_id)
+    is_pppoe = fwpppoe.is_pppoe_interface(dev_id=dev_id)
     if is_pppoe:
         dhcp = 'no'
 

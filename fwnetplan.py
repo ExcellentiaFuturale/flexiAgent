@@ -31,6 +31,7 @@ import yaml
 import fwglobals
 import fwlte
 import fwutils
+import fwpppoe
 
 from fwwan_monitor import get_wan_failover_metric
 
@@ -313,6 +314,11 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
     '''
 
     old_ethernets = {}
+
+    if fwpppoe.is_pppoe_interface(dev_id=dev_id):
+        err_str = "add_remove_netplan_interface: PPPoE interface %s is not supported" % dev_id
+        fwglobals.log.error(err_str)
+        return (False, err_str)
 
     fwglobals.log.debug(
         "add_remove_netplan_interface: is_add=%d, dev_id=%s, ip=%s, gw=%s, metric=%d, dhcp=%s, type=%s, \
