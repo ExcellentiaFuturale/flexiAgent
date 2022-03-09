@@ -336,7 +336,7 @@ class Fwglobals(FwObject):
         self.FWAGENT_DAEMON_HOST = '127.0.0.1'
         self.FWAGENT_DAEMON_PORT = 9090
         self.FWAGENT_DAEMON_URI  = 'PYRO:%s@%s:%d' % (self.FWAGENT_DAEMON_NAME, self.FWAGENT_DAEMON_HOST, self.FWAGENT_DAEMON_PORT)
-        self.APPLICATIONS_DB     = self.DATA_PATH + '.applications.sqlite'
+        self.APPLICATIONS_DB_FILE     = self.DATA_PATH + '.applications.sqlite'
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
@@ -356,7 +356,6 @@ class Fwglobals(FwObject):
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
 
         self.db = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! set the db variable regardless of agent initialization
-        self.applications_db = SqliteDict(self.APPLICATIONS_DB, autocommit=True)  # IMPORTANT! set the db variable regardless of agent initialization
 
         # Load websocket status codes on which agent should reconnect into a list
         self.ws_reconnect_status_codes = []
@@ -416,20 +415,20 @@ class Fwglobals(FwObject):
         if not fwutils.vpp_does_run():
             fwlte.reload_lte_drivers_if_needed()
 
-        self.db           = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! Load data at the first place!
-        self.fwagent      = FwAgent(handle_signals=False)
-        self.router_cfg   = FwRouterCfg(self.ROUTER_CFG_FILE) # IMPORTANT! Initialize database at the first place!
-        self.system_cfg   = FwSystemCfg(self.SYSTEM_CFG_FILE)
-        self.agent_api    = FWAGENT_API()
-        self.system_api   = FWSYSTEM_API(self.system_cfg)
-        self.router_api   = FWROUTER_API(self.router_cfg, self.MULTILINK_DB_FILE)
-        self.applications_api = FWAPPLICATIONS_API(run_application_stats=True)
-        self.os_api       = OS_API()
-        self.policies     = FwPolicies(self.POLICY_REC_DB_FILE)
-        self.wan_monitor  = FwWanMonitor(standalone)
-        self.stun_wrapper = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
-        self.ikev2        = FwIKEv2()
-        self.pppoe        = FwPppoeClient(self.PPPOE_DB_FILE, self.PPPOE_CONFIG_PATH, self.PPPOE_CONFIG_PROVIDER_FILE, standalone)
+        self.db               = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! Load data at the first place!
+        self.fwagent          = FwAgent(handle_signals=False)
+        self.router_cfg       = FwRouterCfg(self.ROUTER_CFG_FILE) # IMPORTANT! Initialize database at the first place!
+        self.system_cfg       = FwSystemCfg(self.SYSTEM_CFG_FILE)
+        self.agent_api        = FWAGENT_API()
+        self.system_api       = FWSYSTEM_API(self.system_cfg)
+        self.router_api       = FWROUTER_API(self.router_cfg, self.MULTILINK_DB_FILE)
+        self.applications_api = FWAPPLICATIONS_API(self.APPLICATIONS_DB_FILE, run_application_stats=True)
+        self.os_api           = OS_API()
+        self.policies         = FwPolicies(self.POLICY_REC_DB_FILE)
+        self.wan_monitor      = FwWanMonitor(standalone)
+        self.stun_wrapper     = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
+        self.ikev2            = FwIKEv2()
+        self.pppoe            = FwPppoeClient(self.PPPOE_DB_FILE, self.PPPOE_CONFIG_PATH, self.PPPOE_CONFIG_PROVIDER_FILE, standalone)
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 

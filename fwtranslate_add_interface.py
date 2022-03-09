@@ -124,7 +124,7 @@ def add_interface(params):
         cmd['cmd']['descr'] = "load vhost-net modules"
         cmd['cmd']['params'] = {
                 'module': 'fwutils',
-                'func': 'load_tap_related_modules'
+                'func': 'load_linux_tap_modules'
         }
         cmd_list.append(cmd)
         # Create tap interface in linux and vpp.
@@ -590,7 +590,7 @@ def add_interface(params):
         cmd['cmd']['descr'] = "load tc modules"
         cmd['cmd']['params'] = {
                 'module': 'fwutils',
-                'func': 'load_tc_related_modules'
+                'func': 'load_linux_tc_modules'
         }
         cmd_list.append(cmd)
 

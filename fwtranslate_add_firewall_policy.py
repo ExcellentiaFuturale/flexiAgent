@@ -151,10 +151,11 @@ def add_firewall_policy(params):
         intf_attachments = {}
         cmd_list = []
 
-        # get LAN interfaces for each application
-        # the result is a dictionary when the keys are application identifiers, and the values are arrays of vpp interface names
-        # e.g. { 'com.flexiwan.vpn': ['tun0'] }
-        app_lans = fwutils.call_applications_hook('get_lan_vpp_interface_names')
+        # Get LAN interfaces managed by installed applications.
+        # The function below returns dictionary, where keys are application identifiers,
+        # and values are lists of vpp interface names, e.g.
+        #      { 'com.flexiwan.vpn': ['tun0'] }
+        app_lans = fwutils.call_applications_hook('get_interfaces', type="lan", vpp=True)
 
         for rule_index, rule in enumerate(outbound_rules['rules']):
 

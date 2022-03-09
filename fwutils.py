@@ -976,15 +976,14 @@ def pci_bytes_to_str(pci_bytes):
     function = (bytes) & 0x7
     return "%04x:%02x:%02x.%02x" % (domain, bus, slot, function)
 
-# 'dev_id_to_vpp_sw_if_index' function maps interface referenced by device bus address, e.g pci - '0000:00:08.00'
-# into index of this interface in VPP, eg. 1.
-# To do that we convert firstly the device bus address into name of interface in VPP,
-# e.g. 'GigabitEthernet0/8/0', than we dump all VPP interfaces and search for interface
-# with this name. If found - return interface index.
-
-
 def dev_id_to_vpp_sw_if_index(dev_id):
     """Convert device bus address into VPP sw_if_index.
+
+    This function maps interface referenced by device bus address, e.g pci - '0000:00:08.00'
+    into index of this interface in VPP, eg. 1.
+    To do that we convert firstly the device bus address into name of interface in VPP,
+    e.g. 'GigabitEthernet0/8/0', than we dump all VPP interfaces and search for interface
+    with this name.
 
     :param dev_id:      device bus address.
 
@@ -994,10 +993,11 @@ def dev_id_to_vpp_sw_if_index(dev_id):
     fwglobals.log.debug("dev_id_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (dev_id, str(vpp_if_name)))
     return vpp_if_name_to_vpp_sw_if_index(vpp_if_name)
 
-# 'vpp_if_name_to_vpp_sw_if_index' function maps interface referenced by vpp interface name, e.g tun0
-# into index of this interface in VPP, eg. 1.
 def vpp_if_name_to_vpp_sw_if_index(vpp_if_name):
     """Convert VPP interface name into VPP sw_if_index.
+
+    This function maps interface referenced by vpp interface name, e.g tun0
+    into index of this interface in VPP, eg. 1.
 
     :param vpp_if_name:      VPP interface name
 
@@ -1526,7 +1526,8 @@ def reset_device_config():
 
     restore_dhcpd_files()
 
-    fwglobals.g.applications_db.clear()
+    with FWAPPLICATIONS_API(fwglobals.g.APPLICATIONS_DB_FILE) as applications_api:
+        applications_api.db.clear()
 
 def reset_router_api_db_sa_id():
     router_api_db = fwglobals.g.db['router_api'] # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
@@ -1586,16 +1587,14 @@ def print_device_config_signature():
 
 def print_applications_db():
     out = []
-    try:
-        for key in sorted(list(fwglobals.g.applications_db.keys())):
+    with FWAPPLICATIONS_API(fwglobals.g.APPLICATIONS_DB_FILE) as applications_api:
+        for key in sorted(list(applications_api.db.keys())):
             obj = {}
-            obj[key] = fwglobals.g.applications_db[key]
+            obj[key] = applications_api.db[key]
             out.append(obj)
         cfg = json.dumps(out, indent=2, sort_keys=True)
         print(cfg)
-    except Exception as e:
-        fwglobals.log.error(str(e))
-        pass
+
 
 def print_router_config(basic=True, full=False, multilink=False):
     """Print router configuration.
@@ -1623,7 +1622,7 @@ def print_general_database():
     except Exception as e:
         fwglobals.log.error(str(e))
         pass
-    
+
 def update_device_config_signature(request):
     """Updates the database signature.
     This function assists the database synchronization feature that keeps
@@ -2290,7 +2289,7 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order,
     # get LAN interfaces for each application
     # the result is a dictionary when the keys are application identifiers, and the values are arrays of vpp interface names
     # e.g. { 'com.flexiwan.vpn': ['tun0'] }
-    app_lans = call_applications_hook('get_lan_vpp_interface_names')
+    app_lans = call_applications_hook('get_interfaces', type="lan", vpp=True)
     app_lans_list = [vpp_if_name for vpp_if_names in app_lans.values() for vpp_if_name in vpp_if_names]
 
     vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list + app_lans_list
@@ -3589,10 +3588,10 @@ def load_linux_modules(modules):
             return (False, err)
     return (True, None)
 
-def load_tap_related_modules():
+def load_linux_tap_modules():
     return load_linux_modules(['tap', 'vhost', 'vhost-net'])
 
-def load_tc_related_modules():
+def load_linux_tc_modules():
     return load_linux_modules(['act_gact', 'act_mirred', 'act_pedit', 'cls_u32', 'sch_htb', 'sch_ingress', 'uio'])
 
 def get_thread_tid():
@@ -3621,7 +3620,9 @@ def dict_deep_update(dst, src):
             dst[key] = value
 
 def call_applications_hook(hook):
-    with FWAPPLICATIONS_API() as applications_api:
+    '''This function calls a function within applications_api even if the agnet object is not initialzied
+    '''
+    with FWAPPLICATIONS_API(fwglobals.g.APPLICATIONS_DB_FILE) as applications_api:
         return applications_api.call_hook(hook)
 
 def get_linux_interface_mtu(if_name):

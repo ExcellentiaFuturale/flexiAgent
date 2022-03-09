@@ -29,47 +29,22 @@ import threading
 import time
 import traceback
 
+from sqlitedict import SqliteDict
+
 import fwglobals
 import fwutils
 from fwobject import FwObject
-
-# flexiManage jobs types
-fwapplications_handlers = {
-    'application-install':           'install',
-    'application-uninstall':         'uninstall',
-    'application-configure':         'configure',
-    'application-status':            'status',
-}
-
-# all hooks supported with a flag indicating whether it is a mandatory hook,
-# meaning that if it does not exist, an error will be thrown.
-fwapplications_hooks = {
-    'install':                     True,
-    'uninstall':                   True,
-    'get_status':                  True,
-    'configure':                   True,
-    'start':                       False,
-    'get_lan_vpp_interface_names': False,
-    'get_log_file':                False,
-    'get_statistics':              False,
-
-    # hooks
-    'on_apps_watchdog':            False,
-    'on_router_is_started':        False,
-    'on_router_is_stopped':        False,
-    'on_router_stopping':          False,
-}
 
 class FWAPPLICATIONS_API(FwObject):
     """Services class representation.
     """
 
-    def __init__(self, run_application_stats = False):
+    def __init__(self, application_db_file, run_application_stats = False):
         """Constructor method.
         """
         FwObject.__init__(self)
 
-        self.applications_db = fwglobals.g.applications_db
+        self.db = SqliteDict(application_db_file, autocommit=True)
         self.thread_apps_statistics = None
         self.apps_stats    = {}
         self.processing_job = False
@@ -90,10 +65,12 @@ class FWAPPLICATIONS_API(FwObject):
         if self.thread_apps_statistics:
             self.thread_apps_statistics.join()
             self.thread_apps_statistics = None
+
+        self.db.close()
         return
 
     def reset_db(self):
-        self.applications_db.clear()
+        self.db.clear()
 
     def get_applications_stats(self):
         return copy.deepcopy(self.apps_stats)
@@ -107,7 +84,7 @@ class FWAPPLICATIONS_API(FwObject):
                 try:  # Ensure thread doesn't exit on exception
                     timeout = 10
                     if (slept % timeout) == 0 and not self.processing_job:
-                        apps = dict(self.applications_db.items())
+                        apps = dict(self.db.items())
                         for identifier in apps:
                             is_installed = apps[identifier].get('installed')
                             if not is_installed:
@@ -142,8 +119,7 @@ class FWAPPLICATIONS_API(FwObject):
         message = request['message']
         params = request['params']
 
-        handler = fwapplications_handlers.get(message)
-        assert handler, f'fwapplications_api: "{message}" message is not supported'
+        handler = message.split('application-')[-1]
 
         handler_func = getattr(self, handler)
         assert handler_func, f'fwapplications_api: handler={handler} not found for req={request}'
@@ -158,13 +134,8 @@ class FWAPPLICATIONS_API(FwObject):
     def _call_application_api(self, identifier, method, params = {}):
         path = self.get_installation_dir(identifier)
 
-        # check if the given hook is supported and if it required
-        required_hook = fwapplications_hooks.get(method)
-        if required_hook == None:
-            raise Exception(f'_call_application_api: {method} is not defined')
-
         q = mp.Queue()
-        p = mp.Process(target=subproc, args=(q, path, method, params, required_hook))
+        p = mp.Process(target=subproc, args=(q, path, method, params))
 
         p.start()
         result = q.get()
@@ -173,9 +144,13 @@ class FWAPPLICATIONS_API(FwObject):
 
         return result
 
+    def reset(self):
+      self.call_hook('uninstall')
+      self.reset_db()
+
     def call_hook(self, hook_type, params={}, identifier=None):
         res = {}
-        for app_identifier in self.applications_db:
+        for app_identifier in self.db:
             try:
                 # skip applications if filter is passed
                 if identifier and app_identifier != identifier:
@@ -218,8 +193,8 @@ class FWAPPLICATIONS_API(FwObject):
 
             # before the installation make sure that tap related modules are enabled
             # Many applications may use them.
-            fwutils.load_tap_related_modules()
-            fwutils.load_tc_related_modules()
+            fwutils.load_linux_tap_modules()
+            fwutils.load_linux_tc_modules()
 
             extended_params = dict(params)
             extended_params['router_is_running'] = fwglobals.g.router_api.state_is_started()
@@ -241,7 +216,7 @@ class FWAPPLICATIONS_API(FwObject):
             params = request['params']
             identifier = params.get('identifier')
 
-            apps_db = self.applications_db
+            apps_db = self.db
             app = apps_db.get(identifier)
             if not app:
                 return { 'ok': 1, 'message': '' }
@@ -252,7 +227,7 @@ class FWAPPLICATIONS_API(FwObject):
 
             # remove application from db
             del apps_db[identifier]
-            self.applications_db = apps_db
+            self.db = apps_db
 
             # remove application stats
             app_stats = self.apps_stats.get(identifier)
@@ -330,7 +305,7 @@ class FWAPPLICATIONS_API(FwObject):
             return None
 
     def update_applications_db(self, identifier, key, value, add=True):
-        apps_db = self.applications_db
+        apps_db = self.db
         app = apps_db.get(identifier)
 
         if add:
@@ -345,18 +320,18 @@ class FWAPPLICATIONS_API(FwObject):
                 del app[key]
                 apps_db[identifier] = app
 
-        self.applications_db = apps_db
+        self.db = apps_db
 
     def get_application(self, identifier):
-        for app_identifier in self.applications_db:
+        for app_identifier in self.db:
             if app_identifier == identifier:
-                return self.applications_db[identifier]
+                return self.db[identifier]
         return None
 
     def get_sync_list(self, requests):
         output_requests = []
 
-        current_applications = dict(self.applications_db.items())
+        current_applications = dict(self.db.items())
 
         # generate incoming applications list in order to save searches bellow
         incoming_applications = {}
@@ -396,7 +371,7 @@ class FWAPPLICATIONS_API(FwObject):
         return output_requests
 
     def sync(self, requests, full_sync=False):
-        requests = list([x for x in requests if x['message'] in fwapplications_handlers])
+        requests = list([x for x in requests if x['message'].startswith('application-')])
 
         sync_list = self.get_sync_list(requests)
 
@@ -437,7 +412,7 @@ class FWAPPLICATIONS_API(FwObject):
     #     except Exception as e:
     #         return { 'ok': 0, 'message': str(e) }
 
-def subproc(q, path, method, params, validate_func_exists):
+def subproc(q, path, method, params):
     try:
         # os.setuid(0) # TODO: change this number
         # os.chdir('/tmp') # TODO: implement the right dir with permissions
@@ -445,18 +420,17 @@ def subproc(q, path, method, params, validate_func_exists):
         # import the module
         spec = importlib.util.spec_from_file_location("application", path + '/application.py')
         module = importlib.util.module_from_spec(spec)
-        m = spec.loader.load_module()
         spec.loader.exec_module(module)
 
+        instance = getattr(module, 'Application')
+        app = instance()
+
         # get the function
-        if validate_func_exists:
-            func = getattr(module, method)
-        else:
-            func = getattr(module, method, None)
-            if not func:
-                ret = (False, f'The function {method} does not exist')
-                q.put(ret)
-                return
+        func = getattr(app, method, None)
+        if not func:
+            # required functions must be implemented using the IApplication interface
+            q.put(True, None)
+            return
 
         ret = func(params)
         q.put(ret)
