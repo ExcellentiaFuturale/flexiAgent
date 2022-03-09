@@ -367,8 +367,7 @@ class FwAgent(FwObject):
 
             self.ws.connect(
                         url, headers = headers,
-                        check_certificate=(not fwglobals.g.cfg.BYPASS_CERT),
-                        local_port=WAN_INTERFACE_SERVICES["WebSocket-to-flexiManage"]["port"])
+                        check_certificate=(not fwglobals.g.cfg.BYPASS_CERT))
             self.ws.run_loop_send_recv(timeout=30)                 # flexiManage should send 'get-device-stats' every 10 sec
             self.log.info("connection to flexiManage was closed")  # ws is disconnected implicitly by run_send_recv_loop()
             return True

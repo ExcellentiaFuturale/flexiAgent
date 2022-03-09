@@ -32,11 +32,6 @@ WAN_INTERFACE_SERVICES = {
         "port": 4789,
         "protocol": "udp"
     },
-  "WebSocket-to-flexiManage":
-    {
-        "port": 7646,
-        "protocol": "tcp"
-    },
 }
 
 def get_nat_forwarding_config(enable):
@@ -78,7 +73,8 @@ def get_nat_wan_setup_config(dev_id):
             {'add_param': 'sw_if_index',
              'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
         ],
-        'is_add': 1
+        'is_add': 1,
+        'is_session_recovery': 1 #session recovery is enabled (adds resiliency on address flap)
     }
     cmd['revert'] = {}
     cmd['revert']['name'] = "nat44_interface_add_del_output_feature"
