@@ -4,12 +4,12 @@
 # In order to create a dynamic config file to be applied on the server when the client connects,
 # it should write it to the file named by the last argument.
 
-import sys
-import os
 import json
+import os
+import sys
 from ipaddress import IPv4Network
 
-config_file = sys.argv[1]
+conf_file = sys.argv[1]
 
 try:
     # get all ospf routes
@@ -19,7 +19,9 @@ try:
     # push ospf routes to the clients
     for network in parsed:
         ip_network = IPv4Network(network)
-        os.system(f"sudo echo 'push \"route {ip_network.network_address} {ip_network.netmask}\"' >> {config_file}")
+        network = ip_network.network_address
+        netmask = ip_network.netmask
+        os.system(f"sudo echo 'push \"route {network} {netmask}\"' >> {conf_file}")
 
     sys.exit(0)
 except:

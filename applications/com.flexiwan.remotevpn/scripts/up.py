@@ -2,10 +2,11 @@
 
 # This script is called by OpenVpn after successful TUN / TAP device open
 
-import sys
-import os
-from netaddr import IPAddress
 import json
+import os
+import sys
+
+from netaddr import IPAddress
 
 # get OpenVpn settings
 tun_dev = sys.argv[1]
@@ -17,7 +18,7 @@ ifconfig_netmask = sys.argv[5]
 # We need to save information between the script called when running (up)
 # and the script called when the daemon goes down.
 # For this purpose we create a file in the library of the application where we store the required information
-app_db_path = '/etc/openvpn/server/fw_db'
+app_db_path = '__APP_DB_FILE__'
 
 try:
     # add the openvpn network to ospf
@@ -27,9 +28,9 @@ try:
 
     # configure the vpp interface
     tun_vpp_if_name = os.popen('sudo vppctl create tap host-if-name t_vpp_remotevpn tun').read().strip()
-    
-    if 'error' in tun_vpp_if_name:
-        sys.exit(1)
+
+    # if 'error' in tun_vpp_if_name:
+    sys.exit("Cannot create tun device in vpp")
 
     # store the vpp_if_name in application db
     data = { 'tun_vpp_if_name': tun_vpp_if_name }
@@ -39,7 +40,7 @@ try:
     os.system(f'sudo vppctl set interface ip address {tun_vpp_if_name} {ifconfig_local_ip}/{mask}')
     os.system(f'sudo vppctl set interface state {tun_vpp_if_name} up')
 
-    
+
     # configure mirror ingress traffic from the tun interface created by vpp to the the openvpn tun interface
     os.system('sudo tc qdisc add dev t_vpp_remotevpn handle ffff: ingress')
     os.system('sudo tc filter add dev t_vpp_remotevpn parent ffff: protocol all u32 match u32 0 0 action mirred egress mirror dev t_remotevpn')
@@ -50,6 +51,7 @@ try:
     # don't mirror traffic that its destination address is the vpn server itself (traffic originated by linux).
     os.system(f'sudo tc filter add dev t_remotevpn parent ffff: protocol all priority 1 u32 match ip dst {ifconfig_local_ip}/32 action pass')
     os.system('sudo tc filter add dev t_remotevpn parent ffff: protocol all priority 2 u32 match u32 0 0 action mirred egress mirror dev t_vpp_remotevpn')
+    sys.exit(0)
 except:
     pass
 

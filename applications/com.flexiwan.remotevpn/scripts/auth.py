@@ -1,13 +1,14 @@
 #! /usr/bin/python3
 
 # OpenVPN will write the username and password to the first two lines of a temporary file.
-# The filename will be passed as an argument to script, and the file will be automatically deleted by OpenVPN after the script returns.
+# The filename will be passed as an argument to this script,
+# and the file will be automatically deleted by OpenVPN after the script returns.
 
-import sys
-import os
 import json
+import os
+import sys
+
 import requests
-import hashlib
 
 # get temporary file
 user_password_file = sys.argv[1]
@@ -23,7 +24,7 @@ data = json.loads(device_info_txt)
 data['userName'] = username
 
 # the "__VPN_SERVER__" should be replaced with the server base url that we send from flexiManage
-# in the installation vpn job parameters 
+# in the installation vpn job parameters
 url = "__VPN_SERVER__/api/auth/tokens/verify"
 
 # on local setup there is no real ssl certificate and we need to call the server without verification

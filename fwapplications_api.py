@@ -213,16 +213,15 @@ class FWAPPLICATIONS_API(FwObject):
             identifier = params.get('identifier')
 
             # check if install.tar.gz file exists
-            # check if install.tar.gz file exists
             installation_dir = self.get_installation_dir(identifier)
-            source_installation_file = installation_dir + '/install.tar.gz'
-            if not os.path.exists(source_installation_file):
-                raise Exception(f'install file ({source_installation_file}) is not exists')
+            # source_installation_file = installation_dir + '/install.tar.gz'
+            if not os.path.exists(installation_dir):
+                raise Exception(f'install file ({installation_dir}) is not exists')
 
-            # extract the install.tar.gz file
-            file = tarfile.open(source_installation_file)
-            file.extractall(installation_dir)
-            file.close()
+            # # extract the install.tar.gz file
+            # file = tarfile.open(source_installation_file)
+            # file.extractall(installation_dir)
+            # file.close()
 
             # before the installation make sure that tap related modules are enabled
             # Many applications may use them.
