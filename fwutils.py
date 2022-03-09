@@ -1688,23 +1688,6 @@ def get_router_status():
         state = 'stopped'
     return (state, reason)
 
-def is_router_running():
-    """Check if VPP is running.
-
-     :returns: True/False.
-    """
-    if hasattr(fwglobals.g, 'router_api'):
-        # The STOPPING state is omitted on purpose to accommodate PPPoE needs
-        return fwglobals.g.router_api.state_is_starting_or_started()
-    return False
-
-def dev_id_to_if_name(dev_id):
-    """Convert dev_id to if_name.
-
-     :returns: if_name.
-    """
-    return dev_id_to_tap(dev_id) if is_router_running() else dev_id_to_linux_if(dev_id)
-
 def _get_group_delimiter(lines, delimiter):
     """Helper function to iterate through a group lines by delimiter.
 
