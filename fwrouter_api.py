@@ -1012,7 +1012,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwglobals.g.pppoe.start()
         self.log.info("router was started: vpp_pid=%s" % str(fwutils.vpp_pid()))
 
-        fwglobals.g.applications_api.call_hook('router_is_started')
+        fwglobals.g.applications_api.call_hook('on_router_is_started')
 
     def _on_stop_router_before(self):
         """Handles pre-VPP stop activities.
@@ -1026,7 +1026,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwglobals.g.cache.dev_id_to_vpp_tap_name.clear()
         self.log.info("router is being stopped: vpp_pid=%s" % str(fwutils.vpp_pid()))
 
-        fwglobals.g.applications_api.call_hook('router_is_being_to_stop')
+        fwglobals.g.applications_api.call_hook('on_router_stopping')
 
     def _on_stop_router_after(self):
         """Handles post-VPP stop activities.
@@ -1050,7 +1050,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         with FwPolicies(fwglobals.g.POLICY_REC_DB_FILE) as db_policies:
             db_policies.clean()
 
-        fwglobals.g.applications_api.call_hook('router_is_stopped')
+        fwglobals.g.applications_api.call_hook('on_router_is_stopped')
 
     def _on_add_interface_after(self, type, sw_if_index):
         """add-interface postprocessing

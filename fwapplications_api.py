@@ -25,7 +25,6 @@ import importlib.util
 import multiprocessing as mp
 import os
 import pathlib
-import tarfile
 import threading
 import time
 import traceback
@@ -47,17 +46,18 @@ fwapplications_handlers = {
 fwapplications_hooks = {
     'install':                     True,
     'uninstall':                   True,
-    'status':                      True,
+    'get_status':                  True,
     'configure':                   True,
-    'watchdog_test':               False,
-    'get_log_file':                False,
-    'get_monitoring':              False,
-    'router_is_started':           False,
-    'router_is_being_to_stop':     False,
-    'router_is_stopped':           False,
-    'agent_reset':                 False,
     'start':                       False,
-    'get_lan_vpp_interface_names': False
+    'get_lan_vpp_interface_names': False,
+    'get_log_file':                False,
+    'get_statistics':              False,
+
+    # hooks
+    'on_apps_watchdog':            False,
+    'on_router_is_started':        False,
+    'on_router_is_stopped':        False,
+    'on_router_stopping':          False,
 }
 
 class FWAPPLICATIONS_API(FwObject):
@@ -102,7 +102,7 @@ class FWAPPLICATIONS_API(FwObject):
         def run(*args):
             slept = 0
             while not fwglobals.g.teardown:
-                # Every 10 seconds collect the application status and monitoring
+                # Every 10 seconds collect the application status and statistics
                 #
                 try:  # Ensure thread doesn't exit on exception
                     timeout = 10
@@ -113,11 +113,11 @@ class FWAPPLICATIONS_API(FwObject):
                             if not is_installed:
                                 continue
 
-                            self.watchdog_test(is_installed)
+                            self.call_app_watchdog(is_installed)
 
                             new_stats = {}
                             new_stats['running'] = self.is_app_running(identifier)
-                            new_stats['monitoring'] = self.get_monitoring_info(identifier)
+                            new_stats['statistics'] = self.get_app_statistics(identifier)
                             self.apps_stats[identifier] = new_stats
                         slept = 0
                 except Exception as e:
@@ -212,16 +212,9 @@ class FWAPPLICATIONS_API(FwObject):
             params = request['params']
             identifier = params.get('identifier')
 
-            # check if install.tar.gz file exists
             installation_dir = self.get_installation_dir(identifier)
-            # source_installation_file = installation_dir + '/install.tar.gz'
             if not os.path.exists(installation_dir):
                 raise Exception(f'install file ({installation_dir}) is not exists')
-
-            # # extract the install.tar.gz file
-            # file = tarfile.open(source_installation_file)
-            # file.extractall(installation_dir)
-            # file.close()
 
             # before the installation make sure that tap related modules are enabled
             # Many applications may use them.
@@ -274,7 +267,7 @@ class FWAPPLICATIONS_API(FwObject):
         try:
             params = request['params']
             identifier = params.get('identifier')
-            success, val = self._call_application_api(identifier, 'status')
+            success, val = self._call_application_api(identifier, 'get_status')
             if not success:
                 return { 'ok': 0, 'message': val }
 
@@ -282,14 +275,14 @@ class FWAPPLICATIONS_API(FwObject):
         except Exception as e:
             return { 'ok': 0, 'message': str(e) }
 
-    def watchdog_test(self, request):
+    def call_app_watchdog(self, request):
         try:
             params = request['params']
             identifier = params.get('identifier')
 
             params['router_is_running'] = fwglobals.g.router_api.state_is_started()
 
-            success, val = self._call_application_api(identifier, 'watchdog_test', params)
+            success, val = self._call_application_api(identifier, 'on_apps_watchdog', params)
             if not success:
                 return { 'ok': 0, 'message': val }
 
@@ -316,9 +309,9 @@ class FWAPPLICATIONS_API(FwObject):
             return False
         return reply['message']
 
-    def get_monitoring_info(self, identifier):
+    def get_app_statistics(self, identifier):
         try:
-            success, val = self._call_application_api(identifier, 'get_monitoring')
+            success, val = self._call_application_api(identifier, 'get_statistics')
             if not success:
                 return {}
 
@@ -452,6 +445,7 @@ def subproc(q, path, method, params, validate_func_exists):
         # import the module
         spec = importlib.util.spec_from_file_location("application", path + '/application.py')
         module = importlib.util.module_from_spec(spec)
+        m = spec.loader.load_module()
         spec.loader.exec_module(module)
 
         # get the function

@@ -204,18 +204,30 @@ class FWAGENT_API(FwObject):
         """Get device logs.
 
         :param params: Parameters from flexiManage.
+            examples of possible parameters:
+                {
+                    'lines': 100,
+                    'filter': 'fwagent',
+                },
+                {
+                    'lines': 100,
+                    'application': {
+                        identifier: 'com.flexiwan.remotevpn'
+                    }
+                }
 
         :returns: Dictionary with logs and status code.
         """
-        is_app = params.get('is-application')
-        if is_app:
+        application = params.get('application')
+        if application:
             # check if application is installed
-            app_installed = fwglobals.g.applications_api.get_application(params['filter'])
+            identifier = application['identifier']
+            app_installed = fwglobals.g.applications_api.get_application(identifier)
             if not app_installed:
                 raise Exception('application is not installed')
 
             # call application log api
-            file = fwglobals.g.applications_api.get_log_file(params['filter'])
+            file = fwglobals.g.applications_api.get_log_file(identifier)
         else:
             dl_map = {
                 'fwagent': fwglobals.g.ROUTER_LOG_FILE,

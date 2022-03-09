@@ -16,25 +16,26 @@ ifconfig_netmask = sys.argv[5]
 
 app_db_path = '__APP_DB_FILE__'
 
-try:
-    mask = IPAddress(ifconfig_netmask).netmask_bits()
+mask = IPAddress(ifconfig_netmask).netmask_bits()
 
-    # remove tc filter commands
-    os.system('sudo tc qdisc delete dev t_vpp_remotevpn ingress')
+# remove tc filter commands
+os.system('sudo tc qdisc delete dev t_vpp_remotevpn ingress')
 
-    # remove vpp tun interface
-    with open(app_db_path, 'w+') as json_file:
-        data = json.load(json_file)
-        tun_vpp_if_name = data.get('tun_vpp_if_name')
-        if tun_vpp_if_name:
-            os.system(f'sudo vppctl delete tap {tun_vpp_if_name}')
-            del data['tun_vpp_if_name']
-            json.dump(data, json_file)
+# remove the openvpn network from ospf
+vtysh_cmd = f'sudo /usr/bin/vtysh -c "configure" -c "router ospf" -c "no network {ifconfig_local_ip}/{mask} area 0.0.0.0"'
+output = os.system(vtysh_cmd)
 
-    # remove the openvpn network from ospf
-    vtysh_cmd = f'sudo /usr/bin/vtysh -c "configure" -c "router ospf" -c "no network {ifconfig_local_ip}/{mask} area 0.0.0.0"'
-    output = os.system(vtysh_cmd)
-except:
-    pass
+# remove vpp tun interface
+data = None
+with open(app_db_path, 'r') as json_file:
+    data = json.load(json_file)
+    tun_vpp_if_name = data.get('tun_vpp_if_name')
+    if tun_vpp_if_name:
+        os.system(f'sudo vppctl delete tap {tun_vpp_if_name}')
+        del data['tun_vpp_if_name']
+
+# update
+with open(app_db_path, 'w+') as json_file:
+    json.dump(data, json_file)
 
 sys.exit(0)

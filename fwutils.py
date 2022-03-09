@@ -1447,7 +1447,7 @@ def stop_vpp():
      :returns: Error message and status code.
      """
 
-    call_applications_hook('router_is_being_to_stop')
+    call_applications_hook('on_router_stopping')
 
     dpdk_ifs = []
     dpdk.devices = {}
@@ -1476,7 +1476,7 @@ def stop_vpp():
     fwstats.update_state(False)
     netplan_apply('stop_vpp')
 
-    call_applications_hook('router_is_stopped')
+    call_applications_hook('on_router_is_stopped')
 
     with FwIKEv2() as ike:
         ike.clean()
