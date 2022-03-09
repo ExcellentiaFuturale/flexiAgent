@@ -1,0 +1,1 @@
+This folder contains applications for installation on flexiEdge
