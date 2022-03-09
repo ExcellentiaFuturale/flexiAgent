@@ -31,6 +31,7 @@ import subprocess
 import fwglobals
 import fwutils
 import fwnetplan
+import fwpppoe
 import fwroutes
 import fwwifi
 from fwmultilink import FwMultilink
@@ -174,7 +175,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 for wan in wan_list:
                     dhcp = wan.get('dhcp', 'no')
                     device_type = wan.get('deviceType')
-                    is_pppoe = fwglobals.g.pppoe.is_pppoe_interface(dev_id=wan.get('dev_id'))
+                    is_pppoe = fwpppoe.is_pppoe_interface(dev_id=wan.get('dev_id'))
 
                     if dhcp == 'no' or device_type == 'lte' or is_pppoe:
                         continue

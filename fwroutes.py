@@ -21,6 +21,7 @@
 import enum
 import socket
 import fwglobals
+import fwpppoe
 import fwtunnel_stats
 import fwutils
 import pyroute2
@@ -187,12 +188,13 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
     if addr == 'default':
         return (True, None)
 
-    check_subnet = True if dev and not dev.startswith('ppp') else False
+    is_pppoe = fwpppoe.is_pppoe_interface(if_name=dev)
+    check_subnet = not is_pppoe
 
     if not fwutils.linux_check_gateway_exist(via, check_subnet):
         return (True, None)
 
-    if not remove:
+    if not remove and not is_pppoe:
         tunnel_addresses = fwtunnel_stats.get_tunnel_info()
         if via in tunnel_addresses and tunnel_addresses[via] != 'up':
             return (True, None)

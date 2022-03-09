@@ -272,7 +272,7 @@ def get_interface_gateway(if_name, if_dev_id=None):
     if if_dev_id:
         if_name = dev_id_to_tap(if_dev_id)
 
-    if fwglobals.g.pppoe.is_pppoe_interface(if_name=if_name):
+    if fwpppoe.is_pppoe_interface(if_name=if_name):
         pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
         return pppoe_iface.gw, str(pppoe_iface.metric)
 
@@ -340,7 +340,7 @@ def get_all_interfaces():
                 nic_name = tap_name
                 addrs = interfaces.get(nic_name)
 
-        if fwglobals.g.pppoe.is_pppoe_interface(if_name=nic_name):
+        if fwpppoe.is_pppoe_interface(if_name=nic_name):
             pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=nic_name)
             if pppoe_iface.is_connected:
                 addrs = interfaces.get(pppoe_iface.ppp_if_name)
@@ -377,9 +377,10 @@ def get_interface_address(if_name, log=True, log_on_failure=None):
     if log_on_failure == None:
         log_on_failure = log
 
-    ppp_if_name = fwpppoe.pppoe_get_ppp_if_name(if_name)
-    if ppp_if_name:
-        if_name = ppp_if_name
+    if fwpppoe.is_pppoe_interface(if_name=if_name):
+        ppp_if_name = fwpppoe.pppoe_get_ppp_if_name(if_name)
+        if ppp_if_name:
+            if_name = ppp_if_name
 
     interfaces = psutil.net_if_addrs()
     if if_name not in interfaces:
@@ -572,7 +573,7 @@ def get_linux_interfaces(cached=True):
 
             interface['mtu'] = get_linux_interface_mtu(if_name)
 
-            is_pppoe = fwglobals.g.pppoe.is_pppoe_interface(if_name=if_name)
+            is_pppoe = fwpppoe.is_pppoe_interface(if_name=if_name)
             is_wifi = fwwifi.is_wifi_interface(if_name)
             is_lte = fwlte.is_lte_interface(if_name)
 
