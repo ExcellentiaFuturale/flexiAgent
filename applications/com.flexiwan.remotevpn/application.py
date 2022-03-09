@@ -29,8 +29,7 @@ import time
 
 from netaddr import IPNetwork
 
-OPENVPN_LOG_FILE    = '/var/log/openvpn/openvpn.log'
-APP_DB_PATH = '/etc/openvpn/server/fw_db'
+from app_configs import app_database_file, openvpn_log_file
 
 def install(params):
     """Install Remote VPN server on host.
@@ -121,6 +120,9 @@ def configure(params):
         # replace scripts variables
         escaped_url = re.escape(params['vpnPortalServer'])
         os.system("sed -i 's/__VPN_SERVER__/%s/g' /etc/openvpn/server/auth-script.py" % escaped_url)
+
+        os.system(f"sed -i 's/__APP_DB_FILE__/{app_database_file}/g' /etc/openvpn/server/down-script.py")
+        os.system(f"sed -i 's/__APP_DB_FILE__/{app_database_file}/g' /etc/openvpn/server/up-script.py")
 
         # run several commands for configurations
         commands = [
@@ -221,7 +223,7 @@ def _configure_server_file(params):
             'topology subnet',
 
             # Log
-            f'log {OPENVPN_LOG_FILE}',
+            f'log {openvpn_log_file}',
 
             # Configure server mode and supply a VPN subnet
             # for OpenVPN to draw client addresses from.
@@ -430,7 +432,7 @@ def watchdog_test(params):
         start(params)
 
 def get_log_file(params):
-    return (True, OPENVPN_LOG_FILE)
+    return (True, openvpn_log_file)
 
 def get_lan_vpp_interface_names(params):
     vpnIsRun = True if _openvpn_pid() else False
@@ -438,7 +440,7 @@ def get_lan_vpp_interface_names(params):
     if not vpnIsRun:
         return res
 
-    with open(APP_DB_PATH, 'r') as json_file:
+    with open(app_database_file, 'r') as json_file:
         data = json.load(json_file)
         tun_vpp_if_name = data.get('tun_vpp_if_name')
         if tun_vpp_if_name:

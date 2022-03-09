@@ -14,7 +14,7 @@ link_mtu = sys.argv[3]
 ifconfig_local_ip = sys.argv[4]
 ifconfig_netmask = sys.argv[5]
 
-app_db_path = '/etc/openvpn/server/fw_db'
+app_db_path = '__APP_DB_FILE__'
 
 try:
     mask = IPAddress(ifconfig_netmask).netmask_bits()
@@ -23,11 +23,13 @@ try:
     os.system('sudo tc qdisc delete dev t_vpp_remotevpn ingress')
 
     # remove vpp tun interface
-    with open(app_db_path, 'r') as json_file:
+    with open(app_db_path, 'w+') as json_file:
         data = json.load(json_file)
         tun_vpp_if_name = data.get('tun_vpp_if_name')
         if tun_vpp_if_name:
             os.system(f'sudo vppctl delete tap {tun_vpp_if_name}')
+            del data['tun_vpp_if_name']
+            json.dump(data, json_file)
 
     # remove the openvpn network from ospf
     vtysh_cmd = f'sudo /usr/bin/vtysh -c "configure" -c "router ospf" -c "no network {ifconfig_local_ip}/{mask} area 0.0.0.0"'
