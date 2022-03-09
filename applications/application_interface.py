@@ -67,7 +67,7 @@ class IApplication(ABC, FwObject):
     def start(self):
         pass
 
-    def get_interfaces(self, type: str, vpp: bool) -> list:
+    def get_interfaces(self, params) -> list:
         return []
 
     # hooks

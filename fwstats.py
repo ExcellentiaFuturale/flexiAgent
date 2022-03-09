@@ -205,7 +205,7 @@ def get_stats():
 
     reconfig = fwutils.get_reconfig_hash()
     ikev2_certificate_expiration = fwglobals.g.ikev2.get_certificate_expiration()
-    apps_stats = fwglobals.g.applications_api.get_applications_stats()
+    apps_stats = fwglobals.g.applications_api.get_stats()
 
     # If the list of updates is empty, append a dummy update to
     # set the most up-to-date status of the router. If not, update

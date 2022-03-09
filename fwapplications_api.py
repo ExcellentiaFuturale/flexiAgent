@@ -45,11 +45,12 @@ class FWAPPLICATIONS_API(FwObject):
         FwObject.__init__(self)
 
         self.db = SqliteDict(application_db_file, autocommit=True)
-        self.thread_apps_statistics = None
-        self.apps_stats    = {}
-        self.processing_job = False
+        self.thread_stats = None
+        self.stats    = {}
+        self.processing_request = False
         if run_application_stats:
-            self.application_stats()
+            self.thread_stats = threading.Thread(target=self.run_stats_thread, name='Applications Statistics Thread')
+            self.thread_stats.start()
 
     def __enter__(self):
         return self
@@ -62,74 +63,71 @@ class FWAPPLICATIONS_API(FwObject):
         self.finalize()
 
     def finalize(self):
-        if self.thread_apps_statistics:
-            self.thread_apps_statistics.join()
-            self.thread_apps_statistics = None
+        if self.thread_stats:
+            self.thread_stats.join()
+            self.thread_stats = None
 
         self.db.close()
         return
 
-    def reset_db(self):
-        self.db.clear()
+    def get_stats(self):
+        return copy.deepcopy(self.stats)
 
-    def get_applications_stats(self):
-        return copy.deepcopy(self.apps_stats)
+    def run_stats_thread(self):
+        slept = 0
+        while not fwglobals.g.teardown:
+            # Every 10 seconds collect the application status and statistics
+            #
+            try:  # Ensure thread doesn't exit on exception
+                timeout = 10
+                if (slept % timeout) == 0 and not self.processing_request:
+                    apps = dict(self.db.items())
+                    for identifier in apps:
+                        installed = apps[identifier].get('installed')
+                        if not installed:
+                            continue
 
-    def application_stats(self):
-        def run(*args):
-            slept = 0
-            while not fwglobals.g.teardown:
-                # Every 10 seconds collect the application status and statistics
-                #
-                try:  # Ensure thread doesn't exit on exception
-                    timeout = 10
-                    if (slept % timeout) == 0 and not self.processing_job:
-                        apps = dict(self.db.items())
-                        for identifier in apps:
-                            is_installed = apps[identifier].get('installed')
-                            if not is_installed:
-                                continue
+                        self.call_app_watchdog(installed)
 
-                            self.call_app_watchdog(is_installed)
+                        new_stats = {}
+                        new_stats['running'] = self.is_app_running(identifier)
+                        new_stats['statistics'] = self.get_app_statistics(identifier)
+                        self.stats[identifier] = new_stats
+                    slept = 0
+            except Exception as e:
+                self.log.excep("%s: %s (%s)" %
+                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
+                pass
 
-                            new_stats = {}
-                            new_stats['running'] = self.is_app_running(identifier)
-                            new_stats['statistics'] = self.get_app_statistics(identifier)
-                            self.apps_stats[identifier] = new_stats
-                        slept = 0
-                except Exception as e:
-                    self.log.excep("%s: %s (%s)" %
-                        (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                    pass
-
-                time.sleep(1)
-                slept += 1
-
-        self.thread_apps_statistics = threading.Thread(target=run, name='Applications Statistics Thread')
-        self.thread_apps_statistics.start()
+            time.sleep(1)
+            slept += 1
 
     def call(self, request):
-        """Invokes API specified by the 'request' parameter.
+        """Invokes API specified by the request received from flexiManage.
 
         :param request: Request name.
         :param params: Parameters from flexiManage.
 
         :returns: Reply.
         """
-        message = request['message']
-        params = request['params']
+        try:
+            message = request['message']
+            params = request['params']
 
-        handler = message.split('application-')[-1]
+            handler = message.split('application-')[-1]
 
-        handler_func = getattr(self, handler)
-        assert handler_func, f'fwapplications_api: handler={handler} not found for req={request}'
+            handler_func = getattr(self, handler)
+            assert handler_func, f'fwapplications_api: handler={handler} not found for req={request}'
 
-        self.processing_job = True
-        reply = handler_func(request)
-        self.processing_job = False
-        if reply['ok'] == 0:
-            raise Exception(f'fwapplications_api: {handler_func}({format(params)}) failed: {reply["message"]}')
-        return reply
+            self.processing_request = True
+            reply = handler_func(request)
+            reply['ok'] = 0
+            reply['message'] = 'tt'
+            if reply['ok'] == 0:
+                raise Exception(f'fwapplications_api: {handler_func}({format(params)}) failed: {reply["message"]}')
+            return reply
+        finally:
+            self.processing_request = False
 
     def _call_application_api(self, identifier, method, params = {}):
         path = self.get_installation_dir(identifier)
@@ -145,8 +143,8 @@ class FWAPPLICATIONS_API(FwObject):
         return result
 
     def reset(self):
-      self.call_hook('uninstall')
-      self.reset_db()
+        self.call_hook('uninstall')
+        self.db.clear()
 
     def call_hook(self, hook_type, params={}, identifier=None):
         res = {}
@@ -161,10 +159,13 @@ class FWAPPLICATIONS_API(FwObject):
                 if success:
                     res[app_identifier] = val
             except Exception as e:
-                self.log.debug(f'call_hook: hook "{hook_type}" failed. identifier={app_identifier}. err={str(e)}')
+                self.log.debug(f'call_hook({hook_type}): failed for identifier={app_identifier}: err={str(e)}')
                 pass
 
         return res
+
+    def get_interface(self, type, vpp):
+        return self.call_hook('get_interfaces', {type: type, vpp: vpp})
 
     def get_installation_dir(self, identifier):
         current_dir = str(pathlib.Path(__file__).parent.resolve())
@@ -230,9 +231,9 @@ class FWAPPLICATIONS_API(FwObject):
             self.db = apps_db
 
             # remove application stats
-            app_stats = self.apps_stats.get(identifier)
+            app_stats = self.stats.get(identifier)
             if app_stats:
-                del self.apps_stats[identifier]
+                del self.stats[identifier]
 
             return { 'ok': 1 }
         except Exception as e:
@@ -434,6 +435,8 @@ def subproc(q, path, method, params):
 
         ret = func(params)
         q.put(ret)
+
+        del app
     except Exception as e:
         ret = (False, str(e))
         q.put(ret)

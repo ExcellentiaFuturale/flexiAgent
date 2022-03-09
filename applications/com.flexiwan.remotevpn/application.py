@@ -398,7 +398,7 @@ class Application(IApplication):
     def get_log_file(self, params):
         return (True, openvpn_log_file)
 
-    def get_interfaces(self, type=None, vpp=True):
+    def get_interfaces(self, params):
         vpn_runs = True if self._openvpn_pid() else False
         res = []
         if not vpn_runs:
