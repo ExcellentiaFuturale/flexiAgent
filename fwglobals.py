@@ -127,7 +127,6 @@ request_handlers = {
     'application-install':           {'name': '_call_applications_api', 'sign': True},
     'application-uninstall':         {'name': '_call_applications_api', 'sign': True},
     'application-configure':         {'name': '_call_applications_api', 'sign': True},
-    'application-status':            {'name': '_call_applications_api'},
 
     ##############################################################
     # INTERNAL API-s

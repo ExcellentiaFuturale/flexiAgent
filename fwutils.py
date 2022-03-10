@@ -2274,7 +2274,7 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order,
     # The function below returns dictionary, where keys are application identifiers,
     # and values are lists of vpp interface names, e.g.
     #      { 'com.flexiwan.vpn': ['tun0'] }
-    app_lans = fwglobals.g.applications_api.get_interface(type="lan", vpp=True)
+    app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp=True)
     app_lans_list = [vpp_if_name for vpp_if_names in app_lans.values() for vpp_if_name in vpp_if_names]
 
     vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list + app_lans_list

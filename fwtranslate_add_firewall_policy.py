@@ -155,7 +155,7 @@ def add_firewall_policy(params):
         # The function below returns dictionary, where keys are application identifiers,
         # and values are lists of vpp interface names, e.g.
         #      { 'com.flexiwan.vpn': ['tun0'] }
-        app_lans = fwglobals.g.applications_api.get_interface(type="lan", vpp=True)
+        app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp=True)
 
         for rule_index, rule in enumerate(outbound_rules['rules']):
 

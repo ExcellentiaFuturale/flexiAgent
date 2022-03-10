@@ -222,8 +222,8 @@ class FWAGENT_API(FwObject):
         if application:
             # check if application is installed
             identifier = application['identifier']
-            app_installed = fwglobals.g.applications_api.get_application(identifier)
-            if not app_installed:
+            is_installed = fwglobals.g.applications_api.is_application_installed(identifier)
+            if not is_installed:
                 raise Exception('application is not installed')
 
             # call application log api

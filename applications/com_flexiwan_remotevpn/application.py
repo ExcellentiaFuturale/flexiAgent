@@ -48,7 +48,7 @@ openvpn_log_file = '/var/log/openvpn/openvpn.log'
 openvpn_server_conf_file = '/etc/openvpn/server/server.conf'
 
 class Application(IApplication):
-    identifier = current.split('/')[-1]
+    identifier = 'com.flexiwan.remotevpn'
 
     def install(self, params):
         """Install Remote VPN server on host.

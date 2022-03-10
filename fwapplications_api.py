@@ -21,8 +21,8 @@
 ################################################################################
 
 import copy
-import importlib.util
-import multiprocessing as mp
+# import importlib.util
+# import multiprocessing as mp
 import os
 import pathlib
 import threading
@@ -33,7 +33,10 @@ from sqlitedict import SqliteDict
 
 import fwglobals
 import fwutils
+from applications.com_flexiwan_remotevpn.application import \
+    Application as RemoteVpn
 from fwobject import FwObject
+
 
 class FWAPPLICATIONS_API(FwObject):
     """Services class representation.
@@ -47,9 +50,12 @@ class FWAPPLICATIONS_API(FwObject):
         self.db = SqliteDict(application_db_file, autocommit=True)
         self.thread_stats = None
         self.stats    = {}
+        self.app_files = {
+            'com.flexiwan.remotevpn': RemoteVpn()
+        }
         self.processing_request = False
         if run_application_stats:
-            self.thread_stats = threading.Thread(target=self.run_stats_thread, name='Applications Statistics Thread')
+            self.thread_stats = threading.Thread(target=self._run_stats_thread, name='Applications Statistics Thread')
             self.thread_stats.start()
 
     def __enter__(self):
@@ -70,38 +76,6 @@ class FWAPPLICATIONS_API(FwObject):
         self.db.close()
         return
 
-    def get_stats(self):
-        return copy.deepcopy(self.stats)
-
-    def run_stats_thread(self):
-        slept = 0
-        while not fwglobals.g.teardown:
-            # Every 10 seconds collect the application status and statistics
-            #
-            try:  # Ensure thread doesn't exit on exception
-                timeout = 10
-                if (slept % timeout) == 0 and not self.processing_request:
-                    apps = dict(self.db.items())
-                    for identifier in apps:
-                        installed = apps[identifier].get('installed')
-                        if not installed:
-                            continue
-
-                        self.call_app_watchdog(installed)
-
-                        new_stats = {}
-                        new_stats['running'] = self.is_app_running(identifier)
-                        new_stats['statistics'] = self.get_app_statistics(identifier)
-                        self.stats[identifier] = new_stats
-                    slept = 0
-            except Exception as e:
-                self.log.excep("%s: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
-
-            time.sleep(1)
-            slept += 1
-
     def call(self, request):
         """Invokes API specified by the request received from flexiManage.
 
@@ -121,26 +95,165 @@ class FWAPPLICATIONS_API(FwObject):
 
             self.processing_request = True
             reply = handler_func(request)
-            reply['ok'] = 0
-            reply['message'] = 'tt'
             if reply['ok'] == 0:
                 raise Exception(f'fwapplications_api: {handler_func}({format(params)}) failed: {reply["message"]}')
             return reply
         finally:
             self.processing_request = False
 
+    def install(self, request):
+        '''
+        {
+            "entity": "agent",
+            "message": "application-install",
+            "params": {
+                "name": "Remote Worker VPN",
+                "identifier": "com.flexiwan.remotevpn",
+                "configParams": { ... }
+            }
+        }
+        '''
+        try:
+            params = request['params']
+            identifier = params.get('identifier')
+
+            installation_dir = self._get_installation_dir(identifier)
+            if not os.path.exists(installation_dir):
+                raise Exception(f'install file ({installation_dir}) is not exists')
+
+            # before the installation make sure that tap related modules are enabled
+            # Many applications may use them.
+            fwutils.load_linux_tap_modules()
+            fwutils.load_linux_tc_modules()
+
+            extended_params = dict(params)
+            extended_params['router_is_running'] = fwglobals.g.router_api.state_is_started()
+
+            success, val = self._call_application_api(identifier, 'install', extended_params)
+
+            if not success:
+                return { 'ok': 0, 'message': val }
+
+            # store in database
+            self._update_applications_db(identifier, 'installed', request)
+
+            return { 'ok': 1 }
+        except Exception as e:
+            return { 'ok': 0, 'message': str(e) }
+
+    def uninstall(self, request):
+        '''
+        {
+            "entity": "agent",
+            "message": "application-uninstall",
+            "params": {
+                "name": "Remote Worker VPN",
+                "identifier": "com.flexiwan.remotevpn"
+            }
+        }
+        '''
+        try:
+            params = request['params']
+            identifier = params.get('identifier')
+
+            success, val = self._call_application_api(identifier, 'uninstall', params)
+            if not success:
+                return { 'ok': 0, 'message': val }
+
+            # remove application from db
+            apps_db = self.db
+            app = apps_db.get(identifier)
+            if app:
+                del apps_db[identifier]
+                self.db = apps_db
+
+            # remove application stats
+            app_stats = self.stats.get(identifier)
+            if app_stats:
+                del self.stats[identifier]
+
+            return { 'ok': 1 }
+        except Exception as e:
+            return { 'ok': 0, 'message': str(e) }
+
+    def configure(self, request):
+        '''
+        {
+            "entity": "agent",
+            "message": "application-configure",
+            "params": {
+                "name": "Remote Worker VPN",
+                "identifier": "com.flexiwan.remotevpn",
+                "routeAllTrafficOverVpn": true,
+                "port": "1194",
+                ...
+            }
+        }
+        '''
+        try:
+            params = request['params']
+            identifier = params.get('identifier')
+            success, val = self._call_application_api(identifier, 'configure', params)
+
+            if not success:
+                return { 'ok': 0, 'message': val }
+
+            # update in database
+            installed = self.db[identifier].get('installed')
+            installed['params']['configParams'] = params
+            self._update_applications_db(identifier, 'installed', installed)
+
+            return { 'ok': 1 }
+        except Exception as e:
+            return { 'ok': 0, 'message': str(e) }
+
+    def get_stats(self):
+        return copy.deepcopy(self.stats)
+
+    def _run_stats_thread(self):
+        slept = 0
+        while not fwglobals.g.teardown:
+            # Every 10 seconds collect the application status and statistics
+            #
+            try:  # Ensure thread doesn't exit on exception
+                timeout = 10
+                if (slept % timeout) == 0 and not self.processing_request:
+                    apps = dict(self.db.items())
+                    for identifier in apps:
+                        installed = apps[identifier].get('installed')
+                        if not installed:
+                            continue
+
+                        self._call_app_watchdog(installed)
+
+                        new_stats = {}
+                        new_stats['running'] = self._is_app_running(identifier)
+                        new_stats['statistics'] = self._get_app_statistics(identifier)
+                        self.stats[identifier] = new_stats
+                    slept = 0
+            except Exception as e:
+                self.log.excep("%s: %s (%s)" %
+                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
+                pass
+
+            time.sleep(1)
+            slept += 1
+
     def _call_application_api(self, identifier, method, params = {}):
-        path = self.get_installation_dir(identifier)
+        try:
+            app = self.app_files[identifier]
 
-        q = mp.Queue()
-        p = mp.Process(target=subproc, args=(q, path, method, params))
+            # get the function
+            func = getattr(app, method, None)
+            if not func:
+                # A function that is not present is a normal state.
+                # There are functions that must exist. They are enforced through the use of interface
+                return (True, None)
 
-        p.start()
-        result = q.get()
-        p.join()
-        p.terminate()
-
-        return result
+            res = func(params)
+            return res
+        except Exception as e:
+            return (False, str(e))
 
     def reset(self):
         self.call_hook('uninstall')
@@ -164,82 +277,16 @@ class FWAPPLICATIONS_API(FwObject):
 
         return res
 
-    def get_interface(self, type, vpp):
+    def get_interfaces(self, type, vpp):
         return self.call_hook('get_interfaces', {type: type, vpp: vpp})
 
-    def get_installation_dir(self, identifier):
+    def _get_installation_dir(self, identifier):
         current_dir = str(pathlib.Path(__file__).parent.resolve())
+        identifier = identifier.replace('.', '_') # python modules cannot be imported if the path is with dots
         source_installation_dir = current_dir + '/applications/' + identifier
         return source_installation_dir
 
-    def install(self, request):
-        '''
-        {
-            "entity": "agent",
-            "message": "application-install",
-            "params": {
-                "name": "Remote Worker VPN",
-                "identifier": "com.flexiwan.remotevpn",
-                "configParams": { ... }
-            }
-        }
-        '''
-        try:
-            params = request['params']
-            identifier = params.get('identifier')
-
-            installation_dir = self.get_installation_dir(identifier)
-            if not os.path.exists(installation_dir):
-                raise Exception(f'install file ({installation_dir}) is not exists')
-
-            # before the installation make sure that tap related modules are enabled
-            # Many applications may use them.
-            fwutils.load_linux_tap_modules()
-            fwutils.load_linux_tc_modules()
-
-            extended_params = dict(params)
-            extended_params['router_is_running'] = fwglobals.g.router_api.state_is_started()
-
-            success, val = self._call_application_api(identifier, 'install', extended_params)
-
-            if not success:
-                return { 'ok': 0, 'message': val }
-
-            # store in database
-            self.update_applications_db(identifier, 'installed', request)
-
-            return { 'ok': 1 }
-        except Exception as e:
-            return { 'ok': 0, 'message': str(e) }
-
-    def uninstall(self, request):
-        try:
-            params = request['params']
-            identifier = params.get('identifier')
-
-            apps_db = self.db
-            app = apps_db.get(identifier)
-            if not app:
-                return { 'ok': 1, 'message': '' }
-
-            success, val = self._call_application_api(identifier, 'uninstall', params)
-            if not success:
-                return { 'ok': 0, 'message': val }
-
-            # remove application from db
-            del apps_db[identifier]
-            self.db = apps_db
-
-            # remove application stats
-            app_stats = self.stats.get(identifier)
-            if app_stats:
-                del self.stats[identifier]
-
-            return { 'ok': 1 }
-        except Exception as e:
-            return { 'ok': 0, 'message': str(e) }
-
-    def status(self, request):
+    def _status(self, request):
         try:
             params = request['params']
             identifier = params.get('identifier')
@@ -251,7 +298,7 @@ class FWAPPLICATIONS_API(FwObject):
         except Exception as e:
             return { 'ok': 0, 'message': str(e) }
 
-    def call_app_watchdog(self, request):
+    def _call_app_watchdog(self, request):
         try:
             params = request['params']
             identifier = params.get('identifier')
@@ -266,26 +313,13 @@ class FWAPPLICATIONS_API(FwObject):
         except Exception as e:
             return { 'ok': 0, 'message': str(e) }
 
-    def configure(self, request):
-        try:
-            params = request['params']
-            identifier = params.get('identifier')
-            success, val = self._call_application_api(identifier, 'configure', params)
-
-            if not success:
-                return { 'ok': 0, 'message': val }
-
-            return { 'ok': 1 }
-        except Exception as e:
-            return { 'ok': 0, 'message': str(e) }
-
-    def is_app_running(self, identifier):
-        reply = self.status({'params': { 'identifier': identifier }})
+    def _is_app_running(self, identifier):
+        reply = self._status({'params': { 'identifier': identifier }})
         if reply['ok'] == 0:
             return False
         return reply['message']
 
-    def get_app_statistics(self, identifier):
+    def _get_app_statistics(self, identifier):
         try:
             success, val = self._call_application_api(identifier, 'get_statistics')
             if not success:
@@ -305,40 +339,35 @@ class FWAPPLICATIONS_API(FwObject):
         except:
             return None
 
-    def update_applications_db(self, identifier, key, value, add=True):
+    def _update_applications_db(self, identifier, key, value):
         apps_db = self.db
         app = apps_db.get(identifier)
 
-        if add:
-            if not app:
-                apps_db[identifier] = {}
-                app = apps_db[identifier]
+        if not app:
+            apps_db[identifier] = {}
+            app = apps_db[identifier]
 
-            app[key] = value
-            apps_db[identifier] = app
-        else:
-            if app and key in app:
-                del app[key]
-                apps_db[identifier] = app
+        app[key] = value
+        apps_db[identifier] = app
 
         self.db = apps_db
 
-    def get_application(self, identifier):
+    def is_application_installed(self, identifier):
         for app_identifier in self.db:
             if app_identifier == identifier:
-                return self.db[identifier]
-        return None
+                return True
+        return False
 
-    def get_sync_list(self, requests):
+    def _get_sync_list(self, requests):
         output_requests = []
 
-        current_applications = dict(self.db.items())
+        db_keys = self.db.keys()
 
         # generate incoming applications list in order to save searches bellow
-        incoming_applications = {}
-        for incoming_application in requests:
-            identifier = incoming_application.get('params').get('identifier')
-            incoming_applications[identifier] = incoming_application
+        sync_applications = {}
+        for request in requests:
+            identifier = request.get('params').get('identifier')
+            sync_applications[identifier] = request
 
         # loop over the existing applications.
         # if the existing application exists in the incoming list:
@@ -347,19 +376,19 @@ class FWAPPLICATIONS_API(FwObject):
         # if the existing application does not exist in the incoming list:
         #   generate uninstall application message
         #
-        for identifier in current_applications:
-            install_req = current_applications[identifier].get('installed')
+        for identifier in db_keys:
+            install_req = self.db[identifier].get('installed')
             if not install_req:
                 continue
 
-            if identifier in incoming_applications:
+            if identifier in sync_applications:
                 current_params = install_req.get('params')
-                input_params  = incoming_applications[identifier]['params']
-                if fwutils.compare_request_params(current_params, input_params):
+                incoming_params = sync_applications[identifier]['params']
+                if fwutils.compare_request_params(current_params, incoming_params):
                     # The configuration item has exactly same parameters.
                     # It does not require sync, so remove it from input list.
                     #
-                    del incoming_applications[identifier]
+                    del sync_applications[identifier]
                 else:
                     install_req['message'] = install_req['message'].replace('-install', '-uninstall')
                     output_requests.append(install_req)
@@ -368,75 +397,63 @@ class FWAPPLICATIONS_API(FwObject):
                 output_requests.append(install_req)
 
 
-        output_requests += list(incoming_applications.values())
+        output_requests += list(sync_applications.values())
         return output_requests
 
     def sync(self, requests, full_sync=False):
         requests = list([x for x in requests if x['message'].startswith('application-')])
 
-        sync_list = self.get_sync_list(requests)
+        sync_list = self._get_sync_list(requests)
 
         if len(sync_list) == 0:
-            self.log.info("_sync_device: sync_list is empty, no need to sync")
+            self.log.info("sync: sync_list is empty, no need to sync")
             return True
 
-        self.log.debug("_sync_device: start smart sync")
+        self.log.debug("sync: start smart sync")
 
         for sync_request in sync_list:
             self.call(sync_request)
 
-        self.log.debug("_sync_device: smart sync succeeded")
+        self.log.debug("sync: smart sync succeeded")
 
-    def start(self, request):
-        try:
-            params = request['params']
-            identifier = params.get('identifier')
-            success, val = self._call_application_api(identifier, 'start')
-            if not success:
-                return { 'ok': 0, 'message': val }
-
-            self.update_applications_db(identifier, 'started', True)
-
-            return { 'ok': 1 }
-        except Exception as e:
-            return { 'ok': 0, 'message': str(e) }
-
-    # def stop(self, params):
+    # def _start(self, request):
     #     try:
+    #         params = request['params']
     #         identifier = params.get('identifier')
-    #         success, val = self._call_application_api(identifier, 'stop')
+    #         success, val = self._call_application_api(identifier, 'start')
     #         if not success:
     #             return { 'ok': 0, 'message': val }
 
-    #         self.update_applications_db(identifier, 'started', False)
+    #         self._update_applications_db(identifier, 'started', True)
+
     #         return { 'ok': 1 }
     #     except Exception as e:
     #         return { 'ok': 0, 'message': str(e) }
 
-def subproc(q, path, method, params):
-    try:
-        # os.setuid(0) # TODO: change this number
-        # os.chdir('/tmp') # TODO: implement the right dir with permissions
+# def subproc(q, path, method, params):
+#     try:
+#         # os.setuid(0) # TODO: change this number
+#         # os.chdir('/tmp') # TODO: implement the right dir with permissions
 
-        # import the module
-        spec = importlib.util.spec_from_file_location("application", path + '/application.py')
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+#         # import the module
+#         spec = importlib.util.spec_from_file_location("application", path + '/application.py')
+#         module = importlib.util.module_from_spec(spec)
+#         spec.loader.exec_module(module)
 
-        instance = getattr(module, 'Application')
-        app = instance()
+#         instance = getattr(module, 'Application')
+#         app = instance()
 
-        # get the function
-        func = getattr(app, method, None)
-        if not func:
-            # required functions must be implemented using the IApplication interface
-            q.put(True, None)
-            return
+#         # get the function
+#         func = getattr(app, method, None)
+#         if not func:
+#             # required functions must be implemented using the IApplication interface
+#             q.put(True, None)
+#             return
 
-        ret = func(params)
-        q.put(ret)
+#         ret = func(params)
+#         q.put(ret)
 
-        del app
-    except Exception as e:
-        ret = (False, str(e))
-        q.put(ret)
+#         del app
+#     except Exception as e:
+#         ret = (False, str(e))
+#         q.put(ret)
