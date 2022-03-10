@@ -31,6 +31,7 @@ import subprocess
 import fwglobals
 import fwutils
 import fwnetplan
+import fwpppoe
 import fwroutes
 import fwwifi
 from fwmultilink import FwMultilink
@@ -174,7 +175,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 for wan in wan_list:
                     dhcp = wan.get('dhcp', 'no')
                     device_type = wan.get('deviceType')
-                    is_pppoe = fwglobals.g.pppoe.is_pppoe_interface(dev_id=wan.get('dev_id'))
+                    is_pppoe = fwpppoe.is_pppoe_interface(dev_id=wan.get('dev_id'))
 
                     if dhcp == 'no' or device_type == 'lte' or is_pppoe:
                         continue
@@ -326,10 +327,6 @@ class FWROUTER_API(FwCfgRequestHandler):
     def state_is_starting_stopping(self):
         return (self.router_state == FwRouterState.STARTING or \
                 self.router_state == FwRouterState.STOPPING)
-
-    def state_is_starting_or_started(self):
-        return (self.router_state == FwRouterState.STARTED or \
-                self.router_state == FwRouterState.STARTING)
 
     def call(self, request, dont_revert_on_failure=False):
         """Executes router configuration request: 'add-X','remove-X' or 'modify-X'.
@@ -1051,6 +1048,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             db_policies.clean()
 
         fwglobals.g.applications_api.call_hook('on_router_is_stopped')
+        fwglobals.g.pppoe.start()
 
     def _on_add_interface_after(self, type, sw_if_index):
         """add-interface postprocessing

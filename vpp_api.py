@@ -53,7 +53,7 @@ class VPP_API(FwObject):
                 self.jsonfiles.append(os.path.join(root, filename))
         if not self.jsonfiles and not vppWrapper:
             raise Exception("VPP_API: no vpp *.api.json files were found")
-        self.vpp = VPPApiClient(apifiles=self.jsonfiles, use_socket=False, read_timeout=30, loglevel='INFO')
+        self.vpp = VPPApiClient(apifiles=self.jsonfiles, use_socket=False, read_timeout=30, loglevel='WARNING')
         self.vpp.logger.addHandler(SysLogHandler(address='/dev/log'))
 
         self.vpp_api_lock = threading.RLock()
