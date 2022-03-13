@@ -341,11 +341,10 @@ def get_all_interfaces():
                 addrs = interfaces.get(nic_name)
 
         if fwpppoe.is_pppoe_interface(if_name=nic_name):
-            pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=nic_name)
-            if pppoe_iface.is_connected:
-                addrs = interfaces.get(pppoe_iface.ppp_if_name)
-            else:
-                addrs = []
+            ppp_if_name = fwpppoe.pppoe_get_ppp_if_name(nic_name)
+            if not ppp_if_name:
+                continue
+            addrs = interfaces.get(ppp_if_name)
 
         dev_id_ip_gw[dev_id] = {}
         dev_id_ip_gw[dev_id]['addr'] = ''
