@@ -659,7 +659,7 @@ def reset(soft=False, quiet=False, pppoe=False):
             print("stopping the router...")
         daemon_rpc('stop', stop_router=True)
 
-        with FWAPPLICATIONS_API(fwglobals.g.APPLICATIONS_DB_FILE) as app_api:
+        with FWAPPLICATIONS_API() as applications_api:
             app_api.reset()
 
         fwutils.reset_device_config()

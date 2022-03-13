@@ -335,7 +335,7 @@ class Fwglobals(FwObject):
         self.FWAGENT_DAEMON_HOST = '127.0.0.1'
         self.FWAGENT_DAEMON_PORT = 9090
         self.FWAGENT_DAEMON_URI  = 'PYRO:%s@%s:%d' % (self.FWAGENT_DAEMON_NAME, self.FWAGENT_DAEMON_HOST, self.FWAGENT_DAEMON_PORT)
-        self.APPLICATIONS_DB_FILE     = self.DATA_PATH + '.applications.sqlite'
+        self.APPLICATIONS_DB_FILE         = self.DATA_PATH + '.applications.sqlite'
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
@@ -421,7 +421,7 @@ class Fwglobals(FwObject):
         self.agent_api        = FWAGENT_API()
         self.system_api       = FWSYSTEM_API(self.system_cfg)
         self.router_api       = FWROUTER_API(self.router_cfg, self.MULTILINK_DB_FILE)
-        self.applications_api = FWAPPLICATIONS_API(self.APPLICATIONS_DB_FILE, run_application_stats=True)
+        self.applications_api = FWAPPLICATIONS_API(start_application_stats=True)
         self.os_api           = OS_API()
         self.policies         = FwPolicies(self.POLICY_REC_DB_FILE)
         self.wan_monitor      = FwWanMonitor(standalone)

@@ -21,30 +21,21 @@
 ################################################################################
 import os
 import sys
-from abc import ABC, abstractmethod
+from abc import ABC
 
-# getting the name of the directory
-# where the this file is present.
-current = os.path.dirname(os.path.realpath(__file__))
-
-# Getting the parent directory name
-# where the current directory is present.
-parent = os.path.dirname(current)
-
-# adding the parent directory to
-# the sys.path.
-sys.path.append(parent)
+this_dir = os.path.dirname(os.path.realpath(__file__))
+up_dir   = os.path.dirname(this_dir)
+sys.path.append(up_dir)
 
 from fwobject import FwObject
 
-class IApplication(ABC, FwObject):
+class FwApplicationInterface(ABC, FwObject):
     def __init__(self):
-        FwObject.__init__(self, f'application "{self.identifier}"')
+        FwObject.__init__(self, self.identifier)
 
     @property
-    @abstractmethod
     def identifier(self):
-        pass
+        return self.__module__.replace('_', '.')
 
     def install(self):
         raise NotImplementedError
@@ -55,23 +46,14 @@ class IApplication(ABC, FwObject):
     def uninstall(self):
         raise NotImplementedError
 
-    def get_status(self):
-        raise NotImplementedError
-
-    def get_log_file(self, params) -> str:
-        return None
-
-    def get_statistics(self):
-        pass
-
     def start(self):
         pass
 
-    def get_interfaces(self, params) -> list:
-        return []
+    def is_app_running(self):
+        raise NotImplementedError
 
     # hooks
-    def on_apps_watchdog(self, params):
+    def on_watchdog(self, params):
         pass
 
     def on_router_is_started(self):
@@ -80,6 +62,15 @@ class IApplication(ABC, FwObject):
     def on_router_is_stopped(self):
         pass
 
-    def on_router_stopping(self):
+    def on_router_is_stopping(self):
         pass
 
+    # getters
+    def get_log_file(self, params) -> str:
+        return None
+
+    def get_statistics(self) -> dict:
+        return {}
+
+    def get_interfaces(self, params) -> list:
+        return []

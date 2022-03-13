@@ -21,8 +21,8 @@
 ################################################################################
 
 import copy
-# import importlib.util
-# import multiprocessing as mp
+import glob
+import importlib
 import os
 import pathlib
 import threading
@@ -33,28 +33,27 @@ from sqlitedict import SqliteDict
 
 import fwglobals
 import fwutils
-from applications.com_flexiwan_remotevpn.application import \
-    Application as RemoteVpn
 from fwobject import FwObject
-
 
 class FWAPPLICATIONS_API(FwObject):
     """Services class representation.
     """
 
-    def __init__(self, application_db_file, run_application_stats = False):
+    def __init__(self, start_application_stats = False):
         """Constructor method.
         """
         FwObject.__init__(self)
 
-        self.db = SqliteDict(application_db_file, autocommit=True)
+        self.db = SqliteDict(fwglobals.g.APPLICATIONS_DB_FILE, autocommit=True)
         self.thread_stats = None
-        self.stats    = {}
-        self.app_files = {
-            'com.flexiwan.remotevpn': RemoteVpn()
-        }
         self.processing_request = False
-        if run_application_stats:
+
+        self.stats    = {}
+        self.app_instances = {}
+
+        self._build_app_instances()
+
+        if start_application_stats:
             self.thread_stats = threading.Thread(target=self._run_stats_thread, name='Applications Statistics Thread')
             self.thread_stats.start()
 
@@ -76,11 +75,25 @@ class FWAPPLICATIONS_API(FwObject):
         self.db.close()
         return
 
+    def _build_app_instances(self):
+        current_dir = str(pathlib.Path(__file__).parent.resolve())
+        installed_apps = glob.glob(f'{current_dir}/applications/com_flexiwan_*')
+
+        for installed_app in installed_apps:
+                module_name = installed_app.split('/')[-1]
+                spec = importlib.util.spec_from_file_location(module_name, installed_app + '/application.py')
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
+                instance = getattr(module, 'Application')
+                app = instance()
+
+                self.app_instances[app.identifier] = app
+
     def call(self, request):
         """Invokes API specified by the request received from flexiManage.
 
         :param request: Request name.
-        :param params: Parameters from flexiManage.
 
         :returns: Reply.
         """
@@ -91,12 +104,12 @@ class FWAPPLICATIONS_API(FwObject):
             handler = message.split('application-')[-1]
 
             handler_func = getattr(self, handler)
-            assert handler_func, f'fwapplications_api: handler={handler} not found for req={request}'
+            assert handler_func, f'handler={handler} not found for req={request}'
 
             self.processing_request = True
             reply = handler_func(request)
             if reply['ok'] == 0:
-                raise Exception(f'fwapplications_api: {handler_func}({format(params)}) failed: {reply["message"]}')
+                raise Exception(f'{handler_func}({format(params)}) failed: {reply["message"]}')
             return reply
         finally:
             self.processing_request = False
@@ -241,25 +254,21 @@ class FWAPPLICATIONS_API(FwObject):
 
     def _call_application_api(self, identifier, method, params = {}):
         try:
-            app = self.app_files[identifier]
-
-            # get the function
+            app = self.app_instances[identifier]
             func = getattr(app, method, None)
             if not func:
-                # A function that is not present is a normal state.
-                # There are functions that must exist. They are enforced through the use of interface
                 return (True, None)
-
             res = func(params)
             return res
         except Exception as e:
+            self.log.error(f'_call_application_api({identifier}, {method}, {params}): {str(e)}')
             return (False, str(e))
 
     def reset(self):
         self.call_hook('uninstall')
         self.db.clear()
 
-    def call_hook(self, hook_type, params={}, identifier=None):
+    def call_hook(self, hook_name, params={}, identifier=None):
         res = {}
         for app_identifier in self.db:
             try:
@@ -268,11 +277,11 @@ class FWAPPLICATIONS_API(FwObject):
                     continue
 
                 params['identifier'] = app_identifier
-                success, val = self._call_application_api(app_identifier, hook_type, params)
+                success, val = self._call_application_api(app_identifier, hook_name, params)
                 if success:
                     res[app_identifier] = val
             except Exception as e:
-                self.log.debug(f'call_hook({hook_type}): failed for identifier={app_identifier}: err={str(e)}')
+                self.log.debug(f'call_hook({hook_name}): failed for identifier={app_identifier}: err={str(e)}')
                 pass
 
         return res
@@ -286,18 +295,6 @@ class FWAPPLICATIONS_API(FwObject):
         source_installation_dir = current_dir + '/applications/' + identifier
         return source_installation_dir
 
-    def _status(self, request):
-        try:
-            params = request['params']
-            identifier = params.get('identifier')
-            success, val = self._call_application_api(identifier, 'get_status')
-            if not success:
-                return { 'ok': 0, 'message': val }
-
-            return { 'ok': 1, 'message': val }
-        except Exception as e:
-            return { 'ok': 0, 'message': str(e) }
-
     def _call_app_watchdog(self, request):
         try:
             params = request['params']
@@ -305,7 +302,7 @@ class FWAPPLICATIONS_API(FwObject):
 
             params['router_is_running'] = fwglobals.g.router_api.state_is_started()
 
-            success, val = self._call_application_api(identifier, 'on_apps_watchdog', params)
+            success, val = self._call_application_api(identifier, 'on_watchdog', params)
             if not success:
                 return { 'ok': 0, 'message': val }
 
@@ -314,30 +311,24 @@ class FWAPPLICATIONS_API(FwObject):
             return { 'ok': 0, 'message': str(e) }
 
     def _is_app_running(self, identifier):
-        reply = self._status({'params': { 'identifier': identifier }})
-        if reply['ok'] == 0:
-            return False
-        return reply['message']
+        success, val = self._call_application_api(identifier, 'is_app_running')
+        if success:
+            return val
+        return False
 
     def _get_app_statistics(self, identifier):
-        try:
-            success, val = self._call_application_api(identifier, 'get_statistics')
-            if not success:
-                return {}
-
+        success, val = self._call_application_api(identifier, 'get_statistics')
+        if success:
             return val
-        except:
-            return {}
+        return {}
 
     def get_log_file(self, identifier):
-        try:
-            success, val = self._call_application_api(identifier, 'get_log_file')
-            if not success:
-                return None
-
-            return val
-        except:
+        if not identifier:
             return None
+        success, val = self._call_application_api(identifier, 'get_log_file')
+        if success:
+            return val
+        return None
 
     def _update_applications_db(self, identifier, key, value):
         apps_db = self.db
@@ -351,12 +342,6 @@ class FWAPPLICATIONS_API(FwObject):
         apps_db[identifier] = app
 
         self.db = apps_db
-
-    def is_application_installed(self, identifier):
-        for app_identifier in self.db:
-            if app_identifier == identifier:
-                return True
-        return False
 
     def _get_sync_list(self, requests):
         output_requests = []
@@ -416,44 +401,8 @@ class FWAPPLICATIONS_API(FwObject):
 
         self.log.debug("sync: smart sync succeeded")
 
-    # def _start(self, request):
-    #     try:
-    #         params = request['params']
-    #         identifier = params.get('identifier')
-    #         success, val = self._call_application_api(identifier, 'start')
-    #         if not success:
-    #             return { 'ok': 0, 'message': val }
-
-    #         self._update_applications_db(identifier, 'started', True)
-
-    #         return { 'ok': 1 }
-    #     except Exception as e:
-    #         return { 'ok': 0, 'message': str(e) }
-
-# def subproc(q, path, method, params):
-#     try:
-#         # os.setuid(0) # TODO: change this number
-#         # os.chdir('/tmp') # TODO: implement the right dir with permissions
-
-#         # import the module
-#         spec = importlib.util.spec_from_file_location("application", path + '/application.py')
-#         module = importlib.util.module_from_spec(spec)
-#         spec.loader.exec_module(module)
-
-#         instance = getattr(module, 'Application')
-#         app = instance()
-
-#         # get the function
-#         func = getattr(app, method, None)
-#         if not func:
-#             # required functions must be implemented using the IApplication interface
-#             q.put(True, None)
-#             return
-
-#         ret = func(params)
-#         q.put(ret)
-
-#         del app
-#     except Exception as e:
-#         ret = (False, str(e))
-#         q.put(ret)
+def call_applications_hook(hook):
+    '''This function calls a function within applications_api even if the agnet object is not initialzied
+    '''
+    with FWAPPLICATIONS_API() as applications_api:
+        return applications_api.call_hook(hook)

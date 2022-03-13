@@ -7,7 +7,10 @@
 import json
 import os
 import sys
+import traceback
 from ipaddress import IPv4Network
+
+from scripts_logger import logger
 
 conf_file = sys.argv[1]
 
@@ -23,7 +26,7 @@ try:
         netmask = ip_network.netmask
         os.system(f"sudo echo 'push \"route {network} {netmask}\"' >> {conf_file}")
 
-    sys.exit(0)
-except:
+except Exception as e:
+    logger(str(e) + "\r\n" + str(traceback.extract_stack()))
     # always return 0 as exit code. otherwise the client will be dropped
-    sys.exit(0)
+    pass

@@ -53,7 +53,7 @@ import fwlte
 import fwwifi
 import fwtranslate_add_switch
 
-from fwapplications_api import FWAPPLICATIONS_API
+from fwapplications_api import call_applications_hook, FWAPPLICATIONS_API
 from fwikev2        import FwIKEv2
 from fwmultilink    import FwMultilink
 from fwpolicies     import FwPolicies
@@ -1448,7 +1448,7 @@ def stop_vpp():
      :returns: Error message and status code.
      """
 
-    call_applications_hook('on_router_stopping')
+    call_applications_hook('on_router_is_stopping')
 
     dpdk_ifs = []
     dpdk.devices = {}
@@ -1527,7 +1527,7 @@ def reset_device_config():
 
     restore_dhcpd_files()
 
-    with FWAPPLICATIONS_API(fwglobals.g.APPLICATIONS_DB_FILE) as applications_api:
+    with FWAPPLICATIONS_API() as applications_api:
         applications_api.db.clear()
 
 def reset_router_api_db_sa_id():
@@ -1588,7 +1588,7 @@ def print_device_config_signature():
 
 def print_applications_db():
     out = []
-    with FWAPPLICATIONS_API(fwglobals.g.APPLICATIONS_DB_FILE) as applications_api:
+    with FWAPPLICATIONS_API() as applications_api:
         for key in sorted(list(applications_api.db.keys())):
             obj = {}
             obj[key] = applications_api.db[key]
@@ -3603,12 +3603,6 @@ def dict_deep_update(dst, src):
             dict_deep_update(dst[key], value)
         else:
             dst[key] = value
-
-def call_applications_hook(hook):
-    '''This function calls a function within applications_api even if the agnet object is not initialzied
-    '''
-    with FWAPPLICATIONS_API(fwglobals.g.APPLICATIONS_DB_FILE) as applications_api:
-        return applications_api.call_hook(hook)
 
 def get_linux_interface_mtu(if_name):
     net_if_stats = psutil.net_if_stats()

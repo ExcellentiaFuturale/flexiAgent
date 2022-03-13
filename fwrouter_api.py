@@ -1023,7 +1023,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwglobals.g.cache.dev_id_to_vpp_tap_name.clear()
         self.log.info("router is being stopped: vpp_pid=%s" % str(fwutils.vpp_pid()))
 
-        fwglobals.g.applications_api.call_hook('on_router_stopping')
+        fwglobals.g.applications_api.call_hook('on_router_is_stopping')
 
     def _on_stop_router_after(self):
         """Handles post-VPP stop activities.

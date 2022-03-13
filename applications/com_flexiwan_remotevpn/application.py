@@ -25,30 +25,23 @@ import os
 import re
 import shutil
 import subprocess
-import time
 import sys
+import time
+
 from netaddr import IPNetwork
 
-# getting the name of the directory
-# where the this file is present.
-current = os.path.dirname(os.path.realpath(__file__))
+this_dir = os.path.dirname(os.path.realpath(__file__))
+up_dir   = os.path.dirname(this_dir)
+sys.path.append(up_dir)
 
-# Getting the parent directory name
-# where the current directory is present.
-parent = os.path.dirname(current)
-
-# adding the parent directory to
-# the sys.path.
-sys.path.append(parent)
-
-from application_interface import IApplication
+from applications.fwapplication_interface import FwApplicationInterface
 
 app_database_file = '/etc/openvpn/server/openvpn_db.json'
 openvpn_log_file = '/var/log/openvpn/openvpn.log'
+openvpn_scripts_log_file = '/var/log/openvpn/openvpn_scripts.log'
 openvpn_server_conf_file = '/etc/openvpn/server/server.conf'
 
-class Application(IApplication):
-    identifier = 'com.flexiwan.remotevpn'
+class Application(FwApplicationInterface):
 
     def install(self, params):
         """Install Remote VPN server on host.
@@ -134,6 +127,7 @@ class Application(IApplication):
             shutil.copyfile('{}/scripts/up.py'.format(dir), '/etc/openvpn/server/up-script.py')
             shutil.copyfile('{}/scripts/down.py'.format(dir), '/etc/openvpn/server/down-script.py')
             shutil.copyfile('{}/scripts/client-connect.py'.format(dir), '/etc/openvpn/server/client-connect.py')
+            shutil.copyfile('{}/scripts/scripts_logger.py'.format(dir), '/etc/openvpn/server/scripts_logger.py')
 
             # replace scripts variables
             escaped_url = re.escape(params['vpnPortalServer'])
@@ -142,6 +136,9 @@ class Application(IApplication):
             escaped_db_path = re.escape(app_database_file)
             os.system("sed -i 's/__APP_DB_FILE__/%s/g' /etc/openvpn/server/down-script.py" % escaped_db_path)
             os.system("sed -i 's/__APP_DB_FILE__/%s/g' /etc/openvpn/server/up-script.py" % escaped_db_path)
+
+            escaped_scripts_log_path = re.escape(openvpn_scripts_log_file)
+            os.system("sed -i 's/__VPN_SCRIPTS_LOG_FILE__/%s/g' /etc/openvpn/server/scripts_logger.py" % escaped_scripts_log_path)
 
             # run several commands for configurations
             commands = [
@@ -337,7 +334,7 @@ class Application(IApplication):
     def on_router_is_stopped(self, params):
         return self.stop(params)
 
-    def on_router_stopping(self, params):
+    def on_router_is_stopping(self, params):
         return self.stop(params)
 
     def start(self, params, restart=False):
@@ -382,18 +379,18 @@ class Application(IApplication):
         except Exception as e:
             return (False, str(e))
 
-    def get_status(self, params):
+    def on_watchdog(self, params):
+        vpn_runs = True if self._openvpn_pid() else False
+        router_is_running = params.get('router_is_running')
+        if not vpn_runs and router_is_running:
+            self.start(params)
+
+    def is_app_running(self, params):
         try:
             vpn_runs = True if self._openvpn_pid() else False
             return (True, vpn_runs)
         except Exception as e:
             return (False, str(e))
-
-    def on_apps_watchdog(self, params):
-        vpn_runs = True if self._openvpn_pid() else False
-        router_is_running = params.get('router_is_running')
-        if not vpn_runs and router_is_running:
-            self.start(params)
 
     def get_log_file(self, params):
         return (True, openvpn_log_file)
@@ -402,7 +399,7 @@ class Application(IApplication):
         vpn_runs = True if self._openvpn_pid() else False
         res = []
         if not vpn_runs:
-            return res
+            return (True, res)
 
         with open(app_database_file, 'r') as json_file:
             data = json.load(json_file)

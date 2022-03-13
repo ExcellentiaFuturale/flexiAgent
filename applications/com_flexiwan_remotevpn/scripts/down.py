@@ -2,10 +2,11 @@
 
 # This script is called by OpenVpn after TUN/TAP device close
 
-import sys
-import os
-from netaddr import IPAddress
 import json
+import os
+import sys
+
+from netaddr import IPAddress
 
 # get OpenVpn settings
 tup_dev = sys.argv[1]
