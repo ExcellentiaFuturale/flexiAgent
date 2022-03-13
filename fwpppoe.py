@@ -502,13 +502,6 @@ class FwPppoeClient(FwObject):
         if pppoe_if:
             return True
 
-        if if_name:
-            if if_name.startswith('ppp'):
-                return True
-
-            if if_name.startswith('vpp_tun'):
-                return True
-
         return False
 
     def add_interface(self, pppoe_iface, if_name = None, dev_id = None):
