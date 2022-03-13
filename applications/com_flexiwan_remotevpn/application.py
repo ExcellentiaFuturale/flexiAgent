@@ -128,14 +128,14 @@ class Application(FwApplicationInterface):
             shutil.copyfile('{}/scripts/down.py'.format(dir), '/etc/openvpn/server/down-script.py')
             shutil.copyfile('{}/scripts/client-connect.py'.format(dir), '/etc/openvpn/server/client-connect.py')
             shutil.copyfile('{}/scripts/scripts_logger.py'.format(dir), '/etc/openvpn/server/scripts_logger.py')
+            shutil.copyfile('{}/scripts/script_utils.py'.format(dir), '/etc/openvpn/server/script_utils.py')
 
             # replace scripts variables
             escaped_url = re.escape(params['vpnPortalServer'])
             os.system("sed -i 's/__VPN_SERVER__/%s/g' /etc/openvpn/server/auth-script.py" % escaped_url)
 
             escaped_db_path = re.escape(app_database_file)
-            os.system("sed -i 's/__APP_DB_FILE__/%s/g' /etc/openvpn/server/down-script.py" % escaped_db_path)
-            os.system("sed -i 's/__APP_DB_FILE__/%s/g' /etc/openvpn/server/up-script.py" % escaped_db_path)
+            os.system("sed -i 's/__APP_DB_FILE__/%s/g' /etc/openvpn/server/script_utils.py" % escaped_db_path)
 
             escaped_scripts_log_path = re.escape(openvpn_scripts_log_file)
             os.system("sed -i 's/__VPN_SCRIPTS_LOG_FILE__/%s/g' /etc/openvpn/server/scripts_logger.py" % escaped_scripts_log_path)
