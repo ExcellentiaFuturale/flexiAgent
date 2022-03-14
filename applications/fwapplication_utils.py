@@ -20,35 +20,11 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-from logging.handlers import TimedRotatingFileHandler
-import logging
 import os
-import sys
 
-this_dir = os.path.dirname(os.path.realpath(__file__))
-up_dir   = os.path.dirname(this_dir)
-sys.path.append(up_dir)
-
-from application_cfg import openvpn_scripts_log_file
-
-logging.basicConfig(
-    filename=openvpn_scripts_log_file,
-    level=logging.DEBUG,
-    format='%(asctime)s %(message)s',
-    datefmt='%m/%d/%Y %I:%M:%S %p' # 12/12/2010 11:46:36 AM,
-)
-
-# Every day, keep a backup of the log and clean up the file. Save 7 files back.
-handler = TimedRotatingFileHandler(openvpn_scripts_log_file, 'D', 1, 7)
-log = logging.getLogger()
-log.addHandler(handler)
-
-class Logger():
-    def error(self, str):
-        logging.error(str)
-
-    def debug(self, str):
-        logging.debug(str)
-
-    def info(self, str):
-        logging.info(str)
+def run_linux_commands(commands, exception_on_error=True):
+    for command in commands:
+        ret = os.system(command)
+        if ret and exception_on_error:
+            raise Exception(f'failed to run "{command}". error code is {ret}')
+    return True

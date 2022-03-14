@@ -93,9 +93,9 @@ class FWAPPLICATIONS_API(FwObject):
     def call(self, request):
         """Invokes API specified by the request received from flexiManage.
 
-        :param request: Request name.
+        :param request: The request received from flexiManage.
 
-        :returns: Reply.
+        :returns: dictionary with status code and optional error message.
         """
         try:
             message = request['message']
@@ -111,6 +111,9 @@ class FWAPPLICATIONS_API(FwObject):
             if reply['ok'] == 0:
                 raise Exception(f'{handler_func}({format(params)}) failed: {reply["message"]}')
             return reply
+        except Exception as e:
+            self.log.error(f"call({request}): {str(e)}")
+            raise e
         finally:
             self.processing_request = False
 
@@ -122,37 +125,31 @@ class FWAPPLICATIONS_API(FwObject):
             "params": {
                 "name": "Remote Worker VPN",
                 "identifier": "com.flexiwan.remotevpn",
-                "configParams": { ... }
+                "applicationParams": { ... }
             }
         }
         '''
-        try:
-            params = request['params']
-            identifier = params.get('identifier')
+        params = request['params']
+        identifier = params.get('identifier')
 
-            installation_dir = self._get_installation_dir(identifier)
-            if not os.path.exists(installation_dir):
-                raise Exception(f'install file ({installation_dir}) is not exists')
+        installation_dir = self._get_installation_dir(identifier)
+        if not os.path.exists(installation_dir):
+            raise Exception(f'install file ({installation_dir}) is not exists')
 
-            # before the installation make sure that tap related modules are enabled
-            # Many applications may use them.
-            fwutils.load_linux_tap_modules()
-            fwutils.load_linux_tc_modules()
+        # before the installation make sure that tap related modules are enabled
+        # Many applications may use them.
+        fwutils.load_linux_tap_modules()
+        fwutils.load_linux_tc_modules()
 
-            extended_params = dict(params)
-            extended_params['router_is_running'] = fwglobals.g.router_api.state_is_started()
+        application_params = params.get('applicationParams')
+        success, val = self._call_application_api(identifier, 'install', application_params)
+        if not success:
+            return { 'ok': 0, 'message': val }
 
-            success, val = self._call_application_api(identifier, 'install', extended_params)
+        # store in database
+        self._update_applications_db(identifier, 'installed', request)
 
-            if not success:
-                return { 'ok': 0, 'message': val }
-
-            # store in database
-            self._update_applications_db(identifier, 'installed', request)
-
-            return { 'ok': 1 }
-        except Exception as e:
-            return { 'ok': 0, 'message': str(e) }
+        return { 'ok': 1 }
 
     def uninstall(self, request):
         '''
@@ -161,33 +158,32 @@ class FWAPPLICATIONS_API(FwObject):
             "message": "application-uninstall",
             "params": {
                 "name": "Remote Worker VPN",
-                "identifier": "com.flexiwan.remotevpn"
+                "identifier": "com.flexiwan.remotevpn",
+                "applicationParams": {}
             }
         }
         '''
-        try:
-            params = request['params']
-            identifier = params.get('identifier')
+        params = request['params']
+        identifier = params.get('identifier')
 
-            success, val = self._call_application_api(identifier, 'uninstall', params)
-            if not success:
-                return { 'ok': 0, 'message': val }
+        application_params = params.get('applicationParams')
+        success, val = self._call_application_api(identifier, 'uninstall', application_params)
+        if not success:
+            return { 'ok': 0, 'message': val }
 
-            # remove application from db
-            apps_db = self.db
-            app = apps_db.get(identifier)
-            if app:
-                del apps_db[identifier]
-                self.db = apps_db
+        # remove application from db
+        apps_db = self.db
+        app = apps_db.get(identifier)
+        if app:
+            del apps_db[identifier]
+            self.db = apps_db
 
-            # remove application stats
-            app_stats = self.stats.get(identifier)
-            if app_stats:
-                del self.stats[identifier]
+        # remove application stats
+        app_stats = self.stats.get(identifier)
+        if app_stats:
+            del self.stats[identifier]
 
-            return { 'ok': 1 }
-        except Exception as e:
-            return { 'ok': 0, 'message': str(e) }
+        return { 'ok': 1 }
 
     def configure(self, request):
         '''
@@ -203,22 +199,21 @@ class FWAPPLICATIONS_API(FwObject):
             }
         }
         '''
-        try:
-            params = request['params']
-            identifier = params.get('identifier')
-            success, val = self._call_application_api(identifier, 'configure', params)
+        params = request['params']
+        identifier = params.get('identifier')
 
-            if not success:
-                return { 'ok': 0, 'message': val }
+        application_params = {'params': params.get('applicationParams')}
+        success, val = self._call_application_api(identifier, 'configure', application_params)
 
-            # update in database
-            installed = self.db[identifier].get('installed')
-            installed['params']['configParams'] = params
-            self._update_applications_db(identifier, 'installed', installed)
+        if not success:
+            return { 'ok': 0, 'message': val }
 
-            return { 'ok': 1 }
-        except Exception as e:
-            return { 'ok': 0, 'message': str(e) }
+        # update in database
+        installed = self.db[identifier].get('installed')
+        installed['params']['applicationParams']['configParams'] = params['applicationParams']
+        self._update_applications_db(identifier, 'installed', installed)
+
+        return { 'ok': 1 }
 
     def get_stats(self):
         return copy.deepcopy(self.stats)
@@ -233,16 +228,16 @@ class FWAPPLICATIONS_API(FwObject):
                 if (slept % timeout) == 0 and not self.processing_request:
                     apps = dict(self.db.items())
                     for identifier in apps:
-                        installed = apps[identifier].get('installed')
-                        if not installed:
-                            continue
-
-                        self._call_app_watchdog(installed)
+                        self._call_app_watchdog(identifier)
 
                         new_stats = {}
                         new_stats['running'] = self._is_app_running(identifier)
                         new_stats['statistics'] = self._get_app_statistics(identifier)
                         self.stats[identifier] = new_stats
+
+                    if not apps and self.stats:
+                        self.stats = {}
+
                     slept = 0
             except Exception as e:
                 self.log.excep("%s: %s (%s)" %
@@ -252,31 +247,43 @@ class FWAPPLICATIONS_API(FwObject):
             time.sleep(1)
             slept += 1
 
-    def _call_application_api(self, identifier, method, params = {}):
+    def _call_application_api_parse_result(self, ret):
+        val = None
+        if ret is None:
+            ok  = True
+        elif type(ret) == tuple:
+            ok  = True if ret[0] else False
+            val = ret[1]
+        elif type(ret) == dict or type(ret) == list or type(ret) == str or type(ret) == bool:
+            ok  = True
+            val = ret
+        else:
+            ok = False
+            val = '_call_application_api_parse_result: unsupported type of return: %s' % type(ret)
+        return (ok, val)
+
+    def _call_application_api(self, identifier, method, params=None):
         try:
             app = self.app_instances[identifier]
             func = getattr(app, method, None)
             if not func:
                 return (True, None)
-            res = func(params)
-            return res
+            ret = func(**params) if params else func()
+            ret = self._call_application_api_parse_result(ret)
+            return ret
         except Exception as e:
-            self.log.error(f'_call_application_api({identifier}, {method}, {params}): {str(e)}')
+            self.log.error(f'_call_application_api({identifier}, {method}, {str(params)}): {str(e)}')
             return (False, str(e))
 
     def reset(self):
         self.call_hook('uninstall')
         self.db.clear()
 
-    def call_hook(self, hook_name, params={}, identifier=None):
+    def call_hook(self, hook_name, params=None, identifier=None):
         res = {}
-        for app_identifier in self.db:
+        identifiers = [identifier] if identifier else list(self.db.keys())
+        for app_identifier in identifiers:
             try:
-                # skip applications if filter is passed
-                if identifier and app_identifier != identifier:
-                    continue
-
-                params['identifier'] = app_identifier
                 success, val = self._call_application_api(app_identifier, hook_name, params)
                 if success:
                     res[app_identifier] = val
@@ -287,7 +294,7 @@ class FWAPPLICATIONS_API(FwObject):
         return res
 
     def get_interfaces(self, type, vpp):
-        return self.call_hook('get_interfaces', {type: type, vpp: vpp})
+        return self.call_hook('get_interfaces', {'type': type, 'vpp': vpp})
 
     def _get_installation_dir(self, identifier):
         current_dir = str(pathlib.Path(__file__).parent.resolve())
@@ -295,14 +302,9 @@ class FWAPPLICATIONS_API(FwObject):
         source_installation_dir = current_dir + '/applications/' + identifier
         return source_installation_dir
 
-    def _call_app_watchdog(self, request):
+    def _call_app_watchdog(self, identifier):
         try:
-            params = request['params']
-            identifier = params.get('identifier')
-
-            params['router_is_running'] = fwglobals.g.router_api.state_is_started()
-
-            success, val = self._call_application_api(identifier, 'on_watchdog', params)
+            success, val = self._call_application_api(identifier, 'on_watchdog')
             if not success:
                 return { 'ok': 0, 'message': val }
 
@@ -376,6 +378,8 @@ class FWAPPLICATIONS_API(FwObject):
                     del sync_applications[identifier]
                 else:
                     install_req['message'] = install_req['message'].replace('-install', '-uninstall')
+                    # for applications we don't send the configParams as argument to uninstall function
+                    del install_req['params']['applicationParams']['configParams']
                     output_requests.append(install_req)
             else:
                 install_req['message'] = install_req['message'].replace('-install', '-uninstall')
@@ -394,12 +398,12 @@ class FWAPPLICATIONS_API(FwObject):
             self.log.info("sync: sync_list is empty, no need to sync")
             return True
 
-        self.log.debug("sync: start smart sync")
+        self.log.debug("sync: start sync")
 
         for sync_request in sync_list:
             self.call(sync_request)
 
-        self.log.debug("sync: smart sync succeeded")
+        self.log.debug("sync: sync succeeded")
 
 def call_applications_hook(hook):
     '''This function calls a function within applications_api even if the agnet object is not initialzied

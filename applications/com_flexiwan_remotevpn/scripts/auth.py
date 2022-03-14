@@ -1,5 +1,25 @@
 #! /usr/bin/python3
 
+################################################################################
+# flexiWAN SD-WAN software - flexiEdge, flexiManage.
+# For more information go to https://flexiwan.com
+#
+# Copyright (C) 2022  flexiWAN Ltd.
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option) any
+# later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+# or FITNESS FOR A PARTICULAR PURPOSE.
+# See the GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+################################################################################
+
 # OpenVPN will write the username and password to the first two lines of a temporary file.
 # The filename will be passed as an argument to this script,
 # and the file will be automatically deleted by OpenVPN after the script returns.
@@ -8,8 +28,11 @@ import json
 import os
 import sys
 import traceback
-from scripts_logger import logger
+
 import requests
+
+from scripts_logger import Logger
+logger = Logger()
 
 # get temporary file
 user_password_file = sys.argv[1]
@@ -27,7 +50,7 @@ try:
 
   # the "__VPN_SERVER__" should be replaced with the server base url that we send from flexiManage
   # in the installation vpn job parameters
-  url = "__VPN_SERVER__/api/auth/tokens/verify"
+  url = f"__VPN_SERVER__/api/auth/tokens/verify"
 
   # on local setup there is no real ssl certificate and we need to call the server without verification
   verify = False if 'local' in url else True
@@ -39,11 +62,11 @@ try:
   status = response.status_code
 
   if status is not 200:
-    logger(f'Authentication for user {username} returned status code {status}')
+    logger.info(f'Authentication for user {username} returned status code {status}')
     sys.exit(1)
   else:
-    logger(f'Authentication for user {username} succeeded')
+    logger.info(f'Authentication for user {username} succeeded')
     sys.exit(0)
 except Exception as e:
-  logger(str(e) + "\r\n" + str(traceback.extract_stack()))
+  logger.error(f"auth: {str(e)}. {str(traceback.extract_stack())}")
   sys.exit(1)

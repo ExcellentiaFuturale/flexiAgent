@@ -1,12 +1,33 @@
-from netaddr import IPAddress
-import os
-import json
-from scripts_logger import logger
+#! /usr/bin/python3
 
-# We need to save information between the script called when running (up)
-# and the script called when the daemon goes down.
-# For this purpose we create a file in the library of the application where we store the required information
-app_db_path = '__APP_DB_FILE__'
+################################################################################
+# flexiWAN SD-WAN software - flexiEdge, flexiManage.
+# For more information go to https://flexiwan.com
+#
+# Copyright (C) 2022  flexiWAN Ltd.
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option) any
+# later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+# or FITNESS FOR A PARTICULAR PURPOSE.
+# See the GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+################################################################################
+import json
+import os
+
+from netaddr import IPAddress
+
+from scripts_logger import Logger
+logger = Logger()
+
+from application_cfg import app_database_file
 
 def add_to_ospf(ifconfig_local_ip, ifconfig_netmask):
     mask = IPAddress(ifconfig_netmask).netmask_bits()
@@ -20,7 +41,8 @@ def remove_from_ospf(ifconfig_local_ip, ifconfig_netmask):
         mask = IPAddress(ifconfig_netmask).netmask_bits()
         vtysh_cmd = f'sudo /usr/bin/vtysh -c "configure" -c "router ospf" -c "no network {ifconfig_local_ip}/{mask} area 0.0.0.0"'
         os.system(vtysh_cmd)
-    except:
+    except Exception as e:
+        logger.error(f'remove_from_ospf({ifconfig_local_ip, ifconfig_netmask}): {str(e)}')
         pass
 
 def add_tc_commands(ifconfig_local_ip):
@@ -40,7 +62,7 @@ def add_tc_commands(ifconfig_local_ip):
     for cmd in tc_cmd:
         rc = os.system(cmd)
         if rc:
-            logger(f'Failed to create traffic control command. reverting')
+            logger.error(f'Failed to create traffic control command. reverting')
             raise Exception(f'Failed to create traffic control command: {cmd}')
 
 def remove_tc_commands(vpn_tun_is_up):
@@ -70,11 +92,13 @@ def create_tun_in_vpp(ifconfig_local_ip, ifconfig_netmask):
     if not tun_vpp_if_name:
         raise Exception('Cannot create tun device in vpp')
 
-    logger(f'TUN created in vpp. vpp_if_name={tun_vpp_if_name}')
+    logger.info(f'TUN created in vpp. vpp_if_name={tun_vpp_if_name}')
 
-    # store the vpp_if_name in application db
+    # We need to save information between the script called when running (up)
+    # and the script called when the daemon goes down.
+    # For this purpose we create a file in the library of the application where we store the required information
     data = { 'tun_vpp_if_name': tun_vpp_if_name }
-    with open(app_db_path, 'w') as f:
+    with open(app_database_file, 'w') as f:
         json.dump(data, f)
 
     vpp_cmd = [
@@ -90,16 +114,17 @@ def create_tun_in_vpp(ifconfig_local_ip, ifconfig_netmask):
 def remove_tun_from_vpp():
     try:
         data = None
-        with open(app_db_path, 'r') as json_file:
+        with open(app_database_file, 'r') as json_file:
             data = json.load(json_file)
             tun_vpp_if_name = data.get('tun_vpp_if_name')
             if tun_vpp_if_name:
                 os.system(f'sudo vppctl delete tap {tun_vpp_if_name}')
-                logger(f'TUN removed from vpp. vpp_if_name={tun_vpp_if_name}')
+                logger.info(f'TUN removed from vpp. vpp_if_name={tun_vpp_if_name}')
                 del data['tun_vpp_if_name']
 
         # update
-        with open(app_db_path, 'w+') as json_file:
+        with open(app_database_file, 'w+') as json_file:
             json.dump(data, json_file)
-    except:
+    except Exception as e:
+        logger.error(f'remove_tun_from_vpp(): {str(e)}')
         pass

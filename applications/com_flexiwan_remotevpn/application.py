@@ -1,4 +1,4 @@
-#! /usr/bin/python
+#! /usr/bin/python3
 
 ################################################################################
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
@@ -27,26 +27,28 @@ import shutil
 import subprocess
 import sys
 import time
+from os.path import exists
 
 from netaddr import IPNetwork
 
 this_dir = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(this_dir)
+
+import application_cfg as cfg
+
 up_dir   = os.path.dirname(this_dir)
 sys.path.append(up_dir)
 
+import applications.fwapplication_utils as fwapplication_utils
 from applications.fwapplication_interface import FwApplicationInterface
 
-app_database_file = '/etc/openvpn/server/openvpn_db.json'
-openvpn_log_file = '/var/log/openvpn/openvpn.log'
-openvpn_scripts_log_file = '/var/log/openvpn/openvpn_scripts.log'
-openvpn_server_conf_file = '/etc/openvpn/server/server.conf'
 
 class Application(FwApplicationInterface):
 
-    def install(self, params):
+    def install(self, configParams):
         """Install Remote VPN server on host.
 
-        :param params: params - remote vpn parameters
+        :param configParams - remote vpn parameters
 
         :returns: (True, None) tuple on success, (False, <error string>) on failure.
         """
@@ -56,39 +58,38 @@ class Application(FwApplicationInterface):
 
             # check if openvpn is already installed
             installed = os.popen("dpkg -l | grep -E '^ii' | grep openvpn").read()
+
             if not installed:
+                # copy the scripts to openvpn directory
+                dir = os.path.dirname(os.path.realpath(__file__))
+                shutil.copyfile('{}/scripts/auth.py'.format(dir), '/etc/openvpn/server/auth-script.py')
+                shutil.copyfile('{}/scripts/up.py'.format(dir), '/etc/openvpn/server/up-script.py')
+                shutil.copyfile('{}/scripts/down.py'.format(dir), '/etc/openvpn/server/down-script.py')
+                shutil.copyfile('{}/scripts/client-connect.py'.format(dir), '/etc/openvpn/server/client-connect.py')
+                shutil.copyfile('{}/scripts/scripts_logger.py'.format(dir), '/etc/openvpn/server/scripts_logger.py')
+                shutil.copyfile('{}/scripts/script_utils.py'.format(dir), '/etc/openvpn/server/script_utils.py')
+                shutil.copyfile('{}/application_cfg.py'.format(dir), '/etc/openvpn/server/application_cfg.py')
+
                 commands = [
                     'wget -O - https://swupdate.openvpn.net/repos/repo-public.gpg|apt-key add -',
                     'echo "deb http://build.openvpn.net/debian/openvpn/release/2.5 bionic main" > /etc/apt/sources.list.d/openvpn-aptrepo.list',
                     'apt-get update && apt-get install -y openvpn',
+
+                    'chmod +x /etc/openvpn/server/auth-script.py',
+                    'chmod +x /etc/openvpn/server/up-script.py',
+                    'chmod +x /etc/openvpn/server/down-script.py',
+                    'chmod +x /etc/openvpn/server/client-connect.py',
                 ]
-
-                for command in commands:
-                    ret = os.system(command)
-                    if ret:
-                        return (False, f'install: failed to run "{command}". error code is {ret}')
-
+                fwapplication_utils.run_linux_commands(commands)
                 self.log.info("remoteVPN installed successfully")
-            else:
-                # if vpn already installed and *running* and the user wants to install it again, stop it
-                # it will be started with the new config in the configure() function
-                self.stop({})
-
-            # in the installation job we send configuration params as well
-            configParams = params.get('configParams')
-            if not configParams:
-                raise Exception('configParams is missing')
 
             res, err = self.configure(configParams)
 
-            router_is_running = params.get('router_is_running')
-            if router_is_running:
-                res, err = self.start(configParams)
-
-            return (res, err)   # 'True' stands for success, 'None' - for the returned object or error string.
+            return (res, err)
         except Exception as e:
-            # call uninstall function to clean the machine on installation error
-            self.uninstall(params)
+            self.log.error(f"install(): {str(e)}")
+            # call uninstall function to revert the installation
+            self.uninstall()
             return (False, str(e))
 
     def _openvpn_pid(self):
@@ -121,82 +122,53 @@ class Application(FwApplicationInterface):
         :returns: (True, None) tuple on success, (False, <error string>) on failure.
         """
         try:
-            # copy scripts to openvpn directory
-            dir = os.path.dirname(os.path.realpath(__file__))
-            shutil.copyfile('{}/scripts/auth.py'.format(dir), '/etc/openvpn/server/auth-script.py')
-            shutil.copyfile('{}/scripts/up.py'.format(dir), '/etc/openvpn/server/up-script.py')
-            shutil.copyfile('{}/scripts/down.py'.format(dir), '/etc/openvpn/server/down-script.py')
-            shutil.copyfile('{}/scripts/client-connect.py'.format(dir), '/etc/openvpn/server/client-connect.py')
-            shutil.copyfile('{}/scripts/scripts_logger.py'.format(dir), '/etc/openvpn/server/scripts_logger.py')
-            shutil.copyfile('{}/scripts/script_utils.py'.format(dir), '/etc/openvpn/server/script_utils.py')
-
-            # replace scripts variables
             escaped_url = re.escape(params['vpnPortalServer'])
-            os.system("sed -i 's/__VPN_SERVER__/%s/g' /etc/openvpn/server/auth-script.py" % escaped_url)
 
-            escaped_db_path = re.escape(app_database_file)
-            os.system("sed -i 's/__APP_DB_FILE__/%s/g' /etc/openvpn/server/script_utils.py" % escaped_db_path)
-
-            escaped_scripts_log_path = re.escape(openvpn_scripts_log_file)
-            os.system("sed -i 's/__VPN_SCRIPTS_LOG_FILE__/%s/g' /etc/openvpn/server/scripts_logger.py" % escaped_scripts_log_path)
-
-            # run several commands for configurations
             commands = [
-                # 'echo "%s" > /etc/openvpn/server/ca.key' % params['caKey'],
                 'echo "%s" > /etc/openvpn/server/ca.crt' % params['caCrt'],
                 'echo "%s" > /etc/openvpn/server/server.key' % params['serverKey'],
                 'echo "%s" > /etc/openvpn/server/server.crt' % params['serverCrt'],
                 'echo "%s" > /etc/openvpn/server/tc.key' % params['tlsKey'],
                 'echo "%s" > /etc/openvpn/server/dh.pem' % params['dhKey'],
 
-                'chmod +x /etc/openvpn/server/auth-script.py',
-                'chmod +x /etc/openvpn/server/up-script.py',
-                'chmod +x /etc/openvpn/server/down-script.py',
-                'chmod +x /etc/openvpn/server/client-connect.py',
                 'chmod 600 /etc/openvpn/server/server.key',
+
+                "sed -i 's/__VPN_SERVER__/%s/g' /etc/openvpn/server/auth-script.py" % escaped_url
             ]
 
-            for command in commands:
-                ret = os.system(command)
-                if ret:
-                    return (False, f'install: failed to run "{command}". error code is {ret}')
+            fwapplication_utils.run_linux_commands(commands)
 
             success, err = self._configure_server_file(params)
             if not success:
                 raise Exception(err)
 
-            # success, err = _configure_client_file(params)
-            # if not success:
-            #     raise Exception(err)
-
             # if vpn already runs, restart it
-            if self._openvpn_pid():
-                self.start(params, restart=True)
+            success, err = self.start(restart=True)
+            if not success:
+                raise Exception(err)
 
             return (True, None)
         except Exception as e:
+            self.log.error(f"configure({params}): {str(e)}")
             return (False, str(e))
 
-    def uninstall(self, params):
-        """Remove Open VPN server on host.
+    def uninstall(self):
+        """Remove Open VPN server from host.
 
         :returns: (True, None) tuple on success, (False, <error string>) on failure.
         """
-
-        self.stop({})
-
-        commands = [
-            'apt-get remove -y openvpn',
-            'rm -rf /etc/openvpn/server/*'
-        ]
-
         try:
-            for command in commands:
-                ret = os.system(command)
-                if ret:
-                    return (False, f'install: failed to run "{command}". error code is {ret}')
+            self.stop()
+
+            commands = [
+                'apt-get remove -y openvpn',
+                'rm -rf /etc/openvpn/server/*'
+            ]
+            fwapplication_utils.run_linux_commands(commands)
+
             return (True, None)
         except Exception as e:
+            self.log.error(f"uninstall(): {str(e)}")
             return (False, str(e))
 
     def _configure_server_file(self, params):
@@ -234,7 +206,7 @@ class Application(FwApplicationInterface):
                 'topology subnet',
 
                 # Log
-                f'log {openvpn_log_file}',
+                f'log {cfg.openvpn_log_file}',
 
                 # Configure server mode and supply a VPN subnet
                 # for OpenVPN to draw client addresses from.
@@ -249,7 +221,7 @@ class Application(FwApplicationInterface):
                 'data-ciphers AES-256-CBC',
                 'cipher AES-256-CBC',
 
-                # The persist options will try to avoid ccessing certain resources on restart
+                # The persist options will try to avoid accessing certain resources on restart
                 # that may no longer be accessible because of the privilege downgrade.
                 'persist-key',
                 'persist-tun',
@@ -310,11 +282,11 @@ class Application(FwApplicationInterface):
                 commands.append(f'push \\"dhcp-option DOMAIN {name}\\"')
 
             # clean the config file
-            os.system(f' > {openvpn_server_conf_file}')
+            os.system(f' > {cfg.openvpn_server_conf_file}')
 
             # run the commands
             for command in sorted(commands):
-                ret = os.system(f'echo "{command}" >> {openvpn_server_conf_file}')
+                ret = os.system(f'echo "{command}" >> {cfg.openvpn_server_conf_file}')
                 if ret:
                     return (False, f'install: failed to run "{command}". error code is {ret}')
 
@@ -322,22 +294,22 @@ class Application(FwApplicationInterface):
 
             return (True, None)
         except Exception as e:
-            self.log.error("Failed to configure remoteVPN server.conf")
+            self.log.error(f"failed to configure remoteVPN server.conf. err={str(e)}")
             return (False, str(e))
 
-    def on_router_is_started(self, params):
+    def on_router_is_started(self):
         # This hook should start the VPN server immediately after the VPP is begun.
         # If the VPN is already running for some reason,
         # we restart it to make sure our unique settings to mirror traffic into the VPP are applied.
-        return self.start(params, restart=True)
+        return self.start(restart=True)
 
-    def on_router_is_stopped(self, params):
-        return self.stop(params)
+    def on_router_is_stopped(self):
+        return self.stop()
 
-    def on_router_is_stopping(self, params):
-        return self.stop(params)
+    def on_router_is_stopping(self):
+        return self.stop()
 
-    def start(self, params, restart=False):
+    def start(self, restart=False):
         try:
             # don't start if vpp is down
             router_is_running = True if self._vpp_pid() else False
@@ -348,12 +320,12 @@ class Application(FwApplicationInterface):
             vpn_runs = True if self._openvpn_pid() else False
             if vpn_runs:
                 if restart:
-                    self.stop({})
+                    self.stop()
                 else:
                     # no need to run it again
                     return (True, None)
 
-            os.system(f'sudo openvpn --config {openvpn_server_conf_file} --daemon')
+            os.system(f'sudo openvpn --config {cfg.openvpn_server_conf_file} --daemon')
 
             # make sure openvpn started. Otherwise it means that it failed (we can find the reason in the log file)
             vpn_runs = True if self._openvpn_pid() else False
@@ -363,9 +335,10 @@ class Application(FwApplicationInterface):
             self.log.info("remoteVPN server is running")
             return (True, None)
         except Exception as e:
+            self.log.error(f"start({restart}): {str(e)}")
             return (False, str(e))
 
-    def stop(self, params):
+    def stop(self):
         try:
             vpn_runs = True if self._openvpn_pid() else False
             if vpn_runs:
@@ -377,49 +350,56 @@ class Application(FwApplicationInterface):
             os.system('echo "" > /etc/openvpn/server/openvpn-status.log')
             return (True, None)
         except Exception as e:
+            self.log.error(f"stop(): {str(e)}")
             return (False, str(e))
 
-    def on_watchdog(self, params):
+    def on_watchdog(self):
         vpn_runs = True if self._openvpn_pid() else False
-        router_is_running = params.get('router_is_running')
+        router_is_running = True if self._vpp_pid() else False
         if not vpn_runs and router_is_running:
-            self.start(params)
+            self.start()
 
-    def is_app_running(self, params):
-        try:
-            vpn_runs = True if self._openvpn_pid() else False
-            return (True, vpn_runs)
-        except Exception as e:
-            return (False, str(e))
+    def is_app_running(self):
+        return True if self._openvpn_pid() else False
 
-    def get_log_file(self, params):
-        return (True, openvpn_log_file)
+    def get_log_file(self):
+        return cfg.openvpn_log_file
 
-    def get_interfaces(self, params):
+    def get_interfaces(self, type, vpp):
         vpn_runs = True if self._openvpn_pid() else False
-        res = []
         if not vpn_runs:
-            return (True, res)
+            return []
 
-        with open(app_database_file, 'r') as json_file:
+        res = []
+        with open(cfg.app_database_file, 'r') as json_file:
             data = json.load(json_file)
             tun_vpp_if_name = data.get('tun_vpp_if_name')
             if tun_vpp_if_name:
                 res.append(tun_vpp_if_name)
+        return res
 
-        return (True, res)
+    def get_statistics(self):
+        status_filename = '/etc/openvpn/server/openvpn-status.log'
 
-    def get_statistics(self, params):
+        response = {
+            'clients': {}
+        }
+
+        if not exists(status_filename):
+            return response
+
         try:
-            response = {
-                'clients': {}
-            }
             with open('/etc/openvpn/server/openvpn-status.log', 'r') as logfile:
-                status = logfile.read().splitlines()
-                routing_table_idx = status.index("ROUTING TABLE")
-                global_stats_idx = status.index("GLOBAL STATS")
+                status_lines = logfile.read().splitlines()
 
-                client_list = status[:routing_table_idx]
+                # sometimes the log file contains one line with empty string
+                if not status_lines or (len(status_lines) == 1 and status_lines[0] == ''):
+                    return response
+
+                routing_table_idx = status_lines.index("ROUTING TABLE")
+                global_stats_idx = status_lines.index("GLOBAL STATS")
+
+                client_list = status_lines[:routing_table_idx]
                 for line in client_list[3:]:
                     # line = 'test@flexiwan.com ,192.168.1.1:57662,22206,13194,2021-12-22 11:57:33'
                     fields = line.split(',')
@@ -433,7 +413,7 @@ class Application(FwApplicationInterface):
                         'Connected Since': fields[4],
                     }
 
-                routing_table = status[routing_table_idx:global_stats_idx]
+                routing_table = status_lines[routing_table_idx:global_stats_idx]
                 for line in routing_table[2:]:
                     # line = '50.50.50.2,shneorp@flexiwan.com ,192.168.1.1:1052,2021-12-22 11:57:33'
                     fields = line.split(',')
@@ -441,6 +421,7 @@ class Application(FwApplicationInterface):
                     if username in response['clients']:
                         response['clients'][username]['Virtual Address'] = fields[0]
 
-            return (True, response)
+            return response
         except Exception as e:
-            return (False, str(e))
+            self.log.error(f"get_statistics(): {str(e)}")
+            return response
