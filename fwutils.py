@@ -3168,20 +3168,19 @@ def dump(filename=None, path=None, clean_log=False):
     except Exception as e:
         fwglobals.log.error("failed to dump: %s" % (str(e)))
 
-def linux_check_gateway_exist(gw, check_subnet=True):
+def linux_check_gateway_exist(gw):
     interfaces = psutil.net_if_addrs()
     net_if_stats = psutil.net_if_stats()
+
+    interfaces.pop("lo", None)  # Light optimization - 'lo' is out of our interest
 
     for if_name in interfaces:
         addresses = interfaces[if_name]
         for address in addresses:
             if address.family == socket.AF_INET:
                 network = IPNetwork(address.address + '/' + address.netmask)
-                if check_subnet and not is_ip_in_subnet(gw, str(network)):
-                    return False
-                if net_if_stats[if_name].isup:
+                if net_if_stats[if_name].isup and is_ip_in_subnet(gw, str(network)):
                     return True
-
     return False
 
 def exec_with_timeout(cmd, timeout=60):

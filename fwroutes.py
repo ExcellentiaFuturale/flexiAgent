@@ -188,16 +188,14 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
     if addr == 'default':
         return (True, None)
 
-    is_pppoe = fwpppoe.is_pppoe_interface(dev_id=dev_id)
-    check_subnet = not is_pppoe
-
-    if not fwutils.linux_check_gateway_exist(via, check_subnet):
-        return (True, None)
-
-    if not remove and not is_pppoe:
-        tunnel_addresses = fwtunnel_stats.get_tunnel_info()
-        if via in tunnel_addresses and tunnel_addresses[via] != 'up':
+    pppoe = fwpppoe.is_pppoe_interface(dev_id=dev_id)
+    if not pppoe:  # PPPoE interfaces can use any peer in the world as a GW, so escape sanity checks for it
+        if not fwutils.linux_check_gateway_exist(via):
             return (True, None)
+        if not remove:
+            tunnel_addresses = fwtunnel_stats.get_tunnel_info()
+            if via in tunnel_addresses and tunnel_addresses[via] != 'up':
+                return (True, None)
 
     routes_linux = FwLinuxRoutes(prefix=addr, preference=metric, proto=proto)
     nexthop = FwLinuxRoutes(prefix=addr, preference=metric,via=via, proto=proto)
