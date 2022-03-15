@@ -177,9 +177,10 @@ class FwPppoeConnection(FwObject):
         """
         self.tun_if_name = 'pppoe%u' % self.id
         self.tun_vpp_if_name = 'tun%u' % self.id
-        self.tun_vppsb_if_name = 'vpp_tun%u' % self.id
 
-        fwutils.vpp_cli_execute([f'create tap host-if-name {self.tun_if_name} tun'], debug=True)
+        fwutils.vpp_cli_execute([f'create tap id {self.id} host-if-name {self.tun_if_name} tun'], debug=True)
+
+        self.tun_vppsb_if_name = fwutils.vpp_if_name_to_tap(self.tun_vpp_if_name)
 
     def remove_tun(self):
         """Remove TUN interface.
@@ -366,13 +367,12 @@ class FwPppoeClient(FwObject):
         self.thread_pppoec = None
         self.db_filename = db_file
         self.interfaces = SqliteDict(db_file, 'interfaces', autocommit=True)
-        self.id = 0
         self.connections = SqliteDict(db_file, 'connections', autocommit=True)
         self.path = path + 'peers/'
         self.filename = filename
         self.chap_config = FwPppoeSecretsConfig(path, 'chap-secrets')
         self.pap_config = FwPppoeSecretsConfig(path, 'pap-secrets')
-        self._populate_users_connections()
+        self._populate_users()
 
     def initialize(self):
         """Start all PPPoE connections and PPPoE thread if not standalone.
@@ -410,20 +410,47 @@ class FwPppoeClient(FwObject):
         self.interfaces.close()
         self.connections.close()
 
-    def _populate_users_connections(self):
-        """Populate PPPoE users and connections databases.
+    def _populate_users(self):
+        """Populate PPPoE users
         """
-        for dev_id, pppoe_iface in self.interfaces.items():
+        for pppoe_iface in self.interfaces.values():
             self._add_user(pppoe_iface.user, pppoe_iface.password)
 
-            conn = FwPppoeConnection(self.id, self.path, self.filename)
-            conn.dev_id = dev_id
-            conn.user = pppoe_iface.user
-            conn.mtu = pppoe_iface.mtu
-            conn.mru = pppoe_iface.mru
-            conn.metric = pppoe_iface.metric
-            conn.usepeerdns = pppoe_iface.usepeerdns
-            self.connections[dev_id] = conn
+    def _generate_connection_id(self):
+        """Generate connection id
+        """
+        id = 0
+        if not self.connections:
+            return id
+
+        for conn in self.connections.values():
+            if id < conn.id:
+                break
+            id += 1
+
+        return id
+
+    def _add_connection(self, dev_id, pppoe_iface):
+        """Create connection
+        """
+        conn = self.connections.get(dev_id)
+        if not conn:
+            id = self._generate_connection_id()
+            conn = FwPppoeConnection(id, self.path, self.filename)
+
+        conn.dev_id = dev_id
+        conn.user = pppoe_iface.user
+        conn.mtu = pppoe_iface.mtu
+        conn.mru = pppoe_iface.mru
+        conn.metric = pppoe_iface.metric
+        conn.usepeerdns = pppoe_iface.usepeerdns
+        self.connections[dev_id] = conn
+
+    def _remove_connection(self, dev_id):
+        """Remove connection
+        """
+        self.connections[dev_id].remove()
+        del self.connections[dev_id]
 
     def _remove_files(self):
         """Clean up PPPoE connections database and configuration files.
@@ -431,12 +458,9 @@ class FwPppoeClient(FwObject):
         self.stop()
         self.chap_config.clear()
         self.pap_config.clear()
-        self.id = 0
-        self.connections.clear()
-        files = glob.glob(self.path + self.filename + '*')
 
-        for fname in files:
-            os.remove(fname)
+        for conn in self.connections.values():
+            conn.remove()
 
     def stop(self, timeout = 120):
         """Stop all PPPoE connections.
@@ -491,6 +515,7 @@ class FwPppoeClient(FwObject):
         self._remove_files()
         self._restore_netplan()
         self.interfaces.clear()
+        self.connections.clear()
 
     def get_interface(self, if_name = None, dev_id = None):
         """Get interface from database.
@@ -533,9 +558,9 @@ class FwPppoeClient(FwObject):
             pppoe_iface.netplan = netplan
 
         self.interfaces[dev_id] = pppoe_iface
+        self._add_connection(dev_id, pppoe_iface)
         self.reset_interfaces()
         self.start()
-        self.id += 1
 
     def remove_interface(self, if_name = None, dev_id = None):
         """Remove interface from database.
@@ -553,7 +578,7 @@ class FwPppoeClient(FwObject):
             if pppoe_iface.fname:
                 fwnetplan.add_interface(if_name, pppoe_iface.fname, pppoe_iface.netplan)
             del self.interfaces[dev_id]
-            del self.connections[dev_id]
+            self._remove_connection(dev_id)
             self.reset_interfaces()
             self.start()
 
@@ -561,7 +586,7 @@ class FwPppoeClient(FwObject):
         """Re-create PPPoE connection files based on interface DB.
         """
         self._remove_files()
-        self._populate_users_connections()
+        self._populate_users()
         self._serialize_users_connections()
 
     def is_pppoe_configured(self):
@@ -572,7 +597,10 @@ class FwPppoeClient(FwObject):
     def scan_interface(self, dev_id, conn):
         """Scan one interface for established PPPoE connection.
         """
-        pppoe_iface = self.interfaces[dev_id]
+        pppoe_iface = self.interfaces.get(dev_id)
+        if not pppoe_iface:
+            return
+
         connected = conn.scan_and_connect_if_needed(pppoe_iface.is_connected)
 
         if pppoe_iface.is_connected != connected:
@@ -595,7 +623,7 @@ class FwPppoeClient(FwObject):
         """
         for dev_id, conn in self.connections.items():
             pppoe_iface = self.get_interface(dev_id=dev_id)
-            if (pppoe_iface.is_enabled and not pppoe_iface.is_connected):
+            if (pppoe_iface and pppoe_iface.is_enabled and not pppoe_iface.is_connected):
                 conn.open()
                 self.connections[dev_id] = conn
 
