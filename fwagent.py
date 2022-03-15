@@ -255,7 +255,8 @@ class FwAgent(FwObject):
             if not self._decode_token_and_setup_environment(self.token):
                 return None
         except Exception as e:
-            self.log.excep("Failed to decode and setup environment: %s (%s)" %(str(e), traceback.format_exc()))
+            self.log.excep(f"register: bad token (check {fwglobals.g.cfg.TOKEN_FILE})")
+            self.log.debug("_decode_token_and_setup_environment failed: %s (%s)" %(str(e), traceback.format_exc()))
             return None
 
         if fwutils.vpp_does_run():
