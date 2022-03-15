@@ -267,8 +267,6 @@ class FwPppoeSecretsConfig(FwObject):
     def save(self):
         """Create PPPoE secrets configuration file.
         """
-        self._remove()
-
         pppoe_secrets_top =  """
         # Secrets for authentication
         # client	server	secret			IP addresses
@@ -299,6 +297,7 @@ class FwPppoeSecretsConfig(FwObject):
     def clear(self):
         """Clean users from internal dictionary.
         """
+        self._remove()
         self.users.clear()
 
     def add_user(self, name, password):
