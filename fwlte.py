@@ -57,7 +57,8 @@ def reset_modem_if_needed(err_str, dev_id):
     reset_modem_error_triggers = [
         "couldn't create client for the",
         "operation failed: Failure",
-        "operation failed: Busy"
+        "operation failed: Busy",
+        "operation failed: RadioPowerOff"
     ]
 
     if not any(x in err_str for x in reset_modem_error_triggers):
