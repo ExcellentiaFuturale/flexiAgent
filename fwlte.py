@@ -1008,3 +1008,4 @@ def get_stats():
             pass
 
     return out
+    
