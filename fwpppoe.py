@@ -58,10 +58,11 @@ class FwPppoeConnection(FwObject):
         self.tun_if_name = ''
         self.tun_vpp_if_name = ''
         self.tun_vppsb_if_name = ''
+        self.opened = False
 
     def __str__(self):
         usepeerdns = 'usepeerdns' if self.usepeerdns else ''
-        return f"{self.id}, {self.dev_id},{self.mtu},{self.mru},{self.user},{self.ppp_if_name},{self.addr},{self.gw},{usepeerdns},{self.tun_if_name}"
+        return f"{self.id}, {self.dev_id},{self.mtu},{self.mru},{self.user},{self.ppp_if_name},{self.addr},{self.gw},{usepeerdns},{self.tun_if_name},{self.opened}"
 
     def dev_id_to_if_name(self):
         """Convert dev_id to if_name.
@@ -103,9 +104,13 @@ class FwPppoeConnection(FwObject):
         except Exception as e:
             self.log.error("save: %s" % str(e))
 
-    def scan(self, is_connected):
+    def scan_and_connect_if_needed(self, is_connected):
         """Check Linux interfaces if PPPoE tunnel (pppX) is created.
         """
+        pppd_id = fwutils.pid_of('pppd')
+        if not pppd_id and self.opened:
+            self.open()
+
         interfaces = psutil.net_if_addrs()
         if self.ppp_if_name in interfaces:
             connected = True
@@ -138,6 +143,8 @@ class FwPppoeConnection(FwObject):
         sys_cmd = 'pon %s' % self.filename
         fwutils.os_system(sys_cmd, 'PPPoE open')
 
+        self.opened = True
+
     def close(self):
         """Close PPPoE connection.
         """
@@ -152,6 +159,8 @@ class FwPppoeConnection(FwObject):
 
         sys_cmd = f'ip link set dev {if_name} down'
         fwutils.os_system(sys_cmd, 'PPPoE close')
+
+        self.opened = False
 
     def remove(self):
         """Remove PPPoE connection configuration file.
@@ -564,7 +573,7 @@ class FwPppoeClient(FwObject):
         """Scan one interface for established PPPoE connection.
         """
         pppoe_iface = self.interfaces[dev_id]
-        connected = conn.scan(pppoe_iface.is_connected)
+        connected = conn.scan_and_connect_if_needed(pppoe_iface.is_connected)
 
         if pppoe_iface.is_connected != connected:
             pppoe_iface.is_connected = connected
@@ -588,6 +597,7 @@ class FwPppoeClient(FwObject):
             pppoe_iface = self.get_interface(dev_id=dev_id)
             if (pppoe_iface.is_enabled and not pppoe_iface.is_connected):
                 conn.open()
+                self.connections[dev_id] = conn
 
     def restart_interface(self, dev_id, timeout = 60):
         """This API is called on VPP router start.
@@ -596,10 +606,9 @@ class FwPppoeClient(FwObject):
         """
         conn = self.connections.get(dev_id)
         conn.create_tun()
-        self.connections[dev_id] = conn
-
         conn.save()
         conn.open()
+        self.connections[dev_id] = conn
 
         while timeout >= 0:
             connected = self.scan_interface(dev_id, conn)
