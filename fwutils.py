@@ -1466,7 +1466,7 @@ def stop_vpp():
     with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
         pppoe.reset_interfaces()
 
-def reset_device_config():
+def reset_device_config(pppoe=False):
     """Reset router config by cleaning DB and removing config files.
 
      :returns: None.
@@ -1500,6 +1500,9 @@ def reset_device_config():
 
     if 'lte' in fwglobals.g.db:
         fwglobals.g.db['lte'] = {}
+
+    if pppoe:
+        fwpppoe.pppoe_reset()
 
     reset_router_api_db_sa_id() # sa_id-s are used in translations of router configuration, so clean them too.
     reset_router_api_db(enforce=True)
