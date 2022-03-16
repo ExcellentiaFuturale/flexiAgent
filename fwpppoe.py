@@ -711,3 +711,15 @@ def is_pppoe_interface(if_name = None, dev_id = None):
     else:
         with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
             return pppoe.is_pppoe_interface(if_name, dev_id)
+
+def pppoe_reset():
+    """Reset PPPoE configuration
+    """
+    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe_client:
+        pppoe_client.clean()
+
+def is_pppoe_configured():
+    """Check if PPPoE is configured
+    """
+    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe_client:
+        return pppoe_client.is_pppoe_configured()

@@ -46,13 +46,13 @@ import fwglobals
 import fwikev2
 import fwlte
 import fwmultilink
+import fwpppoe
 import fwstats
 import fwutils
 import fwwebsocket
 import loadsimulator
 
 from fwobject import FwObject
-from fwpppoe import FwPppoeClient
 
 from fw_nat_command_helpers import WAN_INTERFACE_SERVICES
 
@@ -633,7 +633,7 @@ def reset(soft=False, quiet=False, pppoe=False):
         return
 
     if soft:
-        fwutils.reset_device_config()
+        fwutils.reset_device_config(pppoe)
         return
 
     with fwikev2.FwIKEv2() as ike:
@@ -652,7 +652,7 @@ def reset(soft=False, quiet=False, pppoe=False):
         if fwutils.vpp_does_run():
             print("stopping the router...")
         daemon_rpc('stop', stop_router=True)
-        fwutils.reset_device_config()
+        fwutils.reset_device_config(pppoe)
 
         if os.path.exists(fwglobals.g.DEVICE_TOKEN_FILE):
             os.remove(fwglobals.g.DEVICE_TOKEN_FILE)
@@ -662,12 +662,8 @@ def reset(soft=False, quiet=False, pppoe=False):
         for dev_id in lte_interfaces:
             fwlte.disconnect(dev_id, False)
 
-        with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe_client:
-            pppoe_configured = pppoe_client.is_pppoe_configured()
-            if pppoe:
-                pppoe_client.clean()
-            elif pppoe_configured:
-                fwglobals.log.info("Note: this command doesn't clear pppoe configuration, use 'fwagent reset -p' to clear it")
+        if not pppoe and fwpppoe.is_pppoe_configured():
+            fwglobals.log.info("Note: this command doesn't clear pppoe configuration, use 'fwagent reset -p' to clear it")
 
         fwglobals.log.info("Reset operation done")
     else:
