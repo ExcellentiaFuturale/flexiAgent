@@ -1498,9 +1498,6 @@ def reset_device_config():
     with FwIKEv2() as ike:
         ike.clean()
 
-    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
-        pppoe.reset_interfaces()
-
     if 'lte' in fwglobals.g.db:
         fwglobals.g.db['lte'] = {}
 
