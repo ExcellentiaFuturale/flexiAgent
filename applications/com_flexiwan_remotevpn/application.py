@@ -45,10 +45,10 @@ from applications.fwapplication_interface import FwApplicationInterface
 
 class Application(FwApplicationInterface):
 
-    def install(self, configParams):
+    def install(self, params):
         """Install Remote VPN server on host.
 
-        :param configParams - remote vpn parameters
+        :param params - remote vpn parameters
 
         :returns: (True, None) tuple on success, (False, <error string>) on failure.
         """
@@ -83,7 +83,8 @@ class Application(FwApplicationInterface):
                 fwapplication_utils.run_linux_commands(commands)
                 self.log.info("remoteVPN installed successfully")
 
-            res, err = self.configure(configParams)
+            config_params = params.get('configParams')
+            res, err = self.configure(config_params)
 
             return (res, err)
         except Exception as e:
@@ -362,7 +363,7 @@ class Application(FwApplicationInterface):
     def is_app_running(self):
         return True if self._openvpn_pid() else False
 
-    def get_log_file(self):
+    def get_log_filename(self):
         return cfg.openvpn_log_file
 
     def get_interfaces(self, type, vpp):

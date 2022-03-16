@@ -72,6 +72,7 @@ class FWAPPLICATIONS_API(FwObject):
             self.thread_stats.join()
             self.thread_stats = None
 
+        self.app_instances = {}
         self.db.close()
         return
 
@@ -125,7 +126,9 @@ class FWAPPLICATIONS_API(FwObject):
             "params": {
                 "name": "Remote Worker VPN",
                 "identifier": "com.flexiwan.remotevpn",
-                "applicationParams": { ... }
+                "applicationParams": {
+                    "configParams": { ... }
+                }
             }
         }
         '''
@@ -141,13 +144,13 @@ class FWAPPLICATIONS_API(FwObject):
         fwutils.load_linux_tap_modules()
         fwutils.load_linux_tc_modules()
 
-        application_params = params.get('applicationParams')
+        application_params = {'params': params.get('applicationParams')}
         success, val = self._call_application_api(identifier, 'install', application_params)
         if not success:
             return { 'ok': 0, 'message': val }
 
         # store in database
-        self._update_applications_db(identifier, 'installed', request)
+        self._update_applications_db(identifier, 'installation_request', request)
 
         return { 'ok': 1 }
 
@@ -219,16 +222,16 @@ class FWAPPLICATIONS_API(FwObject):
         return copy.deepcopy(self.stats)
 
     def _run_stats_thread(self):
+        timeout = 10
         slept = 0
         while not fwglobals.g.teardown:
             # Every 10 seconds collect the application status and statistics
             #
             try:  # Ensure thread doesn't exit on exception
-                timeout = 10
                 if (slept % timeout) == 0 and not self.processing_request:
                     apps = dict(self.db.items())
                     for identifier in apps:
-                        self._call_app_watchdog(identifier)
+                        self._call_application_api(identifier, 'on_watchdog')
 
                         new_stats = {}
                         new_stats['running'] = self._is_app_running(identifier)
@@ -293,24 +296,14 @@ class FWAPPLICATIONS_API(FwObject):
 
         return res
 
-    def get_interfaces(self, type, vpp):
-        return self.call_hook('get_interfaces', {'type': type, 'vpp': vpp})
+    def get_interfaces(self, **params):
+        return self.call_hook('get_interfaces', params)
 
     def _get_installation_dir(self, identifier):
         current_dir = str(pathlib.Path(__file__).parent.resolve())
         identifier = identifier.replace('.', '_') # python modules cannot be imported if the path is with dots
         source_installation_dir = current_dir + '/applications/' + identifier
         return source_installation_dir
-
-    def _call_app_watchdog(self, identifier):
-        try:
-            success, val = self._call_application_api(identifier, 'on_watchdog')
-            if not success:
-                return { 'ok': 0, 'message': val }
-
-            return { 'ok': 1, 'message': val }
-        except Exception as e:
-            return { 'ok': 0, 'message': str(e) }
 
     def _is_app_running(self, identifier):
         success, val = self._call_application_api(identifier, 'is_app_running')
@@ -324,10 +317,10 @@ class FWAPPLICATIONS_API(FwObject):
             return val
         return {}
 
-    def get_log_file(self, identifier):
+    def get_log_filename(self, identifier):
         if not identifier:
             return None
-        success, val = self._call_application_api(identifier, 'get_log_file')
+        success, val = self._call_application_api(identifier, 'get_log_filename')
         if success:
             return val
         return None
@@ -364,12 +357,12 @@ class FWAPPLICATIONS_API(FwObject):
         #   generate uninstall application message
         #
         for identifier in db_keys:
-            install_req = self.db[identifier].get('installed')
-            if not install_req:
+            installation_request = self.db[identifier].get('installation_request')
+            if not installation_request:
                 continue
 
             if identifier in sync_applications:
-                current_params = install_req.get('params')
+                current_params = installation_request.get('params')
                 incoming_params = sync_applications[identifier]['params']
                 if fwutils.compare_request_params(current_params, incoming_params):
                     # The configuration item has exactly same parameters.
@@ -377,13 +370,13 @@ class FWAPPLICATIONS_API(FwObject):
                     #
                     del sync_applications[identifier]
                 else:
-                    install_req['message'] = install_req['message'].replace('-install', '-uninstall')
+                    installation_request['message'] = installation_request['message'].replace('-install', '-uninstall')
                     # for applications we don't send the configParams as argument to uninstall function
-                    del install_req['params']['applicationParams']['configParams']
-                    output_requests.append(install_req)
+                    del installation_request['params']['applicationParams']['configParams']
+                    output_requests.append(installation_request)
             else:
-                install_req['message'] = install_req['message'].replace('-install', '-uninstall')
-                output_requests.append(install_req)
+                installation_request['message'] = installation_request['message'].replace('-install', '-uninstall')
+                output_requests.append(installation_request)
 
 
         output_requests += list(sync_applications.values())
@@ -396,7 +389,7 @@ class FWAPPLICATIONS_API(FwObject):
 
         if len(sync_list) == 0:
             self.log.info("sync: sync_list is empty, no need to sync")
-            return True
+            return
 
         self.log.debug("sync: start sync")
 

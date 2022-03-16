@@ -228,7 +228,7 @@ class FWAGENT_API(FwObject):
             'ospf': fwglobals.g.OSPF_LOG_FILE,
             'hostapd': fwglobals.g.HOSTAPD_LOG_FILE,
             'agentui': fwglobals.g.AGENT_UI_LOG_FILE,
-            'application': fwglobals.g.applications_api.get_log_file(params.get('application', {}).get('identifier'))
+            'application': fwglobals.g.applications_api.get_log_filename(params.get('application', {}).get('identifier'))
         }
         file = dl_map.get(params['filter'], '')
         try:

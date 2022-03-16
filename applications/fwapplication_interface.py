@@ -38,10 +38,10 @@ class FwApplicationInterface(ABC, FwObject):
     def identifier(self):
         return self.__module__.replace('_', '.')
 
-    def install(self, configParams):
+    def install(self, params):
         """Install functionality for application.
 
-        :param configParams - A dictionary that contains the application configuration that received from flexiManage
+        :param params - A dictionary that contains the application configuration that received from flexiManage
 
         :returns: (True, None) tuple on success, (False, <error string>) on failure.
         """
@@ -93,8 +93,8 @@ class FwApplicationInterface(ABC, FwObject):
         pass
 
     # getters
-    def get_log_file(self) -> str:
-        """A function that returns the application's log file.
+    def get_log_filename(self) -> str:
+        """A function that returns the application's log filename.
         It is used for retrieving and displaying logs in flexiManage
 
         :returns: Log filename
