@@ -3087,19 +3087,6 @@ def get_reconfig_hash():
     fwglobals.log.debug("get_reconfig_hash: %s: %s" % (hash, res))
     return hash
 
-def vpp_nat_interface_add(dev_id, remove):
-
-    vpp_if_name = dev_id_to_vpp_if_name(dev_id)
-    fwglobals.log.debug("NAT Interface Address - (%s is_delete: %s)" % (vpp_if_name, remove))
-    if remove:
-        vppctl_cmd = 'nat44 add interface address %s del' % vpp_if_name
-    else:
-        vppctl_cmd = 'nat44 add interface address %s' % vpp_if_name
-    out = _vppctl_read(vppctl_cmd, wait=False)
-    if out is None:
-        fwglobals.log.debug("failed vppctl_cmd=%s" % vppctl_cmd)
-        return False
-
 def vpp_wan_tap_inject_configure(dev_id, remove):
 
     vpp_if_name = dev_id_to_vpp_if_name(dev_id)
