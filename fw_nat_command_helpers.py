@@ -74,7 +74,6 @@ def get_nat_wan_setup_config(dev_id):
              'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
         ],
         'is_add': 1,
-        'is_session_recovery': 1 #session recovery is enabled (adds resiliency on address flap)
     }
     cmd['revert'] = {}
     cmd['revert']['name'] = "nat44_interface_add_del_output_feature"
@@ -91,26 +90,29 @@ def get_nat_wan_setup_config(dev_id):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name'] = "python"
+    cmd['cmd']['name'] = "nat44_add_del_interface_addr"
     cmd['cmd']['descr'] = "enable NAT for interface address %s" % dev_id
     cmd['cmd']['params'] = {
-        'module': 'fwutils',
-        'func':   'vpp_nat_interface_add',
-        'args':   {
-            'dev_id': dev_id,
-            'remove': False
-        }
+        'substs': [
+            {
+                'add_param': 'sw_if_index',
+                'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id
+            }
+        ],
+        'is_add': 1,
+        'is_session_recovery': 1, #session recovery is enabled (adds resiliency on address flap)
     }
     cmd['revert'] = {}
-    cmd['revert']['name'] = "python"
+    cmd['revert']['name'] = "nat44_add_del_interface_addr"
     cmd['revert']['descr'] = "disable NAT for interface %s" % dev_id
     cmd['revert']['params'] = {
-        'module': 'fwutils',
-        'func':   'vpp_nat_interface_add',
-        'args':   {
-            'dev_id': dev_id,
-            'remove': True
-        }
+        'substs': [
+            {
+                'add_param': 'sw_if_index',
+                'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id
+            }
+        ],
+        'is_add': 0,
     }
     cmd_list.append(cmd)
 

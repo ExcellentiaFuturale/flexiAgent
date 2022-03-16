@@ -342,11 +342,10 @@ def get_all_interfaces():
                 addrs = interfaces.get(nic_name)
 
         if fwpppoe.is_pppoe_interface(if_name=nic_name):
-            pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=nic_name)
-            if pppoe_iface.is_connected:
-                addrs = interfaces.get(pppoe_iface.ppp_if_name)
-            else:
-                addrs = []
+            ppp_if_name = fwpppoe.pppoe_get_ppp_if_name(nic_name)
+            if not ppp_if_name:
+                continue
+            addrs = interfaces.get(ppp_if_name)
 
         dev_id_ip_gw[dev_id] = {}
         dev_id_ip_gw[dev_id]['addr'] = ''
@@ -1515,9 +1514,6 @@ def reset_device_config():
     fwnetplan.restore_linux_netplan_files()
     with FwIKEv2() as ike:
         ike.clean()
-
-    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
-        pppoe.reset_interfaces()
 
     if 'lte' in fwglobals.g.db:
         fwglobals.g.db['lte'] = {}
@@ -3127,19 +3123,6 @@ def get_reconfig_hash():
     fwglobals.log.debug("get_reconfig_hash: %s: %s" % (hash, res))
     return hash
 
-def vpp_nat_interface_add(dev_id, remove):
-
-    vpp_if_name = dev_id_to_vpp_if_name(dev_id)
-    fwglobals.log.debug("NAT Interface Address - (%s is_delete: %s)" % (vpp_if_name, remove))
-    if remove:
-        vppctl_cmd = 'nat44 add interface address %s del' % vpp_if_name
-    else:
-        vppctl_cmd = 'nat44 add interface address %s' % vpp_if_name
-    out = _vppctl_read(vppctl_cmd, wait=False)
-    if out is None:
-        fwglobals.log.debug("failed vppctl_cmd=%s" % vppctl_cmd)
-        return False
-
 def vpp_wan_tap_inject_configure(dev_id, remove):
 
     vpp_if_name = dev_id_to_vpp_if_name(dev_id)
@@ -3208,20 +3191,19 @@ def dump(filename=None, path=None, clean_log=False):
     except Exception as e:
         fwglobals.log.error("failed to dump: %s" % (str(e)))
 
-def linux_check_gateway_exist(gw, check_subnet=True):
+def linux_check_gateway_exist(gw):
     interfaces = psutil.net_if_addrs()
     net_if_stats = psutil.net_if_stats()
+
+    interfaces.pop("lo", None)  # Light optimization - 'lo' is out of our interest
 
     for if_name in interfaces:
         addresses = interfaces[if_name]
         for address in addresses:
             if address.family == socket.AF_INET:
                 network = IPNetwork(address.address + '/' + address.netmask)
-                if check_subnet and not is_ip_in_subnet(gw, str(network)):
-                    return False
-                if net_if_stats[if_name].isup:
+                if net_if_stats[if_name].isup and is_ip_in_subnet(gw, str(network)):
                     return True
-
     return False
 
 def exec_with_timeout(cmd, timeout=60):
