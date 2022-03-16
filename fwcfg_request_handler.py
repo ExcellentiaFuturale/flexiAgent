@@ -59,7 +59,8 @@ class FwCfgRequestHandler(FwObject):
         self.cfg_db = cfg_db
         self.revert_failure_callback = revert_failure_callback
 
-        self.cfg_db.set_translators(translators)
+        if cfg_db:
+            self.cfg_db.set_translators(translators)
 
     def __enter__(self):
         return self
@@ -171,14 +172,21 @@ class FwCfgRequestHandler(FwObject):
                 for request in reversed(requests[0:idx]):
                     try:
                         op = request['message']
-                        request['message'] = op.replace('add-','remove-') if re.match('add-', op) else op.replace('remove-','add-')
+                        if re.match('add-', op):
+                            request['message'] = op.replace('add-', 'remove-')
+                        elif re.match('remove-', op):
+                            request['message'] = op.replace('remove-', 'add-')
+                        elif re.search('-install', op):
+                            request['message'] = op.replace('-install', '-uninstall')
+                        elif re.search('-uninstall', op):
+                            request['message'] = op.replace('-uninstall', '-install')
                         self._call_simple(request)
                     except Exception as e:
                         # on failure to revert move router into failed state
                         err_str = "_call_aggregated: failed to revert request %s while running rollback on aggregated request" % op
                         self.log.excep("%s: %s" % (err_str, format(e)))
                         if self.revert_failure_callback:
-                            self.revert_failure_callback(t)
+                            self.revert_failure_callback(str(e))
                         pass
                 raise e
 
@@ -679,8 +687,14 @@ class FwCfgRequestHandler(FwObject):
         if reply['ok'] == 0:
             raise Exception(" _sync_device: router full sync failed: " + str(reply.get('message')))
 
+    def _filter_incoming_requests(self, incoming_requests):
+        return list([x for x in incoming_requests if x['message'] in self.translators])
+
+    def _get_sync_list(self, incoming_requests):
+        return self.cfg_db.get_sync_list(incoming_requests)
+
     def sync(self, incoming_requests, full_sync=False):
-        incoming_requests = list([x for x in incoming_requests if x['message'] in self.translators])
+        incoming_requests = self._filter_incoming_requests(incoming_requests)
 
         if len(incoming_requests) == 0:
             return True
@@ -694,7 +708,7 @@ class FwCfgRequestHandler(FwObject):
         # out of sync and try to modify them.
         # If that fails, we will try the full sync.
         #
-        sync_list = self.cfg_db.get_sync_list(incoming_requests)
+        sync_list = self._get_sync_list(incoming_requests)
 
         if len(sync_list) == 0 and not full_sync:
             self.log.info("_sync_device: sync_list is empty, no need to sync")

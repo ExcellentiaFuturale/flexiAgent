@@ -33,16 +33,16 @@ from sqlitedict import SqliteDict
 
 import fwglobals
 import fwutils
-from fwobject import FwObject
+from fwcfg_request_handler import FwCfgRequestHandler
 
-class FWAPPLICATIONS_API(FwObject):
+class FWAPPLICATIONS_API(FwCfgRequestHandler):
     """Services class representation.
     """
 
     def __init__(self, start_application_stats = False):
         """Constructor method.
         """
-        FwObject.__init__(self)
+        FwCfgRequestHandler.__init__(self, {}, None)
 
         self.db = SqliteDict(fwglobals.g.APPLICATIONS_DB_FILE, autocommit=True)
         self.thread_stats = None
@@ -91,7 +91,7 @@ class FWAPPLICATIONS_API(FwObject):
 
                 self.app_instances[app.identifier] = app
 
-    def call(self, request):
+    def _call_simple(self, request):
         """Invokes API specified by the request received from flexiManage.
 
         :param request: The request received from flexiManage.
@@ -113,7 +113,7 @@ class FWAPPLICATIONS_API(FwObject):
                 raise Exception(f'{handler_func}({format(params)}) failed: {reply["message"]}')
             return reply
         except Exception as e:
-            self.log.error(f"call({request}): {str(e)}")
+            self.log.error(f"_call_simple({request}): {str(e)}")
             raise e
         finally:
             self.processing_request = False
@@ -399,21 +399,8 @@ class FWAPPLICATIONS_API(FwObject):
 
         return output_requests
 
-    def sync(self, requests, full_sync=False):
-        requests = list([x for x in requests if x['message'].startswith('application-')])
-
-        sync_list = self._get_sync_list(requests)
-
-        if len(sync_list) == 0:
-            self.log.info("sync: sync_list is empty, no need to sync")
-            return
-
-        self.log.debug("sync: start sync")
-
-        for sync_request in sync_list:
-            self.call(sync_request)
-
-        self.log.debug("sync: sync succeeded")
+    def _filter_incoming_requests(self, requests):
+        return list([x for x in requests if x['message'].startswith('application-')])
 
 def call_applications_hook(hook):
     '''This function calls a function within applications_api even if the agnet object is not initialzied

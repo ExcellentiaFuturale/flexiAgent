@@ -691,6 +691,8 @@ class Fwglobals(FwObject):
             return getattr(self.router_api, attr)
         elif api_type == '_call_system_api':
             return getattr(self.system_api, attr)
+        elif api_type == '_call_applications_api':
+            return getattr(self.applications_api, attr)
 
     def _call_aggregated(self, request):
         """Handle aggregated request from flexiManage.
@@ -783,7 +785,7 @@ class Fwglobals(FwObject):
         apis = list(aggregations.keys())
         executed_apis = []
 
-        for api in ['_call_system_api', '_call_router_api']:
+        for api in ['_call_system_api', '_call_router_api', '_call_applications_api']:
             if api in aggregations:
                 api_call_func = self._get_api_object_attr(api, 'call')
                 try:
@@ -853,6 +855,13 @@ class Fwglobals(FwObject):
                             request['params'][param_name] = old_params[param_name]
                         else:
                             del request['params'][param_name]
+
+                elif re.search('-install', op):
+                    request['message'] = op.replace('-install','-uninstall')
+
+                elif re.search('-configure', op):
+                    pass
+
                 else:
                     raise Exception("_build_rollback_aggregations: not expected request: %s" % op)
 
