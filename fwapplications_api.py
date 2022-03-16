@@ -150,7 +150,7 @@ class FWAPPLICATIONS_API(FwObject):
             return { 'ok': 0, 'message': val }
 
         # store in database
-        self._update_applications_db(identifier, 'installation_request', request)
+        self._update_applications_db(identifier, 'application-install', request)
 
         return { 'ok': 1 }
 
@@ -205,6 +205,10 @@ class FWAPPLICATIONS_API(FwObject):
         params = request['params']
         identifier = params.get('identifier')
 
+        is_installed = self.db.get(identifier, {}).get('application-install')
+        if not is_installed:
+            raise Exception(f'application {identifier} is not installed')
+
         application_params = {'params': params.get('applicationParams')}
         success, val = self._call_application_api(identifier, 'configure', application_params)
 
@@ -212,9 +216,7 @@ class FWAPPLICATIONS_API(FwObject):
             return { 'ok': 0, 'message': val }
 
         # update in database
-        installed = self.db[identifier].get('installed')
-        installed['params']['applicationParams']['configParams'] = params['applicationParams']
-        self._update_applications_db(identifier, 'installed', installed)
+        self._update_applications_db(identifier, 'application-configure', request)
 
         return { 'ok': 1 }
 
@@ -347,39 +349,54 @@ class FWAPPLICATIONS_API(FwObject):
         sync_applications = {}
         for request in requests:
             identifier = request.get('params').get('identifier')
-            sync_applications[identifier] = request
+            message = request.get('message')
+            if not identifier in sync_applications:
+                sync_applications[identifier] = {}
+            sync_applications[identifier][message] = request
 
         # loop over the existing applications.
         # if the existing application exists in the incoming list:
         #   if the incoming and current params are the same - no need to do anything.
         #   if there is a diff between them - generate uninstall and install application messages
         # if the existing application does not exist in the incoming list:
-        #   generate uninstall application message
+        #   generate application-uninstall message
         #
         for identifier in db_keys:
-            installation_request = self.db[identifier].get('installation_request')
+            installation_request = self.db[identifier].get('application-install')
             if not installation_request:
                 continue
 
-            if identifier in sync_applications:
-                current_params = installation_request.get('params')
-                incoming_params = sync_applications[identifier]['params']
-                if fwutils.compare_request_params(current_params, incoming_params):
+            # if application appears in our DB but not in the incoming list - generate application-uninstall
+            if not identifier in sync_applications:
+                installation_request['message'] = installation_request['message'].replace('-install', '-uninstall')
+                output_requests.append(installation_request)
+                continue
+
+            for message in dict(sync_applications[identifier]):
+                existing_message = self.db[identifier].get(message)
+                if not existing_message:
+                    continue
+
+                existing_params = existing_message.get('params')
+                incoming_params = sync_applications[identifier][message]['params']
+                if fwutils.compare_request_params(existing_params, incoming_params):
                     # The configuration item has exactly same parameters.
                     # It does not require sync, so remove it from input list.
                     #
-                    del sync_applications[identifier]
-                else:
-                    installation_request['message'] = installation_request['message'].replace('-install', '-uninstall')
-                    # for applications we don't send the configParams as argument to uninstall function
-                    del installation_request['params']['applicationParams']['configParams']
-                    output_requests.append(installation_request)
-            else:
-                installation_request['message'] = installation_request['message'].replace('-install', '-uninstall')
-                output_requests.append(installation_request)
+                    del sync_applications[identifier][message]
+                elif message == 'application-install':
+                    # The application-install message params are different
+                    # We generate uninstall before the incoming install to cleanup the machine.
+                    #
+                    existing_message['message'] = existing_message['message'].replace('-install', '-uninstall')
+                    output_requests.append(existing_message)
 
+        # check the list has messages after manipulations
+        for identifier in sync_applications:
+            if not sync_applications[identifier]:
+                continue
+            output_requests += list(sync_applications[identifier].values())
 
-        output_requests += list(sync_applications.values())
         return output_requests
 
     def sync(self, requests, full_sync=False):

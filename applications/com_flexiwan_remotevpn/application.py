@@ -83,10 +83,8 @@ class Application(FwApplicationInterface):
                 fwapplication_utils.run_linux_commands(commands)
                 self.log.info("remoteVPN installed successfully")
 
-            config_params = params.get('configParams')
-            res, err = self.configure(config_params)
 
-            return (res, err)
+            return (True, None)
         except Exception as e:
             self.log.error(f"install(): {str(e)}")
             # call uninstall function to revert the installation
