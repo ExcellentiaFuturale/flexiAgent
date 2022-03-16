@@ -53,7 +53,7 @@ class VPP_API_CLIENT(VPPApiClient):
                 self.jsonfiles.append(os.path.join(root, filename))
         if not self.jsonfiles and not vppWrapper:
             raise Exception("VPP_API_CLIENT: no vpp *.api.json files were found")
-        VPPApiClient.__init__(self, apifiles=self.jsonfiles, use_socket=False, read_timeout=30, loglevel='INFO')
+        VPPApiClient.__init__(self, apifiles=self.jsonfiles, use_socket=False, read_timeout=30, loglevel='WARNING')
         self.logger.addHandler(SysLogHandler(address='/dev/log'))
         self.lock = threading.RLock()
 

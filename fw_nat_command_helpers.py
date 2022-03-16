@@ -32,11 +32,6 @@ WAN_INTERFACE_SERVICES = {
         "port": 4789,
         "protocol": "udp"
     },
-  "WebSocket-to-flexiManage":
-    {
-        "port": 7646,
-        "protocol": "tcp"
-    },
 }
 
 def get_nat_forwarding_config(enable):
@@ -107,20 +102,33 @@ def get_nat_wan_setup_config(dev_id):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['func']   = "vpp_nat_interface_add"
-    cmd['cmd']['module'] = "fwutils"
+    cmd['cmd']['func']   = "call_vpp_api"
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['descr'] = "enable NAT for interface address %s" % dev_id
     cmd['cmd']['params'] = {
-                    'dev_id': dev_id,
-                    'remove': False,
+                    'api': "nat44_add_del_interface_addr",
+                    'args': {
+                        'is_add': 1,
+                        'is_session_recovery': 1, #session recovery is enabled (adds resiliency on address flap)
+                        'substs': [
+                            {'add_param': 'sw_if_index',
+                             'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
+                        ],
+                    }
     }
     cmd['revert'] = {}
-    cmd['revert']['func']   = "vpp_nat_interface_add"
-    cmd['revert']['module'] = "fwutils"
+    cmd['revert']['func']   = "call_vpp_api"
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['revert']['descr'] = "disable NAT for interface %s" % dev_id
     cmd['revert']['params'] = {
-                        'dev_id': dev_id,
-                        'remove': True,
+                    'api': "nat44_add_del_interface_addr",
+                    'args': {
+                        'is_add': 0,
+                        'substs': [
+                            {'add_param': 'sw_if_index',
+                             'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
+                        ],
+                    }
     }
     cmd_list.append(cmd)
 

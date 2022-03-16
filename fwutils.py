@@ -272,7 +272,7 @@ def get_interface_gateway(if_name, if_dev_id=None):
     if if_dev_id:
         if_name = dev_id_to_tap(if_dev_id)
 
-    if fwglobals.g.pppoe.is_pppoe_interface(if_name=if_name):
+    if fwpppoe.is_pppoe_interface(if_name=if_name):
         pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
         return pppoe_iface.gw, str(pppoe_iface.metric)
 
@@ -340,12 +340,11 @@ def get_all_interfaces():
                 nic_name = tap_name
                 addrs = interfaces.get(nic_name)
 
-        if fwglobals.g.pppoe.is_pppoe_interface(if_name=nic_name):
-            pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=nic_name)
-            if pppoe_iface.is_connected:
-                addrs = interfaces.get(pppoe_iface.ppp_if_name)
-            else:
-                addrs = []
+        if fwpppoe.is_pppoe_interface(if_name=nic_name):
+            ppp_if_name = fwpppoe.pppoe_get_ppp_if_name(nic_name)
+            if not ppp_if_name:
+                continue
+            addrs = interfaces.get(ppp_if_name)
 
         dev_id_ip_gw[dev_id] = {}
         dev_id_ip_gw[dev_id]['addr'] = ''
@@ -377,9 +376,10 @@ def get_interface_address(if_name, log=True, log_on_failure=None):
     if log_on_failure == None:
         log_on_failure = log
 
-    ppp_if_name = fwpppoe.pppoe_get_ppp_if_name(if_name)
-    if ppp_if_name:
-        if_name = ppp_if_name
+    if fwpppoe.is_pppoe_interface(if_name=if_name):
+        ppp_if_name = fwpppoe.pppoe_get_ppp_if_name(if_name)
+        if ppp_if_name:
+            if_name = ppp_if_name
 
     interfaces = psutil.net_if_addrs()
     if if_name not in interfaces:
@@ -572,7 +572,7 @@ def get_linux_interfaces(cached=True):
 
             interface['mtu'] = get_linux_interface_mtu(if_name)
 
-            is_pppoe = fwglobals.g.pppoe.is_pppoe_interface(if_name=if_name)
+            is_pppoe = fwpppoe.is_pppoe_interface(if_name=if_name)
             is_wifi = fwwifi.is_wifi_interface(if_name)
             is_lte = fwlte.is_lte_interface(if_name)
 
@@ -719,6 +719,9 @@ def build_interface_dev_id(linux_dev_name, sys_class_net=None):
     if not linux_dev_name:
         return ""
 
+    if linux_dev_name.startswith('ppp'):
+        return fwpppoe.pppoe_get_dev_id_from_ppp(linux_dev_name)
+
     if sys_class_net is None:
         cmd = "sudo ls -l /sys/class/net"
         try:
@@ -864,25 +867,33 @@ def vpp_if_name_to_dev_id(vpp_if_name):
 #
 def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
 
-    # Note, tap interfaces created by "create tap" are handled as follows:
-    # the commands "create tap host-if-name tap_wwan0" and "enable tap-inject" create three interfaces:
-    # Two on Linux (tap_wwan0, vpp1) and one on vpp (tap1).
-    # Note, we use "tap_" prefix in "tap_wwan0" in order to be able to associate the wwan0 physical interface
-    # with the tap1 interface. This is done as follows:
-    # Then we can substr the dev_name and get back the linux interface name. Then we can get the dev_id of this interface.
+    # For tap interfaces we don't use 'vpp_if_name', but fetch Linux name of interface from vpp.
+    # Tap interfaces are created as follows:
+    # The commands "create tap host-if-name tap_wwan0" and "enable tap-inject" create three interfaces:
+    # Two on Linux (tap_wwan0, vpp1) and one on vpp (tap0).
+    # We compose name of tap interface (tap_wwan0) of two parts: "tap_" and "wwan0", so we can
+    # fetch name of Linux interface (wwan0) out of the tap name by a simple string split.
     #
     taps = fwglobals.g.router_api.vpp_api.vpp.call('sw_interface_tap_v2_dump')
     for tap in taps:
+        if not re.match("tap_", tap.host_if_name):
+            continue   # pppoe interfaces don't follow "tap_" convention
+
         vpp_tap = tap.dev_name                      # fetch tap0
         linux_tap = tap.host_if_name                # fetch tap_wwan0
         linux_dev_name = linux_tap.split('_')[-1]   # tap_wwan0 - > wwan0
 
-        # if the lte/wifi interface name is long (more than 15 letters),
-        # It's not enough to slice tap_wwan0 and get the linux interface name from the last part.
-        # So we take it from the /sys/class/net by filter out the tap_wwan0,
-        # then we can get the complete name
+        # 'linux_dev_name' might include truncated name of linux interface.
+        # This is because Linux limits length of interface names to be no more than 15 characters.
+        # So, when we create tap interface for linux interface with long name, e.g. wwp0s21u1i12m,
+        # we can get "tap_wwp0s21u1i12" that exceeds the limit. So we have to short it.
+        # We chop the beginning of the name as the end of the name is unique for interfaces.
+        # So the final version of tap will be "tap_wp0s21u1i12". Note missing the first "w".
+        #   To get Linux interface name out of truncated 'linux_dev_name' we use the '/sys/class/net'.
+        # 'grep -v {linux_tap}' is used to filter out "tap_wp0s21u1i12",
+        # 'grep {linux_dev_name}' is used to find full name (wwp0s21u1i12) based on truncated name (wp0s21u1i12).
         #
-        cmd =  "ls -l /sys/class/net | grep -v %s | grep %s" % (linux_tap, linux_dev_name)
+        cmd =  f"ls -l /sys/class/net | grep -v {linux_tap} | grep {linux_dev_name}"
         linux_dev_name = subprocess.check_output(cmd, shell=True).decode().strip().split('/')[-1]
 
         bus = build_interface_dev_id(linux_dev_name)            # fetch bus address of wwan0
@@ -1131,7 +1142,7 @@ def vpp_get_tap_info(vpp_if_name=None, vpp_sw_if_index=None, tap_if_name=None):
      """
     if not vpp_does_run():
         fwglobals.log.debug("vpp_get_tap_info: VPP is not running")
-        return ({}, {}, 'None')
+        return (None, None)
 
     if vpp_if_name:
         vppctl_cmd = f"show tap-inject {vpp_if_name}"
@@ -1487,9 +1498,6 @@ def reset_device_config():
     with FwIKEv2() as ike:
         ike.clean()
 
-    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
-        pppoe.reset_interfaces()
-
     if 'lte' in fwglobals.g.db:
         fwglobals.g.db['lte'] = {}
 
@@ -1676,16 +1684,6 @@ def get_router_status():
     else:
         state = 'stopped'
     return (state, reason)
-
-def is_router_running():
-    """Check if VPP is running.
-
-     :returns: True/False.
-    """
-    if hasattr(fwglobals.g, 'router_api'):
-        # The STOPPING state is omitted on purpose to accommodate PPPoE needs
-        return fwglobals.g.router_api.state_is_starting_or_started()
-    return False
 
 def _get_group_delimiter(lines, delimiter):
     """Helper function to iterate through a group lines by delimiter.
@@ -1963,10 +1961,6 @@ def is_interface_without_dev_id(if_name):
 
     # bridge interface that created for WiFi has no dev_id
     if if_name.startswith('br_'):
-        return True
-
-    # PPPoE interface has no dev_id
-    if if_name.startswith('ppp'):
         return True
 
     return False
@@ -3090,19 +3084,6 @@ def get_reconfig_hash():
     fwglobals.log.debug("get_reconfig_hash: %s: %s" % (hash, res))
     return hash
 
-def vpp_nat_interface_add(dev_id, remove):
-
-    vpp_if_name = dev_id_to_vpp_if_name(dev_id)
-    fwglobals.log.debug("NAT Interface Address - (%s is_delete: %s)" % (vpp_if_name, remove))
-    if remove:
-        vppctl_cmd = 'nat44 add interface address %s del' % vpp_if_name
-    else:
-        vppctl_cmd = 'nat44 add interface address %s' % vpp_if_name
-    out = _vppctl_read(vppctl_cmd, wait=False)
-    if out is None:
-        fwglobals.log.debug("failed vppctl_cmd=%s" % vppctl_cmd)
-        return False
-
 def vpp_wan_tap_inject_configure(dev_id, remove):
 
     vpp_if_name = dev_id_to_vpp_if_name(dev_id)
@@ -3174,6 +3155,9 @@ def dump(filename=None, path=None, clean_log=False):
 def linux_check_gateway_exist(gw):
     interfaces = psutil.net_if_addrs()
     net_if_stats = psutil.net_if_stats()
+
+    interfaces.pop("lo", None)  # Light optimization - 'lo' is out of our interest
+
     for if_name in interfaces:
         addresses = interfaces[if_name]
         for address in addresses:
@@ -3181,7 +3165,6 @@ def linux_check_gateway_exist(gw):
                 network = IPNetwork(address.address + '/' + address.netmask)
                 if net_if_stats[if_name].isup and is_ip_in_subnet(gw, str(network)):
                     return True
-
     return False
 
 def exec(cmd, timeout=60):
@@ -3585,3 +3568,14 @@ def get_linux_interface_mtu(if_name):
         return ''
 
     return str(net_if_stats[if_name].mtu)
+
+def os_system(cmd, log_prefix="", log=False, print_error=True):
+    if log:
+        fwglobals.log.debug(cmd)
+
+    rc = os.system(cmd)
+    if rc and print_error:
+        prefix = f'{log_prefix}: ' if log_prefix else ''
+        fwglobals.log.error(f'{prefix}command failed: {cmd}')
+
+    return True if rc else False

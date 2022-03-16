@@ -18,6 +18,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+from datetime import datetime, timedelta
 import os
 import psutil
 import re
@@ -40,7 +41,45 @@ class LTE_ERROR_MESSAGES():
     PUK_IS_WRONG = 'PUK_IS_WRONG'
     PUK_IS_REQUIRED = 'PUK_IS_REQUIRED'
 
-def _run_qmicli_command(dev_id, flag, print_error=False):
+def reset_modem_if_needed(err_str, dev_id):
+    '''The qmi and mbim commands can sometimes get stuck and return errors.
+    It is not clear if this is the modem that get stuck or the way commands are run to it.
+    The solution we found is to do a modem reset.
+    But, to avoid a loop of error -> reset -> error -> reset,
+    we will only perform it if a period of time has passed since the last reset.
+
+    :param err_str: the error string returned from the mbim/qmi clients
+    :param dev_id: lte dev id
+
+    :return: boolean indicates if reset is performed or not.
+
+    '''
+    reset_modem_error_triggers = [
+        "couldn't create client for the",
+        "operation failed: Failure",
+        "operation failed: Busy",
+        "operation failed: RadioPowerOff"
+    ]
+
+    if not any(x in err_str for x in reset_modem_error_triggers):
+        return False
+
+    last_reset_time = get_cache_val(dev_id, 'healing_reset_last_time')
+
+    now = datetime.now()
+    if last_reset_time:
+        last_reset_time = datetime.fromtimestamp(last_reset_time)
+        if last_reset_time > (now - timedelta(hours=1)):
+            return False
+
+    # do reset
+    fwglobals.log.debug(f"reset_modem_if_needed: resetting modem while error. err: {err_str}")
+
+    set_cache_val(dev_id, 'healing_reset_last_time', datetime.timestamp(now))
+    reset_modem(dev_id)
+    return True
+
+def _run_qmicli_command(dev_id, flag):
     try:
         device = dev_id_to_usb_device(dev_id) if dev_id else 'cdc-wdm0'
         qmicli_cmd = 'qmicli --device=/dev/%s --device-open-proxy --%s' % (device, flag)
@@ -52,9 +91,11 @@ def _run_qmicli_command(dev_id, flag, print_error=False):
             fwglobals.log.debug('_run_qmicli_command: no output from command (%s)' % qmicli_cmd)
             return ([], None)
     except subprocess.CalledProcessError as err:
-        if print_error:
-            fwglobals.log.debug('_run_qmicli_command: flag: %s. err: %s' % (flag, err.output.strip()))
-        return ([], err.output.strip())
+        err_str = str(err.output.strip())
+        modem_resetted = reset_modem_if_needed(err_str, dev_id)
+        if modem_resetted:
+            return _run_qmicli_command(dev_id, flag)
+        return ([], err_str)
 
 def _run_mbimcli_command(dev_id, cmd, print_error=False):
     try:
@@ -68,10 +109,14 @@ def _run_mbimcli_command(dev_id, cmd, print_error=False):
             fwglobals.log.debug('_run_mbimcli_command: no output from command (%s)' % mbimcli_cmd)
             return ([], None)
     except subprocess.CalledProcessError as err:
+        err_str = str(err.output.strip())
         if print_error:
-            fwglobals.log.debug('_run_mbimcli_command: cmd: %s. err: %s' % (cmd, err.output.strip()))
-        return ([], err.output.strip())
+            fwglobals.log.debug('_run_mbimcli_command: cmd: %s. err: %s' % (cmd, err_str))
 
+        modem_resetted = reset_modem_if_needed(err_str, dev_id)
+        if modem_resetted:
+            return _run_mbimcli_command(dev_id, cmd, print_error)
+        return ([], err_str)
 
 def qmi_get_simcard_status(dev_id):
     return _run_qmicli_command(dev_id, 'uim-get-card-status')
@@ -481,7 +526,7 @@ def connect(params):
             r'--connect=%s | grep "Session ID\|IP\|Gateway\|DNS"' % connection_params
         ]
         for cmd in mbim_commands:
-            lines, err = _run_mbimcli_command(dev_id, cmd, True)
+            lines, err = _run_mbimcli_command(dev_id, cmd, print_error=True)
             if err:
                 raise Exception(err)
 
@@ -507,7 +552,7 @@ def connect(params):
         set_cache_val(dev_id, 'state', '')
         return (True, None)
     except Exception as e:
-        fwglobals.log.debug('connect: faild to connect lte. %s' % str(e))
+        fwglobals.log.debug('connect: failed to connect lte. %s' % str(e))
         set_cache_val(dev_id, 'state', '')
         return (False, str(e))
 
@@ -953,9 +998,14 @@ def get_stats():
     lte_dev_ids = get_lte_interfaces_dev_ids()
     for lte_dev_id in lte_dev_ids:
         modem_mode = get_cache_val(lte_dev_id, 'state')
-        if modem_mode == 'resetting' and modem_mode == 'connecting':
+        if modem_mode == 'resetting' or modem_mode == 'connecting':
             continue
 
-        info = collect_lte_info(lte_dev_id)
-        out[lte_dev_id] = info
+        try:
+            info = collect_lte_info(lte_dev_id)
+            out[lte_dev_id] = info
+        except:
+            pass
+
     return out
+    

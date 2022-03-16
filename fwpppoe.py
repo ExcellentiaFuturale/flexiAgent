@@ -26,11 +26,13 @@ import threading
 import time
 import traceback
 
+from netaddr import IPNetwork
 from sqlitedict import SqliteDict
 
 import fwglobals
 import fwnetplan
 import fwutils
+import fwroutes
 
 from fwobject import FwObject
 
@@ -44,26 +46,40 @@ class FwPppoeConnection(FwObject):
         self.id = id
         self.path = path
         self.filename = filename + '-' + str(id)
-        self.nic = ''
         self.user = ''
         self.mtu = 0
         self.mru = 0
-        self.tun_vpp_if_name = ''
         self.ppp_if_name = 'ppp%u' % id
         self.addr = ''
         self.gw = ''
-        self.if_index = -1
         self.dev_id = ''
         self.metric = 0
         self.usepeerdns = False
-        self.connected = False
+        self.tun_if_name = ''
+        self.tun_vpp_if_name = ''
+        self.tun_vppsb_if_name = ''
         self.opened = False
 
     def __str__(self):
-        usepeerdns = ',usepeerdns' if self.usepeerdns else ''
-        return f"{self.nic},{self.mtu},{self.mru},{self.user},{self.ppp_if_name},{self.addr},{self.gw}{usepeerdns}"
+        usepeerdns = 'usepeerdns' if self.usepeerdns else ''
+        return f"{self.id}, {self.dev_id},{self.mtu},{self.mru},{self.user},{self.ppp_if_name},{self.addr},{self.gw},{usepeerdns},{self.tun_if_name},{self.opened}"
+
+    def dev_id_to_if_name(self):
+        """Convert dev_id to if_name.
+
+        :returns: if_name.
+        """
+        if self.tun_if_name:
+            if_name = fwutils.dev_id_to_tap(self.dev_id)
+        else:
+            if_name = fwutils.dev_id_to_linux_if(self.dev_id)
+
+        return if_name
 
     def save(self):
+        """Create PPPoE connection configuration file.
+        """
+        if_name = self.dev_id_to_if_name()
         self.remove()
         try:
             with open(self.path + self.filename, 'w') as file:
@@ -79,7 +95,7 @@ class FwPppoeConnection(FwObject):
                 file.write('plugin rp-pppoe.so' + os.linesep)
                 file.write('mtu %u' % self.mtu + os.linesep)
                 file.write('mru %u' % self.mru + os.linesep)
-                file.write('nic-%s' % self.nic + os.linesep)
+                file.write('nic-%s' % if_name + os.linesep)
                 file.write('user %s' % self.user + os.linesep)
                 file.write('ifname %s' % self.ppp_if_name + os.linesep)
                 if self.usepeerdns:
@@ -88,7 +104,13 @@ class FwPppoeConnection(FwObject):
         except Exception as e:
             self.log.error("save: %s" % str(e))
 
-    def scan(self):
+    def scan_and_connect_if_needed(self, is_connected):
+        """Check Linux interfaces if PPPoE tunnel (pppX) is created.
+        """
+        pppd_id = fwutils.pid_of('pppd')
+        if not pppd_id and self.opened:
+            self.open()
+
         interfaces = psutil.net_if_addrs()
         if self.ppp_if_name in interfaces:
             connected = True
@@ -99,99 +121,145 @@ class FwPppoeConnection(FwObject):
             self.gw = ''
             connected = False
 
-        if connected != self.connected:
-            self.connected = connected
-            router_started = fwutils.is_router_running()
-
+        if connected != is_connected:
             if connected:
-                self.log.debug(f'pppoe connected: {self}, router_started: {router_started}')
-                if router_started:
-                    self.create_tun()
-                    self.create_tc_mirror()
+                self.log.debug(f'pppoe connected: {self}')
                 self.add_linux_ip_route()
             else:
-                self.log.debug(f'pppoe disconnected: {self}, router_started: {router_started}')
-                if router_started:
-                    self.remove_tun()
-                    self.remove_tc_mirror()
+                self.log.debug(f'pppoe disconnected: {self}')
+                if self.tun_if_name:
+                    self.remove_linux_ip_route()
 
-        return self.connected
+        return connected
 
     def open(self):
-        if self.opened:
-            return
+        """Open PPPoE connection.
+        """
+        if_name = self.dev_id_to_if_name()
 
-        os.system(f'ifconfig {self.nic} up')
-        os.system('pon %s' % self.filename)
+        sys_cmd = f'ip link set dev {if_name} up'
+        fwutils.os_system(sys_cmd, 'PPPoE open')
+
+        sys_cmd = 'pon %s' % self.filename
+        fwutils.os_system(sys_cmd, 'PPPoE open')
+
         self.opened = True
 
     def close(self):
-        if not self.opened:
+        """Close PPPoE connection.
+        """
+        if_name = self.dev_id_to_if_name()
+
+        pppd_id = fwutils.pid_of('pppd')
+        if not pppd_id:
             return
 
-        os.system('poff %s' % self.filename)
-        self.clean_linux_ip()
-        self.connected = False
+        sys_cmd = 'poff %s' % self.filename
+        fwutils.os_system(sys_cmd, 'PPPoE close')
+
+        sys_cmd = f'ip link set dev {if_name} down'
+        fwutils.os_system(sys_cmd, 'PPPoE close')
+
         self.opened = False
 
     def remove(self):
-            try:
-                if os.path.exists(self.path + self.filename):
-                    os.remove(self.path + self.filename)
+        """Remove PPPoE connection configuration file.
+        """
+        try:
+            if os.path.exists(self.path + self.filename):
+                os.remove(self.path + self.filename)
 
-            except Exception as e:
-                self.log.error("remove: %s" % str(e))
+        except Exception as e:
+            self.log.error("remove: %s" % str(e))
 
     def create_tun(self):
+        """Create TUN interface.
+        """
+        self.tun_if_name = 'pppoe%u' % self.id
         self.tun_vpp_if_name = 'tun%u' % self.id
-        self.if_index = socket.if_nametoindex(self.ppp_if_name)
-        cmds = []
-        cmds.append('create tap id %u tun' % self.id)
-        cmds.append('set interface state %s up' % self.tun_vpp_if_name)
-        cmds.append('set interface ip address %s %s' % (self.tun_vpp_if_name, self.addr))
-        cmds.append('tap-inject map tap %u %s' % (self.if_index, self.tun_vpp_if_name))
-        fwutils.vpp_cli_execute(cmds, debug=True)
-        fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id] = self.tun_vpp_if_name
-        fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name] = self.dev_id
+
+        fwutils.vpp_cli_execute([f'create tap id {self.id} host-if-name {self.tun_if_name} tun'], debug=True)
+
+        self.tun_vppsb_if_name = fwutils.vpp_if_name_to_tap(self.tun_vpp_if_name)
 
     def remove_tun(self):
-        cmds = []
-        cmds.append('tap-inject map tap %u %s del' % (self.if_index, self.tun_vpp_if_name))
-        cmds.append('delete tap %s' % self.tun_vpp_if_name)
-        fwutils.vpp_cli_execute(cmds, debug=True)
-        del fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id]
-        del fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name]
-        self.if_index = -1
+        """Remove TUN interface.
+        """
+        if not self.tun_if_name:
+            return
+
+        fwutils.vpp_cli_execute([f'delete tap {self.tun_vpp_if_name}'], debug=True)
+        self.tun_if_name = ''
+        self.tun_vpp_if_name = ''
+        self.tun_vppsb_if_name = ''
 
     def add_linux_ip_route(self):
-        os.system(f'ip r add default via {self.gw} metric {self.metric} proto static')
+        """Assign TUN interface with ip address.
+           Create default route.
+           Setup TC mirroring.
+           Modify agent cache for dev_id to/from TUN conversion.
+        """
+        if self.tun_if_name:
+            sys_cmd = f'ip link set dev {self.tun_vppsb_if_name} up'
+            fwutils.os_system(sys_cmd, 'PPPoE create_tun')
 
-    def clean_linux_ip(self):
-        os.system(f'ifconfig {self.nic} down')
+            fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id] = self.tun_vpp_if_name
+            fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name] = self.dev_id
 
-    def _tc_mirror_set(self, ifname_1, ifname_2, op):
-        os.system('tc qdisc %s dev %s handle ffff: ingress' % (op, ifname_1))
-        os.system('tc filter %s dev %s parent ffff: protocol all u32 match u32 0 0 action mirred egress mirror dev %s' % (op, ifname_1, ifname_2))
+            self.create_tc_mirror()
+
+            sys_cmd = f'ip addr add {self.addr} dev {self.tun_vppsb_if_name}'
+            fwutils.os_system(sys_cmd, 'PPPoE add_linux_ip_route')
+
+            address = IPNetwork(self.addr)
+            success, err_str = fwroutes.add_remove_route('0.0.0.0/0', str(address.ip), self.metric, False, self.dev_id, 'static', self.tun_vppsb_if_name, False)
+        else:
+            success, err_str = fwroutes.add_remove_route('0.0.0.0/0', self.gw, self.metric, False, self.dev_id, 'static', self.ppp_if_name, False)
+            if not success:
+                self.log.error(f"add_linux_ip_route: failed to add route: {err_str}")
+
+    def remove_linux_ip_route(self):
+        """Remove ip address from TUN interface.
+           Remove default route.
+           Remove TC mirroring.
+           Revert changes to agent cache.
+        """
+        self.remove_tc_mirror()
+
+        success, err_str = fwroutes.add_remove_route('0.0.0.0/0', None, None, True, self.dev_id, 'static', tun_vppsb_if_name, False)
+        if not success:
+            self.log.error(f"remove_linux_ip_route: failed to remove route: {err_str}")
+
+        sys_cmd = f'ip -4 addr flush label "{self.tun_vppsb_if_name}"'
+        fwutils.os_system(sys_cmd, 'PPPoE remove_tun')
+
+        sys_cmd = f'ip link set dev {self.tun_vppsb_if_name} down'
+        fwutils.os_system(sys_cmd, 'PPPoE remove_tun')
+
+        if self.dev_id in fwglobals.g.cache.dev_id_to_vpp_if_name:
+            del fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id]
+        if self.tun_vpp_if_name in fwglobals.g.cache.vpp_if_name_to_dev_id:
+            del fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name]
+
+    def _tc_mirror_set(self, ifname_1=None, ifname_2=None, op='add'):
+        if ifname_1:
+            sys_cmd = 'tc qdisc %s dev %s handle ffff: ingress' % (op, ifname_1)
+            fwutils.os_system(sys_cmd, 'PPPoE _tc_mirror_set')
+
+        if ifname_1 and ifname_2:
+            sys_cmd = 'tc filter %s dev %s parent ffff: protocol all u32 match u32 0 0 action mirred egress mirror dev %s pipe action drop' % (op, ifname_1, ifname_2)
+            fwutils.os_system(sys_cmd, 'PPPoE _tc_mirror_set')
 
     def create_tc_mirror(self):
-        self._tc_mirror_set(self.tun_vpp_if_name, self.ppp_if_name, 'add')
-        self._tc_mirror_set(self.ppp_if_name, self.tun_vpp_if_name, 'add')
+        """Setup TC mirroring.
+        """
+        self._tc_mirror_set(self.tun_if_name, self.ppp_if_name, 'add')
+        self._tc_mirror_set(self.ppp_if_name, self.tun_if_name, 'add')
 
     def remove_tc_mirror(self):
-        self._tc_mirror_set(self.tun_vpp_if_name, self.ppp_if_name, 'del')
-        self._tc_mirror_set(self.ppp_if_name, self.tun_vpp_if_name, 'del')
-
-class FwPppoeConnections(dict):
-    """The object that represents all PPPoE connections.
-    """
-    def __getitem__(self, item):
-        return self[item]
-
-    def __str__(self):
-        contents = ''
-        for key, item in self.items():
-            contents += f'{key}: {item}; '
-        return contents
+        """Remove TC mirroring.
+        """
+        self._tc_mirror_set(self.tun_if_name, None, 'del')
 
 class FwPppoeSecretsConfig(FwObject):
     """The object that represents PPPoE PAP/CHAP configuration file.
@@ -207,8 +275,8 @@ class FwPppoeSecretsConfig(FwObject):
         return f'{self.users}'
 
     def save(self):
-        self._remove()
-
+        """Create PPPoE secrets configuration file.
+        """
         pppoe_secrets_top =  """
         # Secrets for authentication
         # client	server	secret			IP addresses
@@ -227,6 +295,8 @@ class FwPppoeSecretsConfig(FwObject):
             self.log.error("save: %s" % str(e))
 
     def _remove(self):
+        """Remove PPPoE secrets configuration file.
+        """
         try:
             if os.path.exists(self.path + self.filename):
                 os.remove(self.path + self.filename)
@@ -235,13 +305,20 @@ class FwPppoeSecretsConfig(FwObject):
             self.log.error("remove: %s" % str(e))
 
     def clear(self):
+        """Clean users from internal dictionary.
+        """
+        self._remove()
         self.users.clear()
 
     def add_user(self, name, password):
+        """Add user to internal dictionary.
+        """
         user = self.FwPppoeUser(name, password)
         self.users[user.get_name()] = user
 
     def remove_user(self, name):
+        """Remove user from internal dictionary.
+        """
         del self.users[name]
 
     class FwPppoeUser():
@@ -273,13 +350,11 @@ class FwPppoeInterface():
         self.is_connected = False
         self.addr = ''
         self.gw = ''
-        self.tun_vpp_if_name = ''
-        self.ppp_if_name = ''
         self.netplan = ''
         self.fname = ''
 
     def __str__(self):
-        return f'user:{self.user}, password:{self.password}, mtu:{self.mtu}, mru:{self.mru}, usepeerdns:{self.usepeerdns}, metric:{self.metric}, enabled:{self.is_enabled}, connected:{self.is_connected}, addr:{self.addr}, gw:{self.gw}, tun:{self.tun_vpp_if_name}, ppp:{self.ppp_if_name}'
+        return f'user:{self.user}, password:{self.password}, mtu:{self.mtu}, mru:{self.mru}, usepeerdns:{self.usepeerdns}, metric:{self.metric}, enabled:{self.is_enabled}, connected:{self.is_connected}, addr:{self.addr}, gw:{self.gw}'
 
 class FwPppoeClient(FwObject):
     """The object that represents PPPoE client.
@@ -292,19 +367,19 @@ class FwPppoeClient(FwObject):
         self.thread_pppoec = None
         self.db_filename = db_file
         self.interfaces = SqliteDict(db_file, 'interfaces', autocommit=True)
-        self.id = 0
-        self.connections = FwPppoeConnections()
+        self.connections = SqliteDict(db_file, 'connections', autocommit=True)
         self.path = path + 'peers/'
         self.filename = filename
         self.chap_config = FwPppoeSecretsConfig(path, 'chap-secrets')
         self.pap_config = FwPppoeSecretsConfig(path, 'pap-secrets')
-        self._create_files()
+        self._populate_users()
 
     def initialize(self):
+        """Start all PPPoE connections and PPPoE thread if not standalone.
+        """
         if self.standalone:
             return
 
-        self.stop()
         self.start()
 
         self.thread_pppoec = threading.Thread(target=self.pppoec_thread, name='PPPOE Client Thread')
@@ -322,56 +397,85 @@ class FwPppoeClient(FwObject):
         self.finalize()
 
     def finalize(self):
-        """Destructor method
+        """Stop all PPPoE connections and PPPoE thread if not standalone.
+           Also close SQLDict databases.
         """
-        self.interfaces.close()
-
         if self.thread_pppoec:
             self.thread_pppoec.join()
             self.thread_pppoec = None
 
-    def _create_files(self):
-        for dev_id, pppoe_iface in self.interfaces.items():
+        if not self.standalone:
+            self.stop()
+
+        self.interfaces.close()
+        self.connections.close()
+
+    def _populate_users(self):
+        """Populate PPPoE users
+        """
+        for pppoe_iface in self.interfaces.values():
             self._add_user(pppoe_iface.user, pppoe_iface.password)
 
-            if fwutils.is_router_running():
-                if_name = fwutils.dev_id_to_tap(dev_id)
-            else:
-                if_name = fwutils.dev_id_to_linux_if(dev_id)
+    def _generate_connection_id(self):
+        """Generate connection id
+        """
+        id = 0
+        if not self.connections:
+            return id
 
-            conn = FwPppoeConnection(self.id, self.path, self.filename)
-            self.id += 1
-            conn.nic = if_name
-            conn.dev_id = dev_id
-            conn.nic = if_name
-            conn.user = pppoe_iface.user
-            conn.mtu = pppoe_iface.mtu
-            conn.mru = pppoe_iface.mru
-            conn.metric = pppoe_iface.metric
-            conn.usepeerdns = pppoe_iface.usepeerdns
-            self.connections[dev_id] = conn
+        for conn in self.connections.values():
+            if id < conn.id:
+                break
+            id += 1
+
+        return id
+
+    def _add_connection(self, dev_id, pppoe_iface):
+        """Create connection
+        """
+        conn = self.connections.get(dev_id)
+        if not conn:
+            id = self._generate_connection_id()
+            conn = FwPppoeConnection(id, self.path, self.filename)
+
+        conn.dev_id = dev_id
+        conn.user = pppoe_iface.user
+        conn.mtu = pppoe_iface.mtu
+        conn.mru = pppoe_iface.mru
+        conn.metric = pppoe_iface.metric
+        conn.usepeerdns = pppoe_iface.usepeerdns
+        self.connections[dev_id] = conn
+
+    def _remove_connection(self, dev_id):
+        """Remove connection
+        """
+        self.connections[dev_id].remove()
+        del self.connections[dev_id]
 
     def _remove_files(self):
+        """Clean up PPPoE connections database and configuration files.
+        """
         self.stop()
         self.chap_config.clear()
         self.pap_config.clear()
-        self.id = 0
-        self.connections.clear()
-        files = glob.glob(self.path + self.filename + '*')
 
-        for fname in files:
-            os.remove(fname)
+        for conn in self.connections.values():
+            conn.remove()
 
     def stop(self, timeout = 120):
-        for dev_id, conn in self.connections.items():
-            conn.close()
+        """Stop all PPPoE connections.
+        """
+        for dev_id in self.interfaces.keys():
+            self.stop_interface(dev_id)
 
         while timeout >= 0:
             pppd_id = fwutils.pid_of('pppd')
             if not pppd_id:
+                self.scan()
                 return
 
-            os.system('poff -a')
+            sys_cmd = 'poff -a'
+            fwutils.os_system(sys_cmd, 'PPPoE stop')
             timeout-= 1
             time.sleep(1)
 
@@ -385,13 +489,17 @@ class FwPppoeClient(FwObject):
         self.chap_config.remove_user(name)
         self.pap_config.remove_user(name)
 
-    def _save(self):
+    def _serialize_users_connections(self):
+        """Create secrets and connections configuration files.
+        """
         self.chap_config.save()
         self.pap_config.save()
         for conn in self.connections.values():
             conn.save()
 
     def _restore_netplan(self):
+        """Restore Netplan by adding PPPoE interfaces back.
+        """
         for dev_id, pppoe_iface in self.interfaces.items():
             if_name = fwutils.dev_id_to_linux_if(dev_id)
             pppoe_iface = self.interfaces[dev_id]
@@ -399,14 +507,19 @@ class FwPppoeClient(FwObject):
                 fwnetplan.add_interface(if_name, pppoe_iface.fname, pppoe_iface.netplan)
 
     def clean(self):
+        """Remove PPPoE configuration files and restore Netplan file.
+        """
         if not self.is_pppoe_configured():
             return
 
         self._remove_files()
         self._restore_netplan()
         self.interfaces.clear()
+        self.connections.clear()
 
     def get_interface(self, if_name = None, dev_id = None):
+        """Get interface from database.
+        """
         if not dev_id:
             if if_name:
                 dev_id = fwutils.get_interface_dev_id(if_name)
@@ -416,10 +529,17 @@ class FwPppoeClient(FwObject):
         return self.interfaces.get(dev_id)
 
     def is_pppoe_interface(self, if_name = None, dev_id = None):
+        """Check if interface is present in database.
+        """
         pppoe_if = self.get_interface(if_name, dev_id)
-        return bool(pppoe_if)
+        if pppoe_if:
+            return True
+
+        return False
 
     def add_interface(self, pppoe_iface, if_name = None, dev_id = None):
+        """Add interface into database.
+        """
         if not dev_id:
             if if_name:
                 dev_id = fwutils.get_interface_dev_id(if_name)
@@ -438,9 +558,13 @@ class FwPppoeClient(FwObject):
             pppoe_iface.netplan = netplan
 
         self.interfaces[dev_id] = pppoe_iface
+        self._add_connection(dev_id, pppoe_iface)
         self.reset_interfaces()
+        self.start()
 
     def remove_interface(self, if_name = None, dev_id = None):
+        """Remove interface from database.
+        """
         if not dev_id and if_name:
             dev_id = fwutils.get_interface_dev_id(if_name)
 
@@ -454,50 +578,69 @@ class FwPppoeClient(FwObject):
             if pppoe_iface.fname:
                 fwnetplan.add_interface(if_name, pppoe_iface.fname, pppoe_iface.netplan)
             del self.interfaces[dev_id]
-            del self.connections[dev_id]
+            self._remove_connection(dev_id)
             self.reset_interfaces()
+            self.start()
 
     def reset_interfaces(self):
+        """Re-create PPPoE connection files based on interface DB.
+        """
         self._remove_files()
-        self._create_files()
-        self._save()
-        self.start()
+        self._populate_users()
+        self._serialize_users_connections()
 
     def is_pppoe_configured(self):
+        """Check if any PPPoE interface is configured.
+        """
         return bool(self.interfaces)
 
-    def scan(self):
-        for dev_id, conn in self.connections.items():
-            connected = conn.scan()
+    def scan_interface(self, dev_id, conn):
+        """Scan one interface for established PPPoE connection.
+        """
+        pppoe_iface = self.interfaces.get(dev_id)
+        if not pppoe_iface:
+            return
 
-            if dev_id not in self.interfaces:
-                self.log.error(f'{dev_id} is missing in DB')
-                continue
+        connected = conn.scan_and_connect_if_needed(pppoe_iface.is_connected)
 
-            pppoe_iface = self.interfaces[dev_id]
+        if pppoe_iface.is_connected != connected:
             pppoe_iface.is_connected = connected
             pppoe_iface.addr = conn.addr
             pppoe_iface.gw = conn.gw
-            pppoe_iface.tun_vpp_if_name = conn.tun_vpp_if_name
-            pppoe_iface.ppp_if_name = conn.ppp_if_name
             self.interfaces[dev_id] = pppoe_iface
+            self.connections[dev_id] = conn
+
+        return connected
+
+    def scan(self):
+        """Scan all interfaces for established PPPoE connection.
+        """
+        for dev_id, conn in self.connections.items():
+            self.scan_interface(dev_id, conn)
 
     def start(self):
+        """Open connections for all PPPoE interfaces.
+        """
         for dev_id, conn in self.connections.items():
             pppoe_iface = self.get_interface(dev_id=dev_id)
-            if (pppoe_iface.is_enabled):
+            if (pppoe_iface and pppoe_iface.is_enabled and not pppoe_iface.is_connected):
                 conn.open()
+                self.connections[dev_id] = conn
 
     def restart_interface(self, dev_id, timeout = 60):
+        """This API is called on VPP router start.
+           Change value from nic-ethX into nic-vppX in PPPoE configuration file.
+           Start PPPoE connection and wait until it is established.
+        """
         conn = self.connections.get(dev_id)
-        if_name = fwutils.dev_id_to_tap(dev_id)
-        conn.nic = if_name
+        conn.create_tun()
         conn.save()
         conn.open()
+        self.connections[dev_id] = conn
 
         while timeout >= 0:
-            conn.scan()
-            if conn.connected:
+            connected = self.scan_interface(dev_id, conn)
+            if connected:
                 return (True, None)
 
             timeout-= 1
@@ -506,8 +649,19 @@ class FwPppoeClient(FwObject):
         return (False, f'PPPoE: {dev_id} is not connected')
 
     def stop_interface(self, dev_id):
+        """Close PPPoE connection.
+           Remove TUN interface if VPP is running.
+        """
         conn = self.connections.get(dev_id)
-        conn.close()
+        pppoe_iface = self.interfaces.get(dev_id)
+
+        if conn:
+            conn.close()
+            conn.remove_tun()
+            self.connections[dev_id] = conn
+            pppoe_iface.is_connected = False
+            self.interfaces[dev_id] = pppoe_iface
+
         return (True, None)
 
     def pppoec_thread(self):
@@ -525,14 +679,35 @@ class FwPppoeClient(FwObject):
                     (threading.current_thread().getName(), str(e), traceback.format_exc()))
                 pass
 
+    def get_dev_id_from_ppp_if_name(self, ppp_if_name):
+        for dev_id, conn in self.connections.items():
+            if conn.ppp_if_name == ppp_if_name:
+                return dev_id
+
+    def get_ppp_if_name_from_if_name(self, if_name):
+        dev_id = fwutils.get_interface_dev_id(if_name)
+        conn = self.connections.get(dev_id)
+        return conn.ppp_if_name
+
 def pppoe_get_ppp_if_name(if_name):
     if hasattr(fwglobals.g, 'pppoe'):
-        pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
+        return fwglobals.g.pppoe.get_ppp_if_name_from_if_name(if_name)
     else:
         with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
-            pppoe_iface = pppoe.get_interface(if_name=if_name)
+            return pppoe.get_ppp_if_name_from_if_name(if_name)
 
-    if pppoe_iface:
-        return pppoe_iface.ppp_if_name
+def pppoe_get_dev_id_from_ppp(ppp_if_name):
+    if hasattr(fwglobals.g, 'pppoe'):
+        return fwglobals.g.pppoe.get_dev_id_from_ppp_if_name(ppp_if_name)
     else:
-        return None
+        with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
+            return pppoe.get_dev_id_from_ppp_if_name(ppp_if_name)
+
+def is_pppoe_interface(if_name = None, dev_id = None):
+    """Check if interface has PPPoE configuration.
+    """
+    if hasattr(fwglobals.g, 'pppoe'):
+        return fwglobals.g.pppoe.is_pppoe_interface(if_name, dev_id)
+    else:
+        with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
+            return pppoe.is_pppoe_interface(if_name, dev_id)

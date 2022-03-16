@@ -21,6 +21,7 @@
 import enum
 import socket
 import fwglobals
+import fwpppoe
 import fwtunnel_stats
 import fwutils
 import pyroute2
@@ -187,13 +188,14 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
     if addr == 'default':
         return (True, None)
 
-    if not fwutils.linux_check_gateway_exist(via):
-        return (True, None)
-
-    if not remove:
-        tunnel_addresses = fwtunnel_stats.get_tunnel_info()
-        if via in tunnel_addresses and tunnel_addresses[via] != 'up':
+    pppoe = fwpppoe.is_pppoe_interface(dev_id=dev_id)
+    if not pppoe:  # PPPoE interfaces can use any peer in the world as a GW, so escape sanity checks for it
+        if not fwutils.linux_check_gateway_exist(via):
             return (True, None)
+        if not remove:
+            tunnel_addresses = fwtunnel_stats.get_tunnel_info()
+            if via in tunnel_addresses and tunnel_addresses[via] != 'up':
+                return (True, None)
 
     routes_linux = FwLinuxRoutes(prefix=addr, preference=metric, proto=proto)
     nexthop = FwLinuxRoutes(prefix=addr, preference=metric,via=via, proto=proto)
@@ -291,11 +293,11 @@ def update_route_metric(route, new_metric, netplan_apply=False):
 
     :returns: True on success, False on failure.
     """
-    success, err_str = add_remove_route(route.prefix, route.via, route.metric, True, dev=route.dev, proto=route.proto, netplan_apply=netplan_apply)
+    success, err_str = add_remove_route(route.prefix, route.via, route.metric, True, dev_id=route.dev_id, dev=route.dev, proto=route.proto, netplan_apply=netplan_apply)
     if not success:
         fwglobals.log.error(f"update_route_metric({str(route)}): failed to remove route: {err_str}")
         return False
-    success, err_str = add_remove_route(route.prefix, route.via, new_metric, False, dev=route.dev, proto=route.proto, netplan_apply=netplan_apply)
+    success, err_str = add_remove_route(route.prefix, route.via, new_metric, False, dev_id=route.dev_id, dev=route.dev, proto=route.proto, netplan_apply=netplan_apply)
     if not success:
         fwglobals.log.error(f"update_route_metric({str(route)}): failed to add route with new metric: {err_str}")
         return False
