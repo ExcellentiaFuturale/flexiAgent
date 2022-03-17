@@ -408,7 +408,9 @@ class FwPppoeClient(FwObject):
             self.stop()
 
         self.interfaces.close()
+        self.interfaces = None
         self.connections.close()
+        self.connections = None
 
     def _populate_users(self):
         """Populate PPPoE users
@@ -520,6 +522,9 @@ class FwPppoeClient(FwObject):
     def get_interface(self, if_name = None, dev_id = None):
         """Get interface from database.
         """
+        if not self.interfaces:
+            return None
+
         if not dev_id:
             if if_name:
                 dev_id = fwutils.get_interface_dev_id(if_name)
@@ -621,6 +626,9 @@ class FwPppoeClient(FwObject):
     def scan(self):
         """Scan all interfaces for established PPPoE connection.
         """
+        if not self.connections:
+            return
+
         for dev_id, conn in self.connections.items():
             self.scan_interface(dev_id, conn)
 
@@ -686,11 +694,18 @@ class FwPppoeClient(FwObject):
                 pass
 
     def get_dev_id_from_ppp_if_name(self, ppp_if_name):
+        if not self.connections:
+            return None
+
         for dev_id, conn in self.connections.items():
             if conn.ppp_if_name == ppp_if_name:
                 return dev_id
+        return None
 
     def get_ppp_if_name_from_if_name(self, if_name):
+        if not self.connections:
+            return ''
+
         dev_id = fwutils.get_interface_dev_id(if_name)
         conn = self.connections.get(dev_id)
         return conn.ppp_if_name
