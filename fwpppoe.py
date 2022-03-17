@@ -226,7 +226,7 @@ class FwPppoeConnection(FwObject):
         """
         self.remove_tc_mirror()
 
-        success, err_str = fwroutes.add_remove_route('0.0.0.0/0', None, None, True, self.dev_id, 'static', tun_vppsb_if_name, False)
+        success, err_str = fwroutes.add_remove_route('0.0.0.0/0', None, None, True, self.dev_id, 'static', self.tun_vppsb_if_name, False)
         if not success:
             self.log.error(f"remove_linux_ip_route: failed to remove route: {err_str}")
 
