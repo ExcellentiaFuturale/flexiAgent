@@ -418,6 +418,20 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
 
         return self.db[identifier][message].get('params')
 
+    def get_request_params(self, request):
+        message = request['message']
+
+        params = request['params']
+        identifier = params.get('identifier')
+
+        if not identifier in self.db:
+            return None
+
+        if not message in self.db[identifier]:
+            return None
+
+        return self.db[identifier][message].get('params')
+
 def call_applications_hook(hook):
     '''This function calls a function within applications_api even if the agnet object is not initialzied
     '''
