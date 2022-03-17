@@ -107,6 +107,9 @@ class FwagentCli(FwObject):
             api_name = api_args[0]
             api_args = { arg.split("=")[0] : arg.split("=")[1] for arg in api_args[1:] }
 
+            for api_arg in api_args:
+                api_args[api_arg] = api_args[api_arg].replace('$$$', '=')
+
             if self.daemon:
                 rpc_api_func = getattr(self.daemon, 'api')
                 ret = rpc_api_func(api_name, api_args)

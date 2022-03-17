@@ -1,0 +1,52 @@
+[
+{
+  "entity": "agent",
+  "message": "aggregated",
+  "params": {
+    "requests": [
+      {
+        "entity": "agent",
+        "message": "application-install",
+        "params": {
+          "name": "Remote Worker VPN",
+          "identifier": "com.flexiwan.remotevpn",
+          "applicationParams": {}
+        }
+      },
+      {
+        "entity": "agent",
+        "message": "application-configure",
+        "params": {
+          "name": "Remote Worker VPN",
+          "identifier": "com.flexiwan.remotevpn",
+          "applicationParams": {
+            "routeAllTrafficOverVpn": false,
+            "port": "1194",
+            "caCrt": "-----BEGIN CERTIFICATE-----\rMIIDQzCCAiugAwIBAgIQOPWAxwzeID0WDIv6O5BqIjANBgkqhkiG9w0BAQsFADAW\rMRQwEgYDVQQDEwtFYXN5LVJTQSBDQTAeFw0yMjAzMDcwNzUwMTZaFw0zMjAzMDQw\rNzUwMTZaMBYxFDASBgNVBAMTC0Vhc3ktUlNBIENBMIIBIjANBgkqhkiG9w0BAQEF\rAAOCAQ8AMIIBCgKCAQEAiPAVLq+29Wu89e34i4WciZN+TC2NxkFMl+ZFQW0KR7FR\rHqP0xpGvbf97QnKugJGvbohZif5A7cdxKjhqukpghtpj8pOfCdXzThAouLzQkzir\rj+Hfmwvw3OLownXKcyvt6JLLzJDWP7Xy6ttclL43xbCPFM7UQcvPYmRTeCYTWWPN\r0LvOA06Kq5bAzlk5/8tms+RPdc7u72ZwZgCUdk1iJLXtBdzh6PH19qI4Xb8jWgnZ\rVRlUQ5fns8NUte8o8Z0DTY582SOZzl4vQecggV/RW5acj1XgZzJgVW5DSAvaug+f\r9S6GchQ71ztYf2BjbCUdyS5CiBRX8d5aMzqWHZKy+QIDAQABo4GMMIGJMB0GA1Ud\rDgQWBBQnLr9wZCIRR1AhJ9/nhMcX3lhKVjBNBgNVHSMERjBEgBQnLr9wZCIRR1Ah\rJ9/nhMcX3lhKVqEapBgwFjEUMBIGA1UEAxMLRWFzeS1SU0EgQ0GCEDj1gMcM3iA9\rFgyL+juQaiIwDAYDVR0TBAUwAwEB/zALBgNVHQ8EBAMCAQYwDQYJKoZIhvcNAQEL\rBQADggEBAAly/za6kdjzwuwnCQpc+/BMJXYSUxmtGd065LTUHI9OxDvjM7caof7i\rp8yw2p4KJ3WHIfPw6vdgR7+vTjLMqYvZgYP4Z560UmUPcyEIfW926yeT32pORCCD\rdZzjoGZjuT5e/Naa9uoyLMaR0MQhGUrWpOZR/ONBH/KdxILK2czqcj3CR56LfwNm\rk8bmXpycXjstpj1DEZxi4NgCiLw7PQdX/ujA20G5R9rLGw/rlwEIW9tomylCyyrG\rs1hbnm+vn3VuWP+vaCj9BCKFBUwgV8rZmWoIKtKvhP9Z+V6aLtU4xGeTS1HB2D45\rAyJC/WOsq9e8P5S7Bpw/m91JNpgyLEU\r-----END CERTIFICATE-----\r",
+            "serverKey": "-----BEGIN RSA PRIVATE KEY-----\rMIIEowIBAAKCAQEAieYw1rZNptyGv3lchjG0EfefszA72lRKsmXO/ewLkyiukGMv\rGvoX+7KnKcfPnCU7lPqk311daTgl6IwNL551ICUfbJdzWDvgpNjL8klIQJJH1QgU\rXsu/+GYLO8GCGvdvgX2RK76nuPgwYvheQhEQjGeDzdAzPyXU7SnB4bYIsRR0dVpK\roaDRLqGviL0XC57TmR0W/A9NV71lCUshRQ6m2FbkrLKNnRgz3Zd45eLoI0vrHZMu\rWXbWuYMnsnjSE9hU5wBk8plEsZ/kiKQgtJZXBLe4Z0XxjzOVxKdOUIb9FMOnKguS\rHlyyF5YnFBrVcpw1vIVHemJDF5O3o8xBkHau1wIDAQABAoIBAHAnJC9sY2lDT+Ao\rXyTRBcfbIiqFHxipl3rSLG/960gLPTY3RJdnMdxGZ4gmduZirbuzwiXb9F3gCYzB\rYvQIpu+24YDbCDeJs2G+5Ngv27CQiBVtlcunYIEw1RALiLpP5YNmUYxHaneYexnz\rMA4BfPkEM4FPRG6mYS9l18av2w/RBkH+xKGCvry9/h6XRVwyllj5Pa8zpfUubTuv\rWiCe7GXo0N4LYkl3F2yaH8pnGYOq08tc3vXwtqRqxLTeIbV51lm2gkfd3uWABFNd\rSTo9D3CXrIYBE+xws9UBU3QU3yxdcXNZpzehRxutDk3jGddUUsOKP2wvFrnG0BpD\rmmkwJaECgYEAwhBkhlwVEjaoBRxuOPbVJ872SzM8/BFu5N0UVVIsZdB7BBe96eWP\r/mxPRUwKX8daalxHM0LBYf7fHQ6bw92Qls0u3umctbJ/128s1ra8J3oP2OlKWkcr\rsKtZrBvQ9UCT5fzvDM8uJUvvIfd1AAzzYbs9YPLrodWHoOYnmf7ZJIcCgYEAtej2\rj5s81TuMeODUY4D7tIYBSDnMgVQeM1q6OXXION8RFcKndIO+yOcpfWefT6g3flpK\rVPT3Eg/tzdi5oZsNZJEvlrCWls8jxPtfb1dhybFXuLIcVmknTMLw+7YEro0a9D3k\rbMAq/0EBh+tjHh2tbct+NQuKf/+cWr6umSChBzECgYBGOGxHedZeCsztXIY9soMa\rrnbMazPr+drokV6kKOHLzY5VwsmDcv+Rjlt4tbUjRx1eUxmoYMVc0j6lYv3V97wz\r9Pa6zklYLci4iY/t+Z1Ho5FMac3vsMUMXlRKRJ5tv/pERCuztNv7vug+oC4D4KvI\rd1oUVJISsxMqk11NCbxEzQKBgQCsD9evi9Fli7bZ2ydpmuX6Icpyq6EBLzSFtKpy\rkTK6gFvjrkPAFKFP3D7FTE9HBEDBNdwbMb3FCuYPD5C+CDAJ0L4nlY5KxVD7EB17\r7jYjlaf4nhfpr/qpQ7a3D7qr8/Hr1eMK7lV9LNqq2n3dTYruUE1nFSyC157nwnbZ\rhiBp8QKBgBugldRE/skn1yq3VErumxeQLEEMsV8nBdl3/8xLGpNYXVAiU+01mtkz\r8MFO7ROk5pYguDL89yQ8FZFl/V4sl7+0GmVHfCM3bWnfk613TJIo0egHKJifI9ks\rQJ+Bi/nK2gERazdnmNSTiawI7NX87/dK1iyaLsH4MHaHXkCwoDzP\r-----END RSA PRIVATE KEY-----\r",
+            "serverCrt": "-----BEGIN CERTIFICATE-----\rMIIDUDCCAjigAwIBAgIQYU1/RkK6d0p0gPOZO8vvhTANBgkqhkiG9w0BAQsFADAW\rMRQwEgYDVQQDEwtFYXN5LVJTQSBDQTAeFw0yMjAzMDcwNzUwMThaFw0zMjAzMDQw\rNzUwMThaMBExDzANBgNVBAMTBnNlcnZlcjCCASIwDQYJKoZIhvcNAQEBBQADggEP\rADCCAQoCggEBAInmMNa2Tabchr95XIYxtBH3n7MwO9pUSrJlzv3sC5MorpBjLxr6\rF/uypynHz5wlO5T6pN9dXWk4JeiMDS+edSAlH2yXc1g74KTYy/JJSECSR9UIFF7L\rv/hmCzvBghr3b4F9kSu+p7j4MGL4XkIREIxng83QMz8l1O0pweG2CLEUdHVaSqGg\r0S6hr4i9Fwue05kdFvwPTVe9ZQlLIUUOpthW5KyyjZ0YM92XeOXi6CNL6x2TLll2\r1rmDJ7J40hPYVOcAZPKZRLGf5IikILSWVwS3uGdF8Y8zlcSnTlCG/RTDpyoLkh5c\rsheWJxQa1XKcNbyFR3piQxeTt6PMQZB2rtcCAwEAAaOBnjCBmzAJBgNVHRMEAjAA\rMB0GA1UdDgQWBBQIM6wmTRestdEn1eLH/8bX13/WjjBNBgNVHSMERjBEgBQnLr9w\rZCIRR1AhJ9/nhMcX3lhKVqEapBgwFjEUMBIGA1UEAxMLRWFzeS1SU0EgQ0GCEDj1\rgMcM3iA9FgyL+juQaiIwEwYDVR0lBAwwCgYIKwYBBQUHAwEwCwYDVR0PBAQDAgWg\rMA0GCSqGSIb3DQEBCwUAA4IBAQB/QJ/9m4Q5BOl+MBttNL63gjsJKR0uZGXoukvT\rpcAidQJizrKisSnG8ntlkcykXfDdKdhrYweFM9Dd9oL/GB+RGQAxReHu+ngTprj8\r3o0teQ8K3z0tnEghOF8tQXLWAi39sXmE/wo/2hqeXhZ3xe7mR25wEb6GbouPu7Ga\rqMa+HPhTDEx/B7V7gEaEKXGKTu1P1hpa3z+SaK/GXmRhqWrdm0/oEsw5QRelKEHz\rgzVIxTkxPniqPu8ZLUJLpxrj+0GhcwcJi3ot+UJMdNAMV4b66LG0ReiEvF4TnMHp\r1/4gL9NNuyqSr5TfslY5CtCJwfPObgquK9oPn3xu80aPp6EO\r-----END CERTIFICATE-----\r",
+            "tlsKey": "-----BEGIN OpenVPN Static key V1-----\ndeeb2489ca36a603e4925ef42a709b36\n2e5a7e3e954a1142c01f0cffe189d231\n0bb5c3f51ac9826f30cf59af7ac8a3ae\n2fe0d59416453aff7b292c865749ce6a\n60e2e43bbfdec20fd939d7d6a559b0c1\nb1f1bb149f925ce70f116e5f61dd8d05\n8981e6d82da207fd9d5e001a6e52c1e5\na6cdbc8aed6c82055378942eb9003538\n57d5af004f88fb7cf471bfec88db9830\n19a6752d25be1b1d70b996f05dea88c0\nf79a3725b5da9f6ce57c5c4cbfe35ada\n1cbd4195a758c647bf69dc08353995d8\ndd15e2d741abb14cdd1992273ca1ceaa\nbeb4aa7fa8068ff5faebee8f96be2332\n36cca6b775b084cb50f3bc5a7fa0edcf\nb1da336d20d8b1963ca9521042f6f83e\n-----END OpenVPN Static key V1-----",
+            "dnsIps": [],
+            "dnsDomains": [],
+            "dhKey": "-----BEGIN DH PARAMETERS-----\nMIIBBwKCAQC7ay0drLpwdSomST26ohBdGoI6Ks9Y32Lrk55uO2DpKoIinG4h9rHP\nXqrrQqN/o68e/EeipEO3iPQ5EE79HajvgiUEMzwWywFwmprc29i4n4BiU7eqPuXv\nmnfFuVc4ivIsl0HbpJaXCL5TjCAlDz2JOYEvu1KKNVWeA1RxSvL6UP7IsVklLRrm\ncF7ux2MYb/4gyRIAOQhKyyiPfxnG4aQDwF7E9VnsL8PAKy8vAkrz1t53zknkdNJX\ncoX2qzED79IGGyzUjtHX1qCkltQlYn/LoeBl8BUERne4AeadyBWokZkGPHS7G5nG\ng1T5p91J4ttW298bWbPXyqHFTEY4gvoTAgEC\n-----END DH PARAMETERS-----",
+            "vpnPortalServer": "https://localvpn.flexiwan.com:4443",
+            "vpnTmpTokenTime": 43200,
+            "vpnNetwork": "192.168.37.0/29",
+            "connections": "4",
+            "identifier": "com.flexiwan.remotevpn"
+          }
+        }
+      }
+    ]
+  }
+},
+{
+  "entity": "agent",
+  "message": "application-uninstall",
+  "params": {
+    "name": "Remote Worker VPN",
+    "identifier": "com.flexiwan.remotevpn",
+    "applicationParams": {}
+  }
+}
+]

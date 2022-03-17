@@ -138,7 +138,7 @@
             "args": [
                 "cli",
                 "-f",
-                "${workspaceFolder}/tests/router/16_lte_watchdog_test/add-lte.cli",
+                "${workspaceFolder}/tests/router/27_applications_basic_test/04_install_configure_uninstall_aggregated.cli",
                 "-t",
                 "${workspaceFolder}/tests/fwtemplates.yaml"
             ],
@@ -167,7 +167,7 @@
             "request": "launch",
             "module": "pytest",
             "args": [
-                "-rs"
+                "-rs", "-k", "27"
             ],
             "cwd": "${workspaceRoot}/tests",
             "env": {
