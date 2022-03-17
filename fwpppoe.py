@@ -59,6 +59,7 @@ class FwPppoeConnection(FwObject):
         self.tun_vpp_if_name = ''
         self.tun_vppsb_if_name = ''
         self.opened = False
+        self.if_name = ''
 
     def __str__(self):
         usepeerdns = 'usepeerdns' if self.usepeerdns else ''
@@ -79,7 +80,7 @@ class FwPppoeConnection(FwObject):
     def save(self):
         """Create PPPoE connection configuration file.
         """
-        if_name = self.dev_id_to_if_name()
+        self.if_name = self.dev_id_to_if_name()
         self.remove()
         try:
             with open(self.path + self.filename, 'w') as file:
@@ -95,7 +96,7 @@ class FwPppoeConnection(FwObject):
                 file.write('plugin rp-pppoe.so' + os.linesep)
                 file.write('mtu %u' % self.mtu + os.linesep)
                 file.write('mru %u' % self.mru + os.linesep)
-                file.write('nic-%s' % if_name + os.linesep)
+                file.write('nic-%s' % self.if_name + os.linesep)
                 file.write('user %s' % self.user + os.linesep)
                 file.write('ifname %s' % self.ppp_if_name + os.linesep)
                 if self.usepeerdns:
@@ -135,9 +136,7 @@ class FwPppoeConnection(FwObject):
     def open(self):
         """Open PPPoE connection.
         """
-        if_name = self.dev_id_to_if_name()
-
-        sys_cmd = f'ip link set dev {if_name} up'
+        sys_cmd = f'ip link set dev {self.if_name} up'
         fwutils.os_system(sys_cmd, 'PPPoE open')
 
         sys_cmd = 'pon %s' % self.filename
@@ -148,8 +147,6 @@ class FwPppoeConnection(FwObject):
     def close(self):
         """Close PPPoE connection.
         """
-        if_name = self.dev_id_to_if_name()
-
         pppd_id = fwutils.pid_of('pppd')
         if not pppd_id:
             return
@@ -157,7 +154,7 @@ class FwPppoeConnection(FwObject):
         sys_cmd = 'poff %s' % self.filename
         fwutils.os_system(sys_cmd, 'PPPoE close')
 
-        sys_cmd = f'ip link set dev {if_name} down'
+        sys_cmd = f'ip link set dev {self.if_name} down'
         fwutils.os_system(sys_cmd, 'PPPoE close')
 
         self.opened = False
