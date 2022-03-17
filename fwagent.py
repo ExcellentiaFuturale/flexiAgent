@@ -475,16 +475,12 @@ class FwAgent(FwObject):
         seq     = str(pmsg['seq'])              # Sequence number of the received message
         job_id  = str(pmsg.get('jobid',''))     # ID of job on flexiManage that sent this message
 
-        self.log.debug(seq + " job_id=" + job_id + " request=" + json.dumps(request))
-
         # In load simulator mode always reply ok on sync message
         if fwglobals.g.loadsimulator and request["message"] == "sync-device":
             reply = {"ok":1}
         else:
-            reply = self.handle_received_request(request)
-
-        reply_str = reply if 'message' in request and not re.match('get-device-(logs|packet-traces)', request['message']) else {"ok":1}
-        self.log.debug(seq + " job_id=" + job_id + " reply=" + json.dumps(reply_str))
+            msg_id = seq + " " if not job_id else seq + " job_id:" + job_id + " "
+            reply  = self.handle_received_request(request, log_prefix=msg_id)
 
         # Messages that change the interfaces might break the existing connection
         # (for example, if the WAN interface IP/mask has changed). Since sending
@@ -507,7 +503,7 @@ class FwAgent(FwObject):
         if self.ws:
             self.ws.disconnect()
 
-    def handle_received_request(self, received_msg):
+    def handle_received_request(self, received_msg, log_prefix=''):
         """Handles received request: invokes the global request handler
         while logging the request and the response returned by the global
         request handler. Note the global request handler is implemented
@@ -515,26 +511,47 @@ class FwAgent(FwObject):
         request handlers.
 
         :param received_msg:  the receive instance.
+        :param log_prefix:    the prefix to be added to the log line while printing message
 
         :returns: (reply, msg), where reply is reply to be sent back to server,
                   msg is normalized received message.
         """
-        logger = None
+
+        def log_request(fixed_msg, received_msg, log_prefix):
+            log_line = log_prefix + "handle_received_request:request\n" + json.dumps(received_msg, sort_keys=True, indent=1)
+            log_line_fixed_msg = None if fixed_msg == received_msg else \
+                       "handle_received_request:fixed\n" + json.dumps(fixed_msg, sort_keys=True, indent=1)
+            self.log.debug(log_line)
+            if log_line_fixed_msg:
+                self.log.debug(log_line_fixed_msg)
+
+            # Some requests like 'add-application' are huge, so we log them into
+            # dedicated file. This is in addition to logging into default file,
+            # where lines are truncated to 4K.
+            #
+            logger = fwglobals.g.get_logger(fixed_msg)
+            if logger:
+                logger.debug(log_line)
+                if log_line_fixed_msg:
+                    logger.debug(log_line_fixed_msg)
+            return logger
+
+        def log_reply(request, reply, log_prefix, logger):
+            # Mask huge or security sensitive replies
+            if re.match('get-device-(logs|packet-traces)|exec', request.get('message',"")):
+                reply_for_log = {"ok":1}
+            else:
+                reply_for_log = reply
+            log_line = log_prefix + "handle_received_request:reply\n" + json.dumps(reply_for_log, sort_keys=True, indent=1)
+            self.log.debug(log_line)
+            if logger:
+                logger.debug(log_line)
+
+
         try:
             msg = fwutils.fix_received_message(received_msg)
 
-            print_message = False if re.match('get-device-', msg['message']) else fwglobals.g.cfg.DEBUG
-
-            # 'add-application' request is huge, so we log it into dedicated file.
-            # This is in addition to log into default file, where lines are truncated to 4K.
-            #
-            logger = fwglobals.g.get_logger(msg)
-
-            if print_message:
-                log_line = "handle_received_request:request\n" + json.dumps(msg, sort_keys=True, indent=1)
-                self.log.debug(log_line)
-                if logger:
-                    logger.debug(log_line)
+            logger = log_request(msg, received_msg, log_prefix)
 
             reply = fwglobals.g.handle_request(msg, received_msg=received_msg)
             if not 'entity' in reply and 'entity' in msg:
@@ -542,11 +559,7 @@ class FwAgent(FwObject):
             if not 'message' in reply:
                 reply.update({'message': 'success'})
 
-            if print_message:
-                log_line = "handle_received_request:reply\n" + json.dumps(reply, sort_keys=True, indent=1)
-                self.log.debug(log_line)
-                if logger:
-                    logger.debug(log_line)
+            log_reply(msg, reply, log_prefix, logger)
 
         except Exception as e:
              self.log.error("handle_received_request failed: %s" + str(e))
