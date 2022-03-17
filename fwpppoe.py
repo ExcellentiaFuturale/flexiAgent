@@ -350,8 +350,8 @@ class FwPppoeInterface():
         self.is_connected = False
         self.addr = ''
         self.gw = ''
-        self.netplan = ''
-        self.fname = ''
+        self.netplan_section = ''
+        self.netplan_fname = ''
 
     def __str__(self):
         return f'user:{self.user}, password:{self.password}, mtu:{self.mtu}, mru:{self.mru}, usepeerdns:{self.usepeerdns}, metric:{self.metric}, enabled:{self.is_enabled}, connected:{self.is_connected}, addr:{self.addr}, gw:{self.gw}'
@@ -503,8 +503,8 @@ class FwPppoeClient(FwObject):
         for dev_id, pppoe_iface in self.interfaces.items():
             if_name = fwutils.dev_id_to_linux_if(dev_id)
             pppoe_iface = self.interfaces[dev_id]
-            if pppoe_iface.fname:
-                fwnetplan.add_interface(if_name, pppoe_iface.fname, pppoe_iface.netplan)
+            if pppoe_iface.netplan_fname and os.path.exists(pppoe_iface.netplan_fname):
+                fwnetplan.add_interface(if_name, pppoe_iface.netplan_fname, pppoe_iface.netplan_section)
 
     def clean(self):
         """Remove PPPoE configuration files and restore Netplan file.
@@ -552,10 +552,14 @@ class FwPppoeClient(FwObject):
             self.log.error(f'add_interface: {dev_id} is missing on the device')
             return
 
-        fname, netplan = fwnetplan.remove_interface(if_name)
-        if fname:
-            pppoe_iface.fname = fname
-            pppoe_iface.netplan = netplan
+        netplan_fname = fwnetplan.check_interface_exist(if_name)
+        if netplan_fname:
+            fwnetplan.create_baseline_if_not_exist(netplan_fname)
+
+            netplan_fname, netplan_section = fwnetplan.remove_interface(if_name)
+            if netplan_fname:
+                pppoe_iface.netplan_fname = netplan_fname
+                pppoe_iface.netplan_section = netplan_section
 
         self.interfaces[dev_id] = pppoe_iface
         self._add_connection(dev_id, pppoe_iface)
@@ -575,12 +579,14 @@ class FwPppoeClient(FwObject):
 
         if dev_id in self.interfaces:
             pppoe_iface = self.interfaces[dev_id]
-            if pppoe_iface.fname:
-                fwnetplan.add_interface(if_name, pppoe_iface.fname, pppoe_iface.netplan)
+            netplan_fname = pppoe_iface.netplan_fname
+            netplan_section = pppoe_iface.netplan_section
             del self.interfaces[dev_id]
             self._remove_connection(dev_id)
             self.reset_interfaces()
             self.start()
+            if pppoe_iface.netplan_fname:
+                fwnetplan.add_interface(if_name, netplan_fname, netplan_section)
 
     def reset_interfaces(self):
         """Re-create PPPoE connection files based on interface DB.
@@ -711,3 +717,15 @@ def is_pppoe_interface(if_name = None, dev_id = None):
     else:
         with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
             return pppoe.is_pppoe_interface(if_name, dev_id)
+
+def pppoe_reset():
+    """Reset PPPoE configuration
+    """
+    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe_client:
+        pppoe_client.clean()
+
+def is_pppoe_configured():
+    """Check if PPPoE is configured
+    """
+    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe_client:
+        return pppoe_client.is_pppoe_configured()

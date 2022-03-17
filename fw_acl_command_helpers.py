@@ -197,23 +197,25 @@ def add_acl_rule(acl_id, source, destination, permit, is_ingress, add_last_deny_
         }
 
         cmd['cmd'] = {}
-        cmd['cmd']['name'] = "acl_add_replace"
+        cmd['cmd']['func']  = "call_vpp_api"
         cmd['cmd']['descr'] = "Add Firewall ACL"
-        cmd['cmd']['params'] = add_params
+        cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+        cmd['cmd']['params'] = {
+                                'api': "acl_add_replace",
+                                'args': add_params
+                               }
         cmd['cmd']['cache_ret_val'] = ('acl_index', acl_id)
 
         cmd['revert'] = {}
-        cmd['revert']['name'] = "acl_del"
+        cmd['revert']['func']  = "call_vpp_api"
         cmd['revert']['descr'] = "Remove Firewall ACL"
+        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
         cmd['revert']['params'] = {
-            'substs': [
-                {
-                    'val_by_key': acl_id,
-                    'add_param': 'acl_index'
+                'api':  "acl_del",
+                'args': {
+                    'substs': [ { 'add_param': 'acl_index', 'val_by_key': acl_id } ]
                 }
-            ]
         }
-
         return cmd
 
     cmd = {}
@@ -263,28 +265,33 @@ def add_interface_attachment(sw_if_index, ingress_acl_ids, egress_acl_ids):
     add_params = {
         'sw_if_index': sw_if_index,
         'count': len(acl_ids),
-        'n_input': ingress_count
+        'n_input': ingress_count,
+        'substs': [{'add_param':            'acls',
+                    'val_by_func':          'map_keys_to_acl_ids',
+                    'arg':                  {'keys': acl_ids},
+                    'func_uses_cmd_cache':  True}]
     }
 
     cmd['cmd'] = {}
-    cmd['cmd']['name'] = "acl_interface_set_acl_list"
+    cmd['cmd']['func']  = "call_vpp_api"
     cmd['cmd']['descr'] = "Attach ACLs to interface"
-    cmd['cmd']['params'] = add_params
-    cmd['cmd']['params']['substs'] = [{
-        'val_by_func': 'map_keys_to_acl_ids',
-        'func_uses_cmd_cache': True,
-        'arg': {'keys': acl_ids},
-        'add_param': 'acls'
-    }]
-
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params'] = {
+                'api':  "acl_interface_set_acl_list",
+                'args': add_params,
+    }
     cmd['revert'] = {}
-    cmd['revert']['name'] = "acl_interface_set_acl_list"
+    cmd['revert']['func']  = "call_vpp_api"
     cmd['revert']['descr'] = "Detach ACLs from interface"
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['revert']['params'] = {
-        'sw_if_index': sw_if_index,
-        'count': 0,
-        'n_input': 0,
-        'acls': []
+        'api': "acl_interface_set_acl_list",
+        'args': {
+            'sw_if_index': sw_if_index,
+            'count': 0,
+            'n_input': 0,
+            'acls': []
+        }
     }
 
     return cmd

@@ -34,25 +34,19 @@ def add_ospf(params):
     if routerId:
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']   = "python"
-        cmd['cmd']['descr']   =  "add routerId %s to OSPF" % routerId
+        cmd['cmd']['func']   = "frr_vtysh_run"
+        cmd['cmd']['module'] = "fwutils"
+        cmd['cmd']['descr']  =  "add routerId %s to OSPF" % routerId
         cmd['cmd']['params'] = {
-                'module': 'fwutils',
-                'func': 'frr_vtysh_run',
-                'args': {
                     'commands'   : ["router ospf", "ospf router-id %s" % routerId],
                     'restart_frr': True,
-                }
         }
         cmd['revert'] = {}
-        cmd['revert']['name']   = "python"
+        cmd['revert']['func']   = "frr_vtysh_run"
+        cmd['revert']['module'] = "fwutils"
         cmd['revert']['params'] = {
-                'module': 'fwutils',
-                'func': 'frr_vtysh_run',
-                'args': {
                     'commands'   : ["router ospf", "no ospf router-id %s" % routerId],
                     'restart_frr': True,
-                }
         }
         cmd['revert']['descr']   =  "remove routerId %s from OSPF" % routerId
         cmd_list.append(cmd)

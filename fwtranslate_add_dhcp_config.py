@@ -34,22 +34,16 @@ def _change_dhcpd_conf(params, cmd_list):
     """
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "python"
+    cmd['cmd']['func']      = "modify_dhcpd"
+    cmd['cmd']['module']    = "fwutils"
     cmd['cmd']['descr']     = "update dhcpd config file"
-    cmd['cmd']['params']    = {
-                                'module': 'fwutils',
-                                'func':   'modify_dhcpd',
-                                'args':   { 'is_add': 1, 'params': params }
-                              }
+    cmd['cmd']['params']    = { 'is_add': 1, 'params': params }
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
+    cmd['revert']['func']   = "modify_dhcpd"
+    cmd['revert']['module'] = "fwutils"
     cmd['revert']['descr']  = "clean dhcpd config file"
     cmd['revert']['filter'] = 'must'   # When 'remove-XXX' commands are generated out of the 'add-XXX' commands, run this command even if vpp doesn't run
-    cmd['revert']['params'] = {
-                                'module': 'fwutils',
-                                'func':   'modify_dhcpd',
-                                'args':   { 'is_add': 0, 'params': params }
-                              }
+    cmd['revert']['params'] = { 'is_add': 0, 'params': params }
     cmd_list.append(cmd)
 
 
@@ -62,26 +56,14 @@ def _restart_dhcp_server(cmd_list):
     """
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']   = "python"
-    cmd['cmd']['params'] = {
-                'module': 'fwutils',
-                'func': 'restart_service',
-                'args': {
-                    'service': 'isc-dhcp-server',
-                    'timeout': 5
-                }
-    }
+    cmd['cmd']['func']   = "restart_service"
+    cmd['cmd']['module'] = "fwutils"
+    cmd['cmd']['params'] = { 'service': 'isc-dhcp-server', 'timeout': 5 }
     cmd['cmd']['descr'] = "restart dhcp service"
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
-    cmd['revert']['params'] = {
-                'module': 'fwutils',
-                'func': 'restart_service',
-                'args': {
-                    'service': 'isc-dhcp-server',
-                    'timeout': 5
-                }
-    }
+    cmd['revert']['func']   = "restart_service"
+    cmd['revert']['module'] = "fwutils"
+    cmd['revert']['params'] = { 'service': 'isc-dhcp-server', 'timeout': 5 }
     cmd['revert']['descr'] = "restart dhcp service"
     cmd_list.append(cmd)
 

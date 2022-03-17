@@ -58,6 +58,7 @@ class FwCfgRequestHandler(FwObject):
         self.translators = translators
         self.cfg_db = cfg_db
         self.revert_failure_callback = revert_failure_callback
+        self.cache_func_by_name = {}
 
         if cfg_db:
             self.cfg_db.set_translators(translators)
@@ -252,7 +253,7 @@ class FwCfgRequestHandler(FwObject):
             if filter:
                 if not 'filter' in cmd or cmd['filter'] != filter:
                     self.log.debug("_execute: filter out command by filter=%s (req=%s, cmd=%s, cmd['filter']=%s, params=%s)" %
-                                        (filter, req, cmd['name'], str(cmd.get('filter')), str(cmd.get('params'))))
+                                        (filter, req, cmd['func'], str(cmd.get('filter')), str(cmd.get('params'))))
                     continue
 
             try:
@@ -263,15 +264,15 @@ class FwCfgRequestHandler(FwObject):
                 self.log.debug(f"_execute: {self._dump_translation_cmd_params(cmd)}")
 
                 # Now execute command
-                result = None if not 'cache_ret_val' in cmd else \
+                execute_result = None if not 'cache_ret_val' in cmd else \
                     { 'result_attr' : cmd['cache_ret_val'][0] , 'cache' : cmd_cache , 'key' :  cmd['cache_ret_val'][1] }
-                reply = fwglobals.g.handle_request({ 'message': cmd['name'], 'params':  cmd.get('params')}, result)
-                if reply['ok'] == 0:        # On failure go back revert already executed commands
-                    self.log.debug("%s failed ('ok' is 0)" % cmd['name'])
-                    raise Exception("API failed: %s" % cmd['name'])
+                err_str = self._execute_translation_command(cmd, execute_result)
+                if err_str:   # On failure go back revert already executed commands
+                    self.log.debug(f"_execute_translation_command('{cmd['func']}') failed")
+                    raise Exception("API failed: %s" % cmd['func'])
 
             except Exception as e:
-                err_str = "_execute: %s(%s) failed: %s, %s" % (cmd['name'], format(cmd.get('params')), str(e), str(traceback.format_exc()))
+                err_str = "_execute: %s(%s) failed: %s, %s" % (cmd['func'], format(cmd.get('params')), str(e), str(traceback.format_exc()))
                 self.log.error(err_str)
                 self.log.debug("=== failed execution of %s ===" % (req))
                 if fwglobals.g.router_api.state_is_starting_stopping():
@@ -295,6 +296,106 @@ class FwCfgRequestHandler(FwObject):
 
         self.log.debug("=== end execution of %s ===" % (req))
 
+
+    def _execute_translation_command(self, cmd, result=None):
+        """Execute single command out of the list of commands created by
+        translation of flexiManage request into list of commands, e.g.
+
+            cmd['func']   = "load_linux_modules"
+            cmd['module'] = "fwutils"
+            cmd['descr']  = "load vhost-net modules"
+            cmd['params'] = { 'modules': ['tap', 'vhost', 'vhost-net'] }
+
+        :param cmd:          The translation command.
+        :param result:       Place to store result of the command execution.
+                             It is dict of {<attr> , <cache>, <cache key>}.
+                             On success we fetch value of attribute <attr>
+                             of the object returned by command function and
+                             store it in the <cache> by key <cache key>.
+                             Note <attr> may be used for any semantic,
+                             depeneding on the command. For example, it might
+                             contain pattern for grep to be run on command output.
+
+        :returns: Dictionary with error string and status code.
+        """
+        def _get_func(cmd):
+            func_name = cmd['func']
+            func_path = cmd.get('module', cmd.get('object', ''))
+            full_name = func_path + '.' + func_name
+            func = self.cache_func_by_name.get(full_name)
+            if func:
+                return func
+
+            module_name = cmd.get('module')
+            if module_name:
+                func  = getattr(__import__(module_name), func_name)
+                self.cache_func_by_name[full_name] = func
+                return func
+
+            # I am a bit lazy to implement proper parsing of the 'object', so just
+            # go with explicit strings :) Next time someone get strange exception
+            # due to missing string in the switch below - let him to implement
+            # the proper parser :)
+            #
+            object_name = cmd.get('object')
+            if object_name:
+                if object_name == 'fwglobals.g':
+                    func = getattr(self, func_name)
+                elif object_name == 'fwglobals.g.router_api':
+                    func = getattr(fwglobals.g.router_api, func_name)
+                elif object_name == 'fwglobals.g.router_api.vpp_api':
+                    func = getattr(fwglobals.g.router_api.vpp_api, func_name)
+                elif object_name == 'fwglobals.g.ikev2':
+                    func = getattr(fwglobals.g.ikev2, func_name)
+                elif object_name == 'fwglobals.g.traffic_identifications':
+                    func = getattr(fwglobals.g.traffic_identifications, func_name)
+                elif object_name == 'fwglobals.g.pppoe':
+                    func = getattr(fwglobals.g.pppoe, func_name)
+                else:
+                    return None
+                self.cache_func_by_name[full_name] = func
+                return func
+
+        def _parse_result(res):
+            ok, err_str = True, None
+            if res is None:
+                ok = True
+            elif type(res) == bool:
+                ok = res
+            elif type(res) == tuple:
+                ok      = res[0]
+                err_str = res[1]
+            elif type(res) == dict:
+                ok      = res.get('ok', False)
+                err_str = res.get('ret')
+            else:
+                err_str = f'_call_python_api_parse_result: unsupported type of return: {type(res)}'
+
+            if not ok and not err_str:
+                err_str = "unspecified error"
+            elif ok:
+                err_str = None
+            return err_str
+
+        try:
+            func = _get_func(cmd)
+            args = cmd.get('params', {})
+            if result:
+                args = copy.deepcopy(args) if args else {}
+                args.update({ 'result_cache': result })
+
+            err_str = _parse_result(func(**args))
+            if err_str:
+                args_str = '' if not args else ', '.join([ "%s=%s" % (arg_name, args[arg_name]) for arg_name in args ])
+                self.log.error('%s(%s) failed: %s' % (cmd['func'], args_str, err_str))
+            return err_str
+
+        except Exception as e:
+            err_str = "%s(%s): %s" % (cmd['func'], format(cmd['params'], str(e)))
+            self.log.error(err_str + ': %s' % str(traceback.format_exc()))
+            return err_str
+
+
     def _revert(self, cmd_list, idx_failed_cmd=-1):
         """Revert list commands that are previous to the failed command with
         index 'idx_failed_cmd'.
@@ -311,15 +412,13 @@ class FwCfgRequestHandler(FwObject):
                 rev_cmd = t['revert']
                 self.log.debug(f"_revert: {self._dump_translation_cmd_params(rev_cmd)}")
                 try:
-                    reply = fwglobals.g.handle_request(
-                        { 'message': rev_cmd['name'], 'params': rev_cmd.get('params')})
-                    if reply['ok'] == 0:
-                        err_str = "handle_request(%s) failed" % rev_cmd['name']
-                        self.log.error(err_str)
+                    err_str = self._execute_translation_command(rev_cmd)
+                    if err_str:
+                        self.log.error(f"_revert('{rev_cmd['func']}') failed")
                         raise Exception(err_str)
                 except Exception as e:
                     err_str = "_revert: exception while '%s': %s(%s): %s" % \
-                                (t['cmd']['descr'], rev_cmd['name'], format(rev_cmd['params']), str(e))
+                                (t['cmd']['descr'], rev_cmd['func'], format(rev_cmd['params']), str(e))
                     self.log.excep(err_str)
 
                     if self.revert_failure_callback:
@@ -450,31 +549,34 @@ class FwCfgRequestHandler(FwObject):
             # Add new param/replace old value with new one
             if 'add_param' in s:
                 if type(params) is dict:
-                    if 'args' in params:        # Take care of cmd['cmd']['name'] = "python" commands
-                        params['args'][s['add_param']] = new
-                    else:                       # Take care of rest commands
-                        params[s['add_param']] = new
+                    params[s['add_param']] = new
                 else:  # list
                     params.insert({s['add_param'], new})
             elif 'replace' in s:
                 old = s['replace']
                 if type(params) is dict:
-                    if not 'args' in params:
-                        raise Exception("fwutils.py:substitute: 'replace' is not supported for the given dictionary in '%s'" % format(params))
-                    if not 'key' in s: # need to specify the key in params['args'] that it's value needs to be replaced
-                        raise Exception("fwutils.py:substitute: key to replace doesn't specified in substitute '%s'" % format(s))
 
-                    arg_key = s['key']
-                    if not params['args'][arg_key]: # make sure specified key is exists in args
-                        raise Exception("fwutils.py:substitute: '%s' key doesn't exist in params '%s'" % (arg_key, format(s)))
+                    # Find element of dict that is referenced by the 'subst'
+                    #
+                    arg_key = s.get('key')
+                    if not arg_key:
+                        raise Exception(f"fwutils.py:substitute: 'key' was not found in 'subst' element of 'replace' type: '{format(s)}'")
+                    arg_val = params.get(arg_key)
+                    if not arg_val:
+                        raise Exception("fwutils.py:substitute: key '%s' doesn't exist in params '%s'" % (str(arg_key), format(s)))
 
-                    val = params['args'][arg_key]
-                    if type(val) == list:  # if value is list, go over the list and check
-                        for (idx, p) in list(enumerate(val)):
-                            if type(p) == str and old in p:
-                                params['args'][arg_key][idx] = params['args'][arg_key][idx].replace(old, str(new))
+                    # Modify it's value according the replacement.
+                    #
+                    if type(arg_val) == str:
+                        if old in arg_val:
+                            params[arg_key] = params[arg_key].replace(old, str(new))
+                    elif type(arg_val) == list:
+                        for (idx, a) in list(enumerate(arg_val)):
+                            if type(a) == str and old in a:
+                                params[arg_key][idx] = params[arg_key][idx].replace(old, str(new))
                     else:
-                        raise Exception("fwutils.py:substitute: 'replace' is not supported for the given dictionary in '%s'" % format(params))
+                        raise Exception(f"fwutils.py:substitute: 'replace' is not supported for the given dictionary: '{format(params)}'")
+
                 else:  # list
                     for (idx, p) in list(enumerate(params)):
                         if type(p) == str:
@@ -735,11 +837,9 @@ class FwCfgRequestHandler(FwObject):
 
     def _dump_translation_cmd_params(self, cmd):
         if 'params' in cmd and type(cmd['params'])==dict:
-            return "%s(%s)" % (cmd['name'], fwutils.yaml_dump(cmd['params']))
-        elif 'params' in cmd:
-            return "%s(%s)" % (cmd['name'], format(cmd['params']))
+            return "%s(%s)" % (cmd['func'], fwutils.yaml_dump(cmd['params']))
         else:
-            return "%s()" % (cmd['name'])
+            return "%s(%s)" % (cmd['func'], format(cmd.get('params','')))
 
     def compare_modify_params(self, request, ignore_params):
         """Helper function that detects if 'modify-X' request received from

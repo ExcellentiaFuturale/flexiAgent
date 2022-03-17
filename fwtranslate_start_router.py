@@ -83,19 +83,13 @@ def start_router(params=None):
     # Initialize some stuff before router start
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "python"
+    cmd['cmd']['func']    = "_on_start_router_before"
+    cmd['cmd']['object']  = "fwglobals.g.router_api"
     cmd['cmd']['descr']   = "fwrouter_api._on_start_router_before()"
-    cmd['cmd']['params']  = {
-                    'object': 'fwglobals.g.router_api',
-                    'func'  : '_on_start_router_before'
-    }
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
+    cmd['revert']['func']   = "_on_stop_router_after"
+    cmd['revert']['object'] = "fwglobals.g.router_api"
     cmd['revert']['descr']  = "fwrouter_api._on_stop_router_after()"
-    cmd['revert']['params'] = {
-                    'object': 'fwglobals.g.router_api',
-                    'func'  : '_on_stop_router_after'
-    }
     cmd_list.append(cmd)
 
     dev_id_list         = []
@@ -114,8 +108,9 @@ def start_router(params=None):
 
             cmd = {}
             cmd['cmd'] = {}
-            cmd['cmd']['name']    = "exec"
-            cmd['cmd']['params']  = [ "sudo ip link set dev %s down && sudo ip addr flush dev %s" % (linux_if ,linux_if ) ]
+            cmd['cmd']['func']    = "exec"
+            cmd['cmd']['module']  = "fwutils"
+            cmd['cmd']['params']  = { 'cmd': "sudo ip link set dev %s down && sudo ip addr flush dev %s" % (linux_if,linux_if ) }
             cmd['cmd']['descr']   = "shutdown dev %s in Linux" % linux_if
             cmd_list.append(cmd)
 
@@ -141,13 +136,10 @@ def start_router(params=None):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "python"
+    cmd['cmd']['func']    = "vpp_coredump_setup_startup_conf"
+    cmd['cmd']['module']  = "fw_vpp_coredump_utils"
     cmd['cmd']['descr']   = "enable coredump to %s" % vpp_filename
-    cmd['cmd']['params']  = {
-        'module': 'fw_vpp_coredump_utils',
-        'func'  : 'vpp_coredump_setup_startup_conf',
-        'args'  : { 'vpp_config_filename' : vpp_filename, 'enable': 1 }
-    }
+    cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename, 'enable': 1 }
     cmd_list.append(cmd)
 
     # The 'no-pci' parameter in /etc/vpp/startup.conf is too dangerous - it
@@ -157,13 +149,10 @@ def start_router(params=None):
     #
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "python"
+    cmd['cmd']['func']    = "vpp_startup_conf_remove_nopci"
+    cmd['cmd']['module']  = "fwutils"
     cmd['cmd']['descr']   = "clean no-pci flag from %s" % vpp_filename
-    cmd['cmd']['params']  = {
-        'module': 'fwutils',
-        'func'  : 'vpp_startup_conf_remove_nopci',
-        'args'  : { 'vpp_config_filename' : vpp_filename }
-    }
+    cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename }
     cmd_list.append(cmd)
 
     # Add interfaces to the vpp configuration file, thus creating whitelist.
@@ -172,21 +161,15 @@ def start_router(params=None):
     if len(dev_id_list) > 0:
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']    = "python"
+        cmd['cmd']['func']    = "vpp_startup_conf_add_devices"
+        cmd['cmd']['module']  = "fwutils"
         cmd['cmd']['descr']   = "add devices to %s" % vpp_filename
-        cmd['cmd']['params']  = {
-            'module': 'fwutils',
-            'func'  : 'vpp_startup_conf_add_devices',
-            'args'  : { 'vpp_config_filename' : vpp_filename, 'devices': dev_id_list }
-        }
+        cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename, 'devices': dev_id_list }
         cmd['revert'] = {}
-        cmd['revert']['name']   = "python"
+        cmd['revert']['func']   = "vpp_startup_conf_remove_devices"
+        cmd['revert']['module'] = "fwutils"
         cmd['revert']['descr']  = "remove devices from %s" % vpp_filename
-        cmd['revert']['params'] = {
-            'module': 'fwutils',
-            'func'  : 'vpp_startup_conf_remove_devices',
-            'args'  : { 'vpp_config_filename' : vpp_filename, 'devices': dev_id_list }
-        }
+        cmd['revert']['params'] = { 'vpp_config_filename' : vpp_filename, 'devices': dev_id_list }
         cmd_list.append(cmd)
     elif len(pci_list_vmxnet3) == 0:
         # When the list of devices in the startup.conf file is empty, the vpp attempts
@@ -197,50 +180,35 @@ def start_router(params=None):
         # vmxnet3_create() called after vpp start will succeed.
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']    = "python"
+        cmd['cmd']['func']    = "vpp_startup_conf_add_nopci"
+        cmd['cmd']['module']  = "fwutils"
         cmd['cmd']['descr']   = "add no-pci flag to %s" % vpp_filename
-        cmd['cmd']['params']  = {
-            'module': 'fwutils',
-            'func'  : 'vpp_startup_conf_add_nopci',
-            'args'  : { 'vpp_config_filename' : vpp_filename }
-        }
+        cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename }
         cmd['revert'] = {}
-        cmd['revert']['name']   = "python"
+        cmd['revert']['func']   = "vpp_startup_conf_remove_nopci"
+        cmd['revert']['module'] = "fwutils"
         cmd['revert']['descr']  = "remove no-pci flag to %s" % vpp_filename
-        cmd['revert']['params'] = {
-            'module': 'fwutils',
-            'func'  : 'vpp_startup_conf_remove_nopci',
-            'args'  : { 'vpp_config_filename' : vpp_filename }
-        }
+        cmd['revert']['params'] = { 'vpp_config_filename' : vpp_filename }
         cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name'] = "python"
+    cmd['cmd']['func']    = "backup_linux_netplan_files"
+    cmd['cmd']['module']  = "fwnetplan"
     cmd['cmd']['descr'] = "backup Linux netplan files"
-    cmd['cmd']['params']  = {
-        'module': 'fwnetplan',
-        'func'  : 'backup_linux_netplan_files'
-    }
     cmd['revert'] = {}
-    cmd['revert']['name'] = "python"
+    cmd['revert']['func']    = "restore_linux_netplan_files"
+    cmd['revert']['module']  = "fwnetplan"
     cmd['revert']['descr'] = "restore linux netplan files"
-    cmd['revert']['params']  = {
-        'module': 'fwnetplan',
-        'func'  : 'restore_linux_netplan_files'
-    }
     cmd_list.append(cmd)
 
     if assigned_linux_interfaces:
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']    = "python"
+        cmd['cmd']['func']    = "netplan_unload_vpp_assigned_ports"
+        cmd['cmd']['module']  = "fwnetplan"
         cmd['cmd']['descr']   = "Unload to-be-VPP interfaces from linux networkd"
-        cmd['cmd']['params']  = {
-            'module': 'fwnetplan',
-            'func'  : 'netplan_unload_vpp_assigned_ports',
-            'args'  : { 'assigned_linux_interfaces' : assigned_linux_interfaces }
-        }
+        cmd['cmd']['params']  = { 'assigned_linux_interfaces' : assigned_linux_interfaces }
         cmd_list.append(cmd)
 
     #  Create commands that start vpp and configure it with addresses
@@ -249,84 +217,90 @@ def start_router(params=None):
     #  sudo vppctl enable tap-inject
     cmd = {}
     cmd['cmd'] = {}                     # vfio-pci related stuff is needed for vmxnet3 interfaces
-    cmd['cmd']['name']    = "exec"
-    cmd['cmd']['params']  = [ 'sudo modprobe vfio-pci  &&  (echo Y | sudo tee /sys/module/vfio/parameters/enable_unsafe_noiommu_mode)' ]
+    cmd['cmd']['func']    = "exec"
+    cmd['cmd']['module']  = "fwutils"
+    cmd['cmd']['params']  = { 'cmd': 'sudo modprobe vfio-pci  &&  (echo Y | sudo tee /sys/module/vfio/parameters/enable_unsafe_noiommu_mode)' }
     cmd['cmd']['descr']   = "enable vfio-pci driver in Linux"
     cmd_list.append(cmd)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "exec"
-    cmd['cmd']['params']  = [ 'sudo systemctl start vpp' ]
+    cmd['cmd']['func']    = "exec"
+    cmd['cmd']['module']  = "fwutils"
+    cmd['cmd']['params']  = { 'cmd': 'sudo systemctl start vpp' }
     cmd['cmd']['descr']   = "start vpp"
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
+    cmd['revert']['func']   = "stop_vpp"
+    cmd['revert']['module'] = "fwutils"
     cmd['revert']['descr']  = "stop vpp"
-    cmd['revert']['params'] = { 'module': 'fwutils', 'func': 'stop_vpp' }
     cmd_list.append(cmd)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "python"
+    cmd['cmd']['func']      = "connect_to_vpp"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['descr']     = "connect to vpp papi"
-    cmd['cmd']['params']    = { 'object': 'fwglobals.g.router_api.vpp_api', 'func': 'connect_to_vpp' }
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
+    cmd['revert']['func']   = "disconnect_from_vpp"
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['revert']['descr']  = "disconnect from vpp papi"
-    cmd['revert']['params'] = { 'object': 'fwglobals.g.router_api.vpp_api', 'func': 'disconnect_from_vpp' }
     cmd_list.append(cmd)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "python"
-    cmd['cmd']['params']  = {'module': 'fwutils', 'func' : 'vpp_enable_tap_inject'}
+    cmd['cmd']['func']    = "vpp_enable_tap_inject"
+    cmd['cmd']['module']  = "fwutils"
     cmd['cmd']['descr']   = "enable tap-inject"
     cmd_list.append(cmd)
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "nat44_plugin_enable_disable"
+    cmd['cmd']['func']    = "call_vpp_api"
+    cmd['cmd']['object']  = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['descr']   = "enable NAT pluging and configure it"
-    cmd['cmd']['params']  = { 'enable':1, 'flags': 1,  # nat.h: _(0x01, IS_ENDPOINT_DEPENDENT)
-                              'sessions':  100000 }    # Defaults: users=1024, sessions=10x1024, in multicore these parameters are per worker thread
+    cmd['cmd']['params']  = {
+                    'api':  "nat44_plugin_enable_disable",
+                    'args': {
+                        'enable':   1,
+                        'flags':    1,      # nat.h: _(0x01, IS_ENDPOINT_DEPENDENT)
+                        'sessions': 100000  # Defaults: users=1024, sessions=10x1024, in multicore these parameters are per worker thread
+                    }
+    }
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name'] = "exec"
-    cmd['cmd']['params'] = ["sudo vppctl ip route add 255.255.255.255/32 via punt"]
+    cmd['cmd']['func']   = "exec"
+    cmd['cmd']['module'] = "fwutils"
+    cmd['cmd']['params'] = { 'cmd': "sudo vppctl ip route add 255.255.255.255/32 via punt" }
     cmd['cmd']['descr'] = "punt ip broadcast"
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name'] = "python"
+    cmd['cmd']['func']   = "backup_dhcpd_files"
+    cmd['cmd']['module'] = "fwutils"
     cmd['cmd']['descr'] = "backup DHCP server files"
-    cmd['cmd']['params']  = {
-        'module': 'fwutils',
-        'func'  : 'backup_dhcpd_files'
-    }
     cmd['revert'] = {}
-    cmd['revert']['name'] = "python"
+    cmd['revert']['func']   = "restore_dhcpd_files"
+    cmd['revert']['module'] = "fwutils"
     cmd['revert']['descr'] = "restore DHCP server files"
-    cmd['revert']['params']  = {
-        'module': 'fwutils',
-        'func'  : 'restore_dhcpd_files'
-    }
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "exec"
-    cmd['cmd']['params']  = [ 'sudo systemctl start frr; if [ -z "$(pgrep frr)" ]; then exit 1; fi' ]
+    cmd['cmd']['func']    = "exec"
+    cmd['cmd']['module']  = "fwutils"
+    cmd['cmd']['params']  = { 'cmd': 'sudo systemctl start frr; if [ -z "$(pgrep frr)" ]; then exit 1; fi' }
     cmd['cmd']['descr']   = "start frr"
     cmd['revert'] = {}
-    cmd['revert']['name']   = "exec"
+    cmd['revert']['func']   = "exec"
+    cmd['revert']['module'] = "fwutils"
     cmd['revert']['descr']  = "stop frr"
-    cmd['revert']['params'] = [ 'sudo systemctl stop frr' ]
+    cmd['revert']['params'] = { 'cmd': 'sudo systemctl stop frr' }
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name'] = "python"
+    cmd['cmd']['func']   = "frr_setup_config"
+    cmd['cmd']['module'] = "fwutils"
     cmd['cmd']['descr'] = "Setup FRR configuration"
-    cmd['cmd']['params']  = {'module': 'fwutils', 'func' : 'frr_setup_config'}
     cmd_list.append(cmd)
 
     # Setup Global VPP NAT parameters
@@ -344,42 +318,43 @@ def start_router(params=None):
         pci_bytes = fwutils.pci_str_to_bytes(pci)
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']    = "vmxnet3_create"
+        cmd['cmd']['func']    = "call_vpp_api"
+        cmd['cmd']['object']  = "fwglobals.g.router_api.vpp_api"
         cmd['cmd']['descr']   = "create vmxnet3 interface for %s" % pci
-        cmd['cmd']['params']  = { 'pci_addr':pci_bytes }
+        cmd['cmd']['params']  = {
+                        'api':  "vmxnet3_create",
+                        'args': {'pci_addr':pci_bytes}
+        }
         cmd['revert'] = {}
-        cmd['revert']['name']   = "vmxnet3_delete"
+        cmd['revert']['func']   = "call_vpp_api"
+        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
         cmd['revert']['descr']  = "delete vmxnet3 interface for %s" % pci
-        cmd['revert']['params'] = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_func':'dev_id_to_vpp_sw_if_index', 'arg':dev_id } ] }
+        cmd['revert']['params'] = {
+                        'api':    "vmxnet3_delete",
+                        'args':   {
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_func':'dev_id_to_vpp_sw_if_index', 'arg':dev_id } ]
+                        }
+        }
         cmd_list.append(cmd)
 
     # Once VPP started, apply configuration to it.
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "python"
+    cmd['cmd']['func']    = "_on_apply_router_config"
+    cmd['cmd']['object']  = "fwglobals.g.router_api"
     cmd['cmd']['descr']   = "FWROUTER_API::_on_apply_router_config()"
-    cmd['cmd']['params']  = {
-                    'object': 'fwglobals.g.router_api',
-                    'func'  : '_on_apply_router_config'
-    }
     cmd_list.append(cmd)
 
     # Finalize some stuff after VPP start / before VPP stops.
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "python"
+    cmd['cmd']['func']    = "_on_start_router_after"
+    cmd['cmd']['object']  = "fwglobals.g.router_api"
     cmd['cmd']['descr']   = "fwrouter_api._on_start_router_after()"
-    cmd['cmd']['params']  = {
-                    'object': 'fwglobals.g.router_api',
-                    'func'  : '_on_start_router_after'
-    }
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
+    cmd['revert']['func']   = "_on_stop_router_before"
+    cmd['revert']['object'] = "fwglobals.g.router_api"
     cmd['revert']['descr']  = "fwrouter_api._on_stop_router_before()"
-    cmd['revert']['params'] = {
-                    'object': 'fwglobals.g.router_api',
-                    'func'  : '_on_stop_router_before'
-    }
     cmd_list.append(cmd)
 
     return cmd_list

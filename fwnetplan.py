@@ -308,7 +308,7 @@ def _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw, dnsSer
 
     return config_section
 
-def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dnsServers, dnsDomains, mtu=None, if_name=None, validate_ip=True):
+def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dnsServers, dnsDomains, mtu=None, if_name=None, validate_ip=True, netplan_apply=True):
     '''
     :param metric:  integer (whole number)
     '''
@@ -467,7 +467,8 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         if not is_add and type == 'WAN':
             fwutils.remove_linux_default_route(ifname)
 
-        fwutils.netplan_apply('add_remove_netplan_interface')
+        if netplan_apply:
+            fwutils.netplan_apply('add_remove_netplan_interface')
 
         if is_add and set_name and not is_lte:
             ifname = set_name
@@ -563,6 +564,21 @@ def _has_ip(if_name, dhcp):
 
     return False
 
+def check_interface_exist(if_name):
+    files = netplan_get_filepaths()
+
+    for fname in files:
+        config = None
+        with open(fname, 'r') as stream:
+            config = yaml.safe_load(stream)
+            if not config:
+                continue
+            interface = config.get('network',{}).get('ethernets',{}).get(if_name)
+            if interface:
+                return fname
+
+    return None
+
 def remove_interface(if_name):
     files = netplan_get_filepaths()
 
@@ -597,3 +613,11 @@ def add_interface(if_name, fname, netplan_section):
                 with open(fname, 'w') as file_stream:
                     yaml.dump(config, file_stream)
                 fwutils.netplan_apply('add_interface_netplan')
+
+def create_baseline_if_not_exist(fname):
+    if 'baseline' in fname:
+        return
+
+    fname_baseline = fname.replace('yaml', 'baseline.yaml')
+    os.system('cp %s %s.fworig' % (fname, fname))
+    os.system('mv %s %s' % (fname, fname_baseline))

@@ -59,32 +59,26 @@ def add_route(params):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "python"
+    cmd['cmd']['func']      = "add_remove_route"
+    cmd['cmd']['module']    = "fwroutes"
     cmd['cmd']['descr']     = "ip route add %s via %s dev %s" % (params['addr'], params['via'], str(params.get('dev_id')))
     cmd['cmd']['params']    = {
-                                'module': 'fwroutes',
-                                'func':   'add_remove_route',
-                                'args':   {
                                     'addr'  : params['addr'],
                                     'via'   : params['via'],
                                     'metric': params.get('metric'),
                                     'remove': False,
                                     'dev_id': params.get('dev_id')
-                                }
                               }
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
+    cmd['revert']['func']   = "add_remove_route"
+    cmd['revert']['module'] = "fwroutes"
     cmd['revert']['descr']  = "ip route del %s via %s dev %s" % (params['addr'], params['via'], str(params.get('dev_id')))
     cmd['revert']['params'] = {
-                                'module': 'fwroutes',
-                                'func':   'add_remove_route',
-                                'args':   {
                                     'addr'  : params['addr'],
                                     'via'   : params['via'],
                                     'metric': params.get('metric'),
                                     'remove': True,
                                     'dev_id': params.get('dev_id')
-                                }
                               }
     cmd_list.append(cmd)
 
@@ -92,23 +86,17 @@ def add_route(params):
     if params.get('redistributeViaOSPF', False) == True:
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']   = "python"
+        cmd['cmd']['func']   = "frr_vtysh_run"
+        cmd['cmd']['module'] = "fwutils"
         cmd['cmd']['params'] = {
-                'module': 'fwutils',
-                'func': 'frr_vtysh_run',
-                'args': {
                     'commands': ["router ospf", "access-list %s permit %s" % (fwglobals.g.FRR_OSPF_ACL, params['addr'])]
-                },
         }
         cmd['cmd']['descr']   =  "add %s to the allowed redistribution filter list" % params['addr']
         cmd['revert'] = {}
-        cmd['revert']['name']   = "python"
+        cmd['revert']['func']   = "frr_vtysh_run"
+        cmd['revert']['module'] = "fwutils"
         cmd['revert']['params'] = {
-                'module': 'fwutils',
-                'func': 'frr_vtysh_run',
-                'args': {
                     'commands': ["router ospf", "no access-list %s permit %s" % (fwglobals.g.FRR_OSPF_ACL, params['addr'])]
-                },
         }
         cmd['revert']['descr']   =  "remove %s from the allowed redistribution filter list" % params['addr']
         cmd_list.append(cmd)

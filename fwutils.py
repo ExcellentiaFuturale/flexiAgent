@@ -875,7 +875,7 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
     # We compose name of tap interface (tap_wwan0) of two parts: "tap_" and "wwan0", so we can
     # fetch name of Linux interface (wwan0) out of the tap name by a simple string split.
     #
-    taps = fwglobals.g.router_api.vpp_api.call('sw_interface_tap_v2_dump')
+    taps = fwglobals.g.router_api.vpp_api.vpp.call('sw_interface_tap_v2_dump')
     for tap in taps:
         if not re.match("tap_", tap.host_if_name):
             continue   # pppoe interfaces don't follow "tap_" convention
@@ -918,7 +918,7 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
             fwglobals.g.cache.dev_id_to_vpp_if_name[full_addr] = v
             fwglobals.g.cache.vpp_if_name_to_dev_id[v] = full_addr
 
-    vmxnet3hw = fwglobals.g.router_api.vpp_api.call('vmxnet3_dump')
+    vmxnet3hw = fwglobals.g.router_api.vpp_api.vpp.call('vmxnet3_dump')
     for hw_if in vmxnet3hw:
         vpp_if_name = hw_if.if_name.rstrip(' \t\r\n\0')
         pci_addr = 'pci:%s' % pci_bytes_to_str(hw_if.pci_addr)
@@ -1006,7 +1006,7 @@ def vpp_if_name_to_vpp_sw_if_index(vpp_if_name):
     if vpp_if_name is None:
         return None
 
-    sw_ifs = fwglobals.g.router_api.vpp_api.call('sw_interface_dump')
+    sw_ifs = fwglobals.g.router_api.vpp_api.vpp.call('sw_interface_dump')
     for sw_if in sw_ifs:
         if re.match(vpp_if_name, sw_if.interface_name):    # Use regex, as sw_if.interface_name might include trailing whitespaces
             return sw_if.sw_if_index
@@ -1026,7 +1026,7 @@ def bridge_addr_to_bvi_interface_tap(bridge_addr):
         fwglobals.log.error('bridge_addr_to_bvi_interface_tap: failed to fetch bridge id for address: %s' % str(bridge_addr))
         return None
 
-    vpp_bridges_det = fwglobals.g.router_api.vpp_api.call('bridge_domain_dump', bd_id=bd_id)
+    vpp_bridges_det = fwglobals.g.router_api.vpp_api.vpp.call('bridge_domain_dump', bd_id=bd_id)
     if not vpp_bridges_det:
         fwglobals.log.error('bridge_addr_to_bvi_interface_tap: failed to fetch vpp bridges for bd_id %s' % str(bd_id))
         return None
@@ -1317,7 +1317,7 @@ def vpp_sw_if_index_to_name(sw_if_index):
 
     # Now go to the heavy route.
     #
-    sw_interfaces = fwglobals.g.router_api.vpp_api.call('sw_interface_dump', sw_if_index=sw_if_index)
+    sw_interfaces = fwglobals.g.router_api.vpp_api.vpp.call('sw_interface_dump', sw_if_index=sw_if_index)
     if not sw_interfaces:
         fwglobals.log.debug(f"vpp_sw_if_index_to_name({sw_if_index}): not found")
         return None
@@ -1365,7 +1365,7 @@ def vpp_get_interface_status(sw_if_index):
     status = 'down'
 
     try:
-        interfaces = fwglobals.g.router_api.vpp_api.call('sw_interface_dump', sw_if_index=sw_if_index)
+        interfaces = fwglobals.g.router_api.vpp_api.vpp.call('sw_interface_dump', sw_if_index=sw_if_index)
         if len(interfaces) == 1:
             flags = interfaces[0].flags
             # flags are equal to IF_STATUS_API_FLAG_LINK_UP|IF_STATUS_API_FLAG_ADMIN_UP when interface is up
@@ -1483,7 +1483,7 @@ def stop_vpp():
     with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
         pppoe.reset_interfaces()
 
-def reset_device_config():
+def reset_device_config(pppoe=False):
     """Reset router config by cleaning DB and removing config files.
 
      :returns: None.
@@ -1517,6 +1517,9 @@ def reset_device_config():
 
     if 'lte' in fwglobals.g.db:
         fwglobals.g.db['lte'] = {}
+
+    if pppoe:
+        fwpppoe.pppoe_reset()
 
     reset_router_api_db_sa_id() # sa_id-s are used in translations of router configuration, so clean them too.
     reset_router_api_db(enforce=True)
@@ -3205,6 +3208,27 @@ def linux_check_gateway_exist(gw):
                 if net_if_stats[if_name].isup and is_ip_in_subnet(gw, str(network)):
                     return True
     return False
+
+def exec(cmd, timeout=60):
+    """Runs bash command and return result in format suitable for
+    fwcfg_request_handler (see _parse_result() function for details).
+
+    :param cmd: bash command
+
+    :returns: tuple of (<boolean success>, <output/error string>)
+    """
+    success = False
+    try:
+        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        (out, err) = p.communicate(timeout=timeout)
+        if p.returncode != 0:
+            return (False, err)
+        return (True, out)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        return (False, f"timeout ({timeout} seconds) on waiting for command to return")
+    except Exception as err:
+        return (False, str(err))
 
 def exec_with_timeout(cmd, timeout=60):
     """Run bash command with timeout option
