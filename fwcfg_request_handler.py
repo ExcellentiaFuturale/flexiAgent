@@ -790,7 +790,8 @@ class FwCfgRequestHandler(FwObject):
             raise Exception(" _sync_device: router full sync failed: " + str(reply.get('message')))
 
     def _perform_sync_messages(self, sync_list, full_sync, incoming_requests):
-        if len(incoming_requests) == 0:
+        if len(incoming_requests) == 0 and not sync_list:
+            self.log.info("_sync_device: incoming_requests is empty, no need to sync")
             return True
 
         if len(sync_list) == 0 and not full_sync:

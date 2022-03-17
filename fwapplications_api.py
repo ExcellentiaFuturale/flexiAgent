@@ -25,6 +25,7 @@ import glob
 import importlib
 import os
 import pathlib
+import re
 import threading
 import time
 import traceback
@@ -34,6 +35,7 @@ from sqlitedict import SqliteDict
 import fwglobals
 import fwutils
 from fwcfg_request_handler import FwCfgRequestHandler
+
 
 class FWAPPLICATIONS_API(FwCfgRequestHandler):
     """Services class representation.
@@ -118,6 +120,32 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         finally:
             self.processing_request = False
 
+    def _get_request_key(self, identifier, request_message):
+        if re.search('-uninstall', request_message):
+            request_message = request_message.replace('-uninstall', '-install')
+        return f'{identifier}_{request_message}'
+
+    def _save_request_in_db(self, identifier, request):
+        request_message = request['message']
+        req_key = self._get_request_key(identifier, request_message)
+        self._update_applications_db(identifier, req_key, request)
+
+    def _get_exists_request(self, identifier, request_message):
+        if not identifier in self.db:
+            return None
+
+        req_key = self._get_request_key(identifier, request_message)
+        if not req_key in self.db[identifier]:
+            return None
+
+        return dict(self.db[identifier][req_key])
+
+    def _is_app_installed(self, identifier):
+        install_req = self._get_exists_request(identifier, 'application-install')
+        if not install_req:
+            return False
+        return True
+
     def install(self, request):
         '''
         {
@@ -150,7 +178,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
             return { 'ok': 0, 'message': val }
 
         # store in database
-        self._update_applications_db(identifier, request['message'], request)
+        self._save_request_in_db(identifier, request)
 
         return { 'ok': 1 }
 
@@ -205,8 +233,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         params = request['params']
         identifier = params.get('identifier')
 
-        is_installed = self.db.get(identifier, {}).get('application-install')
-        if not is_installed:
+        if not self._is_app_installed(identifier):
             raise Exception(f'application {identifier} is not installed')
 
         application_params = {'params': params.get('applicationParams')}
@@ -216,7 +243,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
             return { 'ok': 0, 'message': val }
 
         # update in database
-        self._update_applications_db(identifier, request['message'], request)
+        self._save_request_in_db(identifier, request)
 
         return { 'ok': 1 }
 
@@ -345,19 +372,29 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         sync_list = self._get_sync_list(incoming_requests)
         return self._perform_sync_messages(sync_list, full_sync, incoming_requests)
 
-    def _get_sync_list(self, incoming_requests):
+    def _get_sync_list(self, requests):
+        # Firstly we hack a little bit the input list as follows:
+        # build dictionary out of this list where values are list elements
+        # (requests) and keys are request keys that local database would use
+        # to store these requests. Accidentally these are exactly same keys
+        # dumped by our database below ;)
+        #
+        input_requests = {}
+        for request in requests:
+            message = request['message']
+            identifier = request['params']['identifier']
+            key = self._get_request_key(identifier, message)
+            input_requests.update({key:request})
+
+
+        # Now build exactly the same structure (keys and values) of sync_applications but this time
+        # from the data stored in our database
+        dumped_requests = {}
+        for identifier in self.db:
+            dumped_requests.update(dict(self.db[identifier]))
+
+
         output_requests = []
-
-        db_keys = self.db.keys()
-
-        # generate incoming applications list in order to save searches bellow
-        sync_applications = {}
-        for request in incoming_requests:
-            identifier = request.get('params').get('identifier')
-            message = request.get('message')
-            if not identifier in sync_applications:
-                sync_applications[identifier] = {}
-            sync_applications[identifier][message] = request
 
         # loop over the existing applications.
         # if the existing application exists in the incoming list:
@@ -366,41 +403,34 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         # if the existing application does not exist in the incoming list:
         #   generate application-uninstall message
         #
-        for identifier in db_keys:
-            installation_request = dict(self.db[identifier].get('application-install', {}))
-            if not installation_request:
+        for key, req in dumped_requests.items():
+            # if application-install appears in our DB but not in the incoming list - generate application-uninstall
+            if not key in input_requests:
+                if req['message'] == 'application-install': # fix for application-configure is to reset the db - "fwagent reset -s"
+                    req['message'] = 'application-uninstall'
+                    output_requests.append(req)
                 continue
 
-            # if application appears in our DB but not in the incoming list - generate application-uninstall
-            if not identifier in sync_applications:
-                installation_request['message'] = installation_request['message'].replace('-install', '-uninstall')
-                output_requests.append(installation_request)
-                continue
+            # same key exists in both lists - check if params are the same
+            existing_params = req.get('params')
+            incoming_params  = input_requests[key].get('params')
+            if fwutils.compare_request_params(existing_params, incoming_params):
+                # The configuration item has exactly same parameters.
+                # It does not require sync, so remove it from input list.
+                #
+                del input_requests[key]
+            elif message == 'application-install':
+                # The application-install message params are different
+                # We generate uninstall before the incoming install to cleanup the machine.
+                #
+                req['message'] = req['message'].replace('-install', '-uninstall')
+                output_requests.append(req)
 
-            for message in dict(sync_applications[identifier]):
-                existing_message = dict(self.db[identifier].get(message, {}))
-                if not existing_message:
-                    continue
-
-                existing_params = existing_message.get('params')
-                incoming_params = sync_applications[identifier][message]['params']
-                if fwutils.compare_request_params(existing_params, incoming_params):
-                    # The configuration item has exactly same parameters.
-                    # It does not require sync, so remove it from input list.
-                    #
-                    del sync_applications[identifier][message]
-                elif message == 'application-install':
-                    # The application-install message params are different
-                    # We generate uninstall before the incoming install to cleanup the machine.
-                    #
-                    existing_message['message'] = existing_message['message'].replace('-install', '-uninstall')
-                    output_requests.append(existing_message)
-
-        # check the list has messages after manipulations
-        for identifier in sync_applications:
-            if not sync_applications[identifier]:
-                continue
-            output_requests += list(sync_applications[identifier].values())
+        # At this point the input list includes 'add-X' requests that stand
+        # for new or for modified configuration items.
+        # Just go and add them to the output list 'as-is'.
+        #
+        output_requests += list(input_requests.values())
 
         return output_requests
 
