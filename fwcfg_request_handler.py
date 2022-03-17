@@ -187,7 +187,7 @@ class FwCfgRequestHandler(FwObject):
                         err_str = "_call_aggregated: failed to revert request %s while running rollback on aggregated request" % op
                         self.log.excep("%s: %s" % (err_str, format(e)))
                         if self.revert_failure_callback:
-                            self.revert_failure_callback(str(e))
+                            self.revert_failure_callback(t)
                         pass
                 raise e
 
@@ -789,16 +789,12 @@ class FwCfgRequestHandler(FwObject):
         if reply['ok'] == 0:
             raise Exception(" _sync_device: router full sync failed: " + str(reply.get('message')))
 
-    def _filter_incoming_requests(self, incoming_requests):
-        return list([x for x in incoming_requests if x['message'] in self.translators])
-
-    def _get_sync_list(self, incoming_requests):
-        return self.cfg_db.get_sync_list(incoming_requests)
-
-    def sync(self, incoming_requests, full_sync=False):
-        incoming_requests = self._filter_incoming_requests(incoming_requests)
-
+    def _perform_sync_messages(self, sync_list, full_sync, incoming_requests):
         if len(incoming_requests) == 0:
+            return True
+
+        if len(sync_list) == 0 and not full_sync:
+            self.log.info("_sync_device: sync_list is empty, no need to sync")
             return True
 
         if full_sync:
@@ -810,12 +806,6 @@ class FwCfgRequestHandler(FwObject):
         # out of sync and try to modify them.
         # If that fails, we will try the full sync.
         #
-        sync_list = self._get_sync_list(incoming_requests)
-
-        if len(sync_list) == 0 and not full_sync:
-            self.log.info("_sync_device: sync_list is empty, no need to sync")
-            return True
-
         self.log.debug("_sync_device: start smart sync")
 
         sync_request = {
@@ -834,6 +824,11 @@ class FwCfgRequestHandler(FwObject):
             self.log.error(f"_sync_device: smart sync exception, go to full sync: {str(e)}")
 
         self.sync_full(incoming_requests)
+
+    def sync(self, incoming_requests, full_sync=False):
+        incoming_requests = list([x for x in incoming_requests if x['message'] in self.translators])
+        sync_list = self.cfg_db.get_sync_list(incoming_requests)
+        return self._perform_sync_messages(sync_list, full_sync, incoming_requests)
 
     def _dump_translation_cmd_params(self, cmd):
         if 'params' in cmd and type(cmd['params'])==dict:

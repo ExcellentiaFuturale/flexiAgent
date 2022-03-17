@@ -150,7 +150,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
             return { 'ok': 0, 'message': val }
 
         # store in database
-        self._update_applications_db(identifier, 'application-install', request)
+        self._update_applications_db(identifier, request['message'], request)
 
         return { 'ok': 1 }
 
@@ -216,7 +216,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
             return { 'ok': 0, 'message': val }
 
         # update in database
-        self._update_applications_db(identifier, 'application-configure', request)
+        self._update_applications_db(identifier, request['message'], request)
 
         return { 'ok': 1 }
 
@@ -340,14 +340,19 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
 
         self.db = apps_db
 
-    def _get_sync_list(self, requests):
+    def sync(self, incoming_requests, full_sync=False):
+        incoming_requests = list([x for x in incoming_requests if x['message'].startswith('application-')])
+        sync_list = self._get_sync_list(incoming_requests)
+        return self._perform_sync_messages(sync_list, full_sync, incoming_requests)
+
+    def _get_sync_list(self, incoming_requests):
         output_requests = []
 
         db_keys = self.db.keys()
 
         # generate incoming applications list in order to save searches bellow
         sync_applications = {}
-        for request in requests:
+        for request in incoming_requests:
             identifier = request.get('params').get('identifier')
             message = request.get('message')
             if not identifier in sync_applications:
@@ -362,7 +367,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         #   generate application-uninstall message
         #
         for identifier in db_keys:
-            installation_request = self.db[identifier].get('application-install')
+            installation_request = dict(self.db[identifier].get('application-install', {}))
             if not installation_request:
                 continue
 
@@ -373,7 +378,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
                 continue
 
             for message in dict(sync_applications[identifier]):
-                existing_message = self.db[identifier].get(message)
+                existing_message = dict(self.db[identifier].get(message, {}))
                 if not existing_message:
                     continue
 
@@ -399,8 +404,19 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
 
         return output_requests
 
-    def _filter_incoming_requests(self, requests):
-        return list([x for x in requests if x['message'].startswith('application-')])
+    def get_request_params(self, request):
+        message = request['message']
+
+        params = request['params']
+        identifier = params.get('identifier')
+
+        if not identifier in self.db:
+            return None
+
+        if not message in self.db[identifier]:
+            return None
+
+        return self.db[identifier][message].get('params')
 
 def call_applications_hook(hook):
     '''This function calls a function within applications_api even if the agnet object is not initialzied
