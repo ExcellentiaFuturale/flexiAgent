@@ -493,8 +493,9 @@ class FwPppoeClient(FwObject):
         """
         self.chap_config.save()
         self.pap_config.save()
-        for conn in self.connections.values():
+        for dev_id, conn in self.connections.items():
             conn.save()
+            self.connections[dev_id] = conn
 
     def _restore_netplan(self):
         """Restore Netplan by adding PPPoE interfaces back.
