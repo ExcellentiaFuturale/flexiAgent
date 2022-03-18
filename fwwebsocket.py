@@ -44,6 +44,7 @@ class FwWebSocketClient(FwObject):
         CONNECTING    = 2
         CONNECTED     = 3
         DISCONNECTING = 4
+        DISCONNECTED  = 5
 
 
     def __init__(self, on_message, on_open=None, on_close=None):
@@ -190,7 +191,10 @@ class FwWebSocketClient(FwObject):
 
             if opcode == 0x8:                    # OPCODE_CLOSE rfc5234
                 if self.state == self.FwWebSocketState.CONNECTED:
-                    self.disconnect()
+                    self.state = self.FwWebSocketState.DISCONNECTED
+                    self.log.debug(f"disconnected by {self.remote_host}")
+                    self.ws.shutdown()
+                    self.close()
                 elif self.state == self.FwWebSocketState.DISCONNECTING:
                     self.close()
                 else:
