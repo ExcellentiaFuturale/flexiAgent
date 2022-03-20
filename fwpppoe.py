@@ -59,6 +59,7 @@ class FwPppoeConnection(FwObject):
         self.tun_vpp_if_name = ''
         self.tun_vppsb_if_name = ''
         self.opened = False
+        self.if_name = ''
 
     def __str__(self):
         usepeerdns = 'usepeerdns' if self.usepeerdns else ''
@@ -79,7 +80,7 @@ class FwPppoeConnection(FwObject):
     def save(self):
         """Create PPPoE connection configuration file.
         """
-        if_name = self.dev_id_to_if_name()
+        self.if_name = self.dev_id_to_if_name()
         self.remove()
         try:
             with open(self.path + self.filename, 'w') as file:
@@ -95,7 +96,7 @@ class FwPppoeConnection(FwObject):
                 file.write('plugin rp-pppoe.so' + os.linesep)
                 file.write('mtu %u' % self.mtu + os.linesep)
                 file.write('mru %u' % self.mru + os.linesep)
-                file.write('nic-%s' % if_name + os.linesep)
+                file.write('nic-%s' % self.if_name + os.linesep)
                 file.write('user %s' % self.user + os.linesep)
                 file.write('ifname %s' % self.ppp_if_name + os.linesep)
                 if self.usepeerdns:
@@ -135,9 +136,7 @@ class FwPppoeConnection(FwObject):
     def open(self):
         """Open PPPoE connection.
         """
-        if_name = self.dev_id_to_if_name()
-
-        sys_cmd = f'ip link set dev {if_name} up'
+        sys_cmd = f'ip link set dev {self.if_name} up'
         fwutils.os_system(sys_cmd, 'PPPoE open')
 
         sys_cmd = 'pon %s' % self.filename
@@ -148,8 +147,6 @@ class FwPppoeConnection(FwObject):
     def close(self):
         """Close PPPoE connection.
         """
-        if_name = self.dev_id_to_if_name()
-
         pppd_id = fwutils.pid_of('pppd')
         if not pppd_id:
             return
@@ -157,7 +154,7 @@ class FwPppoeConnection(FwObject):
         sys_cmd = 'poff %s' % self.filename
         fwutils.os_system(sys_cmd, 'PPPoE close')
 
-        sys_cmd = f'ip link set dev {if_name} down'
+        sys_cmd = f'ip link set dev {self.if_name} down'
         fwutils.os_system(sys_cmd, 'PPPoE close')
 
         self.opened = False
@@ -226,7 +223,7 @@ class FwPppoeConnection(FwObject):
         """
         self.remove_tc_mirror()
 
-        success, err_str = fwroutes.add_remove_route('0.0.0.0/0', None, None, True, self.dev_id, 'static', tun_vppsb_if_name, False)
+        success, err_str = fwroutes.add_remove_route('0.0.0.0/0', None, None, True, self.dev_id, 'static', self.tun_vppsb_if_name, False)
         if not success:
             self.log.error(f"remove_linux_ip_route: failed to remove route: {err_str}")
 
@@ -408,7 +405,9 @@ class FwPppoeClient(FwObject):
             self.stop()
 
         self.interfaces.close()
+        self.interfaces = None
         self.connections.close()
+        self.connections = None
 
     def _populate_users(self):
         """Populate PPPoE users
@@ -494,8 +493,9 @@ class FwPppoeClient(FwObject):
         """
         self.chap_config.save()
         self.pap_config.save()
-        for conn in self.connections.values():
+        for dev_id, conn in self.connections.items():
             conn.save()
+            self.connections[dev_id] = conn
 
     def _restore_netplan(self):
         """Restore Netplan by adding PPPoE interfaces back.
@@ -520,6 +520,9 @@ class FwPppoeClient(FwObject):
     def get_interface(self, if_name = None, dev_id = None):
         """Get interface from database.
         """
+        if not self.interfaces:
+            return None
+
         if not dev_id:
             if if_name:
                 dev_id = fwutils.get_interface_dev_id(if_name)
@@ -621,6 +624,9 @@ class FwPppoeClient(FwObject):
     def scan(self):
         """Scan all interfaces for established PPPoE connection.
         """
+        if not self.connections:
+            return
+
         for dev_id, conn in self.connections.items():
             self.scan_interface(dev_id, conn)
 
@@ -686,11 +692,18 @@ class FwPppoeClient(FwObject):
                 pass
 
     def get_dev_id_from_ppp_if_name(self, ppp_if_name):
+        if not self.connections:
+            return None
+
         for dev_id, conn in self.connections.items():
             if conn.ppp_if_name == ppp_if_name:
                 return dev_id
+        return None
 
     def get_ppp_if_name_from_if_name(self, if_name):
+        if not self.connections:
+            return ''
+
         dev_id = fwutils.get_interface_dev_id(if_name)
         conn = self.connections.get(dev_id)
         return conn.ppp_if_name

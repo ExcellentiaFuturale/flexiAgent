@@ -543,6 +543,9 @@ def get_linux_interfaces(cached=True):
         linux_inf = psutil.net_if_addrs()
         for (if_name, addrs) in list(linux_inf.items()):
 
+            if if_name.startswith('ppp'):
+                continue
+
             dev_id = get_interface_dev_id(if_name)
             if not dev_id:
                 continue
