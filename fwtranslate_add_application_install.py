@@ -20,37 +20,37 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import logging
-import os
-import sys
-from logging.handlers import RotatingFileHandler
+def add_app_install(params):
+    """Generate commands to add DHCP configuration.
 
-this_dir = os.path.dirname(os.path.realpath(__file__))
-up_dir   = os.path.dirname(this_dir)
-sys.path.append(up_dir)
+    :param params:        Parameters from flexiManage.
 
-from application_cfg import config
-openvpn_scripts_log_file = config["openvpn_scripts_log_file"]
+    :returns: List of commands.
+    """
+    cmd_list = []
 
-logging.basicConfig(
-    filename=openvpn_scripts_log_file,
-    level=logging.DEBUG,
-    format='%(asctime)s %(message)s',
-    datefmt='%m/%d/%Y %I:%M:%S %p' # 12/12/2010 11:46:36 AM,
-)
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']    = "install"
+    cmd['cmd']['object']  = "fwglobals.g.applications_api"
+    cmd['cmd']['descr']   = "install application"
+    cmd['cmd']['params']  = { 'params': params }
+    cmd['revert'] = {}
+    cmd['revert']['func']   = "uninstall"
+    cmd['revert']['object'] = "fwglobals.g.applications_api"
+    cmd['revert']['descr']  = "uninstall application"
+    cmd['revert']['params'] = { 'params': params }
+    cmd_list.append(cmd)
 
-# Save the files, up to 5 files of 5MB each
-handler = RotatingFileHandler(openvpn_scripts_log_file, mode='a', maxBytes=5*1024*1024,
-                                 backupCount=5, encoding=None, delay=0)
-log = logging.getLogger()
-log.addHandler(handler)
+    return cmd_list
 
-class Logger():
-    def error(self, str):
-        logging.error(str)
 
-    def debug(self, str):
-        logging.debug(str)
+def get_request_key(params):
+    """Get add-lte key.
 
-    def info(self, str):
-        logging.info(str)
+    :param params:        Parameters from flexiManage.
+
+    :returns: request key for add-lte request.
+    """
+    key = 'add-app-install-%s' % params['identifier']
+    return key

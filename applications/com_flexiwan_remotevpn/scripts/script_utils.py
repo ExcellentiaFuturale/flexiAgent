@@ -27,7 +27,8 @@ from netaddr import IPAddress
 from scripts_logger import Logger
 logger = Logger()
 
-from application_cfg import app_database_file
+from application_cfg import config
+app_database_file = config['app_database_file']
 
 def add_to_ospf(ifconfig_local_ip, ifconfig_netmask):
     mask = IPAddress(ifconfig_netmask).netmask_bits()

@@ -20,37 +20,25 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import logging
-import os
-import sys
-from logging.handlers import RotatingFileHandler
+def add_app_config(params):
+    cmd_list = []
 
-this_dir = os.path.dirname(os.path.realpath(__file__))
-up_dir   = os.path.dirname(this_dir)
-sys.path.append(up_dir)
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']    = "configure"
+    cmd['cmd']['object']  = "fwglobals.g.applications_api"
+    cmd['cmd']['descr']   = "configure application"
+    cmd['cmd']['params']  = { 'params': params }
+    cmd_list.append(cmd)
 
-from application_cfg import config
-openvpn_scripts_log_file = config["openvpn_scripts_log_file"]
+    return cmd_list
 
-logging.basicConfig(
-    filename=openvpn_scripts_log_file,
-    level=logging.DEBUG,
-    format='%(asctime)s %(message)s',
-    datefmt='%m/%d/%Y %I:%M:%S %p' # 12/12/2010 11:46:36 AM,
-)
+def get_request_key(params):
+    """Get add-lte key.
 
-# Save the files, up to 5 files of 5MB each
-handler = RotatingFileHandler(openvpn_scripts_log_file, mode='a', maxBytes=5*1024*1024,
-                                 backupCount=5, encoding=None, delay=0)
-log = logging.getLogger()
-log.addHandler(handler)
+    :param params:        Parameters from flexiManage.
 
-class Logger():
-    def error(self, str):
-        logging.error(str)
-
-    def debug(self, str):
-        logging.debug(str)
-
-    def info(self, str):
-        logging.info(str)
+    :returns: request key for add-lte request.
+    """
+    key = 'add-app-config-%s' % params['identifier']
+    return key

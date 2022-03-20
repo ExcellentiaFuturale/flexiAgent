@@ -39,8 +39,11 @@ import fwutils
 import fwglobals
 from fw_vpp_coredump_utils import vpp_coredump_copy_cores
 from fwobject import FwObject
+import fwapplications_api
 
 g = fwglobals.Fwglobals()
+
+fwglobals.initialize()
 
 # Special variables in the dumper commands are substituted in run time as follows:
 #   <dumper_out_file> -> '<temporary_folder>/<dumper>.log'
@@ -259,7 +262,22 @@ class FwDump(FwObject):
         except Exception as e:
             print(self.prompt + 'ERROR: "%s" failed: %s' % (cmd, str(e)))
 
+    def add_application_files(self):
+        try:
+            apps = fwapplications_api.call_applications_hook('get_fwdump_files')
+            for app_identifier, app_files in apps.items():
+                directory = f'<temp_folder>/applications/{app_identifier}'
+                for app_file in app_files:
+                    file_name = app_file.split('/')[-1] # get the filename out of the file full path
+                    g_dumpers[file_name] = {
+                        'shell_cmd': f'mkdir -p {directory} && cat {app_file} > {directory}/{file_name}'
+                    }
+        except:
+            pass # Do not crash in case of application code error
+
     def dump_all(self):
+        self.add_application_files()
+
         dumpers = list(g_dumpers.keys())
         self._dump(dumpers)
         if self.include_vpp_core:

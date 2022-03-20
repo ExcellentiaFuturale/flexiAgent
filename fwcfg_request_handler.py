@@ -351,6 +351,8 @@ class FwCfgRequestHandler(FwObject):
                     func = getattr(fwglobals.g.traffic_identifications, func_name)
                 elif object_name == 'fwglobals.g.pppoe':
                     func = getattr(fwglobals.g.pppoe, func_name)
+                elif object_name == 'fwglobals.g.applications_api':
+                    func = getattr(fwglobals.g.applications_api, func_name)
                 else:
                     return None
                 self.cache_func_by_name[full_name] = func
@@ -789,7 +791,11 @@ class FwCfgRequestHandler(FwObject):
         if reply['ok'] == 0:
             raise Exception(" _sync_device: router full sync failed: " + str(reply.get('message')))
 
-    def sync_delta(self, sync_list, full_sync, incoming_requests):
+    def sync(self, incoming_requests, full_sync=False):
+        incoming_requests = list([x for x in incoming_requests if x['message'] in self.translators])
+
+        sync_list = self.cfg_db.get_sync_list(incoming_requests)
+
         if len(incoming_requests) == 0 and not sync_list:
             self.log.info("_sync_device: incoming_requests is empty, no need to sync")
             return True
@@ -826,10 +832,6 @@ class FwCfgRequestHandler(FwObject):
 
         self.sync_full(incoming_requests)
 
-    def sync(self, incoming_requests, full_sync=False):
-        incoming_requests = list([x for x in incoming_requests if x['message'] in self.translators])
-        sync_list = self.cfg_db.get_sync_list(incoming_requests)
-        return self.sync_delta(sync_list, full_sync, incoming_requests)
 
     def _dump_translation_cmd_params(self, cmd):
         if 'params' in cmd and type(cmd['params'])==dict:

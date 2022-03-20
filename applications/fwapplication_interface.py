@@ -124,3 +124,10 @@ class FwApplicationInterface(ABC, FwObject):
         :returns: Boolean
         """
         raise NotImplementedError
+
+    def get_fwdump_files(self) -> list:
+        """A function that returns a list of file pathes to add to fwdump output
+
+        :returns: list
+        """
+        return []
