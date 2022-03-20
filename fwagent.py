@@ -751,7 +751,7 @@ def show(agent, configuration, database, status):
         elif database == 'general':
             fwutils.print_general_database()
         elif database == 'applications':
-            fwutils.print_applications_db()
+            fwutils.print_applications_db(full=True)
         elif database == 'multilink':
             with fwmultilink.FwMultilink(fwglobals.g.MULTILINK_DB_FILE, fill_if_empty=False) as multilink_db:
                 print(multilink_db.dumps())

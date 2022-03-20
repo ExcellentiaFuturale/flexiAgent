@@ -88,8 +88,8 @@
             "program": "${workspaceFolder}/fwagent.py",
             "args": [
                 "show",
-                "--agent",
-                "cache",
+                "--database",
+                "applications",
             ],
             "cwd": "${workspaceRoot}",
             "env": {

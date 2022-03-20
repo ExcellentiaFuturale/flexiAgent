@@ -216,7 +216,7 @@ class Application(FwApplicationInterface):
 
                 # Output a short status file showing current connections, truncated
                 # and rewritten every minute.
-                'status /etc/openvpn/server/openvpn-status.log 10',
+                f'status {cfg["openvpn_status_file"]} 10',
 
                 # Set the appropriate level of log file verbosity.
                 'verb 3',
@@ -335,7 +335,7 @@ class Application(FwApplicationInterface):
                 self.log.info("remoteVPN server is stopped")
 
             # cleanup static log file
-            os.system('echo "" > /etc/openvpn/server/openvpn-status.log')
+            os.system(f'echo "" > {cfg["openvpn_status_file"]}')
             return (True, None)
         except Exception as e:
             self.log.error(f"stop(): {str(e)}")
@@ -374,17 +374,15 @@ class Application(FwApplicationInterface):
         return res
 
     def get_statistics(self):
-        status_filename = '/etc/openvpn/server/openvpn-status.log'
-
         response = {
             'clients': {}
         }
 
-        if not exists(status_filename):
+        if not exists(cfg["openvpn_status_file"]):
             return response
 
         try:
-            with open('/etc/openvpn/server/openvpn-status.log', 'r') as logfile:
+            with open(cfg["openvpn_status_file"], 'r') as logfile:
                 status_lines = logfile.read().splitlines()
 
                 # sometimes the log file contains one line with empty string
@@ -420,3 +418,11 @@ class Application(FwApplicationInterface):
         except Exception as e:
             self.log.error(f"get_statistics(): {str(e)}")
             return response
+
+    def get_fwdump_files(self):
+        return [
+            cfg["openvpn_status_file"],
+            cfg["openvpn_server_conf_file"],
+            cfg["openvpn_scripts_log_file"],
+            cfg["openvpn_log_file"],
+        ]

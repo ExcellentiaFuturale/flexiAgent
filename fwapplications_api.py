@@ -25,28 +25,32 @@ import glob
 import importlib
 import os
 import pathlib
-import re
 import threading
 import time
 import traceback
 
-from sqlitedict import SqliteDict
-
 import fwglobals
 import fwutils
+from fwapplications_cfg import FwApplicationsCfg
 from fwcfg_request_handler import FwCfgRequestHandler
 
+fwapplication_translators = {
+    'add-app-install':        {'module': __import__('fwtranslate_add_application_install'),   'api':'add_app_install'},
+    'remove-app-install':     {'module': __import__('fwtranslate_revert') ,                   'api':'revert'},
+    'add-app-config':         {'module': __import__('fwtranslate_add_application_config'),    'api':'add_app_config'},
+    'remove-app-config':      {'module': __import__('fwtranslate_revert'),                    'api':'revert'},
+}
 
 class FWAPPLICATIONS_API(FwCfgRequestHandler):
     """Services class representation.
     """
 
-    def __init__(self, start_application_stats = False):
+    def __init__(self,start_application_stats = False):
         """Constructor method.
         """
-        FwCfgRequestHandler.__init__(self, {}, None)
+        cfg = FwApplicationsCfg(fwglobals.g.APPLICATIONS_CFG_FILE)
+        FwCfgRequestHandler.__init__(self, fwapplication_translators, cfg)
 
-        self.db = SqliteDict(fwglobals.g.APPLICATIONS_DB_FILE, autocommit=True)
         self.thread_stats = None
         self.processing_request = False
 
@@ -75,7 +79,6 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
             self.thread_stats = None
 
         self.app_instances = {}
-        self.db.close()
         return
 
     def _build_app_instances(self):
@@ -94,65 +97,20 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
             self.app_instances[app.identifier] = app
 
     def _call_simple(self, request):
-        """Invokes API specified by the request received from flexiManage.
-
-        :param request: The request received from flexiManage.
-
-        :returns: dictionary with status code and optional error message.
-        """
         try:
-            message = request['message']
-            params = request['params']
-
-            handler = message.split('application-')[-1]
-
-            handler_func = getattr(self, handler)
-            assert handler_func, f'handler={handler} not found for req={request}'
-
             self.processing_request = True
-            reply = handler_func(request)
-            if reply['ok'] == 0:
-                raise Exception(f'{handler_func}({format(params)}) failed: {reply["message"]}')
-            return reply
+            FwCfgRequestHandler._call_simple(self, request)
+            return {'ok':1}
         except Exception as e:
-            self.log.error(f"_call_simple({request}): {str(e)}")
+            err_str = f"FWAPPLICATIONS_API::_call_simple: {str(e)}"
+            self.log.error(err_str)
             raise e
         finally:
             self.processing_request = False
 
-    def _get_request_key(self, request):
-        request_message = request['message']
-        identifier = request['params']['identifier']
-        if re.search('-uninstall', request_message):
-            request_message = request_message.replace('-uninstall', '-install')
-        return f'{identifier}_{request_message}'
-
-    def _save_request_in_db(self, identifier, request):
-        req_key = self._get_request_key(request)
-        self._update_applications_db(identifier, req_key, request)
-
-    def _get_exists_request(self, identifier, request_message):
-        if not identifier in self.db:
-            return None
-
-        dummy_req = {'message': request_message, 'params': {'identifier': identifier}}
-        req_key = self._get_request_key(dummy_req)
-        if not req_key in self.db[identifier]:
-            return None
-
-        return dict(self.db[identifier][req_key])
-
-    def _is_app_installed(self, identifier):
-        install_req = self._get_exists_request(identifier, 'application-install')
-        if not install_req:
-            return False
-        return True
-
-    def install(self, request):
+    def install(self, params):
         '''
         {
-            "entity": "agent",
-            "message": "application-install",
             "params": {
                 "name": "Remote Worker VPN",
                 "identifier": "com.flexiwan.remotevpn",
@@ -162,7 +120,6 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
             }
         }
         '''
-        params = request['params']
         identifier = params.get('identifier')
 
         installation_dir = self._get_installation_dir(identifier)
@@ -179,16 +136,11 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         if not success:
             return { 'ok': 0, 'message': val }
 
-        # store in database
-        self._save_request_in_db(identifier, request)
-
         return { 'ok': 1 }
 
-    def uninstall(self, request):
+    def uninstall(self, params):
         '''
         {
-            "entity": "agent",
-            "message": "application-uninstall",
             "params": {
                 "name": "Remote Worker VPN",
                 "identifier": "com.flexiwan.remotevpn",
@@ -196,20 +148,12 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
             }
         }
         '''
-        params = request['params']
         identifier = params.get('identifier')
 
         application_params = params.get('applicationParams')
         success, val = self._call_application_api(identifier, 'uninstall', application_params)
         if not success:
             return { 'ok': 0, 'message': val }
-
-        # remove application from db
-        apps_db = self.db
-        app = apps_db.get(identifier)
-        if app:
-            del apps_db[identifier]
-            self.db = apps_db
 
         # remove application stats
         app_stats = self.stats.get(identifier)
@@ -218,11 +162,9 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
 
         return { 'ok': 1 }
 
-    def configure(self, request):
+    def configure(self, params):
         '''
         {
-            "entity": "agent",
-            "message": "application-configure",
             "params": {
                 "name": "Remote Worker VPN",
                 "identifier": "com.flexiwan.remotevpn",
@@ -232,20 +174,13 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
             }
         }
         '''
-        params = request['params']
         identifier = params.get('identifier')
-
-        if not self._is_app_installed(identifier):
-            raise Exception(f'application {identifier} is not installed')
 
         application_params = {'params': params.get('applicationParams')}
         success, val = self._call_application_api(identifier, 'configure', application_params)
 
         if not success:
             return { 'ok': 0, 'message': val }
-
-        # update in database
-        self._save_request_in_db(identifier, request)
 
         return { 'ok': 1 }
 
@@ -260,8 +195,9 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
             #
             try:  # Ensure thread doesn't exit on exception
                 if (slept % timeout) == 0 and not self.processing_request:
-                    apps = dict(self.db.items())
-                    for identifier in apps:
+                    apps = self.cfg_db.get_applications()
+                    for app in apps:
+                        identifier = app['identifier']
                         self._call_application_api(identifier, 'on_watchdog')
 
                         new_stats = {}
@@ -311,16 +247,17 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
 
     def reset(self):
         self.call_hook('uninstall')
-        self.db.clear()
+        self.cfg_db.clean()
 
     def call_hook(self, hook_name, params=None, identifier=None):
         res = {}
-        identifiers = [identifier] if identifier else list(self.db.keys())
-        for app_identifier in identifiers:
+        apps = self.cfg_db.get_applications()
+        for app in apps:
             try:
-                success, val = self._call_application_api(app_identifier, hook_name, params)
+                identifier = app['identifier']
+                success, val = self._call_application_api(identifier, hook_name, params)
                 if success:
-                    res[app_identifier] = val
+                    res[identifier] = val
             except Exception as e:
                 self.log.debug(f'call_hook({hook_name}): failed for identifier={app_identifier}: err={str(e)}')
                 pass
@@ -356,102 +293,11 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
             return val
         return None
 
-    def _update_applications_db(self, identifier, key, value):
-        apps_db = self.db
-        app = apps_db.get(identifier)
-
-        if not app:
-            apps_db[identifier] = {}
-            app = apps_db[identifier]
-
-        app[key] = value
-        apps_db[identifier] = app
-
-        self.db = apps_db
-
-    def sync(self, incoming_requests, full_sync=False):
-        incoming_requests = list([x for x in incoming_requests if x['message'].startswith('application-')])
-        sync_list = self._get_sync_list(incoming_requests)
-        return self.sync_delta(sync_list, full_sync, incoming_requests)
-
-    def _get_sync_list(self, requests):
-        # Firstly we hack a little bit the input list as follows:
-        # build dictionary out of this list where values are list elements
-        # (requests) and keys are request keys that local database would use
-        # to store these requests. Accidentally these are exactly same keys
-        # dumped by our database below ;)
-        #
-        input_requests = {}
-        for request in requests:
-            key = self._get_request_key(request)
-            input_requests.update({key:request})
-
-
-        # Now build exactly the same structure (keys and values) of sync_applications but this time
-        # from the data stored in our database
-        dumped_requests = {}
-        for identifier in self.db:
-            dumped_requests.update(dict(self.db[identifier]))
-
-
-        output_requests = []
-
-        # loop over the existing applications.
-        # if the existing application exists in the incoming list:
-        #   if the incoming and current params are the same - no need to do anything.
-        #   if there is a diff between them - generate uninstall and install application messages
-        # if the existing application does not exist in the incoming list:
-        #   generate application-uninstall message
-        #
-        for key, req in dumped_requests.items():
-            # if application-install appears in our DB but not in the incoming list - generate application-uninstall
-            if not key in input_requests:
-                if req['message'] == 'application-install': # fix for application-configure is to reset the db - "fwagent reset -s"
-                    req['message'] = 'application-uninstall'
-                    output_requests.append(req)
-                continue
-
-            # same key exists in both lists - check if params are the same
-            existing_params = req.get('params')
-            incoming_params  = input_requests[key].get('params')
-            if fwutils.compare_request_params(existing_params, incoming_params):
-                # The configuration item has exactly same parameters.
-                # It does not require sync, so remove it from input list.
-                #
-                del input_requests[key]
-            elif req['message'] == 'application-install':
-                # The application-install message params are different
-                # We generate uninstall before the incoming install to cleanup the machine.
-                #
-                req['message'] = req['message'].replace('-install', '-uninstall')
-                output_requests.append(req)
-
-        # At this point the input list includes 'add-X' requests that stand
-        # for new or for modified configuration items.
-        # Just go and add them to the output list 'as-is'.
-        #
-        output_requests += list(input_requests.values())
-
-        return output_requests
-
-    def get_request_params(self, request):
-        message = request['message']
-
-        params = request['params']
-        identifier = params.get('identifier')
-
-        if not identifier in self.db:
-            return None
-
-        if not message in self.db[identifier]:
-            return None
-
-        return self.db[identifier][message].get('params')
-
 def call_applications_hook(hook):
     '''This function calls a function within applications_api even if the agnet object is not initialzied
     '''
-    if hasattr(fwglobals.g, 'applications_api'):
+    # when calling this function from fwdump, there is no "g" in fwglobals
+    if hasattr(fwglobals, 'g') and hasattr(fwglobals.g, 'applications_api'):
         return fwglobals.g.applications_api.call_hook(hook)
 
     with FWAPPLICATIONS_API() as applications_api:

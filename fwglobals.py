@@ -123,10 +123,11 @@ request_handlers = {
     'add-lte':                      {'name': '_call_system_api'},
     'remove-lte':                   {'name': '_call_system_api'},
 
-    # Applications API
-    'application-install':           {'name': '_call_applications_api', 'sign': True},
-    'application-uninstall':         {'name': '_call_applications_api', 'sign': True},
-    'application-configure':         {'name': '_call_applications_api', 'sign': True},
+    # Applications api
+    'add-app-install':             {'name': '_call_applications_api', 'sign': True},
+    'remove-app-install':          {'name': '_call_applications_api', 'sign': True},
+    'add-app-config':              {'name': '_call_applications_api', 'sign': True},
+    'remove-app-config':           {'name': '_call_applications_api', 'sign': True},
 
     # OS API
     'cpuutil':                      {'name': '_call_os_api'},
@@ -230,6 +231,7 @@ class Fwglobals(FwObject):
         self.VERSIONS_FILE       = self.DATA_PATH + '.versions.yaml'
         self.ROUTER_CFG_FILE     = self.DATA_PATH + '.requests.sqlite'
         self.SYSTEM_CFG_FILE     = self.DATA_PATH + '.system.sqlite'
+        self.APPLICATIONS_CFG_FILE = self.DATA_PATH + '.applications.sqlite'
         self.ROUTER_STATE_FILE   = self.DATA_PATH + '.router.state'
         self.CONN_FAILURE_FILE   = self.DATA_PATH + '.upgrade_failed'
         self.IKEV2_FOLDER        = self.DATA_PATH + 'ikev2/'
@@ -271,7 +273,6 @@ class Fwglobals(FwObject):
         self.FWAGENT_DAEMON_HOST = '127.0.0.1'
         self.FWAGENT_DAEMON_PORT = 9090
         self.FWAGENT_DAEMON_URI  = 'PYRO:%s@%s:%d' % (self.FWAGENT_DAEMON_NAME, self.FWAGENT_DAEMON_HOST, self.FWAGENT_DAEMON_PORT)
-        self.APPLICATIONS_DB_FILE         = self.DATA_PATH + '.applications.sqlite'
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None

@@ -59,6 +59,7 @@ from fwmultilink    import FwMultilink
 from fwpolicies     import FwPolicies
 from fwrouter_cfg   import FwRouterCfg
 from fwsystem_cfg   import FwSystemCfg
+from fwapplications_cfg import FwApplicationsCfg
 from fwwan_monitor  import get_wan_failover_metric
 from fw_traffic_identification import FwTrafficIdentifications
 from tools.common.fw_vpp_startupconf import FwStartupConf
@@ -1516,8 +1517,8 @@ def reset_device_config(pppoe=False, applications=True):
         ike.clean()
 
     if applications:
-        with FWAPPLICATIONS_API() as applications_api:
-            applications_api.db.clear()
+        with FwApplicationsCfg(fwglobals.g.APPLICATIONS_CFG_FILE) as applications_cfg:
+            applications_cfg.clean()
 
     if 'lte' in fwglobals.g.db:
         fwglobals.g.db['lte'] = {}
@@ -1587,16 +1588,10 @@ def print_device_config_signature():
     cfg = get_device_config_signature()
     print(cfg)
 
-def print_applications_db():
-    out = []
-    with FWAPPLICATIONS_API() as applications_api:
-        for key in sorted(list(applications_api.db.keys())):
-            obj = {}
-            obj[key] = applications_api.db[key]
-            out.append(obj)
-        cfg = json.dumps(out, indent=2, sort_keys=True)
+def print_applications_db(full=False):
+    with FwApplicationsCfg(fwglobals.g.APPLICATIONS_CFG_FILE) as applications_cfg:
+        cfg = applications_cfg.dumps(full=full)
         print(cfg)
-
 
 def print_router_config(basic=True, full=False, multilink=False):
     """Print router configuration.
