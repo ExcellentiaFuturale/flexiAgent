@@ -32,7 +32,7 @@ cli_path = __file__.replace('.py', '')
 def test():
      with fwtests.TestFwagent() as agent:
 
-        steps             = sorted(glob.glob(cli_path + '/' + '*.cli'))
+        steps = sorted(glob.glob(cli_path + '/' + '*.cli'))
 
         for (idx, step) in enumerate(steps):
 
@@ -42,11 +42,6 @@ def test():
 
             agent.clean_log()
 
-            # Inject request.
-            # Note the first request comes with 'daemon=True' to leave agent
-            # running on background, so it could receive further injects.
-            #
-            # daemon = True if idx == 0 else False
             (ok, err_str) = agent.cli('-f %s' % step, check_log=True)
             assert ok, err_str
 

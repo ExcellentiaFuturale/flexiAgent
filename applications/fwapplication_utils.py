@@ -21,6 +21,8 @@
 ################################################################################
 
 import os
+import subprocess
+
 
 def run_linux_commands(commands, exception_on_error=True):
     for command in commands:
@@ -28,3 +30,17 @@ def run_linux_commands(commands, exception_on_error=True):
         if ret and exception_on_error:
             raise Exception(f'failed to run "{command}". error code is {ret}')
     return True
+
+def vpp_pid():
+    """Get pid of VPP process.
+
+    :returns:           process identifier.
+    """
+    try:
+        pid = subprocess.check_output(['pidof', 'vpp'])
+    except:
+        pid = None
+    return pid
+
+def router_is_running():
+    return True if vpp_pid() else False

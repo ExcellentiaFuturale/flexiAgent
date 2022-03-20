@@ -108,11 +108,11 @@ class FwApplicationInterface(ABC, FwObject):
         """
         return {}
 
-    def get_interfaces(self, type='lan', vpp=False) -> list:
+    def get_interfaces(self, type='lan', vpp_interfaces=False) -> list:
         """A function that returns the application's interfaces.
 
         :param type: Specifies the type of interface to return, LAN or WAN. Leave None for all types.
-        :param vpp: Specifies whether to return VPP or Linux interfaces. eave None for all types.
+        :param vpp: Specifies whether to return VPP or Linux interfaces. Leave None for all the interfaces.
 
         :returns: List
         """

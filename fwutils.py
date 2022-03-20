@@ -1483,7 +1483,7 @@ def stop_vpp():
     with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
         pppoe.reset_interfaces()
 
-def reset_device_config(pppoe=False):
+def reset_device_config(pppoe=False, applications=True):
     """Reset router config by cleaning DB and removing config files.
 
      :returns: None.
@@ -1515,6 +1515,10 @@ def reset_device_config(pppoe=False):
     with FwIKEv2() as ike:
         ike.clean()
 
+    if applications:
+        with FWAPPLICATIONS_API() as applications_api:
+            applications_api.db.clear()
+
     if 'lte' in fwglobals.g.db:
         fwglobals.g.db['lte'] = {}
 
@@ -1526,8 +1530,6 @@ def reset_device_config(pppoe=False):
 
     restore_dhcpd_files()
 
-    with FWAPPLICATIONS_API() as applications_api:
-        applications_api.db.clear()
 
 def reset_router_api_db_sa_id():
     router_api_db = fwglobals.g.db['router_api'] # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
@@ -2273,7 +2275,7 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order,
     # The function below returns dictionary, where keys are application identifiers,
     # and values are lists of vpp interface names, e.g.
     #      { 'com.flexiwan.vpn': ['tun0'] }
-    app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp=True)
+    app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True)
     app_lans_list = [vpp_if_name for vpp_if_names in app_lans.values() for vpp_if_name in vpp_if_names]
 
     vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list + app_lans_list

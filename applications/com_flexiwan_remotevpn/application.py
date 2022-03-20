@@ -34,14 +34,13 @@ from netaddr import IPNetwork
 this_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(this_dir)
 
-import application_cfg as cfg
+from application_cfg import config as cfg
 
 up_dir   = os.path.dirname(this_dir)
 sys.path.append(up_dir)
 
 import applications.fwapplication_utils as fwapplication_utils
 from applications.fwapplication_interface import FwApplicationInterface
-
 
 class Application(FwApplicationInterface):
 
@@ -83,7 +82,6 @@ class Application(FwApplicationInterface):
                 fwapplication_utils.run_linux_commands(commands)
                 self.log.info("remoteVPN installed successfully")
 
-
             return (True, None)
         except Exception as e:
             self.log.error(f"install(): {str(e)}")
@@ -102,17 +100,6 @@ class Application(FwApplicationInterface):
             pid = None
         return pid
 
-    def _vpp_pid(self):
-        """Get pid of VPP process.
-
-        :returns:           process identifier.
-        """
-        try:
-            pid = subprocess.check_output(['pidof', 'vpp'])
-        except:
-            pid = None
-        return pid
-
     def configure(self, params):
         """Configure Open VPN server on host.
 
@@ -121,6 +108,8 @@ class Application(FwApplicationInterface):
         :returns: (True, None) tuple on success, (False, <error string>) on failure.
         """
         try:
+            self.log.info(f"remote vpn configurations: {str(cfg)}")
+
             escaped_url = re.escape(params['vpnPortalServer'])
 
             commands = [
@@ -182,7 +171,7 @@ class Application(FwApplicationInterface):
                 'proto udp',
 
                 # set dev (NIC) name
-                'dev t_remotevpn',
+                f'dev {cfg["openvpn_interface_name"]}',
 
                 # use dev tun
                 'dev-type tun',
@@ -205,7 +194,7 @@ class Application(FwApplicationInterface):
                 'topology subnet',
 
                 # Log
-                f'log {cfg.openvpn_log_file}',
+                f'log {cfg["openvpn_log_file"]}',
 
                 # Configure server mode and supply a VPN subnet
                 # for OpenVPN to draw client addresses from.
@@ -281,11 +270,11 @@ class Application(FwApplicationInterface):
                 commands.append(f'push \\"dhcp-option DOMAIN {name}\\"')
 
             # clean the config file
-            os.system(f' > {cfg.openvpn_server_conf_file}')
+            os.system(f' > {cfg["openvpn_server_conf_file"]}')
 
             # run the commands
             for command in sorted(commands):
-                ret = os.system(f'echo "{command}" >> {cfg.openvpn_server_conf_file}')
+                ret = os.system(f'echo "{command}" >> {cfg["openvpn_server_conf_file"]}')
                 if ret:
                     return (False, f'install: failed to run "{command}". error code is {ret}')
 
@@ -311,7 +300,7 @@ class Application(FwApplicationInterface):
     def start(self, restart=False):
         try:
             # don't start if vpp is down
-            router_is_running = True if self._vpp_pid() else False
+            router_is_running = fwapplication_utils.router_is_running()
             if not router_is_running:
                 return (True, None)
 
@@ -324,7 +313,7 @@ class Application(FwApplicationInterface):
                     # no need to run it again
                     return (True, None)
 
-            os.system(f'sudo openvpn --config {cfg.openvpn_server_conf_file} --daemon')
+            os.system(f'sudo openvpn --config {cfg["openvpn_server_conf_file"]} --daemon')
 
             # make sure openvpn started. Otherwise it means that it failed (we can find the reason in the log file)
             vpn_runs = True if self._openvpn_pid() else False
@@ -343,7 +332,7 @@ class Application(FwApplicationInterface):
             if vpn_runs:
                 os.system('sudo killall openvpn')
                 time.sleep(5)  # 5 sec
-                self.log.info("remoteVPN server is stopped!")
+                self.log.info("remoteVPN server is stopped")
 
             # cleanup static log file
             os.system('echo "" > /etc/openvpn/server/openvpn-status.log')
@@ -354,7 +343,7 @@ class Application(FwApplicationInterface):
 
     def on_watchdog(self):
         vpn_runs = True if self._openvpn_pid() else False
-        router_is_running = True if self._vpp_pid() else False
+        router_is_running = fwapplication_utils.router_is_running()
         if not vpn_runs and router_is_running:
             self.start()
 
@@ -362,19 +351,26 @@ class Application(FwApplicationInterface):
         return True if self._openvpn_pid() else False
 
     def get_log_filename(self):
-        return cfg.openvpn_log_file
+        return cfg['openvpn_log_file']
 
-    def get_interfaces(self, type, vpp):
+    def get_interfaces(self, type='lan', vpp_interfaces=False):
         vpn_runs = True if self._openvpn_pid() else False
         if not vpn_runs:
             return []
 
+        if not fwapplication_utils.router_is_running():
+            return []
+
         res = []
-        with open(cfg.app_database_file, 'r') as json_file:
-            data = json.load(json_file)
-            tun_vpp_if_name = data.get('tun_vpp_if_name')
-            if tun_vpp_if_name:
-                res.append(tun_vpp_if_name)
+        if vpp_interfaces:
+            with open(cfg['app_database_file'], 'r') as json_file:
+                data = json.load(json_file)
+                tun_vpp_if_name = data.get('tun_vpp_if_name')
+                if tun_vpp_if_name:
+                    res.append(tun_vpp_if_name)
+        else:
+            res.append(cfg['openvpn_interface_name'])
+
         return res
 
     def get_statistics(self):

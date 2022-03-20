@@ -20,10 +20,10 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-from logging.handlers import TimedRotatingFileHandler
 import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
 
 this_dir = os.path.dirname(os.path.realpath(__file__))
 up_dir   = os.path.dirname(this_dir)
@@ -38,8 +38,9 @@ logging.basicConfig(
     datefmt='%m/%d/%Y %I:%M:%S %p' # 12/12/2010 11:46:36 AM,
 )
 
-# Every day, keep a backup of the log and clean up the file. Save 7 files back.
-handler = TimedRotatingFileHandler(openvpn_scripts_log_file, 'D', 1, 7)
+# Save the files, up to 5 files of 5MB each
+handler = RotatingFileHandler(openvpn_scripts_log_file, mode='a', maxBytes=5*1024*1024,
+                                 backupCount=5, encoding=None, delay=0)
 log = logging.getLogger()
 log.addHandler(handler)
 

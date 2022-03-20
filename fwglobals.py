@@ -512,14 +512,14 @@ class Fwglobals(FwObject):
         elif api_type == '_call_applications_api':
             return getattr(self.applications_api, attr)
 
-    def _get_request_params_func(self, api_type):
+    def _get_request_params(self, api_type, request):
         if api_type == '_call_applications_api':
             func =  self._get_api_object_attr(api_type, 'get_request_params')
+            return func(request)
         else:
             cfg_db =  self._get_api_object_attr(api_type, 'cfg_db')
             func = getattr(cfg_db, 'get_request_params')
-
-        return func
+            return func(request)
 
     def _call_aggregated(self, request):
         """Handle aggregated request from flexiManage.
@@ -652,7 +652,6 @@ class Fwglobals(FwObject):
         '''
         rollbacks_aggregations = copy.deepcopy(aggregations)
         for (api, aggregated) in list(rollbacks_aggregations.items()):
-            get_request_params_func = self._get_request_params_func(api)
             for request in aggregated['params']['requests']:
 
                 op = request['message']
@@ -668,7 +667,7 @@ class Fwglobals(FwObject):
                     # To ensure proper rollback, populate the correspondent "add-X" with
                     # full set of configuration parameters. They are stored in database.
                     #
-                    request['params'] = get_request_params_func(request)
+                    request['params'] = self._get_request_params(api, request)
                     if request['params'] == None:
                         request['params'] = {} # Take a care of removal of not existing configuration item
 
@@ -676,7 +675,7 @@ class Fwglobals(FwObject):
                     # For "modify-X" replace it's parameters with the old parameters,
                     # that are currently stored in the configuration database.
                     #
-                    old_params = get_request_params_func(request)
+                    old_params = self._get_request_params(api, request)
                     for param_name in list(request['params']): #request['params'].keys() doesn't work in python 3
                         if old_params and param_name in old_params:
                             request['params'][param_name] = old_params[param_name]
