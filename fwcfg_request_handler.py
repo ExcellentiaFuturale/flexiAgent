@@ -173,14 +173,7 @@ class FwCfgRequestHandler(FwObject):
                 for request in reversed(requests[0:idx]):
                     try:
                         op = request['message']
-                        if re.match('add-', op):
-                            request['message'] = op.replace('add-', 'remove-')
-                        elif re.match('remove-', op):
-                            request['message'] = op.replace('remove-', 'add-')
-                        elif re.search('-install', op):
-                            request['message'] = op.replace('-install', '-uninstall')
-                        elif re.search('-uninstall', op):
-                            request['message'] = op.replace('-uninstall', '-install')
+                        request['message'] = op.replace('add-','remove-') if re.match('add-', op) else op.replace('remove-','add-')
                         self._call_simple(request)
                     except Exception as e:
                         # on failure to revert move router into failed state
@@ -831,7 +824,6 @@ class FwCfgRequestHandler(FwObject):
             self.log.error(f"_sync_device: smart sync exception, go to full sync: {str(e)}")
 
         self.sync_full(incoming_requests)
-
 
     def _dump_translation_cmd_params(self, cmd):
         if 'params' in cmd and type(cmd['params'])==dict:
