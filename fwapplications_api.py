@@ -99,7 +99,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
     def _call_simple(self, request, execute=True, filter=None):
         try:
             self.processing_request = True
-            FwCfgRequestHandler._call_simple(self, request, execute, filter)
+            FwCfgRequestHandler._call_simple(self, request, execute=execute, filter=filter)
             return {'ok':1}
         except Exception as e:
             err_str = f"FWAPPLICATIONS_API::_call_simple: {str(e)}"
@@ -132,11 +132,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         fwutils.load_linux_tc_modules()
 
         application_params = {'params': params.get('applicationParams')}
-        success, val = self._call_application_api(identifier, 'install', application_params)
-        if not success:
-            return { 'ok': 0, 'message': val }
-
-        return { 'ok': 1 }
+        self._call_application_api(identifier, 'install', application_params)
 
     def uninstall(self, params):
         '''
@@ -151,16 +147,12 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         identifier = params.get('identifier')
 
         application_params = params.get('applicationParams')
-        success, val = self._call_application_api(identifier, 'uninstall', application_params)
-        if not success:
-            return { 'ok': 0, 'message': val }
+        self._call_application_api(identifier, 'uninstall', application_params)
 
         # remove application stats
         app_stats = self.stats.get(identifier)
         if app_stats:
             del self.stats[identifier]
-
-        return { 'ok': 1 }
 
     def configure(self, params):
         '''
@@ -177,45 +169,36 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         identifier = params.get('identifier')
 
         application_params = {'params': params.get('applicationParams')}
-        success, val = self._call_application_api(identifier, 'configure', application_params)
-
-        if not success:
-            return { 'ok': 0, 'message': val }
-
-        return { 'ok': 1 }
+        self._call_application_api(identifier, 'configure', application_params)
 
     def get_stats(self):
         return copy.deepcopy(self.stats)
 
     def _run_stats_thread(self):
-        timeout = 10
-        slept = 0
+        threshold = 10
+        counter = 0
         while not fwglobals.g.teardown:
-            # Every 10 seconds collect the application status and statistics
-            #
             try:  # Ensure thread doesn't exit on exception
-                if (slept % timeout) == 0 and not self.processing_request:
+                if (counter % threshold) == 0 and not self.processing_request:
                     apps = self.cfg_db.get_applications()
                     for app in apps:
                         identifier = app['identifier']
                         self._call_application_api(identifier, 'on_watchdog')
 
                         new_stats = {}
-                        new_stats['running'] = bool(self._call_application_api_safe(identifier, 'is_app_running'))
-                        new_stats['statistics'] = self._call_application_api_safe(identifier, 'get_statistics')
-                        self.stats[identifier] = new_stats
+                        new_stats['running']    = self._call_application_api_safe(identifier, 'is_app_running', default_ret=False)
+                        new_stats['statistics'] = self._call_application_api_safe(identifier, 'get_statistics', default_ret={})
+                        self.stats[identifier]  = new_stats
 
                     if not apps and self.stats:
                         self.stats = {}
 
-                    slept = 0
             except Exception as e:
                 self.log.excep("%s: %s (%s)" %
                     (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
 
             time.sleep(1)
-            slept += 1
+            counter += 1
 
     def _call_application_api(self, identifier, method, params=None):
         if not identifier:
@@ -224,17 +207,17 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         app = self.app_instances[identifier]
         func = getattr(app, method, None)
         if not func:
-           return True
+            return True
         ret = func(**params) if params else func()
         return ret
 
-    def _call_application_api_safe(self, identifier, method, params=None):
+    def _call_application_api_safe(self, identifier, method, params=None, default_ret=None):
         try:
             ret = self._call_application_api(identifier, method, params=params)
             return ret
         except Exception as e:
             self.log.error(f'_call_application_api_safe({identifier}, {method}, {str(params)}): {str(e)}')
-            return None
+            return default_ret
 
     def reset(self):
         self.call_hook('uninstall')
@@ -251,7 +234,6 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
                     res[identifier] = ret
             except Exception as e:
                 self.log.debug(f'call_hook({hook_name}): failed for identifier={identifier}: err={str(e)}')
-                pass
 
         return res
 

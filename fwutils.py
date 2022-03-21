@@ -1703,6 +1703,19 @@ def dump_system_config(full=False):
         cfg = system_cfg.dump(full)
     return cfg
 
+def dump_applications_config(full=False):
+    """Dumps applications configuration into list of requests that look exactly
+    as they would look if were received from server.
+
+    :param full: return requests together with translated commands.
+
+    :returns: list of 'add-X' requests.
+    """
+    cfg = []
+    with FwApplicationsCfg() as applications_cfg:
+        cfg = applications_cfg.dump(full)
+    return cfg
+
 def get_router_status():
     """Check if VPP is running.
 

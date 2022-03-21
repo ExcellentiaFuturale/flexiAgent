@@ -309,7 +309,8 @@ class FWAGENT_API(FwObject):
         """
         router_config = fwutils.dump_router_config()
         system_config = fwutils.dump_system_config()
-        config = router_config + system_config
+        applications_config = fwutils.dump_applications_config()
+        config = router_config + system_config + applications_config
         reply = {'ok': 1, 'message': config if config else []}
         return reply
 

@@ -23,7 +23,6 @@
 import os
 import subprocess
 
-
 def run_linux_commands(commands, exception_on_error=True):
     for command in commands:
         ret = os.system(command)
