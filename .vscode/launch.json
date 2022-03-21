@@ -138,7 +138,7 @@
             "args": [
                 "cli",
                 "-f",
-                "${workspaceFolder}/tests/router/27_applications_basic_test/03_install_configure_aggregated_uninstall.cli",
+                "${workspaceFolder}/tests/router/27_applications_basic_test/04_start-router_install_configure_uninstall_stop-router.cli",
                 "-t",
                 "${workspaceFolder}/tests/fwtemplates.yaml"
             ],

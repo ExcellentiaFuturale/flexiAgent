@@ -1520,7 +1520,7 @@ def reset_device_config(pppoe=False, applications=True):
         ike.clean()
 
     if applications:
-        with FwApplicationsCfg(fwglobals.g.APPLICATIONS_CFG_FILE) as applications_cfg:
+        with FwApplicationsCfg() as applications_cfg:
             applications_cfg.clean()
 
     if 'lte' in fwglobals.g.db:
@@ -1592,7 +1592,7 @@ def print_device_config_signature():
     print(cfg)
 
 def print_applications_db(full=False):
-    with FwApplicationsCfg(fwglobals.g.APPLICATIONS_CFG_FILE) as applications_cfg:
+    with FwApplicationsCfg() as applications_cfg:
         cfg = applications_cfg.dumps(full=full)
         print(cfg)
 
@@ -2273,7 +2273,7 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order,
     # The function below returns dictionary, where keys are application identifiers,
     # and values are lists of vpp interface names, e.g.
     #      { 'com.flexiwan.vpn': ['tun0'] }
-    app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True)
+    app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True, linux_interfaces=False)
     app_lans_list = [vpp_if_name for vpp_if_names in app_lans.values() for vpp_if_name in vpp_if_names]
 
     vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list + app_lans_list

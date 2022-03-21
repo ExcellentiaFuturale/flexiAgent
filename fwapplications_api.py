@@ -35,10 +35,10 @@ from fwapplications_cfg import FwApplicationsCfg
 from fwcfg_request_handler import FwCfgRequestHandler
 
 fwapplication_translators = {
-    'add-app-install':        {'module': __import__('fwtranslate_add_application_install'),   'api':'add_app_install'},
-    'remove-app-install':     {'module': __import__('fwtranslate_revert') ,                   'api':'revert'},
-    'add-app-config':         {'module': __import__('fwtranslate_add_application_config'),    'api':'add_app_config'},
-    'remove-app-config':      {'module': __import__('fwtranslate_revert'),                    'api':'revert'},
+    'add-app-install':        {'module': __import__('fwtranslate_add_app_install'),   'api':'add_app_install'},
+    'remove-app-install':     {'module': __import__('fwtranslate_revert') ,           'api':'revert'},
+    'add-app-config':         {'module': __import__('fwtranslate_add_app_config'),    'api':'add_app_config'},
+    'remove-app-config':      {'module': __import__('fwtranslate_revert'),            'api':'revert'},
 }
 
 class FWAPPLICATIONS_API(FwCfgRequestHandler):
@@ -48,7 +48,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
     def __init__(self,start_application_stats = False):
         """Constructor method.
         """
-        cfg = FwApplicationsCfg(fwglobals.g.APPLICATIONS_CFG_FILE)
+        cfg = FwApplicationsCfg()
         FwCfgRequestHandler.__init__(self, fwapplication_translators, cfg)
 
         self.thread_stats = None
@@ -201,8 +201,8 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
                         self._call_application_api(identifier, 'on_watchdog')
 
                         new_stats = {}
-                        new_stats['running'] = self._is_app_running(identifier)
-                        new_stats['statistics'] = self._get_app_statistics(identifier)
+                        new_stats['running'] = bool(self._call_application_api_safe(identifier, 'is_app_running'))
+                        new_stats['statistics'] = self._call_application_api_safe(identifier, 'get_statistics')
                         self.stats[identifier] = new_stats
 
                     if not apps and self.stats:
@@ -217,49 +217,40 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
             time.sleep(1)
             slept += 1
 
-    def _call_application_api_parse_result(self, ret):
-        val = None
-        if ret is None:
-            ok  = True
-        elif type(ret) == tuple:
-            ok  = True if ret[0] else False
-            val = ret[1]
-        elif type(ret) == dict or type(ret) == list or type(ret) == str or type(ret) == bool:
-            ok  = True
-            val = ret
-        else:
-            ok = False
-            val = '_call_application_api_parse_result: unsupported type of return: %s' % type(ret)
-        return (ok, val)
-
     def _call_application_api(self, identifier, method, params=None):
+        if not identifier:
+            raise Exception("identifier is required")
+
+        app = self.app_instances[identifier]
+        func = getattr(app, method, None)
+        if not func:
+           return True
+        ret = func(**params) if params else func()
+        return ret
+
+    def _call_application_api_safe(self, identifier, method, params=None):
         try:
-            app = self.app_instances[identifier]
-            func = getattr(app, method, None)
-            if not func:
-                return (True, None)
-            ret = func(**params) if params else func()
-            ret = self._call_application_api_parse_result(ret)
+            ret = self._call_application_api(identifier, method, params=params)
             return ret
         except Exception as e:
-            self.log.error(f'_call_application_api({identifier}, {method}, {str(params)}): {str(e)}')
-            return (False, str(e))
+            self.log.error(f'_call_application_api_safe({identifier}, {method}, {str(params)}): {str(e)}')
+            return None
 
     def reset(self):
         self.call_hook('uninstall')
         self.cfg_db.clean()
 
-    def call_hook(self, hook_name, params=None, identifier=None):
+    def call_hook(self, hook_name, params=None):
         res = {}
         apps = self.cfg_db.get_applications()
         for app in apps:
+            identifier = app['identifier']
             try:
-                identifier = app['identifier']
                 success, val = self._call_application_api(identifier, hook_name, params)
                 if success:
                     res[identifier] = val
             except Exception as e:
-                self.log.debug(f'call_hook({hook_name}): failed for identifier={app_identifier}: err={str(e)}')
+                self.log.debug(f'call_hook({hook_name}): failed for identifier={identifier}: err={str(e)}')
                 pass
 
         return res
@@ -273,28 +264,11 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         source_installation_dir = current_dir + '/applications/' + identifier
         return source_installation_dir
 
-    def _is_app_running(self, identifier):
-        success, val = self._call_application_api(identifier, 'is_app_running')
-        if success:
-            return val
-        return False
-
-    def _get_app_statistics(self, identifier):
-        success, val = self._call_application_api(identifier, 'get_statistics')
-        if success:
-            return val
-        return {}
-
     def get_log_filename(self, identifier):
-        if not identifier:
-            return None
-        success, val = self._call_application_api(identifier, 'get_log_filename')
-        if success:
-            return val
-        return None
+        return self._call_application_api_safe(identifier, 'get_log_filename')
 
 def call_applications_hook(hook):
-    '''This function calls a function within applications_api even if the agnet object is not initialzied
+    '''This function calls a function within applications_api even if the agent object is not initialized
     '''
     # when calling this function from fwdump, there is no "g" in fwglobals
     if hasattr(fwglobals, 'g') and hasattr(fwglobals.g, 'applications_api'):

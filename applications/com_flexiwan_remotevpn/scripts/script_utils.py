@@ -80,10 +80,16 @@ def remove_tc_commands(vpn_tun_is_up):
         if vpn_tun_is_up:
             tc_cmd.append('sudo tc qdisc del dev t_remotevpn handle ffff: ingress')
 
-        for cmd in tc_cmd:
-            os.system(cmd)
+        run_linux_commands(tc_cmd, exception_on_error=False)
     except:
         pass
+
+def run_linux_commands(commands, exception_on_error=True):
+    for command in commands:
+        ret = os.system(command)
+        if ret and exception_on_error:
+            raise Exception(f'failed to run "{command}". error code is {ret}')
+    return True
 
 def create_tun_in_vpp(ifconfig_local_ip, ifconfig_netmask):
     mask = IPAddress(ifconfig_netmask).netmask_bits()
@@ -107,10 +113,7 @@ def create_tun_in_vpp(ifconfig_local_ip, ifconfig_netmask):
         f'sudo vppctl set interface state {tun_vpp_if_name} up'
     ]
 
-    for cmd in vpp_cmd:
-        rc = os.system(cmd)
-        if rc:
-            raise Exception(f'Failed to run vppctl command: {cmd}')
+    run_linux_commands(vpp_cmd)
 
 def remove_tun_from_vpp():
     try:

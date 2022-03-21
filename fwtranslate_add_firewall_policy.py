@@ -155,7 +155,7 @@ def add_firewall_policy(params):
         # The function below returns dictionary, where keys are application identifiers,
         # and values are lists of vpp interface names, e.g.
         #      { 'com.flexiwan.vpn': ['tun0'] }
-        app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True)
+        app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True, linux_interfaces=False)
 
         for rule_index, rule in enumerate(outbound_rules['rules']):
 
@@ -229,10 +229,6 @@ def add_firewall_policy(params):
                 intf_attachments[dev_id]['egress'].append(egress_id)
 
         for dev_id, value in intf_attachments.items():
-            # Add last default ACL as allow ALL
-            value['ingress'].append(DEFAULT_ALLOW_ID)
-            value['egress'].append(DEFAULT_ALLOW_ID)
-
             # handle application interfaces
             if dev_id.startswith('app_'):
                 vpp_if_name = dev_id.split('_')[-1]
@@ -243,6 +239,10 @@ def add_firewall_policy(params):
                 fwglobals.log.error('Firewall policy - LAN dev_id not found: ' + dev_id +
                                     ' ' + str(value['ingress']) + ' ' + str(value['egress']))
                 raise Exception('Firewall policy - outbound : dev_id not resolved')
+
+            # Add last default ACL as allow ALL
+            value['ingress'].append(DEFAULT_ALLOW_ID)
+            value['egress'].append(DEFAULT_ALLOW_ID)
 
             cmd_list.append(fw_acl_command_helpers.add_interface_attachment(
                 sw_if_index, value['ingress'], value['egress']))

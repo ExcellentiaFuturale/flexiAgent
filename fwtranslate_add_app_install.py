@@ -20,18 +20,44 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-def add_app_config(params):
+# add-app-install
+# --------------------------------------
+# Translates request:
+# {
+#     "entity": "agent",
+#     "message": "add-app-install",
+#     "params": {
+#         "name": "Remote Worker VPN",
+#         "identifier": "com.flexiwan.remotevpn",
+#         "applicationParams": {}
+#     }
+# },
+def add_app_install(params):
+    """Generate commands to install an application.
+
+    :param params:        Parameters from flexiManage.
+
+    :returns: List of commands.
+    """
     cmd_list = []
+
+    identifier = params.get('identifier')
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['func']    = "configure"
+    cmd['cmd']['func']    = "install"
     cmd['cmd']['object']  = "fwglobals.g.applications_api"
-    cmd['cmd']['descr']   = "configure application"
+    cmd['cmd']['descr']   = f"install {identifier} application"
     cmd['cmd']['params']  = { 'params': params }
+    cmd['revert'] = {}
+    cmd['revert']['func']   = "uninstall"
+    cmd['revert']['object'] = "fwglobals.g.applications_api"
+    cmd['revert']['descr']  = f"uninstall {identifier} application"
+    cmd['revert']['params'] = { 'params': params }
     cmd_list.append(cmd)
 
     return cmd_list
+
 
 def get_request_key(params):
     """Get add-lte key.
@@ -40,5 +66,5 @@ def get_request_key(params):
 
     :returns: request key for add-lte request.
     """
-    key = 'add-app-config-%s' % params['identifier']
+    key = 'add-app-install-%s' % params['identifier']
     return key
