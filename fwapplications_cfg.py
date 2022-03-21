@@ -19,6 +19,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
+import fwglobals
 from fwcfg_database import FwCfgDatabase
 
 class FwApplicationsCfg(FwCfgDatabase):
@@ -26,6 +27,10 @@ class FwApplicationsCfg(FwCfgDatabase):
 
     :param db_file: SQLite DB file name.
     """
+
+    def __init__(self):
+        FwCfgDatabase.__init__(self, fwglobals.g.APPLICATIONS_CFG_FILE)
+
     def get_applications(self):
         return self.get_requests('add-app-install')
 

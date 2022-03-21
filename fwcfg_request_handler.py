@@ -60,8 +60,7 @@ class FwCfgRequestHandler(FwObject):
         self.revert_failure_callback = revert_failure_callback
         self.cache_func_by_name = {}
 
-        if cfg_db:
-            self.cfg_db.set_translators(translators)
+        self.cfg_db.set_translators(translators)
 
     def __enter__(self):
         return self
@@ -772,6 +771,10 @@ class FwCfgRequestHandler(FwObject):
         self.log.info("====restore configuration: finished===")
 
     def sync_full(self, incoming_requests):
+        if len(incoming_requests) == 0:
+            self.log.info("sync_full: incoming_requests is empty, no need to full sync")
+            return True
+
         fwglobals.g.agent_api._reset_device_soft()
 
         sync_request = {
@@ -786,12 +789,7 @@ class FwCfgRequestHandler(FwObject):
 
     def sync(self, incoming_requests, full_sync=False):
         incoming_requests = list([x for x in incoming_requests if x['message'] in self.translators])
-
-        sync_list = self.cfg_db.get_sync_list(incoming_requests)
-
-        if len(incoming_requests) == 0 and not sync_list:
-            self.log.info("_sync_device: incoming_requests is empty, no need to sync")
-            return True
+        sync_list         = self.cfg_db.get_sync_list(incoming_requests)
 
         if len(sync_list) == 0 and not full_sync:
             self.log.info("_sync_device: sync_list is empty, no need to sync")

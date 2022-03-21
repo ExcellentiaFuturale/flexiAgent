@@ -57,7 +57,7 @@ fwrouter_translators = {
     'modify-tunnel':            {'module': __import__('fwtranslate_add_tunnel'),      'api':'modify_tunnel',     'supported_params':'modify_tunnel_supported_params'},
     'add-dhcp-config':          {'module': __import__('fwtranslate_add_dhcp_config'), 'api':'add_dhcp_config'},
     'remove-dhcp-config':       {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
-    'add-application':          {'module': __import__('fwtranslate_add_app'),         'api':'add_app'},
+    'add-application':          {'module': __import__('fwtranslate_add_application'), 'api':'add_application'},
     'remove-application':       {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
     'add-multilink-policy':     {'module': __import__('fwtranslate_add_multilink_policy'), 'api':'add_multilink_policy'},
     'remove-multilink-policy':  {'module': __import__('fwtranslate_revert'),          'api':'revert'},
@@ -1150,6 +1150,10 @@ class FWROUTER_API(FwCfgRequestHandler):
                 return reply
 
     def sync_full(self, incoming_requests):
+        if len(incoming_requests) == 0:
+            self.log.info("sync_full: incoming_requests is empty, no need to full sync")
+            return True
+
         self.log.debug("_sync_device: start router full sync")
 
         restart_router = False

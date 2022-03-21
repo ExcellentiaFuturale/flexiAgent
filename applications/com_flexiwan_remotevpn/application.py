@@ -353,7 +353,10 @@ class Application(FwApplicationInterface):
     def get_log_filename(self):
         return cfg['openvpn_log_file']
 
-    def get_interfaces(self, type='lan', vpp_interfaces=False):
+    def get_interfaces(self, type='lan', vpp_interfaces=False, linux_interfaces=False):
+        if type == 'wan':
+            return []
+
         vpn_runs = True if self._openvpn_pid() else False
         if not vpn_runs:
             return []
@@ -368,7 +371,8 @@ class Application(FwApplicationInterface):
                 tun_vpp_if_name = data.get('tun_vpp_if_name')
                 if tun_vpp_if_name:
                     res.append(tun_vpp_if_name)
-        else:
+
+        if linux_interfaces:
             res.append(cfg['openvpn_interface_name'])
 
         return res
