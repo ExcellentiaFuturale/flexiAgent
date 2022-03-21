@@ -246,9 +246,9 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         for app in apps:
             identifier = app['identifier']
             try:
-                success, val = self._call_application_api(identifier, hook_name, params)
-                if success:
-                    res[identifier] = val
+                ret = self._call_application_api(identifier, hook_name, params)
+                if ret:
+                    res[identifier] = ret
             except Exception as e:
                 self.log.debug(f'call_hook({hook_name}): failed for identifier={identifier}: err={str(e)}')
                 pass
