@@ -1,5 +1,25 @@
 [
 {
+  "entity":  "agent",
+  "message": "start-router",
+  "params": {
+    "interfaces": [
+      {
+        "dev_id":"__INTERFACE_1__dev_id",
+        "addr":"__INTERFACE_1__addr",
+        "gateway": "__INTERFACE_1__gateway",
+        "type":"wan"
+      },
+      {
+        "dev_id":"__INTERFACE_2__dev_id",
+        "addr":"192.168.56.101/24",
+        "routing":"ospf",
+        "type":"lan"
+      }
+    ]
+  }
+},
+{
   "entity": "agent",
   "message": "aggregated",
   "params": {
@@ -41,11 +61,16 @@
 },
 {
   "entity": "agent",
-  "message": "add-app-install",
+  "message": "remove-app-install",
   "params": {
     "name": "Remote Worker VPN",
     "identifier": "com.flexiwan.remotevpn",
     "applicationParams": {}
   }
+},
+{
+  "entity":  "agent",
+  "message": "stop-router",
+  "params": {}
 }
 ]
