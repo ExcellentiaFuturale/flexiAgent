@@ -23,11 +23,6 @@ import fwglobals
 from fwcfg_database import FwCfgDatabase
 
 class FwApplicationsCfg(FwCfgDatabase):
-    """This is requests DB class representation.
-
-    :param db_file: SQLite DB file name.
-    """
-
     def __init__(self):
         FwCfgDatabase.__init__(self, fwglobals.g.APPLICATIONS_CFG_FILE)
 

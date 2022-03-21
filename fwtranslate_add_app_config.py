@@ -25,7 +25,7 @@
 # Translates request:
 # {
 #     "entity": "agent",
-#     "message": "add-config-app",
+#     "message": "add-app-config",
 #     "params": {
 #         "name": "Remote Worker VPN",
 #         "identifier": "com.flexiwan.remotevpn",
@@ -52,7 +52,7 @@ def add_app_config(params):
     return cmd_list
 
 def get_request_key(params):
-    """Get add-lte key.
+    """Get add-app-config key.
 
     :param params:        Parameters from flexiManage.
 

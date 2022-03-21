@@ -212,7 +212,7 @@ def add_switch(params):
     return cmd_list
 
 def get_request_key(params):
-    """Get add-lte key.
+    """Get add-switch key.
 
     :param params:        Parameters from flexiManage.
 

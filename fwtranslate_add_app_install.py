@@ -60,7 +60,7 @@ def add_app_install(params):
 
 
 def get_request_key(params):
-    """Get add-lte key.
+    """Get add-app-install key.
 
     :param params:        Parameters from flexiManage.
 
