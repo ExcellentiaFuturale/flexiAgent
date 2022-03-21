@@ -434,7 +434,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         self.set_logger(prev_logger)  # Restore logger if was changed
         return reply
 
-    def _call_simple(self, request):
+    def _call_simple(self, request, execute=False, filter=None):
         """Execute single request.
 
         :param request: The request received from flexiManage.
@@ -458,8 +458,6 @@ class FWROUTER_API(FwCfgRequestHandler):
                 self.cfg_db.update(request)
                 return {'ok':1}
 
-            execute = False
-            filter = None
             if router_was_started or req == 'start-router':
                 execute = True
             elif re.match('remove-',  req):

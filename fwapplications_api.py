@@ -96,10 +96,10 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
 
             self.app_instances[app.identifier] = app
 
-    def _call_simple(self, request):
+    def _call_simple(self, request, execute=True, filter=None):
         try:
             self.processing_request = True
-            FwCfgRequestHandler._call_simple(self, request)
+            FwCfgRequestHandler._call_simple(self, request, execute, filter)
             return {'ok':1}
         except Exception as e:
             err_str = f"FWAPPLICATIONS_API::_call_simple: {str(e)}"
