@@ -131,6 +131,8 @@ class FwPppoeConnection(FwObject):
                 if self.tun_if_name:
                     self.remove_linux_ip_route()
 
+            fwglobals.g.fwagent.reconnect()
+
         return connected
 
     def open(self):
