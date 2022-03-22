@@ -381,8 +381,6 @@ class Fwglobals(FwObject):
         # VPPSB need that to handle more netlink events on a heavy load
         fwutils.set_linux_socket_max_receive_buffer_size(2048000)
 
-        self.pppoe.initialize()   # IMPORTANT! The PPPOE should be initialized before restore_vpp_if_needed!
-
         self.stun_wrapper.initialize()   # IMPORTANT! The STUN should be initialized before restore_vpp_if_needed!
 
         self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
@@ -392,6 +390,7 @@ class Fwglobals(FwObject):
         fwutils.get_linux_interfaces(cached=False) # Fill global interface cache
 
         self.wan_monitor.initialize() # IMPORTANT! The WAN monitor should be initialized after restore_vpp_if_needed!
+        self.pppoe.initialize()   # IMPORTANT! The PPPOE should be initialized after restore_vpp_if_needed!
         self.system_api.initialize()
 
         return self.fwagent

@@ -171,7 +171,7 @@ class FwPppoeConnection(FwObject):
         except Exception as e:
             self.log.error("remove: %s" % str(e))
 
-    def create_tun(self):
+    def create_tun(self, timeout = 10):
         """Create TUN interface.
         """
         self.tun_if_name = 'pppoe%u' % self.id
@@ -179,7 +179,14 @@ class FwPppoeConnection(FwObject):
 
         fwutils.vpp_cli_execute([f'create tap id {self.id} host-if-name {self.tun_if_name} tun'], debug=True)
 
-        self.tun_vppsb_if_name = fwutils.vpp_if_name_to_tap(self.tun_vpp_if_name)
+        while timeout >= 0:
+            self.tun_vppsb_if_name = fwutils.vpp_if_name_to_tap(self.tun_vpp_if_name)
+            if self.tun_vppsb_if_name:
+                return True
+            timeout-= 1
+            time.sleep(1)
+
+        return False
 
     def remove_tun(self):
         """Remove TUN interface.
@@ -200,7 +207,7 @@ class FwPppoeConnection(FwObject):
         """
         if self.tun_if_name:
             sys_cmd = f'ip link set dev {self.tun_vppsb_if_name} up'
-            fwutils.os_system(sys_cmd, 'PPPoE create_tun')
+            fwutils.os_system(sys_cmd, 'PPPoE add_linux_ip_route')
 
             fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id] = self.tun_vpp_if_name
             fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name] = self.dev_id
@@ -230,10 +237,10 @@ class FwPppoeConnection(FwObject):
             self.log.error(f"remove_linux_ip_route: failed to remove route: {err_str}")
 
         sys_cmd = f'ip -4 addr flush label "{self.tun_vppsb_if_name}"'
-        fwutils.os_system(sys_cmd, 'PPPoE remove_tun')
+        fwutils.os_system(sys_cmd, 'PPPoE remove_linux_ip_route')
 
         sys_cmd = f'ip link set dev {self.tun_vppsb_if_name} down'
-        fwutils.os_system(sys_cmd, 'PPPoE remove_tun')
+        fwutils.os_system(sys_cmd, 'PPPoE remove_linux_ip_route')
 
         if self.dev_id in fwglobals.g.cache.dev_id_to_vpp_if_name:
             del fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id]
@@ -466,6 +473,10 @@ class FwPppoeClient(FwObject):
     def stop(self, timeout = 120):
         """Stop all PPPoE connections.
         """
+        pppd_id = fwutils.pid_of('pppd')
+        if not pppd_id:
+            return
+
         for dev_id in self.interfaces.keys():
             self.stop_interface(dev_id)
 
@@ -647,7 +658,9 @@ class FwPppoeClient(FwObject):
            Start PPPoE connection and wait until it is established.
         """
         conn = self.connections.get(dev_id)
-        conn.create_tun()
+        rc = conn.create_tun()
+        if not rc:
+            return (False, f'PPPoE: {dev_id} TUN was not created')
         conn.save()
         conn.open()
         self.connections[dev_id] = conn
