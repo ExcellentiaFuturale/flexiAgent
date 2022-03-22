@@ -41,6 +41,7 @@ from fwobject import FwObject
 from fwrouter_api import FWROUTER_API
 from fwsystem_api import FWSYSTEM_API
 from fwagent_api import FWAGENT_API
+from fwapplications_api import FWAPPLICATIONS_API
 from os_api import OS_API
 from fwlog import FwLogFile
 from fwlog import FwSyslog
@@ -58,10 +59,11 @@ from fw_traffic_identification import FwTrafficIdentifications
 # sync flag indicated if module implement sync logic.
 # IMPORTANT! Please keep the list order. It indicates the sync priorities
 modules = {
-    'fwsystem_api':     { 'module': __import__('fwsystem_api'),   'sync': True,  'object': 'system_api' }, # fwglobals.g.system_api
-    'fwagent_api':      { 'module': __import__('fwagent_api'),    'sync': False, 'object': 'agent_api' },  # fwglobals.g.agent_api
-    'fwrouter_api':     { 'module': __import__('fwrouter_api'),   'sync': True,  'object': 'router_api' }, # fwglobals.g.router_api
-    'os_api':           { 'module': __import__('os_api'),         'sync': False, 'object': 'os_api' }, # fwglobals.g.os_api
+    'fwsystem_api':       { 'module': __import__('fwsystem_api'),       'sync': True,  'object': 'system_api' },       # fwglobals.g.system_api
+    'fwagent_api':        { 'module': __import__('fwagent_api'),        'sync': False, 'object': 'agent_api' },        # fwglobals.g.agent_api
+    'fwrouter_api':       { 'module': __import__('fwrouter_api'),       'sync': True,  'object': 'router_api' },       # fwglobals.g.router_api
+    'os_api':             { 'module': __import__('os_api'),             'sync': False, 'object': 'os_api' },           # fwglobals.g.os_api
+    'fwapplications_api': { 'module': __import__('fwapplications_api'), 'sync': True,  'object': 'applications_api' }, # fwglobals.g.applications_api,
 }
 
 request_handlers = {
@@ -118,8 +120,14 @@ request_handlers = {
     'remove-firewall-policy':       {'name': '_call_router_api', 'sign': True},
 
     # System API
-    'add-lte':                        {'name': '_call_system_api'},
-    'remove-lte':                     {'name': '_call_system_api'},
+    'add-lte':                      {'name': '_call_system_api'},
+    'remove-lte':                   {'name': '_call_system_api'},
+
+    # Applications api
+    'add-app-install':             {'name': '_call_applications_api', 'sign': True},
+    'remove-app-install':          {'name': '_call_applications_api', 'sign': True},
+    'add-app-config':              {'name': '_call_applications_api', 'sign': True},
+    'remove-app-config':           {'name': '_call_applications_api', 'sign': True},
 
     # OS API
     'cpuutil':                      {'name': '_call_os_api'},
@@ -223,6 +231,7 @@ class Fwglobals(FwObject):
         self.VERSIONS_FILE       = self.DATA_PATH + '.versions.yaml'
         self.ROUTER_CFG_FILE     = self.DATA_PATH + '.requests.sqlite'
         self.SYSTEM_CFG_FILE     = self.DATA_PATH + '.system.sqlite'
+        self.APPLICATIONS_CFG_FILE = self.DATA_PATH + '.applications.sqlite'
         self.ROUTER_STATE_FILE   = self.DATA_PATH + '.router.state'
         self.CONN_FAILURE_FILE   = self.DATA_PATH + '.upgrade_failed'
         self.IKEV2_FOLDER        = self.DATA_PATH + 'ikev2/'
@@ -342,19 +351,20 @@ class Fwglobals(FwObject):
         if not fwutils.vpp_does_run():
             fwlte.reload_lte_drivers_if_needed()
 
-        self.db           = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! Load data at the first place!
-        self.fwagent      = FwAgent(handle_signals=False)
-        self.router_cfg   = FwRouterCfg(self.ROUTER_CFG_FILE) # IMPORTANT! Initialize database at the first place!
-        self.system_cfg   = FwSystemCfg(self.SYSTEM_CFG_FILE)
-        self.agent_api    = FWAGENT_API()
-        self.system_api   = FWSYSTEM_API(self.system_cfg)
-        self.router_api   = FWROUTER_API(self.router_cfg, self.MULTILINK_DB_FILE)
-        self.os_api       = OS_API()
-        self.policies     = FwPolicies(self.POLICY_REC_DB_FILE)
-        self.wan_monitor  = FwWanMonitor(standalone)
-        self.stun_wrapper = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
-        self.ikev2        = FwIKEv2()
-        self.pppoe        = FwPppoeClient(self.PPPOE_DB_FILE, self.PPPOE_CONFIG_PATH, self.PPPOE_CONFIG_PROVIDER_FILE, standalone)
+        self.db               = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! Load data at the first place!
+        self.fwagent          = FwAgent(handle_signals=False)
+        self.router_cfg       = FwRouterCfg(self.ROUTER_CFG_FILE) # IMPORTANT! Initialize database at the first place!
+        self.system_cfg       = FwSystemCfg(self.SYSTEM_CFG_FILE)
+        self.agent_api        = FWAGENT_API()
+        self.system_api       = FWSYSTEM_API(self.system_cfg)
+        self.router_api       = FWROUTER_API(self.router_cfg, self.MULTILINK_DB_FILE)
+        self.applications_api = FWAPPLICATIONS_API(start_application_stats=True)
+        self.os_api           = OS_API()
+        self.policies         = FwPolicies(self.POLICY_REC_DB_FILE)
+        self.wan_monitor      = FwWanMonitor(standalone)
+        self.stun_wrapper     = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
+        self.ikev2            = FwIKEv2()
+        self.pppoe            = FwPppoeClient(self.PPPOE_DB_FILE, self.PPPOE_CONFIG_PATH, self.PPPOE_CONFIG_PROVIDER_FILE, standalone)
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 
@@ -412,6 +422,7 @@ class Fwglobals(FwObject):
         del self.os_api
         del self.router_api
         del self.agent_api
+        del self.applications_api
         del self.logger_add_application
         del self.fwagent
         self.fwagent = None
@@ -445,6 +456,9 @@ class Fwglobals(FwObject):
 
     def _call_os_api(self, request):
         return self.os_api.call_simple(request)
+
+    def _call_applications_api(self, request):
+        return self.applications_api.call(request)
 
     def handle_request(self, request, received_msg=None):
         """Handle request received from flexiManage or injected locally.
@@ -496,6 +510,8 @@ class Fwglobals(FwObject):
             return getattr(self.router_api, attr)
         elif api_type == '_call_system_api':
             return getattr(self.system_api, attr)
+        elif api_type == '_call_applications_api':
+            return getattr(self.applications_api, attr)
 
     def _call_aggregated(self, request):
         """Handle aggregated request from flexiManage.
@@ -588,7 +604,7 @@ class Fwglobals(FwObject):
         apis = list(aggregations.keys())
         executed_apis = []
 
-        for api in ['_call_system_api', '_call_router_api']:
+        for api in ['_call_system_api', '_call_router_api', '_call_applications_api']:
             if api in aggregations:
                 api_call_func = self._get_api_object_attr(api, 'call')
                 try:

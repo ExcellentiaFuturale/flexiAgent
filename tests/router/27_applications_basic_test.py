@@ -1,10 +1,8 @@
-#! /usr/bin/python3
-
 ################################################################################
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2022  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -20,20 +18,32 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-from fwlog import FwObjectLogger
+import glob
+import os
+import sys
 
-class FwObject():
-    """This is FlexiWAN version of the Python 'object' class.
-    It provides functionality which is common for all FlexiWAN objects.
-    This object allows to initialize a separate FwObject instance per
-    class/object with data that is specific for that class/object.
-    This is different than fwglobals module which contains one instance
-    of the FwGlobals class for the entire project.
-        The main purpose for the FwObject is to provide seamless logging
-    for objects by calling self.log(), while prepending log line with name
-    of the specific object that called the self.log().
-    """
-    def __init__(self, name=None):
-        if not name:
-            name = self.__class__.__name__
-        self.log = FwObjectLogger(object_name=name)
+code_root = os.path.realpath(__file__).replace('\\','/').split('/tests/')[0]
+test_root = code_root + '/tests/'
+sys.path.append(test_root)
+import fwtests
+
+cli_path = __file__.replace('.py', '')
+
+def test():
+     with fwtests.TestFwagent() as agent:
+
+        steps = sorted(glob.glob(cli_path + '/' + '*.cli'))
+
+        for (idx, step) in enumerate(steps):
+
+            if idx == 0:
+                print("")
+            print("   " + os.path.basename(step))
+
+            agent.clean_log()
+
+            (ok, err_str) = agent.cli('-f %s' % step, check_log=True)
+            assert ok, err_str
+
+if __name__ == '__main__':
+    test()

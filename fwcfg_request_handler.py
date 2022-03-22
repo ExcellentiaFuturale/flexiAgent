@@ -343,6 +343,8 @@ class FwCfgRequestHandler(FwObject):
                     func = getattr(fwglobals.g.traffic_identifications, func_name)
                 elif object_name == 'fwglobals.g.pppoe':
                     func = getattr(fwglobals.g.pppoe, func_name)
+                elif object_name == 'fwglobals.g.applications_api':
+                    func = getattr(fwglobals.g.applications_api, func_name)
                 else:
                     return None
                 self.cache_func_by_name[full_name] = func
@@ -769,6 +771,10 @@ class FwCfgRequestHandler(FwObject):
         self.log.info("====restore configuration: finished===")
 
     def sync_full(self, incoming_requests):
+        if len(incoming_requests) == 0:
+            self.log.info("sync_full: incoming_requests is empty, no need to full sync")
+            return True
+
         fwglobals.g.agent_api._reset_device_soft()
 
         sync_request = {
@@ -783,8 +789,10 @@ class FwCfgRequestHandler(FwObject):
 
     def sync(self, incoming_requests, full_sync=False):
         incoming_requests = list([x for x in incoming_requests if x['message'] in self.translators])
+        sync_list         = self.cfg_db.get_sync_list(incoming_requests)
 
-        if len(incoming_requests) == 0:
+        if len(sync_list) == 0 and not full_sync:
+            self.log.info("_sync_device: sync_list is empty, no need to sync")
             return True
 
         if full_sync:
@@ -796,12 +804,6 @@ class FwCfgRequestHandler(FwObject):
         # out of sync and try to modify them.
         # If that fails, we will try the full sync.
         #
-        sync_list = self.cfg_db.get_sync_list(incoming_requests)
-
-        if len(sync_list) == 0 and not full_sync:
-            self.log.info("_sync_device: sync_list is empty, no need to sync")
-            return True
-
         self.log.debug("_sync_device: start smart sync")
 
         sync_request = {

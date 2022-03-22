@@ -53,11 +53,13 @@ import fwlte
 import fwwifi
 import fwtranslate_add_switch
 
+from fwapplications_api import call_applications_hook, FWAPPLICATIONS_API
 from fwikev2        import FwIKEv2
 from fwmultilink    import FwMultilink
 from fwpolicies     import FwPolicies
 from fwrouter_cfg   import FwRouterCfg
 from fwsystem_cfg   import FwSystemCfg
+from fwapplications_cfg import FwApplicationsCfg
 from fwwan_monitor  import get_wan_failover_metric
 from fw_traffic_identification import FwTrafficIdentifications
 from tools.common.fw_vpp_startupconf import FwStartupConf
@@ -978,23 +980,33 @@ def pci_bytes_to_str(pci_bytes):
     function = (bytes) & 0x7
     return "%04x:%02x:%02x.%02x" % (domain, bus, slot, function)
 
-# 'dev_id_to_vpp_sw_if_index' function maps interface referenced by device bus address, e.g pci - '0000:00:08.00'
-# into index of this interface in VPP, eg. 1.
-# To do that we convert firstly the device bus address into name of interface in VPP,
-# e.g. 'GigabitEthernet0/8/0', than we dump all VPP interfaces and search for interface
-# with this name. If found - return interface index.
-
-
 def dev_id_to_vpp_sw_if_index(dev_id):
     """Convert device bus address into VPP sw_if_index.
+
+    This function maps interface referenced by device bus address, e.g pci - '0000:00:08.00'
+    into index of this interface in VPP, eg. 1.
+    To do that we convert firstly the device bus address into name of interface in VPP,
+    e.g. 'GigabitEthernet0/8/0', than we dump all VPP interfaces and search for interface
+    with this name.
 
     :param dev_id:      device bus address.
 
     :returns: sw_if_index.
     """
     vpp_if_name = dev_id_to_vpp_if_name(dev_id)
-
     fwglobals.log.debug("dev_id_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (dev_id, str(vpp_if_name)))
+    return vpp_if_name_to_vpp_sw_if_index(vpp_if_name)
+
+def vpp_if_name_to_vpp_sw_if_index(vpp_if_name):
+    """Convert VPP interface name into VPP sw_if_index.
+
+    This function maps interface referenced by vpp interface name, e.g tun0
+    into index of this interface in VPP, eg. 1.
+
+    :param vpp_if_name:      VPP interface name
+
+    :returns: sw_if_index.
+    """
     if vpp_if_name is None:
         return None
 
@@ -1002,7 +1014,7 @@ def dev_id_to_vpp_sw_if_index(dev_id):
     for sw_if in sw_ifs:
         if re.match(vpp_if_name, sw_if.interface_name):    # Use regex, as sw_if.interface_name might include trailing whitespaces
             return sw_if.sw_if_index
-    fwglobals.log.debug("dev_id_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (dev_id, yaml.dump(sw_ifs, canonical=True)))
+    fwglobals.log.debug("vpp_if_name_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (vpp_if_name, yaml.dump(sw_ifs, canonical=True)))
 
     return None
 
@@ -1438,6 +1450,9 @@ def stop_vpp():
 
      :returns: Error message and status code.
      """
+
+    call_applications_hook('on_router_is_stopping')
+
     dpdk_ifs = []
     dpdk.devices = {}
     dpdk.dpdk_drivers = ["igb_uio", "vfio-pci", "uio_pci_generic"]
@@ -1464,12 +1479,15 @@ def stop_vpp():
                 break
     fwstats.update_state(False)
     netplan_apply('stop_vpp')
+
+    call_applications_hook('on_router_is_stopped')
+
     with FwIKEv2() as ike:
         ike.clean()
     with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
         pppoe.reset_interfaces()
 
-def reset_device_config(pppoe=False):
+def reset_device_config(pppoe=False, applications=True):
     """Reset router config by cleaning DB and removing config files.
 
      :returns: None.
@@ -1501,6 +1519,10 @@ def reset_device_config(pppoe=False):
     with FwIKEv2() as ike:
         ike.clean()
 
+    if applications:
+        with FwApplicationsCfg() as applications_cfg:
+            applications_cfg.clean()
+
     if 'lte' in fwglobals.g.db:
         fwglobals.g.db['lte'] = {}
 
@@ -1511,6 +1533,7 @@ def reset_device_config(pppoe=False):
     reset_router_api_db(enforce=True)
 
     restore_dhcpd_files()
+
 
 def reset_router_api_db_sa_id():
     router_api_db = fwglobals.g.db['router_api'] # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
@@ -1568,6 +1591,11 @@ def print_device_config_signature():
     cfg = get_device_config_signature()
     print(cfg)
 
+def print_applications_db(full=False):
+    with FwApplicationsCfg() as applications_cfg:
+        cfg = applications_cfg.dumps(full=full)
+        print(cfg)
+
 def print_router_config(basic=True, full=False, multilink=False):
     """Print router configuration.
 
@@ -1594,7 +1622,7 @@ def print_general_database():
     except Exception as e:
         fwglobals.log.error(str(e))
         pass
-    
+
 def update_device_config_signature(request):
     """Updates the database signature.
     This function assists the database synchronization feature that keeps
@@ -1673,6 +1701,19 @@ def dump_system_config(full=False):
     cfg = []
     with FwSystemCfg(fwglobals.g.SYSTEM_CFG_FILE) as system_cfg:
         cfg = system_cfg.dump(full)
+    return cfg
+
+def dump_applications_config(full=False):
+    """Dumps applications configuration into list of requests that look exactly
+    as they would look if were received from server.
+
+    :param full: return requests together with translated commands.
+
+    :returns: list of 'add-X' requests.
+    """
+    cfg = []
+    with FwApplicationsCfg() as applications_cfg:
+        cfg = applications_cfg.dump(full)
     return cfg
 
 def get_router_status():
@@ -2240,7 +2281,15 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order,
     bvi_vpp_name_list      = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['switch'].keys())
     lan_vpp_name_list      = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['lan'].keys())
     loopback_vpp_name_list = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['tunnel'].keys())
-    vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list
+
+    # Get LAN interfaces managed by installed applications.
+    # The function below returns dictionary, where keys are application identifiers,
+    # and values are lists of vpp interface names, e.g.
+    #      { 'com.flexiwan.vpn': ['tun0'] }
+    app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True, linux_interfaces=False)
+    app_lans_list = [vpp_if_name for vpp_if_names in app_lans.values() for vpp_if_name in vpp_if_names]
+
+    vpp_if_names = bvi_vpp_name_list + lan_vpp_name_list + loopback_vpp_name_list + app_lans_list
 
     if attach_to_wan:
         wan_vpp_name_list  = list(fwglobals.g.db['router_api']['vpp_if_name_to_sw_if_index']['wan'].keys())
@@ -3542,6 +3591,12 @@ def load_linux_modules(modules):
         if err:
             return (False, err)
     return (True, None)
+
+def load_linux_tap_modules():
+    return load_linux_modules(['tap', 'vhost', 'vhost-net'])
+
+def load_linux_tc_modules():
+    return load_linux_modules(['act_gact', 'act_mirred', 'act_pedit', 'cls_u32', 'sch_htb', 'sch_ingress', 'uio'])
 
 def get_thread_tid():
     '''Returns OS thread id'''

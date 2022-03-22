@@ -105,7 +105,7 @@ class FwagentCli(FwObject):
         try:
             # Convert list of "<name>=<val>" elements into dictionary
             api_name = api_args[0]
-            api_args = { arg.split("=")[0] : arg.split("=")[1] for arg in api_args[1:] }
+            api_args = { arg.split("=", 1)[0] : arg.split("=", 1)[1] for arg in api_args[1:] }
 
             if self.daemon:
                 rpc_api_func = getattr(self.daemon, 'api')

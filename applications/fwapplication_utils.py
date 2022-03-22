@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2022  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -20,20 +20,26 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-from fwlog import FwObjectLogger
+import os
+import subprocess
 
-class FwObject():
-    """This is FlexiWAN version of the Python 'object' class.
-    It provides functionality which is common for all FlexiWAN objects.
-    This object allows to initialize a separate FwObject instance per
-    class/object with data that is specific for that class/object.
-    This is different than fwglobals module which contains one instance
-    of the FwGlobals class for the entire project.
-        The main purpose for the FwObject is to provide seamless logging
-    for objects by calling self.log(), while prepending log line with name
-    of the specific object that called the self.log().
+def run_linux_commands(commands, exception_on_error=True):
+    for command in commands:
+        ret = os.system(command)
+        if ret and exception_on_error:
+            raise Exception(f'failed to run "{command}". error code is {ret}')
+    return True
+
+def vpp_pid():
+    """Get pid of VPP process.
+
+    :returns:           process identifier.
     """
-    def __init__(self, name=None):
-        if not name:
-            name = self.__class__.__name__
-        self.log = FwObjectLogger(object_name=name)
+    try:
+        pid = subprocess.check_output(['pidof', 'vpp'])
+    except:
+        pid = None
+    return pid
+
+def router_is_running():
+    return True if vpp_pid() else False

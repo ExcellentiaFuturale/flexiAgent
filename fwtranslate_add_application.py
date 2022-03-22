@@ -69,7 +69,7 @@ def _add_traffic_identification(params, cmd_list):
     cmd['revert']['params'] = { 'traffic': params }
     cmd_list.append(cmd)
 
-def add_app(params):
+def add_application(params):
     """Generate App commands.
 
      :param params:        Parameters from flexiManage.

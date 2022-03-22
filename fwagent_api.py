@@ -204,19 +204,32 @@ class FWAGENT_API(FwObject):
         """Get device logs.
 
         :param params: Parameters from flexiManage.
+            examples of possible parameters:
+                {
+                    'lines': 100,
+                    'filter': 'fwagent',
+                },
+                {
+                    'lines': 100,
+                    'filter': 'application',
+                    'application': {
+                        identifier: 'com.flexiwan.remotevpn'
+                    }
+                }
 
         :returns: Dictionary with logs and status code.
         """
         dl_map = {
-    	    'fwagent': fwglobals.g.ROUTER_LOG_FILE,
-    	    'application_ids': fwglobals.g.APPLICATION_IDS_LOG_FILE,
-    	    'syslog': fwglobals.g.SYSLOG_FILE,
+            'fwagent': fwglobals.g.ROUTER_LOG_FILE,
+            'application_ids': fwglobals.g.APPLICATION_IDS_LOG_FILE,
+            'syslog': fwglobals.g.SYSLOG_FILE,
             'dhcp': fwglobals.g.DHCP_LOG_FILE,
             'vpp': fwglobals.g.VPP_LOG_FILE,
             'ospf': fwglobals.g.OSPF_LOG_FILE,
             'hostapd': fwglobals.g.HOSTAPD_LOG_FILE,
-            'agentui': fwglobals.g.AGENT_UI_LOG_FILE
-	    }
+            'agentui': fwglobals.g.AGENT_UI_LOG_FILE,
+            'application': fwglobals.g.applications_api.get_log_filename(params.get('application', {}).get('identifier')),
+        }
         file = dl_map.get(params['filter'], '')
         try:
             logs = fwutils.get_device_logs(file, params['lines'])
@@ -296,7 +309,8 @@ class FWAGENT_API(FwObject):
         """
         router_config = fwutils.dump_router_config()
         system_config = fwutils.dump_system_config()
-        config = router_config + system_config
+        applications_config = fwutils.dump_applications_config()
+        config = router_config + system_config + applications_config
         reply = {'ok': 1, 'message': config if config else []}
         return reply
 

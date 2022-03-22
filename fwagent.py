@@ -52,6 +52,7 @@ import fwutils
 import fwwebsocket
 import loadsimulator
 
+from fwapplications_api import FWAPPLICATIONS_API
 from fwobject import FwObject
 
 from fw_nat_command_helpers import WAN_INTERFACE_SERVICES
@@ -665,6 +666,10 @@ def reset(soft=False, quiet=False, pppoe=False):
         if fwutils.vpp_does_run():
             print("stopping the router...")
         daemon_rpc('stop', stop_router=True)
+
+        with FWAPPLICATIONS_API() as applications_api:
+            applications_api.reset()
+
         fwutils.reset_device_config(pppoe)
 
         if os.path.exists(fwglobals.g.DEVICE_TOKEN_FILE):
@@ -758,6 +763,8 @@ def show(agent, configuration, database, status):
             fwutils.print_system_config(full=True)
         elif database == 'general':
             fwutils.print_general_database()
+        elif database == 'applications':
+            fwutils.print_applications_db(full=True)
         elif database == 'multilink':
             with fwmultilink.FwMultilink(fwglobals.g.MULTILINK_DB_FILE, fill_if_empty=False) as multilink_db:
                 print(multilink_db.dumps())

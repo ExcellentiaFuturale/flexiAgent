@@ -57,7 +57,7 @@ fwrouter_translators = {
     'modify-tunnel':            {'module': __import__('fwtranslate_add_tunnel'),      'api':'modify_tunnel',     'supported_params':'modify_tunnel_supported_params'},
     'add-dhcp-config':          {'module': __import__('fwtranslate_add_dhcp_config'), 'api':'add_dhcp_config'},
     'remove-dhcp-config':       {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
-    'add-application':          {'module': __import__('fwtranslate_add_app'),         'api':'add_app'},
+    'add-application':          {'module': __import__('fwtranslate_add_application'), 'api':'add_application'},
     'remove-application':       {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
     'add-multilink-policy':     {'module': __import__('fwtranslate_add_multilink_policy'), 'api':'add_multilink_policy'},
     'remove-multilink-policy':  {'module': __import__('fwtranslate_revert'),          'api':'revert'},
@@ -434,7 +434,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         self.set_logger(prev_logger)  # Restore logger if was changed
         return reply
 
-    def _call_simple(self, request):
+    def _call_simple(self, request, execute=False, filter=None):
         """Execute single request.
 
         :param request: The request received from flexiManage.
@@ -458,8 +458,6 @@ class FWROUTER_API(FwCfgRequestHandler):
                 self.cfg_db.update(request)
                 return {'ok':1}
 
-            execute = False
-            filter = None
             if router_was_started or req == 'start-router':
                 execute = True
             elif re.match('remove-',  req):
@@ -1009,6 +1007,8 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwglobals.g.pppoe.start()
         self.log.info("router was started: vpp_pid=%s" % str(fwutils.vpp_pid()))
 
+        fwglobals.g.applications_api.call_hook('on_router_is_started')
+
     def _on_stop_router_before(self):
         """Handles pre-VPP stop activities.
         :returns: None.
@@ -1020,6 +1020,8 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwglobals.g.pppoe.stop()
         fwglobals.g.cache.dev_id_to_vpp_tap_name.clear()
         self.log.info("router is being stopped: vpp_pid=%s" % str(fwutils.vpp_pid()))
+
+        fwglobals.g.applications_api.call_hook('on_router_is_stopping')
 
     def _on_stop_router_after(self):
         """Handles post-VPP stop activities.
@@ -1043,6 +1045,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         with FwPolicies(fwglobals.g.POLICY_REC_DB_FILE) as db_policies:
             db_policies.clean()
 
+        fwglobals.g.applications_api.call_hook('on_router_is_stopped')
         fwglobals.g.pppoe.start()
 
     def _on_add_interface_after(self, type, sw_if_index):
@@ -1145,6 +1148,10 @@ class FWROUTER_API(FwCfgRequestHandler):
                 return reply
 
     def sync_full(self, incoming_requests):
+        if len(incoming_requests) == 0:
+            self.log.info("sync_full: incoming_requests is empty, no need to full sync")
+            return True
+
         self.log.debug("_sync_device: start router full sync")
 
         restart_router = False

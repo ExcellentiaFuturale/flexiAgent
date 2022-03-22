@@ -43,7 +43,7 @@ updates_list = []
 vpp_pid = ''
 
 # Keeps last stats
-stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'lte_stats': {}, 'wifi_stats': {}}
+stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'lte_stats': {}, 'wifi_stats': {}, 'application_stats': {}}
 
 
 def update_stats_tread(log, fwagent):
@@ -205,6 +205,7 @@ def get_stats():
 
     reconfig = fwutils.get_reconfig_hash()
     ikev2_certificate_expiration = fwglobals.g.ikev2.get_certificate_expiration()
+    apps_stats = fwglobals.g.applications_api.get_stats()
 
     # If the list of updates is empty, append a dummy update to
     # set the most up-to-date status of the router. If not, update
@@ -224,6 +225,7 @@ def get_stats():
             'state': state,
             'stateReason': reason,
             'stats': {},
+            'application_stats': apps_stats,
             'tunnel_stats': {},
             'lte_stats': {},
             'wifi_stats': {},
@@ -240,6 +242,7 @@ def get_stats():
         res_update_list[-1]['state'] = state
         res_update_list[-1]['stateReason'] = reason
         res_update_list[-1]['reconfig'] = reconfig
+        res_update_list[-1]['application_stats'] = apps_stats
         res_update_list[-1]['health'] = get_system_health()
         if fwglobals.g.ikev2.is_private_key_created():
             res_update_list[-1]['ikev2'] = ikev2_certificate_expiration
@@ -264,5 +267,5 @@ def reset_stats():
     stats = {
         'running': False, 'ok':0, 'last':{}, 'bytes':{}, 'tunnel_stats':{},
         'health':{}, 'period':0, 'reconfig':False, 'ikev2':'',
-        'lte_stats': {}, 'wifi_stats': {}
+        'lte_stats': {}, 'wifi_stats': {}, 'application_stats': {}
     }

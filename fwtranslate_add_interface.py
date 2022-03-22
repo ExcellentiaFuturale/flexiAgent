@@ -121,10 +121,9 @@ def add_interface(params):
     if is_wifi or is_lte:
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']   = "load_linux_modules"
+        cmd['cmd']['func']   = "load_linux_tap_modules"
         cmd['cmd']['module'] = "fwutils"
-        cmd['cmd']['descr'] = "load vhost-net modules"
-        cmd['cmd']['params'] = { 'modules': ['tap', 'vhost', 'vhost-net'] }
+        cmd['cmd']['descr'] = "load linux tap modules"
         cmd_list.append(cmd)
         # Create tap interface in linux and vpp.
         # This command will create three interfaces:
@@ -586,12 +585,9 @@ def add_interface(params):
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']   = "load_linux_modules"
+        cmd['cmd']['func']   = "load_linux_tc_modules"
         cmd['cmd']['module'] = "fwutils"
-        cmd['cmd']['descr'] = "load tc modules"
-        cmd['cmd']['params'] = {
-                'modules': ['act_gact', 'act_mirred', 'act_pedit', 'cls_u32', 'sch_htb', 'sch_ingress', 'uio']
-        }
+        cmd['cmd']['descr'] = "load linux tc modules"
         cmd_list.append(cmd)
 
         cmd = {}
