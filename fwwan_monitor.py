@@ -63,7 +63,7 @@ class FwWanMonitor(FwObject):
 
         # Make few shortcuts to get more readable code
         #
-        self.SERVERS         = fwglobals.g.WAN_FAILOVER_SERVERS
+        self.SERVERS         = fwglobals.g.cfg.WAN_MONITOR_SERVERS
         self.WND_SIZE        = fwglobals.g.WAN_FAILOVER_WND_SIZE
         self.THRESHOLD       = fwglobals.g.WAN_FAILOVER_THRESHOLD
         self.WATERMARK       = fwglobals.g.WAN_FAILOVER_METRIC_WATERMARK
@@ -116,11 +116,12 @@ class FwWanMonitor(FwObject):
                     time.sleep(5)
 
                 server = self._get_server()
-                routes = self._get_routes()
-                for r in routes:
-                    if fwlte.get_cache_val(r.dev_id, 'state') == 'resetting':
-                        continue
-                    self._check_connectivity(r, server)
+                if server:
+                    routes = self._get_routes()
+                    for r in routes:
+                        if fwlte.get_cache_val(r.dev_id, 'state') == 'resetting':
+                            continue
+                        self._check_connectivity(r, server)
 
             except Exception as e:
                 self.log.error("%s: %s (%s)" %
@@ -140,6 +141,8 @@ class FwWanMonitor(FwObject):
 
 
     def _get_server(self):
+        if self.num_servers <= 0:
+            return None
         self.current_server = (self.current_server + 1) % self.num_servers
         return self.SERVERS[self.current_server]
 
@@ -179,7 +182,7 @@ class FwWanMonitor(FwObject):
 
             # Filter out unassigned interfaces, if fwagent_conf.yaml orders that.
             #
-            if not interfaces and not fwglobals.g.cfg.MONITOR_UNASSIGNED_INTERFACES:
+            if not interfaces and not fwglobals.g.cfg.WAN_MONITOR_UNASSIGNED_INTERFACES:
                 if not route.dev_id in self.disabled_routes:
                     self.log.debug("disabled on unassigned %s(%s)" % (route.dev, route.dev_id))
                     self.disabled_routes[route.dev_id] = route
