@@ -58,7 +58,7 @@ class FwRouteData:
         self.proto      = proto
         self.metric     = metric
         self.dev_id     = fwutils.get_interface_dev_id(dev)
-        self.probes     = [True] * fwglobals.g.WAN_FAILOVER_WND_SIZE    # List of ping results
+        self.probes     = {}        # Ping results per server
         self.ok         = True      # If True there is connectivity to internet
         self.default    = False     # If True the route is the default one - has lowest metric
 
