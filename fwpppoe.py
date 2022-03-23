@@ -41,7 +41,7 @@ class FwPppoeConnection(FwObject):
     It manages connection config files inside /etc/ppp/peers/ folder.
     Also it initiates PPPoE connections using pon/poff scripts.
     """
-    def __init__(self, id, path, filename):
+    def __init__(self, id, dev_id, path, filename):
         FwObject.__init__(self)
         self.id = id
         self.path = path
@@ -52,35 +52,23 @@ class FwPppoeConnection(FwObject):
         self.ppp_if_name = 'ppp%u' % id
         self.addr = ''
         self.gw = ''
-        self.dev_id = ''
+        self.dev_id = dev_id
         self.metric = 0
         self.usepeerdns = False
         self.tun_if_name = ''
         self.tun_vpp_if_name = ''
         self.tun_vppsb_if_name = ''
         self.opened = False
-        self.if_name = ''
+        self.linux_if_name = fwutils.dev_id_to_linux_if(self.dev_id)
+        self.if_name = self.linux_if_name
 
     def __str__(self):
         usepeerdns = 'usepeerdns' if self.usepeerdns else ''
         return f"{self.id}, {self.dev_id},{self.mtu},{self.mru},{self.user},{self.ppp_if_name},{self.addr},{self.gw},{usepeerdns},{self.tun_if_name},{self.opened}"
 
-    def dev_id_to_if_name(self):
-        """Convert dev_id to if_name.
-
-        :returns: if_name.
-        """
-        if self.tun_if_name:
-            if_name = fwutils.dev_id_to_tap(self.dev_id)
-        else:
-            if_name = fwutils.dev_id_to_linux_if(self.dev_id)
-
-        return if_name
-
     def save(self):
         """Create PPPoE connection configuration file.
         """
-        self.if_name = self.dev_id_to_if_name()
         self.remove()
         try:
             with open(self.path + self.filename, 'w') as file:
@@ -176,6 +164,7 @@ class FwPppoeConnection(FwObject):
         """
         self.tun_if_name = 'pppoe%u' % self.id
         self.tun_vpp_if_name = 'tun%u' % self.id
+        self.if_name = fwutils.dev_id_to_tap(self.dev_id)
 
         fwutils.vpp_cli_execute([f'create tap id {self.id} host-if-name {self.tun_if_name} tun'], debug=True)
 
@@ -198,6 +187,7 @@ class FwPppoeConnection(FwObject):
         self.tun_if_name = ''
         self.tun_vpp_if_name = ''
         self.tun_vppsb_if_name = ''
+        self.if_name = self.linux_if_name
 
     def add_linux_ip_route(self):
         """Assign TUN interface with ip address.
@@ -444,9 +434,8 @@ class FwPppoeClient(FwObject):
         conn = self.connections.get(dev_id)
         if not conn:
             id = self._generate_connection_id()
-            conn = FwPppoeConnection(id, self.path, self.filename)
+            conn = FwPppoeConnection(id, dev_id, self.path, self.filename)
 
-        conn.dev_id = dev_id
         conn.user = pppoe_iface.user
         conn.mtu = pppoe_iface.mtu
         conn.mru = pppoe_iface.mru
@@ -607,6 +596,9 @@ class FwPppoeClient(FwObject):
     def reset_interfaces(self):
         """Re-create PPPoE connection files based on interface DB.
         """
+        if not self.is_pppoe_configured():
+            return
+
         self._remove_files()
         self._populate_users()
         self._serialize_users_connections()
@@ -746,8 +738,8 @@ def is_pppoe_interface(if_name = None, dev_id = None):
         with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
             return pppoe.is_pppoe_interface(if_name, dev_id)
 
-def pppoe_reset():
-    """Reset PPPoE configuration
+def pppoe_remove():
+    """Remove PPPoE configuration files and clean internal DB
     """
     with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe_client:
         pppoe_client.clean()
@@ -757,3 +749,9 @@ def is_pppoe_configured():
     """
     with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe_client:
         return pppoe_client.is_pppoe_configured()
+
+def pppoe_reset():
+    """Reset PPPoE configuration files
+    """
+    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe_client:
+        pppoe_client.reset_interfaces()
