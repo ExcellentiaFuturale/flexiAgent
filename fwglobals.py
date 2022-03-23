@@ -158,7 +158,8 @@ class Fwglobals(FwObject):
             DEFAULT_MANAGEMENT_URL = 'https://manage.flexiwan.com:443'
             DEFAULT_TOKEN_FILE     = data_path + 'token.txt'
             DEFAULT_UUID           = None
-            DEFAULT_MONITOR_UNASSIGNED_INTERFACES = True
+            DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES = True
+            DEFAULT_WAN_MONITOR_SERVERS = ['1.1.1.1','8.8.8.8']
             try:
                 with open(filename, 'r') as conf_file:
                     conf = yaml.load(conf_file, Loader=yaml.SafeLoader)
@@ -169,7 +170,8 @@ class Fwglobals(FwObject):
                 self.MANAGEMENT_URL = agent_conf.get('server', DEFAULT_MANAGEMENT_URL)
                 self.TOKEN_FILE     = agent_conf.get('token',  DEFAULT_TOKEN_FILE)
                 self.UUID           = agent_conf.get('uuid',   DEFAULT_UUID)
-                self.MONITOR_UNASSIGNED_INTERFACES = agent_conf.get('monitor_unassigned_interfaces', DEFAULT_MONITOR_UNASSIGNED_INTERFACES)
+                self.WAN_MONITOR_UNASSIGNED_INTERFACES = agent_conf.get('monitor_wan',{}).get('monitor_unassigned_interfaces', DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES)
+                self.WAN_MONITOR_SERVERS = agent_conf.get('monitor_wan',{}).get('servers', DEFAULT_WAN_MONITOR_SERVERS)
             except Exception as e:
                 if log:
                     log.excep("%s, set defaults" % str(e))
@@ -179,7 +181,8 @@ class Fwglobals(FwObject):
                 self.MANAGEMENT_URL = DEFAULT_MANAGEMENT_URL
                 self.TOKEN_FILE     = DEFAULT_TOKEN_FILE
                 self.UUID           = DEFAULT_UUID
-                self.MONITOR_UNASSIGNED_INTERFACES = DEFAULT_MONITOR_UNASSIGNED_INTERFACES
+                self.WAN_MONITOR_UNASSIGNED_INTERFACES = DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES
+                self.WAN_MONITOR_SERVERS = DEFAULT_WAN_MONITOR_SERVERS
             if self.DEBUG and log:
                 log.set_level(FWLOG_LEVEL_DEBUG)
 
@@ -278,7 +281,6 @@ class Fwglobals(FwObject):
         self.fwagent = None
         self.loadsimulator = None
         self.cache   = self.FwCache()
-        self.WAN_FAILOVER_SERVERS          = [ '1.1.1.1' , '8.8.8.8' ]
         self.WAN_FAILOVER_WND_SIZE         = 20         # 20 pings, every ping waits a second for response
         self.WAN_FAILOVER_THRESHOLD        = 12         # 60% of pings lost - enter the bad state, 60% of pings are OK - restore to good state
         self.WAN_FAILOVER_METRIC_WATERMARK = 2000000000 # Bad routes will have metric above 2000000000
