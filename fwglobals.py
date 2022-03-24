@@ -279,6 +279,7 @@ class Fwglobals(FwObject):
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
+        self.pppoe = None
         self.loadsimulator = None
         self.cache   = self.FwCache()
         self.WAN_FAILOVER_WND_SIZE         = 20         # 20 pings, every ping waits a second for response
@@ -366,7 +367,7 @@ class Fwglobals(FwObject):
         self.wan_monitor      = FwWanMonitor(standalone)
         self.stun_wrapper     = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
         self.ikev2            = FwIKEv2()
-        self.pppoe            = FwPppoeClient(self.PPPOE_DB_FILE, self.PPPOE_CONFIG_PATH, self.PPPOE_CONFIG_PROVIDER_FILE, standalone)
+        self.pppoe            = FwPppoeClient(standalone=standalone)
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 
@@ -416,6 +417,7 @@ class Fwglobals(FwObject):
         self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
 
         del self.pppoe
+        self.pppoe = None
         del self.wan_monitor
         del self.stun_wrapper
         del self.policies
