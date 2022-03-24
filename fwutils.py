@@ -37,7 +37,6 @@ import re
 import fwglobals
 import fwnetplan
 import fwpppoe
-from fwpppoe import FwPppoeClient
 import fwstats
 import shutil
 import sys
@@ -1484,8 +1483,7 @@ def stop_vpp():
 
     with FwIKEv2() as ike:
         ike.clean()
-    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
-        pppoe.reset_interfaces()
+    fwpppoe.pppoe_reset()
 
 def reset_device_config(pppoe=False, applications=True):
     """Reset router config by cleaning DB and removing config files.
@@ -1527,7 +1525,7 @@ def reset_device_config(pppoe=False, applications=True):
         fwglobals.g.db['lte'] = {}
 
     if pppoe:
-        fwpppoe.pppoe_reset()
+        fwpppoe.pppoe_remove()
 
     reset_router_api_db_sa_id() # sa_id-s are used in translations of router configuration, so clean them too.
     reset_router_api_db(enforce=True)

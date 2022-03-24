@@ -63,8 +63,7 @@ class FwWanMonitor(FwObject):
 
         # Make few shortcuts to get more readable code
         #
-        self.SERVERS         = fwglobals.g.WAN_FAILOVER_SERVERS
-        self.WND_SIZE        = fwglobals.g.WAN_FAILOVER_WND_SIZE
+        self.SERVERS         = fwglobals.g.cfg.WAN_MONITOR_SERVERS
         self.THRESHOLD       = fwglobals.g.WAN_FAILOVER_THRESHOLD
         self.WATERMARK       = fwglobals.g.WAN_FAILOVER_METRIC_WATERMARK
 
@@ -116,11 +115,12 @@ class FwWanMonitor(FwObject):
                     time.sleep(5)
 
                 server = self._get_server()
-                routes = self._get_routes()
-                for r in routes:
-                    if fwlte.get_cache_val(r.dev_id, 'state') == 'resetting':
-                        continue
-                    self._check_connectivity(r, server)
+                if server:
+                    routes = self._get_routes()
+                    for r in routes:
+                        if fwlte.get_cache_val(r.dev_id, 'state') == 'resetting':
+                            continue
+                        self._check_connectivity(r, server)
 
             except Exception as e:
                 self.log.error("%s: %s (%s)" %
@@ -140,6 +140,8 @@ class FwWanMonitor(FwObject):
 
 
     def _get_server(self):
+        if self.num_servers <= 0:
+            return None
         self.current_server = (self.current_server + 1) % self.num_servers
         return self.SERVERS[self.current_server]
 
@@ -179,7 +181,7 @@ class FwWanMonitor(FwObject):
 
             # Filter out unassigned interfaces, if fwagent_conf.yaml orders that.
             #
-            if not interfaces and not fwglobals.g.cfg.MONITOR_UNASSIGNED_INTERFACES:
+            if not interfaces and not fwglobals.g.cfg.WAN_MONITOR_UNASSIGNED_INTERFACES:
                 if not route.dev_id in self.disabled_routes:
                     self.log.debug("disabled on unassigned %s(%s)" % (route.dev, route.dev_id))
                     self.disabled_routes[route.dev_id] = route
@@ -218,28 +220,52 @@ class FwWanMonitor(FwObject):
         return list(self.routes.values())
 
 
-    def _check_connectivity(self, route, server):
+    def _check_connectivity(self, route, server_address):
 
-        cmd = "fping %s -C 1 -q -R -I %s > /dev/null 2>&1" % (server, route.dev)
+        cmd = "fping %s -C 1 -q -R -I %s > /dev/null 2>&1" % (server_address, route.dev)
         ok = not subprocess.call(cmd, shell=True)
 
-        route.probes.append(ok)
-        del route.probes[0]             # Keep WINDOWS SIZE
+        server = route.probes.get(server_address)
+        if not server:
+            # Be optimistic and assume connectivity to new server is OK
+            route.probes[server_address] = {
+                'probes': [True] * fwglobals.g.WAN_FAILOVER_WND_SIZE,
+                'ok': True
+            }
+            server = route.probes[server_address]
 
-        # At this point we reached WINDOW SIZE, so update WAN connectivity.
-        # We use hysteresis to track connectivity state:
+        server['probes'].append(ok)
+        del server['probes'][0]   # Keep WINDOWS SIZE
+
+        # Deduce connectivity status to specific server.
+        # We use following hysteresis:
         # if connected (metric < watermark), THRESHOLD failures is needed to deduce "no connectivity";
         # if not connected (metric >= watermark), THRESHOLD successes is needed to deduce "connectivity is back"
         #
-        successes = route.probes.count(True)
-        failures  = self.WND_SIZE - successes
+        successes = server['probes'].count(True)
+        failures  = fwglobals.g.WAN_FAILOVER_WND_SIZE - successes
+        if server['ok'] and failures >= self.THRESHOLD:
+            server['ok'] = False
+        elif not server['ok'] and successes >= self.THRESHOLD:
+            server['ok'] = True
 
+        # Deduce connectivity status for route based on statuses of all servers:
+        # At least one responding server is enough to report positive connectivity.
+        #
+        connected = False
+        for server in route.probes.values():
+            if server['ok']:
+                connected = True
+                break
+
+        # Now go and update metric of route, if connectivity was changed
+        #
         new_metric = None
-        if route.metric < self.WATERMARK and failures >= self.THRESHOLD:
+        if route.metric < self.WATERMARK and not connected:
             new_metric = route.metric + self.WATERMARK
             self.log.debug("WAN Monitor: Link down Metric Update - From: %d To: %d" %
                 (route.metric, new_metric))
-        elif route.metric >= self.WATERMARK and successes >= self.THRESHOLD:
+        elif route.metric >= self.WATERMARK and connected:
             new_metric = route.metric - self.WATERMARK
             self.log.debug("WAN Monitor: Link up Metric Update - From: %d To: %d" %
                 (route.metric, new_metric))

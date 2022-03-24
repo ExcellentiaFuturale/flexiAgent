@@ -42,6 +42,7 @@ import fwglobals
 import fwutils
 import fwnetplan
 import fwlte
+import fwpppoe
 import fwwifi
 
 def parse_argv(argv):
@@ -69,6 +70,7 @@ def main():
     if not arg_quiet:
         print ("Shutting down flexiwan-router...")
     fwglobals.initialize(quiet=arg_quiet)
+    fwpppoe.pppoe_reset()
     os.system('systemctl stop flexiwan-router')
     fwutils.stop_vpp()
     fwutils.remove_linux_bridges()
