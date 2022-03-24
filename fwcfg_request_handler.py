@@ -385,7 +385,7 @@ class FwCfgRequestHandler(FwObject):
             return err_str
 
         except Exception as e:
-            err_str = "%s(%s): %s" % (cmd['func'], format(cmd['params'], str(e)))
+            err_str = "%s(%s): %s" % (cmd['func'], format(cmd['params']), str(e))
             self.log.error(err_str + ': %s' % str(traceback.format_exc()))
             return err_str
 
