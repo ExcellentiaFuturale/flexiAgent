@@ -332,6 +332,30 @@ class FwPppoeSecretsConfig(FwObject):
         def get_name(self):
             return self.name
 
+class FwPppoeResolvConf(FwObject):
+    """The object that represents PPPoE PAP/CHAP configuration file.
+    It manages secrets config files inside /etc/ppp/ folder.
+    """
+    def __init__(self):
+        FwObject.__init__(self)
+        self.resolvers = self._get_resolvers()
+
+    def _get_resolvers(self):
+        resolvers = []
+        try:
+            with open( '/etc/resolv.conf', 'r' ) as resolvconf:
+                for line in resolvconf.readlines():
+                    line = line.split( '#', 1 )[ 0 ];
+                    line = line.rstrip();
+                    if 'nameserver' in line:
+                        resolvers.append( line.split()[ 1 ] )
+            return resolvers
+        except IOError as error:
+            self.log.error(f'_get_resolvers: {error.strerror}')
+            return None
+
+    def __str__(self):
+        return f'{self.resolvers}'
 class FwPppoeInterface():
     """The object that represents PPPoE interface configuration.
     """
