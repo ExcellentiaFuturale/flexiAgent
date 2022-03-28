@@ -161,21 +161,33 @@ class FwPppoeConnection(FwObject):
         """Create TUN interface.
         """
         self.tun_if_name = 'pppoe%u' % self.id
-        self.tun_vpp_if_name = 'tun%u' % self.id
         self.if_name = fwutils.dev_id_to_tap(self.dev_id)
 
-        fwutils.vpp_cli_execute([f'create tap id {self.id} host-if-name {self.tun_if_name} tun'], debug=True)
+        self.tun_vpp_if_name = fwutils.vpp_cli_execute_one(f'create tap host-if-name {self.tun_if_name} tun', debug=True)
+        if not self.tun_vpp_if_name:
+            self.log.error("create_tun: tun_vpp_if_name is empty")
+            return False
 
         self.tun_vppsb_if_name = fwutils.vpp_if_name_to_tap(self.tun_vpp_if_name)
-        if self.tun_vppsb_if_name:
-            return True
-        return False
+        if not self.tun_vppsb_if_name:
+            self.log.error("create_tun: tun_vppsb_if_name is empty")
+            return False
+
+        fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id] = self.tun_vpp_if_name
+        fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name] = self.dev_id
+
+        return True
 
     def remove_tun(self):
         """Remove TUN interface.
         """
         if not self.tun_if_name:
             return
+
+        if self.dev_id in fwglobals.g.cache.dev_id_to_vpp_if_name:
+            del fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id]
+        if self.tun_vpp_if_name in fwglobals.g.cache.vpp_if_name_to_dev_id:
+            del fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name]
 
         fwutils.vpp_cli_execute([f'delete tap {self.tun_vpp_if_name}'], debug=True)
         self.tun_if_name = ''
@@ -192,9 +204,6 @@ class FwPppoeConnection(FwObject):
         if self.tun_if_name:
             sys_cmd = f'ip link set dev {self.tun_vppsb_if_name} up'
             fwutils.os_system(sys_cmd, 'PPPoE add_linux_ip_route')
-
-            fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id] = self.tun_vpp_if_name
-            fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name] = self.dev_id
 
             self.create_tc_mirror()
 
@@ -225,11 +234,6 @@ class FwPppoeConnection(FwObject):
 
         sys_cmd = f'ip link set dev {self.tun_vppsb_if_name} down'
         fwutils.os_system(sys_cmd, 'PPPoE remove_linux_ip_route')
-
-        if self.dev_id in fwglobals.g.cache.dev_id_to_vpp_if_name:
-            del fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id]
-        if self.tun_vpp_if_name in fwglobals.g.cache.vpp_if_name_to_dev_id:
-            del fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name]
 
     def _tc_mirror_set(self, ifname_1=None, ifname_2=None, op='add'):
         if ifname_1:

@@ -2335,8 +2335,23 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order,
 
     return (True, None)
 
+def vpp_cli_execute_one(cmd, debug = False):
+    """Execute one VPP CLI command.
+
+    :param cmd:      VPP CLI command
+    :param debug:    Print command to be executed
+
+    :returns: Output from VPP.
+    """
+    if debug:
+        fwglobals.log.debug(cmd)
+    out = _vppctl_read(cmd, wait=False).strip()
+    if debug:
+        fwglobals.log.debug(out)
+    return out
+
 def vpp_cli_execute(cmds, debug = False):
-    """Map interfaces inside tap-inject plugin.
+    """Execute list of VPP CLI commands.
 
     :param cmds:     List of VPP CLI commands
     :param debug:    Print command to be executed
@@ -2349,10 +2364,7 @@ def vpp_cli_execute(cmds, debug = False):
         return (False, "Expect list of commands")
 
     for cmd in cmds:
-        if debug:
-            fwglobals.log.debug(cmd)
-
-        out = _vppctl_read(cmd, wait=False)
+        out = vpp_cli_execute_one(cmd, debug)
         if out is None or re.search('unknown|failed|ret=-', out):
             return (False, "failed vppctl_cmd=%s" % cmd)
 
