@@ -55,6 +55,7 @@ class FwPppoeConnection(FwObject):
         self.dev_id = dev_id
         self.metric = 0
         self.usepeerdns = False
+        self.nameservers = []
         self.tun_if_name = ''
         self.tun_vpp_if_name = ''
         self.tun_vppsb_if_name = ''
@@ -64,7 +65,7 @@ class FwPppoeConnection(FwObject):
 
     def __str__(self):
         usepeerdns = 'usepeerdns' if self.usepeerdns else ''
-        return f"{self.id}, {self.dev_id},{self.mtu},{self.mru},{self.user},{self.ppp_if_name},{self.addr},{self.gw},{usepeerdns},{self.tun_if_name},{self.opened}"
+        return f"{self.id}, {self.dev_id},{self.mtu},{self.mru},{self.user},{self.ppp_if_name},{self.addr},{self.gw},{usepeerdns},{self.tun_if_name},{self.opened},{self.nameservers}"
 
     def save(self):
         """Create PPPoE connection configuration file.
@@ -353,12 +354,13 @@ class FwPppoeResolvConf(FwObject):
 class FwPppoeInterface():
     """The object that represents PPPoE interface configuration.
     """
-    def __init__(self, user, password, mtu, mru, usepeerdns, metric, enabled):
+    def __init__(self, user, password, mtu, mru, usepeerdns, nameservers, metric, enabled):
         self.user = user
         self.password = password
         self.mtu = mtu
         self.mru = mru
         self.usepeerdns = usepeerdns
+        self.nameservers = nameservers
         self.metric = metric
         self.is_enabled = enabled
         self.is_connected = False
@@ -368,7 +370,7 @@ class FwPppoeInterface():
         self.netplan_fname = ''
 
     def __str__(self):
-        return f'user:{self.user}, password:{self.password}, mtu:{self.mtu}, mru:{self.mru}, usepeerdns:{self.usepeerdns}, metric:{self.metric}, enabled:{self.is_enabled}, connected:{self.is_connected}, addr:{self.addr}, gw:{self.gw}'
+        return f'user:{self.user}, password:{self.password}, mtu:{self.mtu}, mru:{self.mru}, usepeerdns:{self.usepeerdns}, nameservers: {self.nameservers}, metric:{self.metric}, enabled:{self.is_enabled}, connected:{self.is_connected}, addr:{self.addr}, gw:{self.gw}'
 
 class FwPppoeClient(FwObject):
     """The object that represents PPPoE client.
@@ -464,6 +466,7 @@ class FwPppoeClient(FwObject):
         conn.mru = pppoe_iface.mru
         conn.metric = pppoe_iface.metric
         conn.usepeerdns = pppoe_iface.usepeerdns
+        conn.nameservers = pppoe_iface.nameservers
         self.connections[dev_id] = conn
 
     def _remove_connection(self, dev_id):

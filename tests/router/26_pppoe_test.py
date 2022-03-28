@@ -35,8 +35,9 @@ def test(fixture_globals):
     client.clean()
     if_name = 'enp0s9'
     dev_id = 'pci:0000:00:09.00'
+    nameservers = ['1.1.1.1', '9.9.9.9']
 
-    pppoe_iface = FwPppoeInterface('denis-2', 'password', 1412, 1412, False, 20, False)
+    pppoe_iface = FwPppoeInterface('denis-2', 'password', 1412, 1412, False, nameservers, 20, False)
     client.remove_interface(if_name=if_name, dev_id=dev_id)
     client.add_interface(pppoe_iface, if_name=if_name, dev_id=dev_id)
 
