@@ -119,8 +119,6 @@ class FwPppoeConnection(FwObject):
                 if self.tun_if_name:
                     self.remove_linux_ip_route()
 
-            fwglobals.g.fwagent.reconnect()
-
         return connected
 
     def open(self):
@@ -159,7 +157,7 @@ class FwPppoeConnection(FwObject):
         except Exception as e:
             self.log.error("remove: %s" % str(e))
 
-    def create_tun(self, timeout = 10):
+    def create_tun(self):
         """Create TUN interface.
         """
         self.tun_if_name = 'pppoe%u' % self.id
@@ -168,13 +166,9 @@ class FwPppoeConnection(FwObject):
 
         fwutils.vpp_cli_execute([f'create tap id {self.id} host-if-name {self.tun_if_name} tun'], debug=True)
 
-        while timeout >= 0:
-            self.tun_vppsb_if_name = fwutils.vpp_if_name_to_tap(self.tun_vpp_if_name)
-            if self.tun_vppsb_if_name:
-                return True
-            timeout-= 1
-            time.sleep(1)
-
+        self.tun_vppsb_if_name = fwutils.vpp_if_name_to_tap(self.tun_vpp_if_name)
+        if self.tun_vppsb_if_name:
+            return True
         return False
 
     def remove_tun(self):
@@ -381,15 +375,16 @@ class FwPppoeClient(FwObject):
     It is used as a high level API from Flexiagent and EdgeUI.
     It aggregates all the PPPoE client configuration and management.
     """
-    def __init__(self, db_file, path, filename, standalone=True):
+    def __init__(self, db_file=None, path=None, filename=None, standalone=True):
         FwObject.__init__(self)
+        db_file = db_file if db_file else fwglobals.g.PPPOE_DB_FILE
+        self.filename = filename if filename else fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE
+        path = path if path else fwglobals.g.PPPOE_CONFIG_PATH
+        self.path = path + 'peers/'
         self.standalone = standalone
         self.thread_pppoec = None
-        self.db_filename = db_file
         self.interfaces = SqliteDict(db_file, 'interfaces', autocommit=True)
         self.connections = SqliteDict(db_file, 'connections', autocommit=True)
-        self.path = path + 'peers/'
-        self.filename = filename
         self.chap_config = FwPppoeSecretsConfig(path, 'chap-secrets')
         self.pap_config = FwPppoeSecretsConfig(path, 'pap-secrets')
         self._populate_users()
@@ -399,6 +394,10 @@ class FwPppoeClient(FwObject):
         """
         if self.standalone:
             return
+
+        # before the installation make sure that tap and tc modules are enabled
+        fwutils.load_linux_tap_modules()
+        fwutils.load_linux_tc_modules()
 
         self.start()
 
@@ -648,6 +647,9 @@ class FwPppoeClient(FwObject):
             self.interfaces[dev_id] = pppoe_iface
             self.connections[dev_id] = conn
 
+            if fwglobals.g.fwagent:
+                fwglobals.g.fwagent.reconnect()
+
         return connected
 
     def scan(self):
@@ -740,42 +742,42 @@ class FwPppoeClient(FwObject):
         return conn.ppp_if_name
 
 def pppoe_get_ppp_if_name(if_name):
-    if hasattr(fwglobals.g, 'pppoe'):
+    if fwglobals.g.pppoe:
         return fwglobals.g.pppoe.get_ppp_if_name_from_if_name(if_name)
     else:
-        with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
+        with FwPppoeClient() as pppoe:
             return pppoe.get_ppp_if_name_from_if_name(if_name)
 
 def pppoe_get_dev_id_from_ppp(ppp_if_name):
-    if hasattr(fwglobals.g, 'pppoe'):
+    if fwglobals.g.pppoe:
         return fwglobals.g.pppoe.get_dev_id_from_ppp_if_name(ppp_if_name)
     else:
-        with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
+        with FwPppoeClient() as pppoe:
             return pppoe.get_dev_id_from_ppp_if_name(ppp_if_name)
 
 def is_pppoe_interface(if_name = None, dev_id = None):
     """Check if interface has PPPoE configuration.
     """
-    if hasattr(fwglobals.g, 'pppoe'):
+    if fwglobals.g.pppoe:
         return fwglobals.g.pppoe.is_pppoe_interface(if_name, dev_id)
     else:
-        with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe:
+        with FwPppoeClient() as pppoe:
             return pppoe.is_pppoe_interface(if_name, dev_id)
 
 def pppoe_remove():
     """Remove PPPoE configuration files and clean internal DB
     """
-    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe_client:
+    with FwPppoeClient() as pppoe_client:
         pppoe_client.clean()
 
 def is_pppoe_configured():
     """Check if PPPoE is configured
     """
-    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe_client:
+    with FwPppoeClient() as pppoe_client:
         return pppoe_client.is_pppoe_configured()
 
 def pppoe_reset():
     """Reset PPPoE configuration files
     """
-    with FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE) as pppoe_client:
+    with FwPppoeClient() as pppoe_client:
         pppoe_client.reset_interfaces()

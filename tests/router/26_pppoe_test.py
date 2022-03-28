@@ -31,7 +31,7 @@ sys.path.append(test_root)
 
 def test(fixture_globals):
     fwglobals.initialize()
-    client = FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE)
+    client = FwPppoeClient()
     client.clean()
     if_name = 'enp0s9'
     dev_id = 'pci:0000:00:09.00'
