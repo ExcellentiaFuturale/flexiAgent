@@ -157,7 +157,7 @@ class FwPppoeConnection(FwObject):
         except Exception as e:
             self.log.error("remove: %s" % str(e))
 
-    def create_tun(self, timeout = 10):
+    def create_tun(self):
         """Create TUN interface.
         """
         self.tun_if_name = 'pppoe%u' % self.id
@@ -166,13 +166,9 @@ class FwPppoeConnection(FwObject):
 
         fwutils.vpp_cli_execute([f'create tap id {self.id} host-if-name {self.tun_if_name} tun'], debug=True)
 
-        while timeout >= 0:
-            self.tun_vppsb_if_name = fwutils.vpp_if_name_to_tap(self.tun_vpp_if_name)
-            if self.tun_vppsb_if_name:
-                return True
-            timeout-= 1
-            time.sleep(1)
-
+        self.tun_vppsb_if_name = fwutils.vpp_if_name_to_tap(self.tun_vpp_if_name)
+        if self.tun_vppsb_if_name:
+            return True
         return False
 
     def remove_tun(self):
@@ -374,6 +370,10 @@ class FwPppoeClient(FwObject):
         """
         if self.standalone:
             return
+
+        # before the installation make sure that tap and tc modules are enabled
+        fwutils.load_linux_tap_modules()
+        fwutils.load_linux_tc_modules()
 
         self.start()
 
