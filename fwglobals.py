@@ -49,6 +49,7 @@ from fwlog import FWLOG_LEVEL_INFO
 from fwlog import FWLOG_LEVEL_DEBUG
 from fwpolicies import FwPolicies
 from fwrouter_cfg import FwRouterCfg
+from fwroutes import FwRoutes
 from fwsystem_cfg import FwSystemCfg
 from fwstun_wrapper import FwStunWrap
 from fwpppoe import FwPppoeClient
@@ -281,6 +282,8 @@ class Fwglobals(FwObject):
         self.fwagent = None
         self.pppoe = None
         self.loadsimulator = None
+        self.routes = None
+        self.router_api = None
         self.cache   = self.FwCache()
         self.WAN_FAILOVER_WND_SIZE         = 20         # 20 pings, every ping waits a second for response
         self.WAN_FAILOVER_THRESHOLD        = 12         # 60% of pings lost - enter the bad state, 60% of pings are OK - restore to good state
@@ -368,6 +371,7 @@ class Fwglobals(FwObject):
         self.stun_wrapper     = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
         self.ikev2            = FwIKEv2()
         self.pppoe            = FwPppoeClient(standalone=standalone)
+        self.routes           = FwRoutes()
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 
@@ -395,6 +399,7 @@ class Fwglobals(FwObject):
         self.wan_monitor.initialize() # IMPORTANT! The WAN monitor should be initialized after restore_vpp_if_needed!
         self.pppoe.initialize()   # IMPORTANT! The PPPOE should be initialized after restore_vpp_if_needed!
         self.system_api.initialize()
+        self.routes.initialize()      # IMPORTANT! The FwRoutes should be initialized after restore_vpp_if_needed!
 
         return self.fwagent
 
@@ -408,6 +413,7 @@ class Fwglobals(FwObject):
 
         self.teardown = True   # Stop all helper threads in parallel to speedup gracefull exit
 
+        self.routes.finalize()
         self.pppoe.finalize()
         self.wan_monitor.finalize()
         self.stun_wrapper.finalize()
@@ -416,6 +422,7 @@ class Fwglobals(FwObject):
         self.fwagent.finalize()
         self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
 
+        del self.routes
         del self.pppoe
         self.pppoe = None
         del self.wan_monitor

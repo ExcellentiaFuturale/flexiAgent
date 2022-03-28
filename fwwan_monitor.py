@@ -149,14 +149,10 @@ class FwWanMonitor(FwObject):
         '''Fetches routes from Linux and parses them into FwWanRoute objects.
         '''
         os_routes  = {}
-        min_metric = sys.maxsize
 
         routes_linux = fwroutes.FwLinuxRoutes(prefix='0.0.0.0/0')
 
         for key, route in routes_linux.items():
-            if (route.metric % self.WATERMARK) < min_metric:
-                route.default = True
-                min_metric    = (route.metric % self.WATERMARK)
 
             # Filter out routes on tunnel interfaces.
             # Tunnels use loopback interfaces that has no physical device, so dev_id should be None.
@@ -197,7 +193,6 @@ class FwWanMonitor(FwObject):
                 cached = self.routes[route.dev_id]
                 route.probes    = cached.probes
                 route.ok        = cached.ok
-                route.default   = cached.default
             else:
                 self.log.debug("Start WAN Monitoring on '%s'" % (str(route)))
 
@@ -352,12 +347,6 @@ class FwWanMonitor(FwObject):
                     return
             except Exception as e:
                 self.log.error("_update_metric failed: %s" % str(e))
-
-        # If defult route was changes as a result of metric update,
-        # reconnect agent to flexiManage.
-        #
-        if route.default:
-            fwglobals.g.fwagent.reconnect()
 
         self.log.debug("'%s' update metric: %d -> %d - done" % \
             (str(route), route.metric, new_metric))
