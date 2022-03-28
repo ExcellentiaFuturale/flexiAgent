@@ -18,10 +18,9 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import glob
 import os
 import psutil
-import socket
+import shutil
 import threading
 import time
 import traceback
@@ -35,6 +34,56 @@ import fwutils
 import fwroutes
 
 from fwobject import FwObject
+
+class FwPppoeResolvConf(FwObject):
+    """The object that represents PPPoE PAP/CHAP configuration file.
+    It manages secrets config files inside /etc/ppp/ folder.
+    """
+    def __init__(self):
+        FwObject.__init__(self)
+        self.resolvers = []
+        self.nameservers = []
+        self.filename = '/etc/resolv.conf'
+        self.backup = '/etc/resolv.conf.fworig'
+
+    def parse(self):
+        try:
+            with open(self.filename, 'r') as resolvconf:
+                for line in resolvconf.readlines():
+                    line = line.split('#', 1)[0];
+                    line = line.rstrip();
+                    if 'nameserver' in line:
+                        self.resolvers.append(line.split()[ 1 ])
+        except IOError as error:
+            self.log.error(f'_get_resolvers: {error.strerror}')
+        return self.resolvers
+
+    def __str__(self):
+        return f'{self.resolvers}'
+
+    def add_nameservers(self, nameservers):
+        resolvers = set(self.resolvers)
+        for nameserver in nameservers:
+            if nameserver not in resolvers:
+                self.nameservers.append(nameserver)
+
+    def save(self):
+        try:
+            shutil.copy(self.filename, self.backup)
+            with open(self.filename, 'a') as resolvconf:
+                for nameserver in self.nameservers:
+                    resolvconf.write(f'nameserver {nameserver}{os.linesep}')
+        except IOError as error:
+            self.log.error(f'save: {error.strerror}')
+        return self.resolvers
+
+    def restore(self):
+        try:
+            shutil.copy(self.backup, self.filename)
+            os.remove(self.backup)
+        except IOError as error:
+            self.log.error(f'restore: {error.strerror}')
+        return self.resolvers
 
 class FwPppoeConnection(FwObject):
     """The object that represents PPPoE connection.
@@ -115,10 +164,18 @@ class FwPppoeConnection(FwObject):
             if connected:
                 self.log.debug(f'pppoe connected: {self}')
                 self.add_linux_ip_route()
+                if not self.usepeerdns:
+                    resolvConf = FwPppoeResolvConf()
+                    resolvConf.parse()
+                    resolvConf.add_nameservers(self.nameservers)
+                    resolvConf.save()
             else:
                 self.log.debug(f'pppoe disconnected: {self}')
                 if self.tun_if_name:
                     self.remove_linux_ip_route()
+                if not self.usepeerdns:
+                    resolvConf = FwPppoeResolvConf()
+                    resolvConf.restore()
 
         return connected
 
@@ -327,30 +384,6 @@ class FwPppoeSecretsConfig(FwObject):
         def get_name(self):
             return self.name
 
-class FwPppoeResolvConf(FwObject):
-    """The object that represents PPPoE PAP/CHAP configuration file.
-    It manages secrets config files inside /etc/ppp/ folder.
-    """
-    def __init__(self):
-        FwObject.__init__(self)
-        self.resolvers = self._get_resolvers()
-
-    def _get_resolvers(self):
-        resolvers = []
-        try:
-            with open( '/etc/resolv.conf', 'r' ) as resolvconf:
-                for line in resolvconf.readlines():
-                    line = line.split( '#', 1 )[ 0 ];
-                    line = line.rstrip();
-                    if 'nameserver' in line:
-                        resolvers.append( line.split()[ 1 ] )
-            return resolvers
-        except IOError as error:
-            self.log.error(f'_get_resolvers: {error.strerror}')
-            return None
-
-    def __str__(self):
-        return f'{self.resolvers}'
 class FwPppoeInterface():
     """The object that represents PPPoE interface configuration.
     """
