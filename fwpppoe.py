@@ -79,8 +79,9 @@ class FwPppoeResolvConf(FwObject):
 
     def restore(self):
         try:
-            shutil.copy(self.backup, self.filename)
-            os.remove(self.backup)
+            if os.path.exists(self.backup):
+                shutil.copy(self.backup, self.filename)
+                os.remove(self.backup)
         except IOError as error:
             self.log.error(f'restore: {error.strerror}')
         return self.resolvers
@@ -203,6 +204,10 @@ class FwPppoeConnection(FwObject):
         sys_cmd = f'ip link set dev {self.if_name} down'
         fwutils.os_system(sys_cmd, 'PPPoE close')
 
+        if not self.usepeerdns:
+            resolvConf = FwPppoeResolvConf()
+            resolvConf.restore()
+
         self.opened = False
 
     def remove(self):
@@ -211,6 +216,10 @@ class FwPppoeConnection(FwObject):
         try:
             if os.path.exists(self.path + self.filename):
                 os.remove(self.path + self.filename)
+
+            if not self.usepeerdns:
+                resolvConf = FwPppoeResolvConf()
+                resolvConf.restore()
 
         except Exception as e:
             self.log.error("remove: %s" % str(e))
