@@ -80,8 +80,6 @@ class FwLinuxRoutes(dict):
         return self[item]
 
     def _linux_get_routes(self, prefix=None, preference=None, via=None, proto=None):
-        preference = int(preference) if preference else 0
-
         if not proto:
             proto_id = None
         elif proto == 'dhcp':
@@ -137,7 +135,7 @@ class FwLinuxRoutes(dict):
                 if gw:
                     nexthops.append(FwRouteNextHop(gw,dev))
 
-                if preference is not None and metric != preference:
+                if preference and metric != int(preference):
                     continue
 
                 if prefix and addr != prefix:
