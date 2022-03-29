@@ -41,7 +41,7 @@ class FwPppoeResolvConf(FwObject):
     """
     def __init__(self):
         FwObject.__init__(self)
-        self.resolvers = []
+        self.resolvers = set()
         self.nameservers = []
         self.filename = '/etc/resolv.conf'
         self.backup = '/etc/resolv.conf.fworig'
@@ -53,29 +53,35 @@ class FwPppoeResolvConf(FwObject):
                     line = line.split('#', 1)[0];
                     line = line.rstrip();
                     if 'nameserver' in line:
-                        self.resolvers.append(line.split()[ 1 ])
+                        self.resolvers.add(line.split()[ 1 ])
         except IOError as error:
             self.log.error(f'_get_resolvers: {error.strerror}')
-        return self.resolvers
 
     def __str__(self):
-        return f'{self.resolvers}'
+        return f'{self.resolvers}, {self.nameservers}'
 
-    def add_nameservers(self, nameservers):
-        resolvers = set(self.resolvers)
+    def add(self, nameservers):
         for nameserver in nameservers:
-            if nameserver not in resolvers:
+            if nameserver not in self.resolvers:
                 self.nameservers.append(nameserver)
+
+    def clear(self):
+        self.nameservers.clear()
 
     def save(self):
         try:
-            shutil.copy(self.filename, self.backup)
             with open(self.filename, 'a') as resolvconf:
                 for nameserver in self.nameservers:
                     resolvconf.write(f'nameserver {nameserver}{os.linesep}')
         except IOError as error:
             self.log.error(f'save: {error.strerror}')
-        return self.resolvers
+
+    def backup(self):
+        try:
+            if not os.path.exists(self.backup):
+                shutil.copy(self.filename, self.backup)
+        except IOError as error:
+            self.log.error(f'backup: {error.strerror}')
 
     def restore(self):
         try:
@@ -84,7 +90,6 @@ class FwPppoeResolvConf(FwObject):
                 os.remove(self.backup)
         except IOError as error:
             self.log.error(f'restore: {error.strerror}')
-        return self.resolvers
 
 class FwPppoeConnection(FwObject):
     """The object that represents PPPoE connection.
@@ -165,18 +170,10 @@ class FwPppoeConnection(FwObject):
             if connected:
                 self.log.debug(f'pppoe connected: {self}')
                 self.add_linux_ip_route()
-                if not self.usepeerdns:
-                    resolvConf = FwPppoeResolvConf()
-                    resolvConf.parse()
-                    resolvConf.add_nameservers(self.nameservers)
-                    resolvConf.save()
             else:
                 self.log.debug(f'pppoe disconnected: {self}')
                 if self.tun_if_name:
                     self.remove_linux_ip_route()
-                if not self.usepeerdns:
-                    resolvConf = FwPppoeResolvConf()
-                    resolvConf.restore()
 
         return connected
 
@@ -204,10 +201,6 @@ class FwPppoeConnection(FwObject):
         sys_cmd = f'ip link set dev {self.if_name} down'
         fwutils.os_system(sys_cmd, 'PPPoE close')
 
-        if not self.usepeerdns:
-            resolvConf = FwPppoeResolvConf()
-            resolvConf.restore()
-
         self.opened = False
 
     def remove(self):
@@ -216,10 +209,6 @@ class FwPppoeConnection(FwObject):
         try:
             if os.path.exists(self.path + self.filename):
                 os.remove(self.path + self.filename)
-
-            if not self.usepeerdns:
-                resolvConf = FwPppoeResolvConf()
-                resolvConf.restore()
 
         except Exception as e:
             self.log.error("remove: %s" % str(e))
@@ -431,6 +420,7 @@ class FwPppoeClient(FwObject):
         self.connections = SqliteDict(db_file, 'connections', autocommit=True)
         self.chap_config = FwPppoeSecretsConfig(path, 'chap-secrets')
         self.pap_config = FwPppoeSecretsConfig(path, 'pap-secrets')
+        self.resolvConf = None
         self._populate_users()
 
     def initialize(self):
@@ -438,6 +428,9 @@ class FwPppoeClient(FwObject):
         """
         if self.standalone:
             return
+
+        self.resolvConf = FwPppoeResolvConf()
+        self.resolvConf.backup()
 
         # before the installation make sure that tap and tc modules are enabled
         fwutils.load_linux_tap_modules()
@@ -463,6 +456,10 @@ class FwPppoeClient(FwObject):
         """Stop all PPPoE connections and PPPoE thread if not standalone.
            Also close SQLDict databases.
         """
+        if self.resolvConf:
+            self.resolvConf.restore()
+            self.resolvConf = None
+
         if self.thread_pppoec:
             self.thread_pppoec.join()
             self.thread_pppoec = None
@@ -480,6 +477,8 @@ class FwPppoeClient(FwObject):
         """
         for pppoe_iface in self.interfaces.values():
             self._add_user(pppoe_iface.user, pppoe_iface.password)
+            if self.resolvConf:
+                self.resolvConf.add(pppoe_iface.nameservers)
 
     def _generate_connection_id(self):
         """Generate connection id
@@ -527,6 +526,10 @@ class FwPppoeClient(FwObject):
         for conn in self.connections.values():
             conn.remove()
 
+        if self.resolvConf:
+            self.resolvConf.restore()
+            self.resolvConf.clear()
+
     def stop(self, timeout = 120):
         """Stop all PPPoE connections.
         """
@@ -566,6 +569,8 @@ class FwPppoeClient(FwObject):
         for dev_id, conn in self.connections.items():
             conn.save()
             self.connections[dev_id] = conn
+        if self.resolvConf:
+            self.resolvConf.save()
 
     def _restore_netplan(self):
         """Restore Netplan by adding PPPoE interfaces back.
