@@ -123,7 +123,8 @@ class FwRoutes(FwObject):
                 #
                 if fwglobals.g.router_api and fwglobals.g.router_api.state_is_started():
                     if int(time.time()) % 5 == 0:  # Check routes every 5 seconds
-                        self._check_reinstall_static_routes()
+                        with fwglobals.g.request_lock:
+                            self._check_reinstall_static_routes()
 
                 # Check if the default route was modified.
                 # If it was, reconnect the agent to avoid WebSocket timeout.
