@@ -396,7 +396,7 @@ class FwPppoeSecretsConfig(FwObject):
 class FwPppoeInterface():
     """The object that represents PPPoE interface configuration.
     """
-    def __init__(self, user, password, mtu, mru, usepeerdns, nameservers, metric, enabled):
+    def __init__(self, user, password, mtu, mru, usepeerdns, metric, enabled, nameservers=[]):
         self.user = user
         self.password = password
         self.mtu = mtu
