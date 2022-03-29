@@ -135,7 +135,8 @@ class FwLinuxRoutes(dict):
                 if gw:
                     nexthops.append(FwRouteNextHop(gw,dev))
 
-                if preference and metric != int(preference):
+                # check if non None since metric can be 0
+                if preference is not None and metric != int(preference):
                     continue
 
                 if prefix and addr != prefix:
