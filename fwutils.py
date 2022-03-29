@@ -2900,12 +2900,6 @@ def netplan_apply(caller_name=None):
     :param data:    the data to write into file
     '''
     try:
-        # Before netplan apply go and note the default route.
-        # If it will be changed as a result of netplan apply, we return True.
-        #
-        if fwglobals.g.fwagent:
-            (_, _, dr_pci_before, _) = get_default_route()
-
         cmd = 'netplan apply'
         log_str = caller_name + ': ' + cmd if caller_name else cmd
         fwglobals.log.debug(log_str)
@@ -2920,15 +2914,6 @@ def netplan_apply(caller_name=None):
         # IPv6 might be renable if interface name is changed using set-name
         disable_ipv6()
 
-        # Find out if the default route was changed. If it was - reconnect agent.
-        #
-        if fwglobals.g.fwagent:
-            (_, _, dr_pci_after, _) = get_default_route()
-            if dr_pci_before != dr_pci_after:
-                fwglobals.log.debug(
-                    "%s: netplan_apply: default route changed (%s->%s) - reconnect" % \
-                    (caller_name, dr_pci_before, dr_pci_after))
-                fwglobals.g.fwagent.reconnect()
 
     except Exception as e:
         fwglobals.log.debug("%s: netplan_apply failed: %s" % (caller_name, str(e)))

@@ -480,8 +480,15 @@ class FwAgent(FwObject):
         if fwglobals.g.loadsimulator and request["message"] == "sync-device":
             reply = {"ok":1}
         else:
+            default_route_before = fwutils.get_default_route()
+
             msg_id = seq + " " if not job_id else seq + " job_id:" + job_id + " "
             reply  = self.handle_received_request(request, log_prefix=msg_id)
+
+            default_route_after = fwutils.get_default_route()
+            if default_route_before[2] != default_route_after[2]:  # reconnect the agent to avoid WebSocket timeout
+                self.log.debug(f"reconnect as default route was changed: '{default_route_before}' -> '{default_route_after}'")
+                self.reconnect()
 
         # Messages that change the interfaces might break the existing connection
         # (for example, if the WAN interface IP/mask has changed). Since sending

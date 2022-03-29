@@ -26,22 +26,25 @@ import fwtunnel_stats
 import fwutils
 import pyroute2
 import subprocess
+import time
+import threading
+import traceback
 
-from pyroute2 import IPDB
 
-ipdb = IPDB()
+from fwobject import FwObject
+
+ipdb = pyroute2.IPDB()
 
 class FwRouteProto(enum.Enum):
    BOOT = 3
    STATIC = 4
    DHCP = 16
 
-class FwRouteKey:
-    """Class used as a route key."""
-    def __init__(self, metric, addr, via):
-        self.addr       = addr
-        self.via        = via
-        self.metric     = metric
+class FwRouteKey(str):
+    """Route key"""
+    def __new__(cls, metric, addr, via):
+        obj = f'{addr} {via} {str(metric)}'
+        return obj
 
 class FwRouteNextHop:
     """Class used as a route nexthop."""
@@ -49,7 +52,7 @@ class FwRouteNextHop:
         self.dev        = dev
         self.via        = via
 
-class FwRouteData:
+class FwRoute:
     """Class used as a route data."""
     def __init__(self, prefix, via, dev, proto, metric):
         self.prefix     = prefix
@@ -60,7 +63,6 @@ class FwRouteData:
         self.dev_id     = fwutils.get_interface_dev_id(dev)
         self.probes     = {}        # Ping results per server
         self.ok         = True      # If True there is connectivity to internet
-        self.default    = False     # If True the route is the default one - has lowest metric
 
     def __str__(self):
         route = '%s via %s dev %s(%s)' % (self.prefix, self.via, self.dev, self.dev_id)
@@ -69,6 +71,99 @@ class FwRouteData:
         if self.metric:
             route += (' metric ' + str(self.metric))
         return route
+
+class FwRoutes(FwObject):
+    """Manages all route related activity, e.g. watchdog on sync of static
+    routes in router configuration to the actual routes in kernel, or monitor
+    of default route change, which might require some actions.
+    """
+    def __init__(self):
+        FwObject.__init__(self)
+        self.thread_routes = None
+        self.default_route = fwutils.get_default_route()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # The three arguments to `__exit__` describe the exception
+        # caused the `with` statement execution to fail. If the `with`
+        # statement finishes without an exception being raised, these
+        # arguments will be `None`.
+        self.finalize()
+
+    def initialize(self):
+        """Starts the FwRoutes activity - runs the main loop thread.
+        """
+        self.thread_routes = threading.Thread(target=self.thread_routes_func, name="FwRoutes")
+        self.thread_routes.start()
+
+    def finalize(self):
+        """Stops the FwRoutes activity - stops the main loop thread.
+        """
+        if self.thread_routes:
+            self.thread_routes.join()
+            self.thread_routes = None
+
+    def thread_routes_func(self):
+        """The FwRoutes main loop thread.
+        """
+        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+
+        while not fwglobals.g.teardown:
+
+            time.sleep(1)
+
+            try: # Ensure thread doesn't exit on exception
+
+                # Firstly sync static routes from router configuration DB to Linux
+                # in order to restore routes that disappeared for some reason,
+                # for example due to 'netplan apply' that overrod cfg routes.
+                # We do that only if router was started already.
+                #
+                if fwglobals.g.router_api and fwglobals.g.router_api.state_is_started():
+                    if int(time.time()) % 5 == 0:  # Check routes every 5 seconds
+                        with fwglobals.g.request_lock:
+                            self._check_reinstall_static_routes()
+
+                # Check if the default route was modified.
+                # If it was, reconnect the agent to avoid WebSocket timeout.
+                #
+                if fwglobals.g.fwagent:
+                    default_route = fwutils.get_default_route()
+                    if self.default_route[2] != default_route[2]:
+                        self.log.debug(f"reconnect as default route was changed: '{self.default_route}' -> '{default_route}'")
+                        self.default_route = default_route
+                        fwglobals.g.fwagent.reconnect()
+
+            except Exception as _e:      # pylint: disable=broad-except
+                self.log.error("%s: %s (%s)" % \
+                    (threading.current_thread().getName(), str(_e), traceback.format_exc()))
+
+        self.log.debug("loop stopped")
+
+    def _check_reinstall_static_routes(self):
+        routes_db = fwglobals.g.router_cfg.get_routes()
+        routes_linux = FwLinuxRoutes(proto='static')
+        tunnel_addresses = fwtunnel_stats.get_tunnel_info()
+
+        for route in routes_db:
+            addr = route['addr']
+            via = route['via']
+            metric = str(route.get('metric', '0'))
+            dev = route.get('dev_id')
+            exist_in_linux = routes_linux.exist(addr, metric, via)
+
+            if tunnel_addresses.get(via) == 'down':
+                if exist_in_linux:
+                    fwglobals.log.debug(f"remove static route through the broken tunnel: {str(route)}")
+                    add_remove_route(addr, via, metric, True, dev)
+                continue
+
+            if not exist_in_linux:
+                fwglobals.log.debug(f"restore static route: {str(route)}")
+                add_remove_route(addr, via, metric, False, dev)
+
 
 class FwLinuxRoutes(dict):
     """The object that represents routing rules found in OS.
@@ -146,7 +241,7 @@ class FwLinuxRoutes(dict):
                 for nexthop in nexthops:
                     if via and via != nexthop.via:
                         continue
-                    self[FwRouteKey(metric, addr, nexthop.via)] = FwRouteData(addr, nexthop.via, nexthop.dev, proto, metric)
+                    self[FwRouteKey(metric, addr, nexthop.via)] = FwRoute(addr, nexthop.via, nexthop.dev, proto, metric)
 
     def exist(self, addr, metric, via):
         metric = int(metric) if metric else 0
@@ -209,10 +304,10 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
 
     next_hops = ''
     if routes_linux:
-        for key in routes_linux.keys():
-            if remove and via == key.via:
+        for route in routes_linux.values():
+            if remove and via == route.via:
                 continue
-            next_hops += ' nexthop via ' + key.via
+            next_hops += ' nexthop via ' + route.via
 
     metric = ' metric %s' % metric if metric else ' metric 0'
     op     = 'replace'
@@ -247,26 +342,6 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
 
     return (True, None)
 
-def check_reinstall_static_routes():
-    routes_db = fwglobals.g.router_cfg.get_routes()
-    routes_linux = FwLinuxRoutes(proto='static')
-    tunnel_addresses = fwtunnel_stats.get_tunnel_info()
-
-    for route in routes_db:
-        addr = route['addr']
-        via = route['via']
-        metric = str(route.get('metric', '0'))
-        dev = route.get('dev_id')
-        exist_in_linux = routes_linux.exist(addr, metric, via)
-
-        if tunnel_addresses.get(via) == 'down':
-            if exist_in_linux:
-                add_remove_route(addr, via, metric, True, dev)
-            continue
-
-        if not exist_in_linux:
-            add_remove_route(addr, via, metric, False, dev)
-
 def add_remove_static_routes(via, is_add):
     routes_db = fwglobals.g.router_cfg.get_routes()
 
@@ -285,7 +360,7 @@ def add_remove_static_routes(via, is_add):
 def update_route_metric(route, new_metric, netplan_apply=False):
     """Updates metric of the specific route in Linux.
 
-    :param route:           The FwRouteData object that reflects route rule in kernel
+    :param route:           The FwRoute object that reflects route rule in kernel
     :param new_metric:      The new metric to be set for the route.
     :param netplan_apply:   If True the 'netplan apply' command will be run after
                             the update. Take a caution: netplan apply might cancel
