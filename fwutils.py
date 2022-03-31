@@ -928,6 +928,14 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
         fwglobals.g.cache.dev_id_to_vpp_if_name[pci_addr] = vpp_if_name
         fwglobals.g.cache.vpp_if_name_to_dev_id[vpp_if_name] = pci_addr
 
+    # IMPORTANT! PPPoE should be consulted at last, as it might override values found so far!
+    #
+    pppoe_dev_id_vpp_if_name = fwpppoe.build_dev_id_to_vpp_if_name_map()
+    for pppoe_dev_id, pppoe_vpp_if_name in pppoe_dev_id_vpp_if_name.items():
+        if pppoe_vpp_if_name:
+            fwglobals.g.cache.dev_id_to_vpp_if_name[pppoe_dev_id] = pppoe_vpp_if_name
+            fwglobals.g.cache.vpp_if_name_to_dev_id[pppoe_vpp_if_name] = pppoe_dev_id
+
     if dev_id:
         vpp_if_name = fwglobals.g.cache.dev_id_to_vpp_if_name.get(dev_id)
         if vpp_if_name: return vpp_if_name
@@ -2335,8 +2343,23 @@ def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order,
 
     return (True, None)
 
+def vpp_cli_execute_one(cmd, debug = False):
+    """Execute one VPP CLI command.
+
+    :param cmd:      VPP CLI command
+    :param debug:    Print command to be executed
+
+    :returns: Output from VPP.
+    """
+    if debug:
+        fwglobals.log.debug(cmd)
+    out = _vppctl_read(cmd, wait=False).strip()
+    if debug:
+        fwglobals.log.debug(out)
+    return out
+
 def vpp_cli_execute(cmds, debug = False):
-    """Map interfaces inside tap-inject plugin.
+    """Execute list of VPP CLI commands.
 
     :param cmds:     List of VPP CLI commands
     :param debug:    Print command to be executed
@@ -2349,10 +2372,7 @@ def vpp_cli_execute(cmds, debug = False):
         return (False, "Expect list of commands")
 
     for cmd in cmds:
-        if debug:
-            fwglobals.log.debug(cmd)
-
-        out = _vppctl_read(cmd, wait=False)
+        out = vpp_cli_execute_one(cmd, debug)
         if out is None or re.search('unknown|failed|ret=-', out):
             return (False, "failed vppctl_cmd=%s" % cmd)
 
@@ -2888,12 +2908,6 @@ def netplan_apply(caller_name=None):
     :param data:    the data to write into file
     '''
     try:
-        # Before netplan apply go and note the default route.
-        # If it will be changed as a result of netplan apply, we return True.
-        #
-        if fwglobals.g.fwagent:
-            (_, _, dr_pci_before, _) = get_default_route()
-
         cmd = 'netplan apply'
         log_str = caller_name + ': ' + cmd if caller_name else cmd
         fwglobals.log.debug(log_str)
@@ -2908,15 +2922,6 @@ def netplan_apply(caller_name=None):
         # IPv6 might be renable if interface name is changed using set-name
         disable_ipv6()
 
-        # Find out if the default route was changed. If it was - reconnect agent.
-        #
-        if fwglobals.g.fwagent:
-            (_, _, dr_pci_after, _) = get_default_route()
-            if dr_pci_before != dr_pci_after:
-                fwglobals.log.debug(
-                    "%s: netplan_apply: default route changed (%s->%s) - reconnect" % \
-                    (caller_name, dr_pci_before, dr_pci_after))
-                fwglobals.g.fwagent.reconnect()
 
     except Exception as e:
         fwglobals.log.debug("%s: netplan_apply failed: %s" % (caller_name, str(e)))
