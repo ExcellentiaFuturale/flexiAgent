@@ -190,16 +190,16 @@ def qmi_get_phone_number(dev_id):
 
 def get_phone_number(dev_id, cached=True):
     cached_values = get_cache_val(dev_id, 'phone_number')
-    if cached_values and cached:
+    if cached_values is not None and cached: # phone number is not always provisioned and can be empty string
         return cached_values
 
+    phone_number = ''
     lines, _ = qmi_get_phone_number(dev_id)
     for line in lines:
         if 'MSISDN:' in line:
             phone_number = line.split(':')[-1].strip().replace("'", '')
-            set_cache_val(dev_id, 'phone_number', phone_number)
-            return phone_number
-    return ''
+    set_cache_val(dev_id, 'phone_number', phone_number)
+    return phone_number
 
 def get_at_port(dev_id):
     at_ports = []
@@ -859,9 +859,14 @@ def collect_lte_info(dev_id):
     connection_state = mbim_connection_state(dev_id)
     registration_network = mbim_registration_state(dev_id)
 
-    tap_name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True)
-    if tap_name:
-        interface_name = tap_name
+    # There is no need to check the tap name if the router is not entirely run.
+    # When the router is in the start process, and the LTE is not yet fully configured,
+    # the "dev_id_to_tap()" causes a chain of unnecessary functions to be called,
+    # and eventually, the result is empty.
+    if fwglobals.g.router_api.state_is_started():
+        tap_name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True)
+        if tap_name:
+            interface_name = tap_name
 
     addr = fwutils.get_interface_address(interface_name)
     connectivity = os.system("ping -c 1 -W 1 -I %s 8.8.8.8 > /dev/null 2>&1" % interface_name) == 0
