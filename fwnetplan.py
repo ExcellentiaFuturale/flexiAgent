@@ -32,6 +32,7 @@ import fwglobals
 import fwlte
 import fwutils
 import fwpppoe
+import fwroutes
 
 from fwwan_monitor import get_wan_failover_metric
 
@@ -146,14 +147,10 @@ def load_netplan_filenames(read_from_disk=False, get_only=False):
             fwglobals.g.NETPLAN_FILES = dict(netplan_filenames)
             return fwglobals.g.NETPLAN_FILES
 
-    output = subprocess.check_output('ip route show default', shell=True).decode().strip()
-    routes = output.splitlines()
-
     devices = {}
-    for route in routes:
-        rip = route.split('via ')[1].split(' ')[0]
-        dev = route.split('dev ')[1].split(' ')[0]
-        devices[dev] = rip
+    routes_linux = fwroutes.FwLinuxRoutes(prefix='0.0.0.0/0')
+    for route in routes_linux.values():
+        devices[route.dev] = route.via
 
     files = glob.glob("/etc/netplan/*.fw_run_orig") + \
             glob.glob("/lib/netplan/*.fw_run_orig") + \
