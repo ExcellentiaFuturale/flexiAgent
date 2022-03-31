@@ -371,9 +371,9 @@ class FwCfgRequestHandler(FwObject):
                 err_str = None
             return err_str
 
-        args = cmd.get('params', {})
         try:
             func = _get_func(cmd)
+            args = cmd.get('params', {})
             if result:
                 args = copy.deepcopy(args) if args else {}
                 args.update({ 'result_cache': result })
@@ -385,7 +385,7 @@ class FwCfgRequestHandler(FwObject):
             return err_str
 
         except Exception as e:
-            err_str = "%s(%s): %s" % (cmd['func'], format(args), str(e))
+            err_str = "%s(%s): %s" % (cmd['func'], format(cmd.get('params', "")), str(e))
             self.log.error(err_str + ': %s' % str(traceback.format_exc()))
             return err_str
 
