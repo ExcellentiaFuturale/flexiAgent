@@ -142,9 +142,6 @@ class FwPppoeConnection(FwObject):
         sys_cmd = 'poff %s' % self.filename
         fwutils.os_system(sys_cmd, 'PPPoE close')
 
-        sys_cmd = f'ip link set dev {self.if_name} down'
-        fwutils.os_system(sys_cmd, 'PPPoE close')
-
         self.opened = False
 
     def remove(self):
@@ -167,6 +164,14 @@ class FwPppoeConnection(FwObject):
         if not self.tun_vpp_if_name:
             self.log.error("create_tun: tun_vpp_if_name is empty")
             return False
+
+        # Workaround to handle the following output.
+        # '_______   _              _   _____  ___
+        #  __/ __/ _ \\  (_)__    | | / / _ \\/  \\
+        #  _/ _// // / / / _ \\   | |/ / ___/ ___/
+        #  /_/ /____(_)_/\\___/   |___/_/  /_/
+        #  tun0'
+        self.tun_vpp_if_name = self.tun_vpp_if_name.split(' ')[-1]
 
         self.tun_vppsb_if_name = fwutils.vpp_if_name_to_tap(self.tun_vpp_if_name)
         if not self.tun_vppsb_if_name:
@@ -378,7 +383,9 @@ class FwPppoeClient(FwObject):
         # before the installation make sure that tap and tc modules are enabled
         fwutils.load_linux_tap_modules()
         fwutils.load_linux_tc_modules()
+        fwutils.load_linux_modules(['pppoe'])
 
+        self.scan()
         self.start()
 
         self.thread_pppoec = threading.Thread(target=self.pppoec_thread, name='PPPOE Client Thread')
@@ -684,6 +691,7 @@ class FwPppoeClient(FwObject):
             conn.close()
             conn.remove_tun()
             self.connections[dev_id] = conn
+            conn.save()
             pppoe_iface.is_connected = False
             self.interfaces[dev_id] = pppoe_iface
 
@@ -725,7 +733,8 @@ class FwPppoeClient(FwObject):
         dev_id_vpp_if_name = {}
 
         for dev_id, conn in self.connections.items():
-            dev_id_vpp_if_name[dev_id] = conn.tun_vpp_if_name
+            if conn.addr:
+                dev_id_vpp_if_name[dev_id] = conn.tun_vpp_if_name
 
         return dev_id_vpp_if_name
 
