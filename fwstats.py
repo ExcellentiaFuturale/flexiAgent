@@ -59,7 +59,8 @@ def update_stats_tread(log, fwagent):
                 if fwglobals.g.loadsimulator:
                     fwglobals.g.loadsimulator.update_stats()
                 else:
-                    update_stats()
+                    renew_lte_wifi_stats = slept % (timeout * 2) == 0 # Renew LTE and WiFi statistics every second update
+                    update_stats(renew_lte_wifi_stats=renew_lte_wifi_stats)
         except Exception as e:
             log.excep("%s: %s (%s)" %
                 (threading.current_thread().getName(), str(e), traceback.format_exc()))
@@ -69,7 +70,7 @@ def update_stats_tread(log, fwagent):
         time.sleep(1)
         slept += 1
 
-def update_stats():
+def update_stats(renew_lte_wifi_stats=True):
     """Update statistics dictionary using values retrieved from VPP interfaces.
 
     :returns: None.
@@ -84,6 +85,7 @@ def update_stats():
         reset_stats()
         vpp_pid = current_vpp_pid
 
+    prev_stats = dict(stats)  # copy of prev stats
     if not vpp_pid or not fwglobals.g.router_api.state_is_started():
         stats['ok'] = 0
     else:
@@ -91,7 +93,6 @@ def update_stats():
         if not new_stats:
             stats['ok'] = 0
         else:
-            prev_stats = dict(stats)  # copy of prev stats
             stats['time'] = time.time()
             stats['last'] = new_stats
             stats['ok'] = 1
@@ -140,8 +141,12 @@ def update_stats():
                 stats['period'] = stats['time'] - prev_stats['time']
                 stats['running'] = True if fwutils.vpp_does_run() else False
 
-    stats['lte_stats'] = fwlte.get_stats()
-    stats['wifi_stats'] = fwwifi.get_stats()
+    if renew_lte_wifi_stats:
+        stats['lte_stats'] = fwlte.get_stats()
+        stats['wifi_stats'] = fwwifi.get_stats()
+    else:
+        stats['lte_stats'] = prev_stats['lte_stats']
+        stats['wifi_stats'] = prev_stats['wifi_stats']
 
     # Add the update to the list of updates. If the list is full,
     # remove the oldest update before pushing the new one
