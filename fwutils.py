@@ -928,6 +928,14 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
         fwglobals.g.cache.dev_id_to_vpp_if_name[pci_addr] = vpp_if_name
         fwglobals.g.cache.vpp_if_name_to_dev_id[vpp_if_name] = pci_addr
 
+    # IMPORTANT! PPPoE should be consulted at last, as it might override values found so far!
+    #
+    pppoe_dev_id_vpp_if_name = fwpppoe.build_dev_id_to_vpp_if_name_map()
+    for pppoe_dev_id, pppoe_vpp_if_name in pppoe_dev_id_vpp_if_name.items():
+        if pppoe_vpp_if_name:
+            fwglobals.g.cache.dev_id_to_vpp_if_name[pppoe_dev_id] = pppoe_vpp_if_name
+            fwglobals.g.cache.vpp_if_name_to_dev_id[pppoe_vpp_if_name] = pppoe_dev_id
+
     if dev_id:
         vpp_if_name = fwglobals.g.cache.dev_id_to_vpp_if_name.get(dev_id)
         if vpp_if_name: return vpp_if_name

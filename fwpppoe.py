@@ -721,6 +721,14 @@ class FwPppoeClient(FwObject):
         conn = self.connections.get(dev_id)
         return conn.ppp_if_name
 
+    def build_dev_id_to_vpp_if_name_map(self):
+        dev_id_vpp_if_name = {}
+
+        for dev_id, conn in self.connections.items():
+            dev_id_vpp_if_name[dev_id] = conn.tun_vpp_if_name
+
+        return dev_id_vpp_if_name
+
 def pppoe_get_ppp_if_name(if_name):
     if fwglobals.g.pppoe:
         return fwglobals.g.pppoe.get_ppp_if_name_from_if_name(if_name)
@@ -761,3 +769,12 @@ def pppoe_reset():
     """
     with FwPppoeClient() as pppoe_client:
         pppoe_client.reset_interfaces()
+
+def build_dev_id_to_vpp_if_name_map():
+    """Get PPPoE connections.
+    """
+    if fwglobals.g.pppoe:
+        return fwglobals.g.pppoe.build_dev_id_to_vpp_if_name_map()
+    else:
+        with FwPppoeClient() as pppoe:
+            return pppoe.build_dev_id_to_vpp_if_name_map()
