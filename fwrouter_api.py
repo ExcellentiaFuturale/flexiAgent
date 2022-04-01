@@ -960,6 +960,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         fwnetplan.load_netplan_filenames()
 
+        fwglobals.g.pppoe.scan()
         fwglobals.g.pppoe.stop()
 
     def _on_start_router_after(self):
