@@ -124,6 +124,9 @@ class FwPppoeConnection(FwObject):
     def open(self):
         """Open PPPoE connection.
         """
+        sys_cmd = f'ip -4 addr flush label "{self.if_name}"'
+        fwutils.os_system(sys_cmd, 'PPPoE open')
+
         sys_cmd = f'ip link set dev {self.if_name} up'
         fwutils.os_system(sys_cmd, 'PPPoE open')
 
@@ -456,6 +459,7 @@ class FwPppoeClient(FwObject):
     def _remove_connection(self, dev_id):
         """Remove connection
         """
+        self.connections[dev_id].close()
         self.connections[dev_id].remove()
         del self.connections[dev_id]
 
