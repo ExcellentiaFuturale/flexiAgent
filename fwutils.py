@@ -1176,10 +1176,12 @@ def vpp_get_tap_info(vpp_if_name=None, vpp_sw_if_index=None, tap_if_name=None):
         fwglobals.log.debug("vpp_get_tap_info: no arguments provided")
         return (None, None)
 
-    taps = _vppctl_read(vppctl_cmd).strip()
+    taps = _vppctl_read(vppctl_cmd)
     if not taps:
         fwglobals.log.debug(f"vpp_get_tap_info: '{vppctl_cmd}' returned nothing")
         return (None, None)
+
+    taps = taps.strip()
 
     # check if tap-inject is configured and enabled
     if 'not enabled' in taps:
@@ -2353,9 +2355,10 @@ def vpp_cli_execute_one(cmd, debug = False):
     """
     if debug:
         fwglobals.log.debug(cmd)
-    out = _vppctl_read(cmd, wait=False).strip()
+    out = _vppctl_read(cmd, wait=False)
     if debug:
-        fwglobals.log.debug(out)
+        fwglobals.log.debug(str(out))
+    out = out.strip() if out else out
     return out
 
 def vpp_cli_execute(cmds, debug = False):
