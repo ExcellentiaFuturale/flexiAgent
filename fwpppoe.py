@@ -47,7 +47,8 @@ class FwPppoeResolvConf(FwObject):
         return f'{self.nameservers}'
 
     def add(self, nameservers):
-        self.nameservers.append(nameservers)
+        for nameserver in nameservers:
+            self.nameservers.append(nameserver)
 
     def clear(self):
         self.nameservers.clear()
@@ -556,7 +557,7 @@ class FwPppoeClient(FwObject):
         resolvConf = FwPppoeResolvConf()
         for pppoe_iface in self.interfaces.values():
             resolvConf.add(pppoe_iface.nameservers)
-        resolvConf.conf.save()
+        resolvConf.save()
 
     def _restore_netplan(self):
         """Restore Netplan by adding PPPoE interfaces back.
@@ -661,7 +662,6 @@ class FwPppoeClient(FwObject):
         self._remove_files()
         self._populate_users()
         self._serialize_users_connections()
-        self._serialize_resolv_conf()
 
     def is_pppoe_configured(self):
         """Check if any PPPoE interface is configured.
@@ -686,6 +686,8 @@ class FwPppoeClient(FwObject):
 
             if fwglobals.g.fwagent:
                 fwglobals.g.fwagent.reconnect()
+
+            self._serialize_resolv_conf()
 
         return connected
 
