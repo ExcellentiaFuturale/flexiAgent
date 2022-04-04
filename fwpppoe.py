@@ -49,7 +49,6 @@ class FwPppoeConnection(FwObject):
         self.user = ''
         self.mtu = 0
         self.mru = 0
-        self.ppp_if_name = 'ppp%u' % id
         self.addr = ''
         self.gw = ''
         self.dev_id = dev_id
@@ -60,6 +59,7 @@ class FwPppoeConnection(FwObject):
         self.tun_vppsb_if_name = ''
         self.opened = False
         self.linux_if_name = fwutils.dev_id_to_linux_if(self.dev_id)
+        self.ppp_if_name = f'ppp-{self.linux_if_name}'
         self.if_name = self.linux_if_name
 
     def __str__(self):
