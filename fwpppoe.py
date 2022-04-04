@@ -554,7 +554,7 @@ class FwPppoeClient(FwObject):
     def _serialize_resolv_conf(self):
         """Re-creates /etc/resolv.conf
         """
-        fwutils.netplan_apply('PPPoE')
+        fwutils.restart_service(service='systemd-resolved', timeout=5)
         resolvConf = FwPppoeResolvConf()
         usepeerdns = False
         for pppoe_iface in self.interfaces.values():
