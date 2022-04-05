@@ -551,7 +551,7 @@ class FwPppoeClient(FwObject):
             conn.save()
             self.connections[dev_id] = conn
 
-    def _serialize_resolv_conf(self):
+    def _update_resolv_conf(self):
         """Re-creates /etc/resolv.conf
         """
         fwutils.restart_service(service='systemd-resolved', timeout=5)
@@ -691,7 +691,7 @@ class FwPppoeClient(FwObject):
             if fwglobals.g.fwagent:
                 fwglobals.g.fwagent.reconnect()
 
-            self._serialize_resolv_conf()
+            self._update_resolv_conf()
 
         return connected
 
