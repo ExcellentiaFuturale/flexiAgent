@@ -34,45 +34,6 @@ import fwroutes
 
 from fwobject import FwObject
 
-class FwPppoeResolvConf(FwObject):
-    """The object that represents DNS configuration.
-    """
-    def __init__(self):
-        FwObject.__init__(self)
-        self.nameservers = []
-        self.resolv_conf = '/etc/resolv.conf'
-        self.ppp_resolv_conf = '/etc/ppp/resolv.conf'
-
-    def __str__(self):
-        return f'{self.nameservers}'
-
-    def add(self, nameservers):
-        for nameserver in nameservers:
-            self.nameservers.append(nameserver)
-
-    def clear(self):
-        self.nameservers.clear()
-
-    def save(self, usepeerdns):
-        try:
-            with open(self.ppp_resolv_conf, "r") as file:
-                ppp_resolv_conf_data = file.read()
-
-            with open(self.resolv_conf, "r") as file:
-                ppp_resolv_conf = file.read()
-
-            with open(self.resolv_conf, 'w') as file:
-                if usepeerdns:
-                    file.write(ppp_resolv_conf_data)
-
-                for nameserver in self.nameservers:
-                    file.write(f'nameserver {nameserver}{os.linesep}')
-
-                file.write(ppp_resolv_conf)
-
-        except IOError as error:
-            self.log.error(f'save: {error.strerror}')
-
 class FwPppoeConnection(FwObject):
     """The object that represents PPPoE connection.
     It manages connection config files inside /etc/ppp/peers/ folder.
@@ -554,14 +515,36 @@ class FwPppoeClient(FwObject):
     def _update_resolv_conf(self):
         """Re-creates /etc/resolv.conf
         """
-        fwutils.restart_service(service='systemd-resolved', timeout=5)
-        resolvConf = FwPppoeResolvConf()
         usepeerdns = False
+        nameservers = []
+
         for pppoe_iface in self.interfaces.values():
             usepeerdns |= pppoe_iface.usepeerdns
             if not pppoe_iface.usepeerdns:
-                resolvConf.add(pppoe_iface.nameservers)
-        resolvConf.save(usepeerdns)
+                nameservers.extend(pppoe_iface.nameservers)
+
+        fwglobals.log.debug(f'nameservers: {nameservers}')
+
+        fwutils.restart_service(service='systemd-resolved', timeout=5)
+
+        try:
+            with open(fwglobals.g.PPPOE_DNS_CONFIG_PATH, "r") as file:
+                ppp_resolv_conf_data = file.read()
+
+            with open(fwglobals.g.DNS_CONFIG_PATH, "r") as file:
+                resolv_conf_data = file.read()
+
+            with open(fwglobals.g.DNS_CONFIG_PATH, 'w') as file:
+                if usepeerdns:
+                    file.write(ppp_resolv_conf_data)
+
+                for nameserver in nameservers:
+                    file.write(f'nameserver {nameserver}{os.linesep}')
+
+                file.write(resolv_conf_data)
+
+        except IOError as error:
+            fwglobals.log.error(f'save: {error.strerror}')
 
     def _restore_netplan(self):
         """Restore Netplan by adding PPPoE interfaces back.

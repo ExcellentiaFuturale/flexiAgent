@@ -265,6 +265,8 @@ class Fwglobals(FwObject):
         self.ISC_DHCP_CONFIG_FILE_BACKUP = '/etc/default/isc-dhcp-server.fworig'
         self.PPPOE_CONFIG_PATH   = '/etc/ppp/'
         self.PPPOE_CONFIG_PROVIDER_FILE   = 'flexiwan-dsl-provider'
+        self.PPPOE_DNS_CONFIG_PATH   = '/etc/ppp/resolv.conf'
+        self.DNS_CONFIG_PATH     = '/etc/resolv.conf'
         self.PPPOE_DB_FILE       = self.DATA_PATH + '.pppoe.sqlite'
         self.POLICY_REC_DB_FILE  = self.DATA_PATH + '.policy.sqlite'
         self.MULTILINK_DB_FILE   = self.DATA_PATH + '.multilink.sqlite'
