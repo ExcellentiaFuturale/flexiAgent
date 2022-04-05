@@ -523,8 +523,6 @@ class FwPppoeClient(FwObject):
             if not pppoe_iface.usepeerdns:
                 nameservers.extend(pppoe_iface.nameservers)
 
-        fwglobals.log.debug(f'nameservers: {nameservers}')
-
         fwutils.restart_service(service='systemd-resolved', timeout=5)
 
         try:
@@ -544,7 +542,7 @@ class FwPppoeClient(FwObject):
                 file.write(resolv_conf_data)
 
         except IOError as error:
-            fwglobals.log.error(f'save: {error.strerror}')
+            self.log.error(f'save: {error.strerror}')
 
     def _restore_netplan(self):
         """Restore Netplan by adding PPPoE interfaces back.
