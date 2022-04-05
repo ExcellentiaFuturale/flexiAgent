@@ -613,8 +613,9 @@ def add_interface(if_name, fname, netplan_section):
 
 def create_baseline_if_not_exist(fname):
     if 'baseline' in fname:
-        return
+        return fname
 
     fname_baseline = fname.replace('yaml', 'baseline.yaml')
     os.system('cp %s %s.fworig' % (fname, fname))
     os.system('mv %s %s' % (fname, fname_baseline))
+    return fname_baseline
