@@ -400,10 +400,11 @@ class Application(FwApplicationInterface):
                     # line = 'test@flexiwan.com ,192.168.1.1:57662,22206,13194,2021-12-22 11:57:33'
                     fields = line.split(',')
                     username = fields[0]
-
-                    response['clients'][username] = {
+                    real_addr = fields[1]
+                    key = username + real_addr
+                    response['clients'][key] = { # support multiple clients with same username
                         'Common Name': username,
-                        'Real Address': fields[1],
+                        'Real Address': real_addr,
                         'Bytes Received':  fields[2],
                         'Bytes Sent': fields[3],
                         'Connected Since': fields[4],
@@ -414,8 +415,10 @@ class Application(FwApplicationInterface):
                     # line = '50.50.50.2,shneorp@flexiwan.com ,192.168.1.1:1052,2021-12-22 11:57:33'
                     fields = line.split(',')
                     username = fields[1]
-                    if username in response['clients']:
-                        response['clients'][username]['Virtual Address'] = fields[0]
+                    real_addr = fields[2]
+                    key = username + real_addr
+                    if key in response['clients']:
+                        response['clients'][key]['Virtual Address'] = fields[0]
 
             return response
         except Exception as e:
