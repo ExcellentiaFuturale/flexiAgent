@@ -369,8 +369,6 @@ class FwPppoeClient(FwObject):
         path = path if path else fwglobals.g.PPPOE_CONFIG_PATH
         self.path = path + 'peers/'
         self.resolv_path = path + 'resolv/'
-        self.folder = '/etc/systemd/network/'
-        self.prefix = '10-flexiwan-'
         self.standalone = standalone
         self.thread_pppoec = None
         self.interfaces = SqliteDict(db_file, 'interfaces', autocommit=True)
@@ -527,24 +525,14 @@ class FwPppoeClient(FwObject):
             self.log.error(f'_parse_resolve_conf: {error.strerror}, filename: {filename}')
         return nameservers
 
-    def _save_networkd_conf(self, ppp_if_name, nameservers = []):
-        filename = f'{self.folder}/{self.prefix}{ppp_if_name}.network'
-        try:
-            with open(filename, 'w') as file:
-                file.write(f'[Match]{os.linesep}')
-                file.write(f'Name={ppp_if_name}{os.linesep}')
-                file.write(f'[Network]{os.linesep}')
-                for nameserver in nameservers:
-                    file.write(f'DNS={nameserver}{os.linesep}')
-        except IOError as error:
-            self.log.error(f'_save_networkd_conf: {error.strerror}, filename: {filename}')
-        return nameservers
+    def _update_resolvd(self, ppp_if_name, nameservers = []):
+        for nameserver in nameservers:
+            cmd = f'systemd-resolve --interface {ppp_if_name} --set-dns {nameserver}'
+            fwutils.os_system(cmd, '_update_resolvd', log=True)
 
     def _update_resolv_conf(self):
         """Re-creates /etc/resolv.conf
         """
-        os.system(f'rm {self.folder}{self.prefix}*')
-
         for dev_id, pppoe_iface in self.interfaces.items():
             nameservers = []
             conn = self.connections.get(dev_id)
@@ -554,8 +542,7 @@ class FwPppoeClient(FwObject):
             else:
                 nameservers.extend(pppoe_iface.nameservers)
 
-            fwglobals.log.debug(f'{conn.ppp_if_name}: {nameservers}')
-            self._save_networkd_conf(conn.ppp_if_name, nameservers)
+            self._update_resolvd(conn.ppp_if_name, nameservers)
 
     def _restore_netplan(self):
         """Restore Netplan by adding PPPoE interfaces back.
