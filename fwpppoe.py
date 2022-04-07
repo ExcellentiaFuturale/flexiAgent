@@ -19,6 +19,7 @@
 ################################################################################
 
 import glob
+import netifaces
 import os
 import psutil
 import socket
@@ -93,6 +94,24 @@ class FwPppoeConnection(FwObject):
         except Exception as e:
             self.log.error("save: %s" % str(e))
 
+    def _get_ppp_if_addr(self):
+        addr = None
+        gw = None
+        is_present = False
+        interfaces = psutil.net_if_addrs()
+        net_ifaces = netifaces.interfaces()
+
+        for intf in net_ifaces:
+            if intf == self.ppp_if_name:
+                is_present = True
+
+        if is_present:
+            addr = fwutils.get_interface_address(self.ppp_if_name, log=False, log_on_failure=True)
+            if addr is not None:
+                gw = interfaces[self.ppp_if_name][0].ptp
+
+        return is_present, addr, gw
+
     def scan_and_connect_if_needed(self, is_connected):
         """Check Linux interfaces if PPPoE tunnel (pppX) is created.
         """
@@ -100,15 +119,20 @@ class FwPppoeConnection(FwObject):
         if not pppd_id and self.opened:
             self.open()
 
-        interfaces = psutil.net_if_addrs()
-        if self.ppp_if_name in interfaces:
-            connected = True
-            self.addr = fwutils.get_interface_address(self.ppp_if_name, log=False)
-            self.gw = interfaces[self.ppp_if_name][0].ptp
-        else:
-            self.addr = ''
-            self.gw = ''
-            connected = False
+        is_present, addr, gw = self._get_ppp_if_addr()
+        connected = False
+        self.addr = ''
+        self.gw = ''
+
+        if is_present:
+            if addr is not None:
+                self.gw = gw
+                self.addr = addr
+                connected = True
+            else:
+                self.close()
+                self.open()
+                time.sleep(5)
 
         if connected != is_connected:
             if connected:
