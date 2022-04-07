@@ -94,7 +94,9 @@ class FwPppoeConnection(FwObject):
         except Exception as e:
             self.log.error("save: %s" % str(e))
 
-    def _get_ppp_if_addr(self):
+    def _get_ppp_if_addr_gw(self):
+        """Retrieve IP, GW from Linux for ppp-X interface.
+        """
         addr = None
         gw = None
         is_present = False
@@ -119,7 +121,7 @@ class FwPppoeConnection(FwObject):
         if not pppd_id and self.opened:
             self.open()
 
-        is_present, addr, gw = self._get_ppp_if_addr()
+        is_present, addr, gw = self._get_ppp_if_addr_gw()
         connected = False
         self.addr = ''
         self.gw = ''
