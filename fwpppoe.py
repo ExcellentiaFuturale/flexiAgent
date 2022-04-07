@@ -62,6 +62,8 @@ class FwPppoeConnection(FwObject):
         self.linux_if_name = fwutils.dev_id_to_linux_if(self.dev_id)
         self.ppp_if_name = f'ppp-{self.linux_if_name}'
         self.if_name = self.linux_if_name
+        self.restart_timer_default = 10
+        self.restart_timer = self.restart_timer_default
 
     def __str__(self):
         usepeerdns = 'usepeerdns' if self.usepeerdns else ''
@@ -108,7 +110,7 @@ class FwPppoeConnection(FwObject):
                 is_present = True
 
         if is_present:
-            addr = fwutils.get_interface_address(self.ppp_if_name, log=False, log_on_failure=True)
+            addr = fwutils.get_interface_address(self.ppp_if_name, log=False)
             if addr is not None:
                 gw = interfaces[self.ppp_if_name][0].ptp
 
@@ -132,9 +134,12 @@ class FwPppoeConnection(FwObject):
                 self.addr = addr
                 connected = True
             else:
-                self.close()
-                self.open()
-                time.sleep(5)
+                if self.restart_timer > 0:
+                    self.restart_timer -= 1
+                else:
+                    self.close()
+                    self.open()
+                    self.restart_timer = self.restart_timer_default
 
         if connected != is_connected:
             if connected:
@@ -656,13 +661,13 @@ class FwPppoeClient(FwObject):
             return
 
         connected = conn.scan_and_connect_if_needed(pppoe_iface.is_connected)
+        self.connections[dev_id] = conn
 
         if pppoe_iface.is_connected != connected:
             pppoe_iface.is_connected = connected
             pppoe_iface.addr = conn.addr
             pppoe_iface.gw = conn.gw
             self.interfaces[dev_id] = pppoe_iface
-            self.connections[dev_id] = conn
 
             if fwglobals.g.fwagent:
                 fwglobals.g.fwagent.reconnect()
