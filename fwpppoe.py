@@ -370,6 +370,7 @@ class FwPppoeClient(FwObject):
         self.path = path + 'peers/'
         self.standalone = standalone
         self.thread_pppoec = None
+        self.resolv_conf_timestamp = None
         self.interfaces = SqliteDict(db_file, 'interfaces', autocommit=True)
         self.connections = SqliteDict(db_file, 'connections', autocommit=True)
         self.chap_config = FwPppoeSecretsConfig(path, 'chap-secrets')
@@ -519,7 +520,11 @@ class FwPppoeClient(FwObject):
         nameservers = []
 
         for pppoe_iface in self.interfaces.values():
+            if not pppoe_iface.is_connected:
+                continue
+
             usepeerdns |= pppoe_iface.usepeerdns
+
             if not pppoe_iface.usepeerdns:
                 nameservers.extend(pppoe_iface.nameservers)
 
@@ -541,8 +546,21 @@ class FwPppoeClient(FwObject):
 
                 file.write(resolv_conf_data)
 
+            self.resolv_conf_timestamp = os.path.getmtime(fwglobals.g.DNS_CONFIG_PATH)
+
         except IOError as error:
             self.log.error(f'save: {error.strerror}')
+
+    def _is_resolv_conf_changed(self):
+        if not self.resolv_conf_timestamp:
+            return True
+
+        resolv_conf_timestamp = os.path.getmtime(fwglobals.g.DNS_CONFIG_PATH)
+
+        if self.resolv_conf_timestamp < resolv_conf_timestamp:
+            return True
+
+        return False
 
     def _restore_netplan(self):
         """Restore Netplan by adding PPPoE interfaces back.
@@ -744,6 +762,8 @@ class FwPppoeClient(FwObject):
             try:  # Ensure thread doesn't exit on exception
                 if not fwglobals.g.router_api.state_is_starting_stopping():
                     self.scan()
+                if self._is_resolv_conf_changed():
+                    self._update_resolv_conf()
             except Exception as e:
                 self.log.error("%s: %s (%s)" %
                     (threading.current_thread().getName(), str(e), traceback.format_exc()))
