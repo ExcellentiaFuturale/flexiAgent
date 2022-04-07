@@ -53,6 +53,7 @@ from fwroutes import FwRoutes
 from fwsystem_cfg import FwSystemCfg
 from fwstun_wrapper import FwStunWrap
 from fwpppoe import FwPppoeClient
+from fwthread import FwRouterThreading
 from fwwan_monitor import FwWanMonitor
 from fwikev2 import FwIKEv2
 from fw_traffic_identification import FwTrafficIdentifications
@@ -292,7 +293,7 @@ class Fwglobals(FwObject):
         self.LOOPBACK_ID_TUNNELS           = [0, 16299]  # Loopback id in vpp is up to 16384, so we use this range for tunnels
         self.DUMP_FOLDER                   = '/var/log/flexiwan/fwdump'
         self.DEFAULT_DNS_SERVERS           = ['8.8.8.8', '8.8.4.4']
-        self.request_lock                  = threading.RLock()   # lock to syncronize message processing
+        self.router_threads                = FwRouterThreading() # Primitives used for synchronization of router configuration and monitoring threads
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
@@ -308,8 +309,6 @@ class Fwglobals(FwObject):
         # Load signal to string map
         self.signal_names = dict((getattr(signal, n), n) \
                                 for n in dir(signal) if n.startswith('SIG') and '_' not in n )
-
-        self.teardown = False   # Flag that stops all helper threads in parallel to speedup gracefull exit
 
     def load_configuration_from_file(self):
         """Load configuration from YAML file.
@@ -411,7 +410,7 @@ class Fwglobals(FwObject):
             log.warning('Fwglobals.finalize_agent: agent does not exists')
             return
 
-        self.teardown = True   # Stop all helper threads in parallel to speedup gracefull exit
+        self.router_threads.teardown = True   # Stop all threads in parallel to speedup gracefull exit
 
         self.routes.finalize()
         self.pppoe.finalize()
@@ -486,12 +485,11 @@ class Fwglobals(FwObject):
             handler      = request_handlers.get(req)
             handler_func = getattr(self, handler.get('name'))
 
-            with self.request_lock:
-                reply = handler_func(request)
-                if reply['ok'] == 0:
-                    vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
-                    os.system('sudo vppctl api trace save %s' % (vpp_trace_file))
-                    raise Exception(reply['message'])
+            reply = handler_func(request)
+            if reply['ok'] == 0:
+                vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
+                os.system('sudo vppctl api trace save %s' % (vpp_trace_file))
+                raise Exception(reply['message'])
 
             # On router configuration request, e.g. add-interface,
             # remove-tunnel, etc. update the configuration database

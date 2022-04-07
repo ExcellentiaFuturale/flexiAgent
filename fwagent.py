@@ -48,6 +48,7 @@ import fwlte
 import fwmultilink
 import fwpppoe
 import fwstats
+import fwthread
 import fwutils
 import fwwebsocket
 import loadsimulator
@@ -371,7 +372,7 @@ class FwAgent(FwObject):
                         url, headers = headers,
                         check_certificate=(not fwglobals.g.cfg.BYPASS_CERT))
             self.ws.run_loop_send_recv(timeout=30)                 # flexiManage should send 'get-device-stats' every 10 sec
-            self.log.info("connection to flexiManage was closed")  # ws is disconnected implicitly by run_send_recv_loop()
+            self.ws.close()
             return True
 
         except Exception as e:
@@ -421,10 +422,10 @@ class FwAgent(FwObject):
 
         :returns: None.
         """
-        self.log.info("_on_close: connection to flexiManage is closed")
+        self.log.info("connection to flexiManage was closed")
+        self.connected = False
         if self.thread_statistics:
-            self.connected = False
-            self.thread_statistics.join()
+            self.thread_statistics.stop()
 
     def _on_open(self):
         """Websocket connection open handler
@@ -449,9 +450,9 @@ class FwAgent(FwObject):
                 self.ws.send(json.dumps(reply))
             del self.pending_msg_replies[:]
 
-        self.thread_statistics = threading.Thread(
-                                    target=fwstats.update_stats_tread,
-                                    name='Statistics Thread', args=(self.log, self))
+        self.thread_statistics = fwthread.FwThread(
+                                    target=fwstats.statistics_thread_func,
+                                    name='Statistics', log=self.log, args=(self,))
         self.thread_statistics.start()
 
         if not fwutils.vpp_does_run():
@@ -561,7 +562,28 @@ class FwAgent(FwObject):
 
             logger = log_request(msg, received_msg, log_prefix)
 
-            reply = fwglobals.g.handle_request(msg, received_msg=received_msg)
+            # Use 'request_cond_var' conditional variable to suspend monitoring
+            # threads as long as configuration request, which was received from
+            # flexiManage, is being handled.
+            # Note, we don't suspend threads for non configuration requests,
+            # like 'get-device-stats' or 'exec_timeout.
+
+            handler_name = fwglobals.request_handlers.get(msg.get('message',''),{}).get('name')
+            if handler_name == '_call_agent_api' or handler_name == '_call_os_api':
+                reply = fwglobals.g.handle_request(msg, received_msg=received_msg)
+            else:
+                rt = fwglobals.g.router_threads
+                with rt.request_cond_var:
+
+                    rt.handling_request = True
+                    if len(rt.thread_names) > 0:
+                        self.log.debug(f"handle_received_request: wait for {rt.thread_names} threads to finish")
+                    rt.request_cond_var.wait_for(rt.is_no_active_threads)
+
+                    reply = fwglobals.g.handle_request(msg, received_msg=received_msg)
+
+                    rt.handling_request = False
+
             if not 'entity' in reply and 'entity' in msg:
                 reply.update({'entity': msg['entity'] + 'Reply'})
             if not 'message' in reply:

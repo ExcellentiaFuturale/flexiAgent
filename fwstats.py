@@ -44,31 +44,20 @@ vpp_pid = ''
 
 # Keeps last stats
 stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'lte_stats': {}, 'wifi_stats': {}, 'application_stats': {}}
+stats_ticks = 0
 
-
-def update_stats_tread(log, fwagent):
-
-    log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
-
-    slept = 0
-
-    while fwagent.connected and not fwglobals.g.teardown:
-        try:  # Ensure thread doesn't exit on exception
-            timeout = 30
-            if (slept % timeout) == 0:
-                if fwglobals.g.loadsimulator:
-                    fwglobals.g.loadsimulator.update_stats()
-                else:
-                    renew_lte_wifi_stats = slept % (timeout * 2) == 0 # Renew LTE and WiFi statistics every second update
-                    update_stats(renew_lte_wifi_stats=renew_lte_wifi_stats)
-        except Exception as e:
-            log.excep("%s: %s (%s)" %
-                (threading.current_thread().getName(), str(e), traceback.format_exc()))
-            pass
-
-        # Sleep 1 second and make another iteration
-        time.sleep(1)
-        slept += 1
+def statistics_thread_func(fwagent):
+    global stats_ticks
+    if not fwagent.connected:
+        return
+    timeout = 30
+    if (stats_ticks % timeout) == 0:
+        if fwglobals.g.loadsimulator:
+            fwglobals.g.loadsimulator.update_stats()
+        else:
+            renew_lte_wifi_stats = stats_ticks % (timeout * 2) == 0 # Renew LTE and WiFi statistics every second update
+            update_stats(renew_lte_wifi_stats=renew_lte_wifi_stats)
+    stats_ticks += 1
 
 def update_stats(renew_lte_wifi_stats=True):
     """Update statistics dictionary using values retrieved from VPP interfaces.

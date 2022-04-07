@@ -33,6 +33,7 @@ import fwutils
 import fwnetplan
 import fwpppoe
 import fwroutes
+import fwthread
 import fwwifi
 from fwmultilink import FwMultilink
 from fwpolicies import FwPolicies
@@ -97,6 +98,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         self.thread_watchdog     = None
         self.thread_tunnel_stats = None
         self.thread_dhcpc        = None
+        self.pending_coredump_processing = False
 
         FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, self._on_revert_failed)
 
@@ -108,91 +110,68 @@ class FWROUTER_API(FwCfgRequestHandler):
         self._stop_threads()  # IMPORTANT! Do that before rest of finalizations!
         self.vpp_api.finalize()
 
-    def watchdog(self):
-        """Watchdog thread.
+    def vpp_watchdog_thread_func(self):
+        """Watchdog thread function.
         Its function is to monitor if VPP process is alive.
         Otherwise it will start VPP and restore configuration from DB.
         """
-        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
-        pending_coredump_processing = True
-        while self.state_is_started() and not fwglobals.g.teardown:
-            time.sleep(1)  # 1 sec
-            try:           # Ensure thread doesn't exit on exception
-                if not fwutils.vpp_does_run():      # This 'if' prevents debug print by restore_vpp_if_needed() every second
-                    self.log.debug("watchdog: initiate restore")
+        if not self.state_is_started():
+            return
+        if not fwutils.vpp_does_run():      # This 'if' prevents debug print by restore_vpp_if_needed() every second
+            self.log.debug("watchdog: initiate restore")
 
-                    self.vpp_api.disconnect_from_vpp()          # Reset connection to vpp to force connection renewal
-                    fwutils.stop_vpp()                          # Release interfaces to Linux
+            self.vpp_api.disconnect_from_vpp()          # Reset connection to vpp to force connection renewal
+            fwutils.stop_vpp()                          # Release interfaces to Linux
 
-                    fwutils.reset_traffic_control()             # Release LTE operations.
-                    fwutils.remove_linux_bridges()              # Release bridges for wifi.
-                    fwwifi.stop_hostapd()                      # Stop access point service
+            fwutils.reset_traffic_control()             # Release LTE operations.
+            fwutils.remove_linux_bridges()              # Release bridges for wifi.
+            fwwifi.stop_hostapd()                      # Stop access point service
 
-                    self.state_change(FwRouterState.STOPPED)    # Reset state so configuration will applied correctly
-                    self._restore_vpp()                         # Rerun VPP and apply configuration
+            self.state_change(FwRouterState.STOPPED)    # Reset state so configuration will applied correctly
+            self._restore_vpp()                         # Rerun VPP and apply configuration
 
-                    self.log.debug("watchdog: restore finished")
-                    # Process if any VPP coredump
-                    pending_coredump_processing = fw_vpp_coredump_utils.vpp_coredump_process()
-                elif pending_coredump_processing:
-                    pending_coredump_processing = fw_vpp_coredump_utils.vpp_coredump_process()
+            self.log.debug("watchdog: restore finished")
+            # Process if any VPP coredump
+            self.pending_coredump_processing = fw_vpp_coredump_utils.vpp_coredump_process()
+        elif self.pending_coredump_processing:
+            self.pending_coredump_processing = fw_vpp_coredump_utils.vpp_coredump_process()
 
-            except Exception as e:
-                self.log.error("%s: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
-
-    def tunnel_stats_thread(self):
-        """Tunnel statistics thread.
+    def tunnel_stats_thread_func(self):
+        """Tunnel statistics thread function.
         Its function is to monitor tunnel state and RTT.
         It is implemented by pinging the other end of the tunnel.
         """
-        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
-        fwtunnel_stats.fill_tunnel_stats_dict()
-        while self.state_is_started() and not fwglobals.g.teardown:
-            time.sleep(1)  # 1 sec
-            try:           # Ensure thread doesn't exit on exception
-                fwtunnel_stats.tunnel_stats_test()
-            except Exception as e:
-                self.log.error("%s: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
+        if self.state_is_started():
+            fwtunnel_stats.tunnel_stats_test()
 
-    def dhcpc_thread(self):
-        """DHCP client thread.
+    def dhcpc_thread_func(self):
+        """DHCP client thread function.
         Its function is to monitor state of WAN interfaces with DHCP.
         """
-        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+        if not self.state_is_started():
+            return
 
-        while self.state_is_started() and not fwglobals.g.teardown:
-            time.sleep(1)  # 1 sec
+        apply_netplan = False
+        wan_list = self.cfg_db.get_interfaces(type='wan')
 
-            try:  # Ensure thread doesn't exit on exception
-                apply_netplan = False
-                wan_list = self.cfg_db.get_interfaces(type='wan')
+        for wan in wan_list:
+            dhcp = wan.get('dhcp', 'no')
+            device_type = wan.get('deviceType')
+            is_pppoe = fwpppoe.is_pppoe_interface(dev_id=wan.get('dev_id'))
 
-                for wan in wan_list:
-                    dhcp = wan.get('dhcp', 'no')
-                    device_type = wan.get('deviceType')
-                    is_pppoe = fwpppoe.is_pppoe_interface(dev_id=wan.get('dev_id'))
+            if dhcp == 'no' or device_type == 'lte' or is_pppoe:
+                continue
 
-                    if dhcp == 'no' or device_type == 'lte' or is_pppoe:
-                        continue
+            name = fwutils.dev_id_to_tap(wan['dev_id'])
+            addr = fwutils.get_interface_address(name, log=False)
+            if not addr:
+                self.log.debug("dhcpc_thread: %s has no ip address" % name)
+                apply_netplan = True
 
-                    name = fwutils.dev_id_to_tap(wan['dev_id'])
-                    addr = fwutils.get_interface_address(name, log=False)
-                    if not addr:
-                        self.log.debug("dhcpc_thread: %s has no ip address" % name)
-                        apply_netplan = True
+        if apply_netplan:
+            fwutils.netplan_apply('dhcpc_thread')
+            time.sleep(3)
 
-                if apply_netplan:
-                    fwutils.netplan_apply('dhcpc_thread')
-                    time.sleep(60)
-
-            except Exception as e:
-                self.log.error("%s: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
 
     def restore_vpp_if_needed(self):
         """Restore VPP.
@@ -911,31 +890,30 @@ class FWROUTER_API(FwCfgRequestHandler):
         """Start all threads.
         """
         if self.thread_watchdog is None or self.thread_watchdog.is_alive() == False:
-            self.thread_watchdog = threading.Thread(target=self.watchdog, name='VPP Watchdog Thread')
+            self.pending_coredump_processing = True
+            self.thread_watchdog = fwthread.FwRouterThread(self.vpp_watchdog_thread_func, 'VPP Watchdog', self.log)
             self.thread_watchdog.start()
         if self.thread_tunnel_stats is None or self.thread_tunnel_stats.is_alive() == False:
-            self.thread_tunnel_stats = threading.Thread(target=self.tunnel_stats_thread, name='Tunnel Stats Thread')
+            fwtunnel_stats.fill_tunnel_stats_dict()
+            self.thread_tunnel_stats = fwthread.FwRouterThread(self.tunnel_stats_thread_func, 'Tunnel Stats', self.log)
             self.thread_tunnel_stats.start()
         if self.thread_dhcpc is None or self.thread_dhcpc.is_alive() == False:
-            self.thread_dhcpc = threading.Thread(target=self.dhcpc_thread, name='DHCP Client Thread')
+            self.thread_dhcpc = fwthread.FwRouterThread(self.dhcpc_thread_func, 'DHCP Client', self.log)
             self.thread_dhcpc.start()
 
     def _stop_threads(self):
         """Stop all threads.
         """
-        if self.state_is_started(): # Ensure thread loops will break
-            self.state_change(FwRouterState.STOPPED)
-
         if self.thread_watchdog:
-            self.thread_watchdog.join()
+            self.thread_watchdog.stop()
             self.thread_watchdog = None
 
         if self.thread_tunnel_stats:
-            self.thread_tunnel_stats.join()
+            self.thread_tunnel_stats.stop()
             self.thread_tunnel_stats = None
 
         if self.thread_dhcpc:
-            self.thread_dhcpc.join()
+            self.thread_dhcpc.stop()
             self.thread_dhcpc = None
 
     def _on_start_router_before(self):

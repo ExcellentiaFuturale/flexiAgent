@@ -6,6 +6,7 @@ import socket
 import psutil
 import fwglobals
 import fwtunnel_stats
+import fwthread
 import fwutils
 import time
 import traceback
@@ -71,6 +72,13 @@ class FwStunWrap(FwObject):
         self.stun_retry    = 60
         fwstun.set_log(fwglobals.log)
 
+        self.thread_slept = 1
+        self.thread_reset_all_timeout = 10 * 60
+        self.thread_update_cache_from_os_timeout = 2 * 60
+        self.thread_send_stun_timeout = 3
+        self.thread_probe_sym_nat_timeout = 30
+        self.thread_send_sym_nat_timeout = 3
+
     def _log_address_cache(self):
         """ prints the content on the local cache
         """
@@ -101,7 +109,7 @@ class FwStunWrap(FwObject):
             self._send_stun_requests()
             self._log_address_cache()
 
-        self.thread_stun = threading.Thread(target=self._stun_thread, name='STUN Thread')
+        self.thread_stun = fwthread.FwRouterThread(target=self.stun_thread_func, name='STUN', log=self.log)
         self.thread_stun.start()
 
     def finalize(self):
@@ -331,57 +339,38 @@ class FwStunWrap(FwObject):
 
         return nat_type, nat_ext_ip, nat_ext_port, stun_index
 
-    def _stun_thread(self, *args):
-        """STUN thread
-        Its function is to send STUN requests for address:4789 in a timely manner
+    def stun_thread_func(self, *args):
+        """STUN thread function.
+        It sends STUN requests for address:4789 in a timely manner
         according to some algorithm-based calculations.
         """
-        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+        # Don't STUN if vpp is being initializing / shutting down,
+        # as quering vpp for interface names/ip-s might generate exception.
+        if not fwglobals.g.router_api.state_is_starting_stopping():
 
-        slept = 1
-        reset_all_timeout = 10 * 60
-        update_cache_from_os_timeout = 2 * 60
-        send_stun_timeout = 3
-        probe_sym_nat_timeout = 30
-        send_sym_nat_timeout = 3
+            # send STUN requests for addresses that a request was not sent for
+            # them, or for ones that did not get reply previously
+            if self.thread_slept % self.thread_send_stun_timeout == 0:
+                self._send_stun_requests()
 
-        while not fwglobals.g.teardown:
+            # probe tunnels in down state to see if we could find remote edge
+            # address/port from incoming packets for symmetric NAT traversal
 
-            try:  # Ensure thread doesn't exit on exception
+            if self.thread_slept % self.thread_send_sym_nat_timeout == 0:
+                self._send_symmetric_nat()
 
-                # Don't STUN if vpp is being initializing / shutting down,
-                # as quering vpp for interface names/ip-s might generate exception.
-                if not fwglobals.g.router_api.state_is_starting_stopping():
+            if self.thread_slept % self.thread_probe_sym_nat_timeout == 0:
+                self._probe_symmetric_nat()
 
-                    # send STUN requests for addresses that a request was not sent for
-                    # them, or for ones that did not get reply previously
-                    if slept % send_stun_timeout == 0:
-                        self._send_stun_requests()
+            if self.thread_slept % self.thread_reset_all_timeout == 0:
+                # reset all STUN information every 10 minutes
+                self._reset_all()
 
-                    # probe tunnels in down state to see if we could find remote edge
-                    # address/port from incoming packets for symmetric NAT traversal
+            if self.thread_slept % self.thread_update_cache_from_os_timeout == 0:
+                # every update_cache_timeout, refresh cache with updated IP addresses from OS
+                self._update_cache_from_OS()
 
-                    if slept % send_sym_nat_timeout == 0:
-                        self._send_symmetric_nat()
-
-                    if slept % probe_sym_nat_timeout == 0:
-                        self._probe_symmetric_nat()
-
-                    if slept % reset_all_timeout == 0:
-                        # reset all STUN information every 10 minutes
-                        self._reset_all()
-
-                    if slept % update_cache_from_os_timeout == 0:
-                        # every update_cache_timeout, refresh cache with updated IP addresses from OS
-                        self._update_cache_from_OS()
-
-            except Exception as e:
-                self.log.error("%s: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
-
-            time.sleep(1)
-            slept += 1
+        self.thread_slept += 1
 
     def handle_down_tunnels(self, tunnel_stats):
         """ Run over all tunnels and get the source IP address of the tunnels that are not connected.
