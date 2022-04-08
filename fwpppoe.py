@@ -18,6 +18,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import netifaces
 import os
 import psutil
 import threading
@@ -59,6 +60,8 @@ class FwPppoeConnection(FwObject):
         self.linux_if_name = fwutils.dev_id_to_linux_if(self.dev_id)
         self.ppp_if_name = f'ppp-{self.linux_if_name}'
         self.if_name = self.linux_if_name
+        self.restart_timer_default = 10
+        self.restart_timer = self.restart_timer_default
 
     def __str__(self):
         usepeerdns = 'usepeerdns' if self.usepeerdns else ''
@@ -91,6 +94,26 @@ class FwPppoeConnection(FwObject):
         except Exception as e:
             self.log.error("save: %s" % str(e))
 
+    def _get_ppp_if_addr_gw(self):
+        """Retrieve IP, GW from Linux for ppp-X interface.
+        """
+        addr = None
+        gw = None
+        is_present = False
+        interfaces = psutil.net_if_addrs()
+        net_ifaces = netifaces.interfaces()
+
+        for intf in net_ifaces:
+            if intf == self.ppp_if_name:
+                is_present = True
+
+        if is_present:
+            addr = fwutils.get_interface_address(self.ppp_if_name, log=False)
+            if addr is not None:
+                gw = interfaces[self.ppp_if_name][0].ptp
+
+        return is_present, addr, gw
+
     def scan_and_connect_if_needed(self, is_connected):
         """Check Linux interfaces if PPPoE tunnel (pppX) is created.
         """
@@ -98,15 +121,23 @@ class FwPppoeConnection(FwObject):
         if not pppd_id and self.opened:
             self.open()
 
-        interfaces = psutil.net_if_addrs()
-        if self.ppp_if_name in interfaces:
-            connected = True
-            self.addr = fwutils.get_interface_address(self.ppp_if_name, log=False)
-            self.gw = interfaces[self.ppp_if_name][0].ptp
-        else:
-            self.addr = ''
-            self.gw = ''
-            connected = False
+        is_present, addr, gw = self._get_ppp_if_addr_gw()
+        connected = False
+        self.addr = ''
+        self.gw = ''
+
+        if is_present:
+            if addr is not None:
+                self.gw = gw
+                self.addr = addr
+                connected = True
+            else:
+                if self.restart_timer > 0:
+                    self.restart_timer -= 1
+                else:
+                    self.close()
+                    self.open()
+                    self.restart_timer = self.restart_timer_default
 
         if connected != is_connected:
             if connected:
@@ -674,13 +705,13 @@ class FwPppoeClient(FwObject):
             return
 
         connected = conn.scan_and_connect_if_needed(pppoe_iface.is_connected)
+        self.connections[dev_id] = conn
 
         if pppoe_iface.is_connected != connected:
             pppoe_iface.is_connected = connected
             pppoe_iface.addr = conn.addr
             pppoe_iface.gw = conn.gw
             self.interfaces[dev_id] = pppoe_iface
-            self.connections[dev_id] = conn
 
             if fwglobals.g.fwagent:
                 fwglobals.g.fwagent.reconnect()
