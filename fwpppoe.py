@@ -526,9 +526,12 @@ class FwPppoeClient(FwObject):
         return nameservers
 
     def _update_resolvd(self, ppp_if_name, nameservers = []):
+        cmd = f'systemd-resolve --interface {ppp_if_name}'
+
         for nameserver in nameservers:
-            cmd = f'systemd-resolve --interface {ppp_if_name} --set-dns {nameserver}'
-            fwutils.os_system(cmd, '_update_resolvd', log=True)
+            cmd += f' --set-dns {nameserver}'
+
+        fwutils.os_system(cmd, '_update_resolvd', log=True)
 
     def _update_resolv_conf(self):
         """Re-creates /etc/resolv.conf
