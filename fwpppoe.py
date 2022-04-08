@@ -533,19 +533,18 @@ class FwPppoeClient(FwObject):
 
         fwutils.os_system(cmd, '_update_resolvd', log=True)
 
-    def _update_resolv_conf(self):
-        """Re-creates /etc/resolv.conf
+    def _update_resolvd_conf(self, dev_id, pppoe_iface):
+        """Updates resolvd configuration.
         """
-        for dev_id, pppoe_iface in self.interfaces.items():
-            nameservers = []
-            conn = self.connections.get(dev_id)
-            if pppoe_iface.usepeerdns:
-                filename = f'{self.resolv_path}{conn.ppp_if_name}'
-                self._parse_resolve_conf(filename, nameservers)
-            else:
-                nameservers.extend(pppoe_iface.nameservers)
+        nameservers = []
+        conn = self.connections.get(dev_id)
+        if pppoe_iface.usepeerdns:
+            filename = f'{self.resolv_path}{conn.ppp_if_name}'
+            self._parse_resolve_conf(filename, nameservers)
+        else:
+            nameservers.extend(pppoe_iface.nameservers)
 
-            self._update_resolvd(conn.ppp_if_name, nameservers)
+        self._update_resolvd(conn.ppp_if_name, nameservers)
 
     def _restore_netplan(self):
         """Restore Netplan by adding PPPoE interfaces back.
@@ -675,7 +674,8 @@ class FwPppoeClient(FwObject):
             if fwglobals.g.fwagent:
                 fwglobals.g.fwagent.reconnect()
 
-            self._update_resolv_conf()
+            if connected:
+                self._update_resolvd_conf(dev_id, pppoe_iface)
 
         return connected
 
