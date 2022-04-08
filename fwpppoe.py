@@ -513,7 +513,8 @@ class FwPppoeClient(FwObject):
             conn.save()
             self.connections[dev_id] = conn
 
-    def _parse_resolve_conf(self, filename, nameservers = []):
+    def _parse_resolv_conf(self, filename):
+        nameservers = []
         try:
             with open(filename, 'r') as resolvconf:
                 for line in resolvconf.readlines():
@@ -532,19 +533,6 @@ class FwPppoeClient(FwObject):
             cmd += f' --set-dns {nameserver}'
 
         fwutils.os_system(cmd, '_update_resolvd', log=True)
-
-    def _update_resolvd_conf(self, dev_id, pppoe_iface):
-        """Updates resolvd configuration.
-        """
-        nameservers = []
-        conn = self.connections.get(dev_id)
-        if pppoe_iface.usepeerdns:
-            filename = f'{self.resolv_path}{conn.ppp_if_name}'
-            self._parse_resolve_conf(filename, nameservers)
-        else:
-            nameservers.extend(pppoe_iface.nameservers)
-
-        self._update_resolvd(conn.ppp_if_name, nameservers)
 
     def _restore_netplan(self):
         """Restore Netplan by adding PPPoE interfaces back.
@@ -675,7 +663,14 @@ class FwPppoeClient(FwObject):
                 fwglobals.g.fwagent.reconnect()
 
             if connected:
-                self._update_resolvd_conf(dev_id, pppoe_iface)
+                nameservers = []
+                if pppoe_iface.usepeerdns:
+                    filename = f'{self.resolv_path}{conn.ppp_if_name}'
+                    nameservers = self._parse_resolv_conf(filename)
+                else:
+                    nameservers = pppoe_iface.nameservers
+
+                self._update_resolvd(conn.ppp_if_name, nameservers)
 
         return connected
 
