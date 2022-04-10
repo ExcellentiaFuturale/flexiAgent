@@ -18,11 +18,9 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import glob
 import netifaces
 import os
 import psutil
-import socket
 import threading
 import time
 import traceback
@@ -372,12 +370,13 @@ class FwPppoeSecretsConfig(FwObject):
 class FwPppoeInterface():
     """The object that represents PPPoE interface configuration.
     """
-    def __init__(self, user, password, mtu, mru, usepeerdns, metric, enabled):
+    def __init__(self, user, password, mtu, mru, usepeerdns, metric, enabled, nameservers=[]):
         self.user = user
         self.password = password
         self.mtu = mtu
         self.mru = mru
         self.usepeerdns = usepeerdns
+        self.nameservers = nameservers
         self.metric = metric
         self.is_enabled = enabled
         self.is_connected = False
@@ -387,7 +386,7 @@ class FwPppoeInterface():
         self.netplan_fname = ''
 
     def __str__(self):
-        return f'user:{self.user}, password:{self.password}, mtu:{self.mtu}, mru:{self.mru}, usepeerdns:{self.usepeerdns}, metric:{self.metric}, enabled:{self.is_enabled}, connected:{self.is_connected}, addr:{self.addr}, gw:{self.gw}'
+        return f'user:{self.user}, password:{self.password}, mtu:{self.mtu}, mru:{self.mru}, usepeerdns:{self.usepeerdns}, nameservers: {self.nameservers}, metric:{self.metric}, enabled:{self.is_enabled}, connected:{self.is_connected}, addr:{self.addr}, gw:{self.gw}'
 
 class FwPppoeClient(FwObject):
     """The object that represents PPPoE client.
@@ -400,6 +399,7 @@ class FwPppoeClient(FwObject):
         self.filename = filename if filename else fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE
         path = path if path else fwglobals.g.PPPOE_CONFIG_PATH
         self.path = path + 'peers/'
+        self.resolv_path = path + 'resolv/'
         self.standalone = standalone
         self.thread_pppoec = None
         self.interfaces = SqliteDict(db_file, 'interfaces', autocommit=True)
@@ -544,6 +544,27 @@ class FwPppoeClient(FwObject):
             conn.save()
             self.connections[dev_id] = conn
 
+    def _parse_resolv_conf(self, filename):
+        nameservers = []
+        try:
+            with open(filename, 'r') as resolvconf:
+                for line in resolvconf.readlines():
+                    line = line.split('#', 1)[0];
+                    line = line.rstrip();
+                    if 'nameserver' in line:
+                        nameservers.append(line.split()[ 1 ])
+        except IOError as error:
+            self.log.error(f'_parse_resolve_conf: {error.strerror}, filename: {filename}')
+        return nameservers
+
+    def _update_resolvd(self, ppp_if_name, nameservers = []):
+        cmd = f'systemd-resolve --interface {ppp_if_name}'
+
+        for nameserver in nameservers:
+            cmd += f' --set-dns {nameserver}'
+
+        fwutils.os_system(cmd, '_update_resolvd', log=True)
+
     def _restore_netplan(self):
         """Restore Netplan by adding PPPoE interfaces back.
         """
@@ -671,6 +692,16 @@ class FwPppoeClient(FwObject):
 
             if fwglobals.g.fwagent:
                 fwglobals.g.fwagent.reconnect()
+
+            if connected:
+                nameservers = []
+                if pppoe_iface.usepeerdns:
+                    filename = f'{self.resolv_path}{conn.ppp_if_name}'
+                    nameservers = self._parse_resolv_conf(filename)
+                else:
+                    nameservers = pppoe_iface.nameservers
+
+                self._update_resolvd(conn.ppp_if_name, nameservers)
 
         return connected
 
