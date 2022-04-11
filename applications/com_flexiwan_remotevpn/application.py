@@ -245,16 +245,15 @@ class Application(FwApplicationInterface):
                 # Allow multiple clients with the same common name to concurrently connect
                 'duplicate-cn',
 
+                # OpenVPN will internally route client-to-client traffic rather than pushing all client-originating traffic to the TUN/TAP interface.
+                'client-to-client',
+
                 'explicit-exit-notify',
 
                 # call these scripts once OpenVPN starts and stops
                 'up /etc/openvpn/server/up-script.py',
                 'down /etc/openvpn/server/down-script.py'
             ]
-
-            if params.get('clientToClient', False):
-                # OpenVPN will internally route client-to-client traffic rather than pushing all client-originating traffic to the TUN/TAP interface.
-                commands.append('client-to-client')
 
             # Split tunnel
             if params['routeAllTrafficOverVpn'] is True:
