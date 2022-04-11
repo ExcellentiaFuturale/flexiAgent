@@ -18,7 +18,6 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import netifaces
 import os
 import psutil
 import threading
@@ -26,6 +25,7 @@ import time
 import traceback
 
 from netaddr import IPNetwork
+from pyroute2 import IPRoute
 from sqlitedict import SqliteDict
 
 import fwglobals
@@ -101,11 +101,10 @@ class FwPppoeConnection(FwObject):
         gw = None
         is_present = False
         interfaces = psutil.net_if_addrs()
-        net_ifaces = netifaces.interfaces()
 
-        for intf in net_ifaces:
-            if intf == self.ppp_if_name:
-                is_present = True
+        with IPRoute() as ipr:
+            iface = ipr.link_lookup(ifname=self.ppp_if_name)
+        is_present = bool(len(iface))
 
         if is_present:
             addr = fwutils.get_interface_address(self.ppp_if_name, log=False)
