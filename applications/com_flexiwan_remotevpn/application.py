@@ -205,7 +205,7 @@ class Application(FwApplicationInterface):
                 # Limit server to a maximum of concurrent clients.
                 f'max-clients {params.get("connections")}',
 
-                'keepalive 10 120',
+                'keepalive 10 20',
 
                 # Select a cryptographic cipher.
                 'data-ciphers AES-256-CBC',
