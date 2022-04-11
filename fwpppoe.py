@@ -98,8 +98,8 @@ class FwPppoeConnection(FwObject):
     def _get_ppp_if_addr_gw(self):
         """Retrieve IP, GW from Linux for ppp-X interface.
         """
-        addr = None
-        gw = None
+        addr = ''
+        gw = ''
         is_present = False
         interfaces = psutil.net_if_addrs()
 
@@ -109,8 +109,11 @@ class FwPppoeConnection(FwObject):
 
         if is_present:
             addr = fwutils.get_interface_address(self.ppp_if_name, log=False)
-            if addr is not None:
+            if addr:
                 gw = interfaces[self.ppp_if_name][0].ptp
+            else:
+                addr = ''
+                gw = ''
 
         return is_present, addr, gw
 
@@ -123,11 +126,9 @@ class FwPppoeConnection(FwObject):
 
         is_present, addr, gw = self._get_ppp_if_addr_gw()
         connected = False
-        self.addr = ''
-        self.gw = ''
 
         if is_present:
-            if addr is not None:
+            if addr:
                 self.gw = gw
                 self.addr = addr
                 connected = True
