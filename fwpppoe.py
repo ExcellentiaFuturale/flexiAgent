@@ -35,6 +35,8 @@ import fwroutes
 
 from fwobject import FwObject
 
+RESTART_TIMER_DEFAULT = 10
+
 class FwPppoeConnection(FwObject):
     """The object that represents PPPoE connection.
     It manages connection config files inside /etc/ppp/peers/ folder.
@@ -60,8 +62,7 @@ class FwPppoeConnection(FwObject):
         self.linux_if_name = fwutils.dev_id_to_linux_if(self.dev_id)
         self.ppp_if_name = f'ppp-{self.linux_if_name}'
         self.if_name = self.linux_if_name
-        self.restart_timer_default = 10
-        self.restart_timer = self.restart_timer_default
+        self.restart_timer = RESTART_TIMER_DEFAULT
 
     def __str__(self):
         usepeerdns = 'usepeerdns' if self.usepeerdns else ''
