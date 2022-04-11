@@ -151,6 +151,7 @@ class FwWanMonitor(FwObject):
         os_routes  = {}
 
         routes_linux = fwroutes.FwLinuxRoutes(prefix='0.0.0.0/0')
+        self._fix_routes(routes_linux)
 
         for key, route in routes_linux.items():
 
@@ -213,6 +214,62 @@ class FwWanMonitor(FwObject):
             del self.routes[key]
 
         return list(self.routes.values())
+
+    def _fix_routes(self, routes):
+        '''In DHCP case, when VPP does not run, the WAN failover mechanism might
+        end up with duplicated entries in kernel:
+
+                default via 192.168.1.1 dev enp0s3 proto dhcp src 192.168.1.171 metric 100
+                default via 10.72.100.1 dev enp0s9 proto dhcp src 10.72.100.179 metric 300
+                default via 10.72.100.1 dev enp0s9 proto dhcp metric 2000000300
+                10.72.100.0/24 dev enp0s9 proto kernel scope link src 10.72.100.179
+                10.72.100.1 dev enp0s9 proto dhcp scope link src 10.72.100.179 metric 300
+
+        Note two "default via 10.72.100.1 dev enp0s9" rules.
+        This might happen because FwWanMonitor does not update netplan files,
+        when VPP does not run. It just updates kernel table on-the-fly by call
+        to the bash command "ip route add/del/replace ...". So if FwWanMonitor
+        detects no internet connectivity and replace rule with X metric with rule
+        with 2,000,000,000 + X metric, and then networkd / netplan is restarted
+        or the DHCP lease renewed, Linux will restore the original rule with
+        metric X. And nobody will remove the FwWanMonitor rule
+        with 2,000,000,000 + X metric.
+            Therefore we have to check that condition and to fix it manually.
+        The algorithm just removes the duplicated entry with X metric,
+        if the entry with 2,000,000,000 + X metric exists. When internet
+        connectivity is restored, the FwWanMonitor will replace
+        the 2,000,000,000 + X entry with X.
+
+        :param routes: the fwroutes.FwLinuxRoutes object that includes kernel
+                       routing table. The _fix_routes() function removes
+                       duplicated routes from both this object and from kernel.
+        '''
+        routes_by_dev = {}
+        routes_to_remove = {}
+
+        # Go over routes and find duplications
+        #
+        for key, route in routes.items():
+            existing_route = routes_by_dev.get(route.dev)
+            if not existing_route:
+                routes_by_dev[route.dev] = route
+            else:
+                # Duplication was found.
+                # Spot the route with X metric and store it aside to be removed
+                # later from kernel.
+                #
+                if existing_route.metric < self.WATERMARK and route.metric >= self.WATERMARK:
+                    routes_to_remove[key] = existing_route
+                    self.log.debug(f"_fix_routes: going to remove duplicate '{str(existing_route)}' of '{str(route)}'")
+                elif existing_route.metric >= self.WATERMARK and route.metric < self.WATERMARK:
+                    self.log.debug(f"_fix_routes: going to remove duplicate '{str(route)}' of '{str(existing_route)}'")
+                    routes_to_remove[key] = route
+
+        # Remove duplications from the 'routes' object and from kernel
+        #
+        for key, route in routes_to_remove.items():
+            fwroutes.remove_route(route)
+            del routes[key]
 
 
     def _check_connectivity(self, route, server_address):

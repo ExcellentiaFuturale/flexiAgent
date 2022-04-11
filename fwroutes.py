@@ -341,6 +341,22 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
 
     return (True, None)
 
+def remove_route(route):
+    """Removes route in format of FwRoute object from Linux.
+
+    :param route: the FwRoute object that represents route to be removed from Linux.
+
+    :returns: <error string> on failure, None on success.
+    """
+    cmd = f"sudo ip route del {route.prefix} metric {route.metric} proto {route.proto}"
+    try:
+        fwglobals.log.debug(cmd)
+        subprocess.check_output(cmd, shell=True).decode()
+        return None
+    except Exception as e:
+        fwglobals.log.debug("'%s' failed: %s, ignore this error" % (cmd, str(e)))
+        return str(e)
+
 def add_remove_static_routes(via, is_add):
     routes_db = fwglobals.g.router_cfg.get_routes()
 
