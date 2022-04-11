@@ -243,7 +243,7 @@ class Application(FwApplicationInterface):
                 f'auth-gen-token {params.get("vpnTmpTokenTime", "43200")}',
 
                 # Allow multiple clients with the same common name to concurrently connect
-                'duplicate-cn',
+                # 'duplicate-cn',
 
                 # OpenVPN will internally route client-to-client traffic rather than pushing all client-originating traffic to the TUN/TAP interface.
                 'client-to-client',
