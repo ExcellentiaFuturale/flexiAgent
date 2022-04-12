@@ -767,6 +767,8 @@ class FwPppoeClient(FwObject):
     def build_dev_id_to_vpp_if_name_map(self):
         dev_id_vpp_if_name = {}
 
+        self.scan()
+
         for dev_id, conn in self.connections.items():
             if conn.addr:
                 dev_id_vpp_if_name[dev_id] = conn.tun_vpp_if_name
