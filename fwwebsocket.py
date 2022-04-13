@@ -23,6 +23,7 @@
 import enum
 import socket
 import ssl
+import threading
 import urllib.parse
 import websocket
 
@@ -45,6 +46,7 @@ class FwWebSocketClient(FwObject):
         CONNECTED     = 3
         DISCONNECTING = 4
         DISCONNECTED  = 5
+        CLOSING       = 6
 
 
     def __init__(self, on_message, on_open=None, on_close=None):
@@ -62,6 +64,7 @@ class FwWebSocketClient(FwObject):
         self.on_close     = on_close
         self.ssl_context  = ssl.create_default_context()
         self.state        = self.FwWebSocketState.IDLE
+        self.lock         = threading.RLock()
 
     def finalize(self):
         self.disconnect()
@@ -80,6 +83,7 @@ class FwWebSocketClient(FwObject):
         remote_port = parsed_url.port if parsed_url.port else 443
 
         try:
+            self.lock.acquire()
             self.log.debug(f"connecting to {remote_host}")
             self.state = self.FwWebSocketState.CONNECTING
 
@@ -112,7 +116,9 @@ class FwWebSocketClient(FwObject):
 
             self.remote_host = remote_host
             if self.on_open:
+                self.lock.release()
                 self.on_open()
+                self.lock.acquire()
 
 
         # The try-except is need to exit gracefully , if self.on_open() raises exception
@@ -129,26 +135,36 @@ class FwWebSocketClient(FwObject):
             self.log.error(f"failed to connect to {remote_host}: {str(e)}")
             raise e
 
+        finally:
+            self.lock.release()
+
 
     def disconnect(self):
         """Disconnects the active connection if exists.
         The connect() can be invoked again to establish new connection.
         """
-        if self.state != self.FwWebSocketState.CONNECTED:
-            return
-        self.state = self.FwWebSocketState.DISCONNECTING
-        self.log.debug(f"disconnecting from {self.remote_host}")
+        with self.lock:
+            if self.state != self.FwWebSocketState.CONNECTED:
+                self.log.debug(f"disconnect(): not connected -> return")
+                return
+            self.state = self.FwWebSocketState.DISCONNECTING
+            self.log.debug(f"disconnecting from {self.remote_host}")
 
-        #self.ws.shutdown() # The shutdown() actually calls the close()
-        self.ws.close()     # The close() performs shutdown as well, though not graceful :(
+            #self.ws.shutdown() # The shutdown() actually calls the close()
+            self.ws.close()     # The close() performs shutdown as well, though not graceful :(
 
     def close(self):
+        self.lock.acquire()
+        self.state = self.FwWebSocketState.CLOSING
         if self.ws:
             self.ws.close()
             self.ws = None
         if self.on_close:
+            self.lock.release()
             self.on_close()
+            self.lock.acquire()
         self.state = self.FwWebSocketState.IDLE
+        self.lock.release()
 
     def run_loop_send_recv(self, timeout=None):
         """Runs infinite loop of recv/recv-n-send operations.
@@ -212,4 +228,5 @@ class FwWebSocketClient(FwObject):
     def send(self, data):
         """Pushes data into connection.
         """
-        self.ws.send(data)
+        if self.ws:
+            self.ws.send(data)
