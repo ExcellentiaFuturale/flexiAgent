@@ -483,9 +483,9 @@ class Checker:
                 if gateway is None:
                     continue
                 if primary_gw is not None and gateway == primary_gw:
-                    self._add_netplan_interface(fname_baseline, ifname, 0)
+                    self._add_netplan_interface(fname, ifname, 0)
                 else:
-                    self._add_netplan_interface(fname_baseline, ifname, metric)
+                    self._add_netplan_interface(fname, ifname, metric)
                     metric += 100
 
         subprocess.check_call('sudo netplan apply', shell=True)
