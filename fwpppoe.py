@@ -91,11 +91,11 @@ class FwPppoeConnection(FwObject):
         except Exception as e:
             self.log.error("save: %s" % str(e))
 
-    def scan_and_connect_if_needed(self, is_connected):
+    def scan_and_connect_if_needed(self, is_connected, connect_if_needed):
         """Check Linux interfaces if PPPoE tunnel (pppX) is created.
         """
         pppd_id = fwutils.pid_of('pppd')
-        if not pppd_id and self.opened:
+        if not pppd_id and self.opened and connect_if_needed:
             self.open()
 
         interfaces = psutil.net_if_addrs()
@@ -108,7 +108,7 @@ class FwPppoeConnection(FwObject):
             self.gw = ''
             connected = False
 
-        if connected != is_connected:
+        if connected != is_connected and connect_if_needed:
             if connected:
                 self.log.debug(f'pppoe connected: {self}')
                 self.add_linux_ip_route()
@@ -643,14 +643,14 @@ class FwPppoeClient(FwObject):
         """
         return bool(self.interfaces)
 
-    def scan_interface(self, dev_id, conn):
+    def scan_interface(self, dev_id, conn, connect_if_needed=False):
         """Scan one interface for established PPPoE connection.
         """
         pppoe_iface = self.interfaces.get(dev_id)
         if not pppoe_iface:
             return
 
-        connected = conn.scan_and_connect_if_needed(pppoe_iface.is_connected)
+        connected = conn.scan_and_connect_if_needed(pppoe_iface.is_connected, connect_if_needed)
 
         if pppoe_iface.is_connected != connected:
             pppoe_iface.is_connected = connected
@@ -674,14 +674,14 @@ class FwPppoeClient(FwObject):
 
         return connected
 
-    def scan(self):
+    def scan(self, connect_if_needed=False):
         """Scan all interfaces for established PPPoE connection.
         """
         if not self.connections:
             return
 
         for dev_id, conn in self.connections.items():
-            self.scan_interface(dev_id, conn)
+            self.scan_interface(dev_id, conn, connect_if_needed)
 
     def start(self):
         """Open connections for all PPPoE interfaces.
@@ -706,7 +706,7 @@ class FwPppoeClient(FwObject):
         self.connections[dev_id] = conn
 
         while timeout >= 0:
-            connected = self.scan_interface(dev_id, conn)
+            connected = self.scan_interface(dev_id, conn, connect_if_needed=True)
             if connected:
                 return (True, None)
 
@@ -741,7 +741,7 @@ class FwPppoeClient(FwObject):
 
             try:  # Ensure thread doesn't exit on exception
                 if not fwglobals.g.router_api.state_is_starting_stopping():
-                    self.scan()
+                    self.scan(connect_if_needed=True)
             except Exception as e:
                 self.log.error("%s: %s (%s)" %
                     (threading.current_thread().getName(), str(e), traceback.format_exc()))
