@@ -205,7 +205,7 @@ class Application(FwApplicationInterface):
                 # Limit server to a maximum of concurrent clients.
                 f'max-clients {params.get("connections")}',
 
-                'keepalive 10 120',
+                f'keepalive {params.get("keepalive", "10 20")}',
 
                 # Select a cryptographic cipher.
                 'data-ciphers AES-256-CBC',
@@ -243,7 +243,7 @@ class Application(FwApplicationInterface):
                 f'auth-gen-token {params.get("vpnTmpTokenTime", "43200")}',
 
                 # Allow multiple clients with the same common name to concurrently connect
-                'duplicate-cn',
+                # 'duplicate-cn',
 
                 # OpenVPN will internally route client-to-client traffic rather than pushing all client-originating traffic to the TUN/TAP interface.
                 'client-to-client',

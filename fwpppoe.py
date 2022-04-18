@@ -18,10 +18,8 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import glob
 import os
 import psutil
-import socket
 import threading
 import time
 import traceback
@@ -94,11 +92,11 @@ class FwPppoeConnection(FwObject):
         except Exception as e:
             self.log.error("save: %s" % str(e))
 
-    def scan_and_connect_if_needed(self, is_connected):
+    def scan_and_connect_if_needed(self, is_connected, connect_if_needed):
         """Check Linux interfaces if PPPoE tunnel (pppX) is created.
         """
         pppd_id = fwutils.pid_of('pppd')
-        if not pppd_id and self.opened:
+        if not pppd_id and self.opened and connect_if_needed:
             self.open()
 
         interfaces = psutil.net_if_addrs()
@@ -111,7 +109,7 @@ class FwPppoeConnection(FwObject):
             self.gw = ''
             connected = False
 
-        if connected != is_connected:
+        if connected != is_connected and connect_if_needed:
             if connected:
                 self.log.debug(f'pppoe connected: {self}')
                 self.add_linux_ip_route()
@@ -342,12 +340,13 @@ class FwPppoeSecretsConfig(FwObject):
 class FwPppoeInterface():
     """The object that represents PPPoE interface configuration.
     """
-    def __init__(self, user, password, mtu, mru, usepeerdns, metric, enabled):
+    def __init__(self, user, password, mtu, mru, usepeerdns, metric, enabled, nameservers=[]):
         self.user = user
         self.password = password
         self.mtu = mtu
         self.mru = mru
         self.usepeerdns = usepeerdns
+        self.nameservers = nameservers
         self.metric = metric
         self.is_enabled = enabled
         self.is_connected = False
@@ -357,7 +356,7 @@ class FwPppoeInterface():
         self.netplan_fname = ''
 
     def __str__(self):
-        return f'user:{self.user}, password:{self.password}, mtu:{self.mtu}, mru:{self.mru}, usepeerdns:{self.usepeerdns}, metric:{self.metric}, enabled:{self.is_enabled}, connected:{self.is_connected}, addr:{self.addr}, gw:{self.gw}'
+        return f'user:{self.user}, password:{self.password}, mtu:{self.mtu}, mru:{self.mru}, usepeerdns:{self.usepeerdns}, nameservers: {self.nameservers}, metric:{self.metric}, enabled:{self.is_enabled}, connected:{self.is_connected}, addr:{self.addr}, gw:{self.gw}'
 
 class FwPppoeClient(FwObject):
     """The object that represents PPPoE client.
@@ -370,6 +369,7 @@ class FwPppoeClient(FwObject):
         self.filename = filename if filename else fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE
         path = path if path else fwglobals.g.PPPOE_CONFIG_PATH
         self.path = path + 'peers/'
+        self.resolv_path = path + 'resolv/'
         self.standalone = standalone
         self.thread_pppoec = None
         self.interfaces = SqliteDict(db_file, 'interfaces', autocommit=True)
@@ -513,6 +513,27 @@ class FwPppoeClient(FwObject):
             conn.save()
             self.connections[dev_id] = conn
 
+    def _parse_resolv_conf(self, filename):
+        nameservers = []
+        try:
+            with open(filename, 'r') as resolvconf:
+                for line in resolvconf.readlines():
+                    line = line.split('#', 1)[0];
+                    line = line.rstrip();
+                    if 'nameserver' in line:
+                        nameservers.append(line.split()[ 1 ])
+        except IOError as error:
+            self.log.error(f'_parse_resolve_conf: {error.strerror}, filename: {filename}')
+        return nameservers
+
+    def _update_resolvd(self, ppp_if_name, nameservers = []):
+        cmd = f'systemd-resolve --interface {ppp_if_name}'
+
+        for nameserver in nameservers:
+            cmd += f' --set-dns {nameserver}'
+
+        fwutils.os_system(cmd, '_update_resolvd', log=True)
+
     def _restore_netplan(self):
         """Restore Netplan by adding PPPoE interfaces back.
         """
@@ -622,14 +643,14 @@ class FwPppoeClient(FwObject):
         """
         return bool(self.interfaces)
 
-    def scan_interface(self, dev_id, conn):
+    def scan_interface(self, dev_id, conn, connect_if_needed=False):
         """Scan one interface for established PPPoE connection.
         """
         pppoe_iface = self.interfaces.get(dev_id)
         if not pppoe_iface:
             return
 
-        connected = conn.scan_and_connect_if_needed(pppoe_iface.is_connected)
+        connected = conn.scan_and_connect_if_needed(pppoe_iface.is_connected, connect_if_needed)
 
         if pppoe_iface.is_connected != connected:
             pppoe_iface.is_connected = connected
@@ -641,16 +662,26 @@ class FwPppoeClient(FwObject):
             if fwglobals.g.fwagent:
                 fwglobals.g.fwagent.reconnect()
 
+            if connected:
+                nameservers = []
+                if pppoe_iface.usepeerdns:
+                    filename = f'{self.resolv_path}{conn.ppp_if_name}'
+                    nameservers = self._parse_resolv_conf(filename)
+                else:
+                    nameservers = pppoe_iface.nameservers
+
+                self._update_resolvd(conn.ppp_if_name, nameservers)
+
         return connected
 
-    def scan(self):
+    def scan(self, connect_if_needed=False):
         """Scan all interfaces for established PPPoE connection.
         """
         if not self.connections:
             return
 
         for dev_id, conn in self.connections.items():
-            self.scan_interface(dev_id, conn)
+            self.scan_interface(dev_id, conn, connect_if_needed)
 
     def start(self):
         """Open connections for all PPPoE interfaces.
@@ -675,7 +706,7 @@ class FwPppoeClient(FwObject):
         self.connections[dev_id] = conn
 
         while timeout >= 0:
-            connected = self.scan_interface(dev_id, conn)
+            connected = self.scan_interface(dev_id, conn, connect_if_needed=True)
             if connected:
                 return (True, None)
 
@@ -706,7 +737,7 @@ class FwPppoeClient(FwObject):
         Its function is to monitor state of interfaces with PPPoE.
         """
         if not fwglobals.g.router_api.state_is_starting_stopping():
-            self.scan()
+            self.scan(connect_if_needed=True)
 
 
     def get_dev_id_from_ppp_if_name(self, ppp_if_name):
@@ -728,6 +759,8 @@ class FwPppoeClient(FwObject):
 
     def build_dev_id_to_vpp_if_name_map(self):
         dev_id_vpp_if_name = {}
+
+        self.scan()
 
         for dev_id, conn in self.connections.items():
             if conn.addr:
