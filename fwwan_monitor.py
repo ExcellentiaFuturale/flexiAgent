@@ -130,9 +130,9 @@ class FwWanMonitor(FwObject):
 
             try:
                 if fwglobals.g.router_api.state_is_started():
-                    self._check_link_status()
+                    self._sync_link_status()
             except Exception as e:
-                self.log.error("%s: _check_link_status: %s (%s)" %
+                self.log.error("%s: _sync_link_status: %s (%s)" %
                     (threading.current_thread().getName(), str(e), traceback.format_exc()))
                 pass
 
@@ -360,14 +360,10 @@ class FwWanMonitor(FwObject):
         self.log.debug("'%s' update metric: %d -> %d - done" % \
             (str(route), route.metric, new_metric))
 
-    def _check_link_status(self):
+    def _sync_link_status(self):
         '''Monitors link status (CARRIER-UP / NO-CARRIER or CABLE PLUGGED / CABLE UNPLUGGED)
-        of the VPP physical interfaces and update the correspondent tap inject
-        interfaces in Linux as follows:
-            - if NO-CARRIER was detected - remove IP from the correspondent Linux vppX interface
-            - if CARRIER-UP was restored - restore IP on the correspondent Linux vppX interface
-        Note the IP restoring is performed by 'netplan apply' to take a care of
-        both static and DHCP interfaces.
+        of the VPP physical interfaces and updates the correspondent tap inject
+        interfaces in Linux using the "echo 0/1 > /sys/class/net/vppX/carrier" command,
             We need this logic, as Linux vppX interfaces are not physical interfaces,
         so it is not possible to set the NO-CARRIER link status flag for them.
         As a result, the Linux might continue to use unplugged interface, thus loosing traffic.
@@ -390,28 +386,18 @@ class FwWanMonitor(FwObject):
             Intel 82540EM (e1000)
                 no-carrier full duplex mtu 9206
         '''
-        restore_addresses = False
-
         interfaces = fwglobals.g.router_cfg.get_interfaces()
         for interface in interfaces:
             tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
             sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(interface['dev_id'])
-            status      = fwutils.vpp_get_interface_status(sw_if_index)
-            address     = fwutils.get_interface_address(tap_name)
-            if status['link'] == 'down' and address:
-                # Remove IP from the vppsb tap interface, as link of corresponding vpp interface is down
-                #
-                self.log.debug(f"detected NO-CARRIER on {tap_name} -> remove address {address}")
-                os.system(f"ip address del {address} dev {tap_name}")
-
-            elif status['link'] == 'up' and status['admin'] == 'up' and not address:
-                # Restore IP on the vppsb tap interface, as link of corresponding vpp interface is up
-                #
-                self.log.debug(f"detected CARRIER UP and ADMIN UP on {tap_name} -> restore address")
-                restore_addresses = True  # We will restore later by 'netplan apply' to take care of both static and DHCP iterfaces
-
-        if restore_addresses:
-            fwutils.netplan_apply('FwWanMonitor::_check_link_status')
+            status_vpp  = fwutils.vpp_get_interface_status(sw_if_index)
+            (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{tap_name}/carrier")
+            if status_vpp['link'] == 'down' and ok and status_linux and int(status_linux)==1:
+                self.log.debug(f"detected NO-CARRIER for {tap_name}")
+                os.system(f"echo 0 > /sys/class/net/{tap_name}/carrier")
+            elif status_vpp['link'] == 'up' and ok and status_linux and int(status_linux)==0:
+                self.log.debug(f"detected CARRIER UP for {tap_name}")
+                os.system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
 
 def get_wan_failover_metric(dev_id, metric):
     '''Fetches the metric of the default route on the device with specified dev_id.
