@@ -394,10 +394,10 @@ class FwWanMonitor(FwObject):
             (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{tap_name}/carrier")
             if status_vpp['link'] == 'down' and ok and status_linux and int(status_linux)==1:
                 self.log.debug(f"detected NO-CARRIER for {tap_name}")
-                os.system(f"echo 0 > /sys/class/net/{tap_name}/carrier")
+                fwutils.os_system(f"echo 0 > /sys/class/net/{tap_name}/carrier")
             elif status_vpp['link'] == 'up' and ok and status_linux and int(status_linux)==0:
                 self.log.debug(f"detected CARRIER UP for {tap_name}")
-                os.system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
+                fwutils.os_system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
 
 def get_wan_failover_metric(dev_id, metric):
     '''Fetches the metric of the default route on the device with specified dev_id.
