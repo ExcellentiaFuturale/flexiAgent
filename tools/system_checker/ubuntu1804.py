@@ -1,4 +1,4 @@
-#! /usr/bin/python
+#! /usr/bin/python3
 
 ################################################################################
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
@@ -24,91 +24,22 @@
 import os
 import re
 import subprocess
+import sys
 
 import fwsystem_checker_common
+
+globals = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , '..')
+sys.path.append(globals)
+import fwutils
 
 class Checker(fwsystem_checker_common.Checker):
     """This is Checker class representation.
     """
-    def soft_check_resolvconf(self, fix=False, silently=False, prompt=None):
-        """Check if resolvconf is installed.
-
-        :param fix:             Install resolvconf.
-        :param silently:        Run silently.
-        :param prompt:          Ask user for prompt.
-
-        :returns: 'True' if it resolvconf is installed, 'False' otherwise.
-        """
-        installed = False
-        config_filename = '/etc/resolvconf/resolv.conf.d/tail'
-        try: # Refresh self.nameservers on every invocation
-            out = subprocess.check_output("grep '^nameserver ' %s" % config_filename, shell=True).strip().split('\n')
-            self.nameservers = [ line.split(' ')[1] for line in out ]  # 'line' format is 'nameserver 127.0.0.53'
-        except:
-            self.nameservers = []
-
-        try:
-            out = subprocess.check_output('dpkg -l | grep resolvconf', shell=True).strip()
-            if len(out) == 0:
-                raise Exception(prompt + 'resolvconf is not installed')
-            else:
-                installed = True
-            # The resolvconf is installed now , ensure that it is configured with DNS servers
-            if len(self.nameservers) == 0:
-                raise Exception('no name servers was found in %s' % config_filename)
-            return True
-        except Exception as e:
-            print(prompt + str(e))
-            if not fix:
-                return False
-            else:
-                if silently:
-                    # Install the daemon if not installed
-                    if not installed:
-                        ret = os.system('apt -y install resolvconf > /dev/null 2>&1')
-                        if ret != 0:
-                            print(prompt + 'failed to install resolvconf')
-                            return False
-                    # Now add the 8.8.8.8 to it's configuration
-                    if len(self.nameservers) == 0:
-                        ret = os.system('printf "\nnameserver 1.1.1.1\nnameserver 8.8.8.8\n" >> %s' % config_filename)
-                        if ret != 0:
-                            print(prompt + 'failed to add 8.8.8.8 to %s' % config_filename)
-                            return False
-                        os.system('systemctl restart resolvconf > /dev/null 2>&1')
-                        return True
-                else:
-                    # Install the daemon if not installed
-                    if not installed:
-                        choice = raw_input(prompt + "download and install resolvconf? [Y/n]: ")
-                        if choice == 'y' or choice == 'Y' or choice == '':
-                            ret = os.system('apt -y install resolvconf')
-                            if ret != 0:
-                                print(prompt + 'failed to install resolvconf')
-                                return False
-                        else:
-                            return False
-                    # Now add DNS servers to it's configuration, if no servers present
-                    if len(self.nameservers) == 0:
-                        while True:
-                            server = raw_input(prompt + "enter DNS Server address, e.g. 8.8.8.8: ")
-                            ret = os.system('printf "nameserver %s\n" >> %s' % (server, config_filename))
-                            ret_str = 'succeeded' if ret == 0 else 'failed'
-                            print(prompt + ret_str + ' to add ' + server)
-                            choice = raw_input(prompt + "repeat? [y/N]: " )
-                            if choice == 'y' or choice == 'Y':
-                                continue
-                            elif choice == 'n' or choice == 'N' or choice == '':
-                                break
-                        os.system('systemctl restart resolvconf > /dev/null 2>&1')
-                        return True if ret == 0 else False
-                    return True
-
     def _is_service_active(self, service):
         """Return True if service is running"""
         cmd = '/bin/systemctl status %s.service' % service
-        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-        lines = proc.communicate()[0].split('\n')
+        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        lines = proc.communicate()[0].decode().split('\n')
         for line in lines:
             if 'Active:' in line:
                 if '(running)' in line:
@@ -116,11 +47,16 @@ class Checker(fwsystem_checker_common.Checker):
         return False
 
     def _start_service(self, service):
-        """Return True if service is started"""
+        """Start and enable service"""
         os.system('/bin/systemctl unmask %s.service > /dev/null 2>&1' % service)
         os.system('/bin/systemctl enable %s.service > /dev/null 2>&1' % service)
         os.system('/bin/systemctl start %s.service > /dev/null 2>&1' % service)
-        return True
+
+    def _stop_service(self, service):
+        """Stop and disable service"""
+        os.system('/bin/systemctl stop %s.service > /dev/null 2>&1' % service)
+        os.system('/bin/systemctl disable %s.service > /dev/null 2>&1' % service)
+        os.system('/bin/systemctl mask %s.service > /dev/null 2>&1' % service)
 
     def soft_check_networkd(self, fix=False, silently=False, prompt=None):
         """Check if networkd is running.
@@ -140,30 +76,56 @@ class Checker(fwsystem_checker_common.Checker):
                 running = True
             return True
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             if not fix:
                 return False
             else:
                 if silently:
                     # Run the daemon if not running
                     if not running:
-                        ret = self._start_service("systemd-networkd")
-                        if not ret:
-                            print(prompt + 'failed to start networkd')
-                            return ret
+                        self._start_service("systemd-networkd")
                     return True
                 else:
                     # Run the daemon if not running
                     if not running:
-                        choice = raw_input(prompt + "start networkd? [Y/n]: ")
+                        choice = input(prompt + "start networkd? [Y/n]: ")
                         if choice == 'y' or choice == 'Y' or choice == '':
-                            ret = self._start_service("systemd-networkd")
-                            if not ret:
-                                print(prompt + 'failed to start networkd')
-                                return ret
+                            self._start_service("systemd-networkd")
                             return True
                         else:
                             return False
+
+    def soft_check_network_manager(self, fix=False, silently=False, prompt=None):
+            """Check if NetworkManager is not running.
+
+            :param fix:             Stop NetworkManager.
+            :param silently:        Stop silently.
+            :param prompt:          Ask user for prompt.
+
+            :returns: 'True' if NetworkManager is not running, 'False' otherwise.
+            """
+            running = False
+            try:
+                running = self._is_service_active("NetworkManager")
+                if running == True:
+                    raise Exception(prompt + 'NetworkManager is running')
+                else:
+                    return True
+            except Exception as e:
+                self.log.error(prompt + str(e))
+                if not fix:
+                    return False
+                else:
+                    # Stop the daemon if running
+                    if running:
+                        if not silently:
+                            choice = input(prompt + "stop NetworkManager? [Y/n]: ")
+                            if choice != 'y' and choice != 'Y' and choice != '':
+                                return False
+                        self._stop_service("NetworkManager")
+                        self._stop_service("NetworkManager-dispatcher")
+                        self._stop_service("NetworkManager-wait-online")
+                    return True
 
     def soft_check_disable_linux_autoupgrade(self, fix=False, silently=False, prompt=None):
         """Check if Linux autoupgrade is disabled.
@@ -182,7 +144,7 @@ class Checker(fwsystem_checker_common.Checker):
 
         def _fetch_autoupgrade_param(param):
             try:
-                out = subprocess.check_output("grep '%s' %s " % (param, autoupgrade_file) , shell=True).strip().split('\n')[0]
+                out = subprocess.check_output("grep '%s' %s " % (param, autoupgrade_file) , shell=True).decode().strip().split('\n')[0]
                 # APT::Periodic::Update-Package-Lists "0";
                 m = re.search(' "(.)";', out)
                 if m:
@@ -205,7 +167,7 @@ class Checker(fwsystem_checker_common.Checker):
         #
         if not os.path.isfile(autoupgrade_file):
             if not fix:
-                print(prompt + '%s not found' % autoupgrade_file)
+                self.log.error(prompt + '%s not found' % autoupgrade_file)
                 return False
             else:
                 os.system('touch ' + autoupgrade_file)
@@ -225,7 +187,7 @@ class Checker(fwsystem_checker_common.Checker):
         # Fix parameter if needed
         if not fix:
             for param in params_to_fix:
-                print(prompt + '%s %s' % (param['name'], param['status']))
+                self.log.error(prompt + '%s %s' % (param['name'], param['status']))
             return False
         else:
             succeeded = True
@@ -233,7 +195,7 @@ class Checker(fwsystem_checker_common.Checker):
                 try:
                     _set_autoupgrade_param(param['name'], 0)
                 except Exception as e:
-                    print(prompt + 'failed to disable %s: %s' % (param['name'], str(e)))
+                    self.log.error(prompt + 'failed to disable %s: %s' % (param['name'], str(e)))
                     succeeded = False
             return succeeded
 
@@ -256,15 +218,15 @@ class Checker(fwsystem_checker_common.Checker):
         # systemd-timesyncd.service active: yes
         #     RTC in local TZ: no
         try:
-            out = subprocess.check_output("timedatectl | grep 'Time zone:'", shell=True).strip()
+            out = subprocess.check_output("timedatectl | grep 'Time zone:'", shell=True).decode().strip()
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             return False
         if 'Time zone: Etc/UTC' in out or 'Time zone: UTC' in out:
             return True
 
         if not fix:
-            print(prompt + 'time zone is not UTC: ' + out)
+            self.log.error(prompt + 'time zone is not UTC: ' + out)
             return False
 
         ret = os.system('timedatectl set-timezone UTC')

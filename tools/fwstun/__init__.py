@@ -12,15 +12,17 @@ __version__ = '1.0.0'
 
 g_stun_log = None # log object
 
-# FLEXIWAN_FIX: updated list of STUN server, as some are not working any more
 STUN_SERVERS = (
+    'stun.l.google.com:19302',
+    'stun1.l.google.com:19302',
     'stun2.l.google.com:19302',
     'stun3.l.google.com:19302',
     'stun4.l.google.com:19302',
-    'stunserver.org:3478',
-    'stun.ekiga.net',
-    'stun.pjsip.org',
-    'stun.voipstunt.com',
+    'stun.ekiga.net:3478',
+    'stun.cheapvoip.com:3478',
+    'stun.gmx.de:3478',
+    'stun.gmx.net:3478',
+    'stun.stunprotocol.org:3478',
 )
 
 """
@@ -32,6 +34,7 @@ STUN_SERVERS = (
 """
 
 stun_servers_list = STUN_SERVERS
+MagicCookie = '2112a442'
 
 DEFAULTS = {
     'stun_port': 3478,
@@ -52,7 +55,7 @@ ErrorCode = '0009'
 UnknownAttribute = '000A'
 ReflectedFrom = '000B'
 XorOnly = '0021'
-XorMappedAddress = '8020'
+XorMappedAddress = '0020'
 ServerName = '8022'
 SecondaryAddress = '8050'  # Non standard extension
 
@@ -63,6 +66,9 @@ BindErrorResponseMsg = '0111'
 SharedSecretRequestMsg = '0002'
 SharedSecretResponseMsg = '0102'
 SharedSecretErrorResponseMsg = '0112'
+
+# type for a vxLAN message
+vxLanMsg = '08000000'
 
 dictAttrToVal = {'MappedAddress': MappedAddress,
                  'ResponseAddress': ResponseAddress,
@@ -104,17 +110,28 @@ ChangedAddressError = "Error"
 def b2a_hexstr(abytes):
     return binascii.b2a_hex(abytes).decode("ascii")
 
+def xor_convert(abytes, xor_str):
+    bytes_len = len(abytes)
+    if (bytes_len != len(xor_str)/2 or len(xor_str)%2 !=0):
+        stun_log("Stun: missmatch xor_convert. %s, %s" % (str(abytes), xor_str))
+        return abytes
+    xor_bytes = binascii.a2b_hex(xor_str)
+    res = bytearray(bytes_len)
+    for i in range(bytes_len):
+        res[i] = abytes[i] ^ xor_bytes[i]
+    return res
+
 def _initialize():
     global dictValToAttr, dictValToMsgType
-    dictValToAttr= {v: k for k, v in dictAttrToVal.items()}
-    dictValToMsgType = {v: k for k, v in dictMsgTypeToVal.items()}
+    dictValToAttr= {v: k for k, v in list(dictAttrToVal.items())}
+    dictValToMsgType = {v: k for k, v in list(dictMsgTypeToVal.items())}
 
 def set_log(log):
     global g_stun_log
     g_stun_log = log
 
 def gen_tran_id():
-    a = ''.join(random.choice('0123456789ABCDEF') for i in range(32))
+    a = ''.join(random.choice('0123456789ABCDEF') for i in range(24))
     # return binascii.a2b_hex(a)
     return a
 
@@ -123,7 +140,7 @@ def stun_test(sock, host, port, source_ip, source_port, send_data=""):
               'SourceIP': None, 'SourcePort': None, 'ChangedIP': None,
               'ChangedPort': None}
     str_len = "%#04d" % (len(send_data) / 2)
-    trans_id = gen_tran_id()
+    trans_id = MagicCookie + gen_tran_id()
     str_data = ''.join([BindRequestMsg, str_len, trans_id, send_data])
     data = binascii.a2b_hex(str_data)
 
@@ -170,6 +187,16 @@ def stun_test(sock, host, port, source_ip, source_port, send_data=""):
                     str(int(b2a_hexstr(buf[base + 9:base + 10]), 16)),
                     str(int(b2a_hexstr(buf[base + 10:base + 11]), 16)),
                     str(int(b2a_hexstr(buf[base + 11:base + 12]), 16))
+                ])
+                retVal['ExternalIP'] = ip
+                retVal['ExternalPort'] = port
+            if attr_type == XorMappedAddress:
+                port = int(b2a_hexstr(xor_convert(buf[base + 6:base + 8], MagicCookie[0:4])), 16)
+                ip = ".".join([
+                    str(int(b2a_hexstr(xor_convert(buf[base + 8:base + 9], MagicCookie[0:2])), 16)),
+                    str(int(b2a_hexstr(xor_convert(buf[base + 9:base + 10], MagicCookie[2:4])), 16)),
+                    str(int(b2a_hexstr(xor_convert(buf[base + 10:base + 11], MagicCookie[4:6])), 16)),
+                    str(int(b2a_hexstr(xor_convert(buf[base + 11:base + 12], MagicCookie[6:8])), 16))
                 ])
                 retVal['ExternalIP'] = ip
                 retVal['ExternalPort'] = port
@@ -300,7 +327,7 @@ def get_ip_info(source_ip="0.0.0.0", source_port=4789, stun_host=None,
     try:
         stun_log("get_ip_info, binding to %s:%d" %(source_ip, source_port))
         if dev_name != None:
-            s.setsockopt(socket.SOL_SOCKET, 25, dev_name + '\0')
+            s.setsockopt(socket.SOL_SOCKET, 25, dev_name.encode())
         s.bind((source_ip, source_port))
     except Exception as e:
         stun_log("get_ip_info: bind: %s" % str(e))
@@ -325,3 +352,52 @@ def stun_log(string, level = 'debug'):
     func = getattr(g_stun_log, level)
     if func:
         func(string)
+
+def get_remote_ip_info(source_ip="0.0.0.0", source_port=4789, dev_name = None):
+    """
+    This function is the outside API to the symmetric nat traversal.
+    It retrieves the remote IP and PORT as seen from incoming packets from the other side of the tunnel.
+    : param source_ip   : the local source IP on behalf NAT request is sent
+    : param source_port : the local source port on behalf NAT request is sent
+    : param dev_name    : device name to bind() to
+
+    """
+    tunnels = {}
+    pkts_to_read = 10
+    
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(5)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        stun_log("Tunnel: binding to %s:%d" %(source_ip, source_port))
+        if dev_name != None:
+            sock.setsockopt(socket.SOL_SOCKET, 25, dev_name.encode())
+        sock.bind((source_ip, source_port))
+    except Exception as e:
+        stun_log("Tunnel: bind: %s" % str(e))
+        sock.close()
+        return tunnels
+
+    for _ in range(pkts_to_read):
+        try:
+            buf, (address, port) = sock.recvfrom(2048)
+            stun_log("Tunnel: recvfrom: %s:%s" %(str(address), str(port)))
+        except socket.timeout as e:
+            stun_log("Tunnel: There are no packets: %s" %(str(e)), 'warning')
+            break
+        except Exception as e:
+            stun_log("Tunnel: recvfrom: %s" %(str(e)), 'warning')
+            continue
+
+        if len(buf) < 8:
+            continue
+
+        msgtype = b2a_hexstr(buf[0:4])
+        if msgtype == vxLanMsg:
+            vni = int(b2a_hexstr(buf[4:7]), 16)
+            if not tunnels.get(vni):
+                tunnels[vni] = {"dst" : address, "dstPort" : port}
+            stun_log("Tunnel: msgtype: %s vni: %s" %(str(msgtype), str(vni)))
+
+    sock.close()
+    return tunnels

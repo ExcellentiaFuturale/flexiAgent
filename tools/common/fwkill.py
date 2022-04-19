@@ -1,4 +1,4 @@
-#! /usr/bin/python
+#! /usr/bin/python3
 
 ################################################################################
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
@@ -41,6 +41,9 @@ sys.path.append(agent_root_dir)
 import fwglobals
 import fwutils
 import fwnetplan
+import fwlte
+import fwpppoe
+import fwwifi
 
 def parse_argv(argv):
     options = [
@@ -66,15 +69,25 @@ def main():
 
     if not arg_quiet:
         print ("Shutting down flexiwan-router...")
-    fwglobals.initialize()
+    fwglobals.initialize(quiet=arg_quiet)
+    fwpppoe.pppoe_reset()
     os.system('systemctl stop flexiwan-router')
     fwutils.stop_vpp()
+    fwutils.remove_linux_bridges()
+    fwutils.reset_traffic_control()
+    fwwifi.stop_hostapd()
     fwnetplan.restore_linux_netplan_files()
+
+    lte_interfaces = fwlte.get_lte_interfaces_dev_ids()
+    for dev_id in lte_interfaces:
+        fwlte.disconnect(dev_id, False)
+
     # reset startup.conf file
     if os.path.exists(fwglobals.g.VPP_CONFIG_FILE_BACKUP):
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE_BACKUP, fwglobals.g.VPP_CONFIG_FILE)
     if arg_clean_cfg:
-        fwutils.reset_router_config()
+        fwutils.reset_device_config(pppoe=True)
+
     if not arg_quiet:
         print ("Done")
 

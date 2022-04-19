@@ -1,4 +1,4 @@
-#! /usr/bin/python
+#! /usr/bin/python3
 
 ################################################################################
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
@@ -20,38 +20,72 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import json
-import loadsimulator
 import yaml
 import sys
 import os
-import re
 from shutil import copyfile
-import subprocess
-import time
 import fwglobals
 import fwstats
 import fwutils
+import fwlte
+import fwwifi
+
+from fwobject import FwObject
+
+from pyroute2 import IPDB
 
 fwagent_api = {
-    'get-device-info':          '_get_device_info',
-    'get-device-stats':         '_get_device_stats',
-    'get-device-logs':          '_get_device_logs',
-    'get-device-packet-traces': '_get_device_packet_traces',
-    'get-device-os-routes':     '_get_device_os_routes',
-    'get-router-config':        '_get_router_config',
-    'upgrade-device-sw':        '_upgrade_device_sw',
-    'reset-device':             '_reset_device_soft',
-    'sync-device':              '_sync_device'
+    'get-device-certificate':        '_get_device_certificate',
+    'get-device-config':             '_get_device_config',
+    'get-device-info':               '_get_device_info',
+    'get-device-logs':               '_get_device_logs',
+    'get-device-os-routes':          '_get_device_os_routes',
+    'get-device-packet-traces':      '_get_device_packet_traces',
+    'get-device-stats':              '_get_device_stats',
+    'get-lte-info':                  '_get_lte_info',
+    'get-wifi-info':                 '_get_wifi_info',
+    'modify-lte-pin':                '_modify_lte_pin',
+    'reset-lte':                     '_reset_lte',
+    'reset-device':                  '_reset_device_soft',
+    'sync-device':                   '_sync_device',
+    'upgrade-device-sw':             '_upgrade_device_sw',
 }
 
-class FWAGENT_API:
+routes_protocol_map = {
+    -1: '',
+    0: 'unspec',
+    1: 'redirect',
+    2: 'kernel',
+    3: 'boot',
+    4: 'static',
+    8: 'gated',
+    9: 'ra',
+    10: 'mrt',
+    11: 'zebra',
+    12: 'bird',
+    13: 'dnrouted',
+    14: 'xorp',
+    15: 'ntk',
+    16: 'dhcp',
+    18: 'keepalived',
+    42: 'babel',
+    186: 'bgp',
+    187: 'isis',
+    188: 'ospf',
+    189: 'rip',
+    192: 'eigrp',
+}
+
+class FWAGENT_API(FwObject):
     """This class implements fwagent level APIs of flexiEdge device.
        Typically these APIs are used to monitor various components of flexiEdge.
        They are invoked by the flexiManage over secure WebSocket
        connection using JSON requests.
        For list of available APIs see the 'fwagent_api' variable.
     """
+    def __init__(self):
+        FwObject.__init__(self)
+
     def call(self, request):
         """Invokes API specified by the 'req' parameter.
 
@@ -82,16 +116,25 @@ class FWAGENT_API:
                 if tunnel_id in tunnel_ids:
                     # key1-key4 are the crypto keys stored in
                     # the management for each tunnel
+                    key1 = ""
+                    key2 = ""
+                    key3 = ""
+                    key4 = ""
+                    if "ipsec" in params:
+                        key1 = params["ipsec"]["local-sa"]["crypto-key"]
+                        key2 = params["ipsec"]["local-sa"]["integr-key"]
+                        key3 = params["ipsec"]["remote-sa"]["crypto-key"]
+                        key4 = params["ipsec"]["remote-sa"]["integr-key"]
                     tunnel_info.append({
                         "id": str(tunnel_id),
-                        "key1": params["ipsec"]["local-sa"]["crypto-key"],
-                        "key2": params["ipsec"]["local-sa"]["integr-key"],
-                        "key3": params["ipsec"]["remote-sa"]["crypto-key"],
-                        "key4": params["ipsec"]["remote-sa"]["integr-key"]
+                        "key1": key1,
+                        "key2": key2,
+                        "key3": key3,
+                        "key4": key4
                     })
 
             except Exception as e:
-                fwglobals.log.excep("failed to create tunnel information %s" % str(e))
+                self.log.excep("failed to create tunnel information %s" % str(e))
                 raise e
         return tunnel_info
 
@@ -103,14 +146,18 @@ class FWAGENT_API:
         :returns: Dictionary with information and status code.
         """
         try:
+            stats = fwstats.get_stats()
             info = {}
             # Load component versions
             with open(fwglobals.g.VERSIONS_FILE, 'r') as stream:
                 info = yaml.load(stream, Loader=yaml.BaseLoader)
+            info['stats'] = stats['message'][-1]
             # Load network configuration.
             info['network'] = {}
-            info['network']['interfaces'] = fwutils.get_linux_interfaces(cached=False).values()
-            info['reconfig'] = '' if loadsimulator.g.enabled() else fwutils.get_reconfig_hash()
+            info['network']['interfaces'] = list(fwutils.get_linux_interfaces(cached=False).values())
+            info['reconfig'] = '' if fwglobals.g.loadsimulator else fwutils.get_reconfig_hash()
+            if fwglobals.g.ikev2.is_private_key_created():
+                info['ikev2'] = fwglobals.g.ikev2.get_certificate_expiration()
             # Load tunnel info, if requested by the management
             if params and params['tunnels']:
                 info['tunnels'] = self._prepare_tunnel_info(params['tunnels'])
@@ -157,16 +204,32 @@ class FWAGENT_API:
         """Get device logs.
 
         :param params: Parameters from flexiManage.
+            examples of possible parameters:
+                {
+                    'lines': 100,
+                    'filter': 'fwagent',
+                },
+                {
+                    'lines': 100,
+                    'filter': 'application',
+                    'application': {
+                        identifier: 'com.flexiwan.remotevpn'
+                    }
+                }
 
         :returns: Dictionary with logs and status code.
         """
         dl_map = {
-    	    'fwagent': fwglobals.g.ROUTER_LOG_FILE,
-    	    'syslog': fwglobals.g.SYSLOG_FILE,
+            'fwagent': fwglobals.g.ROUTER_LOG_FILE,
+            'application_ids': fwglobals.g.APPLICATION_IDS_LOG_FILE,
+            'syslog': fwglobals.g.SYSLOG_FILE,
             'dhcp': fwglobals.g.DHCP_LOG_FILE,
             'vpp': fwglobals.g.VPP_LOG_FILE,
             'ospf': fwglobals.g.OSPF_LOG_FILE,
-	    }
+            'hostapd': fwglobals.g.HOSTAPD_LOG_FILE,
+            'agentui': fwglobals.g.AGENT_UI_LOG_FILE,
+            'application': fwglobals.g.applications_api.get_log_filename(params.get('application', {}).get('identifier')),
+        }
         file = dl_map.get(params['filter'], '')
         try:
             logs = fwutils.get_device_logs(file, params['lines'])
@@ -194,40 +257,61 @@ class FWAGENT_API:
 
         :returns: Dictionary with routes and status code.
         """
-        routing_table = fwutils.get_os_routing_table()
 
-        if routing_table == None:
-            raise Exception("_get_device_os_routes: failed to get device routes: %s" % format(sys.exc_info()[1]))
-
-        # Remove empty lines and the headers of the 'route' command
-        routing_table = [ el for el in routing_table if (el is not "" and routing_table.index(el)) > 1 ]
         route_entries = []
 
-        for route in routing_table:
-            fields = route.split()
-            if len(fields) < 8:
-                raise Exception("_get_device_os_routes: failed to get device routes: parsing failed")
+        with IPDB() as ipdb:
+            for route in ipdb.routes:
+                try:
+                    dst = route.dst
+                    if dst == 'default':
+                        dst = '0.0.0.0/0'
 
-            route_entries.append({
-                'destination': fields[0],
-                'gateway': fields[1],
-                'mask': fields[2],
-                'flags': fields[3],
-                'metric': fields[4],
-                'interface': fields[7],
-            })
+                    metric = route.priority
+                    protocol = routes_protocol_map[route.get('proto', -1)]
+
+                    if not route.multipath:
+                        gateway = route.gateway
+                        interface = ipdb.interfaces[route.oif].ifname
+
+                        route_entries.append({
+                            'destination': dst,
+                            'gateway': gateway,
+                            'metric': metric,
+                            'interface': interface,
+                            'protocol': protocol
+                        })
+                    else:
+                        for path in route.multipath:
+                            gateway = path.gateway
+                            interface = ipdb.interfaces[path.oif].ifname
+
+                            route_entries.append({
+                                'destination': dst,
+                                'gateway': gateway,
+                                'metric': metric,
+                                'interface': interface,
+                                'protocol': protocol
+                            })
+                except Exception as e:
+                    self.log.error("_get_device_os_routes: failed to parse route %s.\nroutes=%s." % \
+                        (str(route), str(ipdb.routes)))
+                    pass
 
         return {'message': route_entries, 'ok': 1}
 
-    def _get_router_config(self, params):
-        """Get router configuration from DB.
+    def _get_device_config(self, params):
+        """Get device configuration from DB.
 
         :param params: Parameters from flexiManage.
 
         :returns: Dictionary with configuration and status code.
         """
-        configs = fwutils.dump_router_config()
-        reply = {'ok': 1, 'message': configs if configs else []}
+        router_config = fwutils.dump_router_config()
+        system_config = fwutils.dump_system_config()
+        applications_config = fwutils.dump_applications_config()
+        config = router_config + system_config + applications_config
+        reply = {'ok': 1, 'message': config if config else []}
         return reply
 
     def _reset_device_soft(self, params=None):
@@ -238,12 +322,12 @@ class FWAGENT_API:
         :returns: Dictionary with status code.
         """
         if fwglobals.g.router_api.state_is_started():
-            fwglobals.g.router_api.call({'message':'stop-router'})   # Stop VPP if it runs
-        fwutils.reset_router_config()
+            fwglobals.g.handle_request({'message':'stop-router'})   # Stop VPP if it runs
+        fwutils.reset_device_config()
         return {'ok': 1}
 
     def _sync_device(self, params):
-        """Handles the 'sync-device' request: synchronizes VPP state
+        """Handles the 'sync-device' request: synchronizes device configuration
         to the configuration stored on flexiManage. During synchronization
         all interfaces, tunnels, routes, etc, that do not appear
         in the received 'sync-device' request are removed, all entities
@@ -258,68 +342,78 @@ class FWAGENT_API:
                         }
         :returns: Dictionary with status code.
         """
-        fwglobals.log.info("FWAGENT_API: _sync_device STARTED")
+        self.log.info("_sync_device STARTED")
 
-        # Go over configuration requests received within sync-device request,
-        # intersect them against the requests stored locally and generate new list
-        # of remove-X and add-X requests that should take device to configuration
-        # received with the sync-device.
-        #
-        sync_list = fwglobals.g.router_cfg.get_sync_list(params['requests'])
-        fwglobals.log.debug("FWAGENT_API: _sync_device: sync-list: %s" % \
-                            json.dumps(sync_list, indent=2, sort_keys=True))
-        if not sync_list:
-            fwglobals.log.info("FWAGENT_API: _sync_device: sync_list is empty, no need to sync")
-            fwglobals.g.router_cfg.reset_signature()
-            if params.get('type', '') != 'full-sync':
-                return {'ok': 1}   # Return if there is no full sync enforcement
+        full_sync_enforced = params.get('type', '') == 'full-sync'
 
-        # Finally update configuration.
-        # Firstly try smart sync - apply sync-list modifications only.
-        # If that fails, go with full sync - reset configuration and apply sync-device list
-        #
-        if sync_list:
-            fwglobals.log.debug("FWAGENT_API: _sync_device: start smart sync")
-            sync_request = {
-                'message':   'aggregated',
-                'params':    { 'requests': sync_list },
-                'internals': { 'dont_revert_on_failure': True }
-            }
-            reply = fwglobals.g.router_api.call(sync_request)
+        # Check that all messages are supported
+        non_supported_messages = list([x for x in params['requests'] if x['message'] not in fwglobals.request_handlers])
+        if non_supported_messages:
+            raise Exception("_sync_device: unsupported requests found: %s" % str(non_supported_messages))
 
-            # If smart sync succeeded and there is no 'full-sync' enforcement
-            # in message, finish sync procedure and return.
-            # Note today the 'full-sync' enforcement is needed for testing only.
-            #
-            if reply['ok'] == 1 and params.get('type', '') != 'full-sync':
-                fwglobals.g.router_cfg.reset_signature()
-                fwglobals.log.debug("FWAGENT_API: _sync_device: smart sync succeeded")
-                fwglobals.log.info("FWAGENT_API: _sync_device FINISHED")
-                return {'ok': 1}
+        for module_name, module in list(fwglobals.modules.items()):
+            if module.get('sync', False) == True:
+                # get api module. e.g router_api, system_api
+                api_module = getattr(fwglobals.g, module.get('object'))
+                api_module.sync(params['requests'], full_sync_enforced)
 
-        # At this point we have to perform full sync.
-        # This is due to either smart sync failure or full sync enforcement.
-        #
-        fwglobals.log.debug("FWAGENT_API: _sync_device: start full sync")
-        restart_router = False
-        if fwglobals.g.router_api.state_is_started():
-            restart_router = True
-            fwglobals.g.router_api.call({'message': 'stop-router'})
-
-        self._reset_device_soft()                       # Wipe out the configuration database
-        request = {                                     # Cast 'sync-device' to 'aggregated'
-            'message':   'aggregated',
-            'params':    { 'requests': params['requests'] },
-            'internals': { 'dont_revert_on_failure': True }
-        }
-        reply = fwglobals.g.router_api.call(request)    # Apply finally the received configuration
-        if reply['ok'] == 0:
-            raise Exception(" _sync_device: full sync failed: " + str(reply.get('message')))
-
-        if restart_router:
-            fwglobals.g.router_api.call({'message': 'start-router'})
-        fwglobals.log.debug("FWAGENT_API: _sync_device: full sync succeeded")
-
-        fwglobals.g.router_cfg.reset_signature()
-        fwglobals.log.info("FWAGENT_API: _sync_device FINISHED")
+        # At this point the sync succeeded.
+        # In case of failure - exception is raised by sync()
+        fwutils.reset_device_config_signature()
+        self.log.info("_sync_device FINISHED")
         return {'ok': 1}
+
+    def _get_wifi_info(self, params):
+        try:
+            wifi_info = fwwifi.collect_wifi_info(params['dev_id'])
+            return {'message': wifi_info, 'ok': 1}
+        except Exception as e:
+            self.log.error('Failed to get Wifi information. %s' % str(e))
+            return {'message': str(e), 'ok': 0}
+
+    def _get_lte_info(self, params):
+        try:
+            reply = fwlte.collect_lte_info(params['dev_id'])
+            return {'message': reply, 'ok': 1}
+        except Exception as e:
+            self.log.error('Failed to get LTE information. %s' % str(e))
+            return {'message': str(e), 'ok': 0}
+
+    def _reset_lte(self, params):
+        """Reset LTE modem card.
+
+        :param params: Parameters to use.
+
+        :returns: Dictionary status code.
+        """
+        try:
+            fwlte.reset_modem(params['dev_id'])
+
+            # restore lte connection if needed
+            fwglobals.g.system_api.restore_configuration(types=['add-lte'])
+
+            return {'ok': 1, 'message': ''}
+        except Exception as e:
+            return {'ok': 0, 'message': str(e)}
+
+    def _modify_lte_pin(self, params):
+        try:
+            dev_id = params['dev_id']
+            new_pin = params.get('newPin')
+            current_pin = params.get('currentPin')
+            enable = params.get('enable', False)
+            puk = params.get('puk')
+            fwlte.handle_pin_modifications(dev_id, current_pin, new_pin, enable, puk)
+            reply = {'ok': 1, 'message': { 'err_msg': None, 'data': fwlte.get_pin_state(dev_id)}}
+        except Exception as e:
+            reply = {'ok': 0, 'message': { 'err_msg': str(e), 'data': fwlte.get_pin_state(dev_id)} }
+        return reply
+
+    def _get_device_certificate(self, params):
+        """IKEv2 certificate generation.
+
+        :param params: Parameters from flexiManage.
+
+        :returns: Dictionary with status code.
+        """
+        return fwglobals.g.ikev2.create_private_key(params['days'], params['new'])

@@ -43,17 +43,18 @@ def test():
             print("   " + os.path.basename(t))
 
             # Load router configuration with spoiled lists
-            ok, err_str = agent.cli('--api inject_requests filename=%s ignore_errors=True' % t,
+            ok, err_str = agent.cli('-f %s -I' % t,
                                     expected_vpp_cfg=[('interfaces', 0),('tunnels', 0)])
             assert ok, err_str
 
             # For route test only: ensure that route table has no routes
             # that *_list_routes.cli tried to add from list, but failed
             # and reverted them.
-            if re.search('list_routes', os.path.basename(t)):
-                routes = subprocess.check_output("ip route", shell=True)
-                assert routes.find('6.6.6.') == -1, "route for 6.6.6.X was not reverted"
-                assert routes.find('9.9.9.') == -1, "route for 9.9.9.X was not reverted"
+            cli_name = os.path.basename(t)
+            if re.search('list_routes', cli_name):
+                routes = subprocess.check_output("ip route", shell=True).decode()
+                assert routes.find('6.6.6.') == -1, f"{cli_name}: route for 6.6.6.X was not reverted:\n{str(routes)}"
+                assert routes.find('9.9.9.') == -1, f"{cli_name}: route for 9.9.9.X was not reverted:\n{str(routes)}"
 
             agent.cli('-f %s' % cli_stop_router_file)
 
