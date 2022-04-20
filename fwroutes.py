@@ -55,6 +55,7 @@ class FwRouteNextHop:
 class FwRoute:
     """Class used as a route data."""
     def __init__(self, prefix, via, dev, proto, metric):
+        self.key        = FwRouteKey(metric, prefix, via)
         self.prefix     = prefix
         self.via        = via
         self.dev        = dev
@@ -348,13 +349,13 @@ def remove_route(route):
 
     :returns: <error string> on failure, None on success.
     """
-    cmd = f"sudo ip route del {route.prefix} metric {route.metric} proto {route.proto}"
     try:
-        fwglobals.log.debug(cmd)
-        subprocess.check_output(cmd, shell=True).decode()
+        with pyroute2.IPRoute() as ipr:
+            fwglobals.log.debug(f"remove_route: {route.prefix}, metric={route.metric}")
+            ipr.route("del", dst=route.prefix, priority=route.metric)
         return None
     except Exception as e:
-        fwglobals.log.debug("'%s' failed: %s, ignore this error" % (cmd, str(e)))
+        fwglobals.log.debug(f"failed to remove_route({route.prefix} metric={route.metric}): {str(e)}, ignore this error")
         return str(e)
 
 def add_remove_static_routes(via, is_add):

@@ -249,7 +249,7 @@ class FwWanMonitor(FwObject):
 
         # Go over routes and find duplications
         #
-        for key, route in routes.items():
+        for route in routes.values():
             existing_route = routes_by_dev.get(route.dev)
             if not existing_route:
                 routes_by_dev[route.dev] = route
@@ -259,11 +259,11 @@ class FwWanMonitor(FwObject):
                 # later from kernel.
                 #
                 if existing_route.metric < self.WATERMARK and route.metric >= self.WATERMARK:
-                    routes_to_remove[key] = existing_route
+                    routes_to_remove[existing_route.key] = existing_route
                     self.log.debug(f"_fix_routes: going to remove duplicate '{str(existing_route)}' of '{str(route)}'")
                 elif existing_route.metric >= self.WATERMARK and route.metric < self.WATERMARK:
                     self.log.debug(f"_fix_routes: going to remove duplicate '{str(route)}' of '{str(existing_route)}'")
-                    routes_to_remove[key] = route
+                    routes_to_remove[route.key] = route
 
         # Remove duplications from the 'routes' object and from kernel
         #
