@@ -208,6 +208,11 @@ def load_netplan_filenames(read_from_disk=False, get_only=False):
     netplan_db['filenames'] = fwglobals.g.NETPLAN_FILES
     fwglobals.g.db['netplan'] = netplan_db
 
+def _write_to_netplan_file(fname, config, mode='w', **args):
+    with open(fname, mode) as stream:
+        yaml.safe_dump(config, stream, **args)
+        stream.flush()
+        os.fsync(stream.fileno())
 
 def _add_netplan_file(fname):
     if os.path.exists(fname):
@@ -215,10 +220,7 @@ def _add_netplan_file(fname):
 
     config = dict()
     config['network'] = {'version': 2, 'renderer': 'networkd'}
-    with open(fname, 'w+') as stream:
-        yaml.safe_dump(config, stream, default_flow_style=False)
-        stream.flush()
-        os.fsync(stream.fileno())
+    _write_to_netplan_file(fname, config, mode='w+', default_flow_style=False)
 
 def _dump_netplan_file(fname):
     if fname:
@@ -455,10 +457,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
                 # }
                 # So we need to clear the ip configuration for vpp1, and keep the the set-name on the wwan0
 
-        with open(fname_run, 'w') as stream:
-            yaml.safe_dump(config, stream)
-            stream.flush()
-            os.fsync(stream.fileno())
+        _write_to_netplan_file(fname_run, config)
 
         # Remove default route from ip table because Netplan is not doing it.
         if not is_add and type == 'WAN':
@@ -468,7 +467,52 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
             fwutils.netplan_apply('add_remove_netplan_interface')
 
         if is_add and set_name and not is_lte:
-            ifname = set_name
+            if set_name is not ifname:
+                # To understand the following code, it is necessary to understand the following two principles:
+                #
+                # 1. To apply the set-name,
+                #   the interface name in netplan must be the *current* interface name in Linux.
+                #   The "match" section is not enough for changing the interface name.
+                #
+                #   Assuming we have vpp0 in Linux and we want to change it to eth2 -
+                #     The following netplan config will work:
+                #       vpp0:
+                #         addresses: [172.16.55.1/24]
+                #         dhcp4: false
+                #         match: {macaddress: '00:e0:ed:8f:73:94'}
+                #         mtu: 1400
+                #         set-name: eth2
+                #
+                #     The following netplan config will not work:
+                #       eth2:
+                #         addresses: [172.16.55.1/24]
+                #         dhcp4: false
+                #         match: {macaddress: '00:e0:ed:8f:73:94'}
+                #         mtu: 1400
+                #         set-name: eth2
+                #
+                # 2. When the agent enables tap-inject in the start-router process, the vppsb creates the interface with the vppX name.
+                #   The vppsb doesn't know at this point about the set-name.
+                #
+                # Following the example above, when the router starts -
+                #   the "ifname" (taken from fwutils.dev_id_to_tap(dev_id)) is vpp0 and the set-name is eth2.
+                #
+                # The following netplan file is created:
+                #   vpp0:
+                #     addresses: [172.16.55.1/24]
+                #     dhcp4: false
+                #     match: {macaddress: '00:e0:ed:8f:73:94'}
+                #     mtu: 1400
+                #     set-name: eth2
+                #
+                # At this point, after "netplan apply", the interface name is changed to eth2, and vpp0 is no longer exists!
+                # So, the generated netplan config for this interface is under non-exists interface name.
+                #
+                # Hence, we are changing the default vppsb name (vpp0) with the set-name interface (eth2) name. No need to call netplan apply again.
+                config['network']['ethernets'][set_name] = config['network']['ethernets'].pop(ifname)
+                _write_to_netplan_file(fname_run, config)
+
+                ifname = set_name
 
         # On interface adding or removal update caches interface related caches.
         #
