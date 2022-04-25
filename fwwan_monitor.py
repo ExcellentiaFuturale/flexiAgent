@@ -33,6 +33,7 @@ import fwlte
 import fwnetplan
 import fwpppoe
 import fwroutes
+import fwthread
 import fwutils
 
 from fwobject import FwObject
@@ -87,7 +88,7 @@ class FwWanMonitor(FwObject):
     def initialize(self):
         if self.standalone:
             return
-        self.thread_wan_monitor = threading.Thread(target=self.main_loop, name="FwWanMonitor")
+        self.thread_wan_monitor = fwthread.FwRouterThread(target=self.wan_monitor_thread_func, name="WAN Monitor", log=self.log)
         self.thread_wan_monitor.start()
 
     def finalize(self):
@@ -99,53 +100,26 @@ class FwWanMonitor(FwObject):
             self.thread_wan_monitor.join()
             self.thread_wan_monitor = None
 
+    def wan_monitor_thread_func(self):
 
-    def main_loop(self):
-        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+        try:
+            server = self._get_server()
+            if server:
+                routes = self._get_routes()
+                for r in routes:
+                    if fwlte.get_cache_val(r.dev_id, 'state') == 'resetting':
+                        continue
+                    self._check_connectivity(r, server)
+        except Exception as e:
+            self.log.error("%s: _check_connectivity: %s (%s)" %
+                (threading.current_thread().getName(), str(e), traceback.format_exc()))
 
-        self.log.debug("loop started")
-
-        prev_time = time.time()
-
-        while not fwglobals.g.teardown:
-
-            try: # Ensure thread doesn't exit on exception
-
-                while fwglobals.g.router_api.state_is_starting_stopping():
-                    self.log.debug("vpp is being started/stopped")
-                    time.sleep(5)
-
-                server = self._get_server()
-                if server:
-                    routes = self._get_routes()
-                    for r in routes:
-                        if fwlte.get_cache_val(r.dev_id, 'state') == 'resetting':
-                            continue
-                        self._check_connectivity(r, server)
-
-            except Exception as e:
-                self.log.error("%s: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
-
-            try:
-                if fwglobals.g.router_api.state_is_started():
-                    self._sync_link_status()
-            except Exception as e:
-                self.log.error("%s: _sync_link_status: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
-
-            # Wait a second before next round, if the current round had no timeouts.
-            #
-            current_time = time.time()
-            if (current_time - prev_time) < 1:
-                time.sleep(1)
-                prev_time = current_time + 1
-            else:
-                prev_time = current_time
-
-        self.log.debug("loop stopped")
+        try:
+            if fwglobals.g.router_api.state_is_started():
+                self._sync_link_status()
+        except Exception as e:
+            self.log.error("%s: _sync_link_status: %s (%s)" %
+                (threading.current_thread().getName(), str(e), traceback.format_exc()))
 
 
     def _get_server(self):

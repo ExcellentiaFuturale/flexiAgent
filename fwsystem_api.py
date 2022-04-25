@@ -25,6 +25,7 @@ import threading
 import traceback
 import subprocess
 import fwglobals
+import fwthread
 import fwutils
 import os
 from fwcfg_request_handler import FwCfgRequestHandler
@@ -51,7 +52,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
     def initialize(self):
         if self.thread_lte_watchdog is None:
-            self.thread_lte_watchdog = threading.Thread(target=self.lte_watchdog, name='LTE Watchdog')
+            self.thread_lte_watchdog = fwthread.FwRouterThread(target=self.lte_watchdog_thread_func, name='LTE Watchdog', log=self.log)
             self.thread_lte_watchdog.start()
 
     def finalize(self):
@@ -59,7 +60,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
             self.thread_lte_watchdog.join()
             self.thread_lte_watchdog = None
 
-    def lte_watchdog(self):
+    def lte_watchdog_thread_func(self, *args):
         """LTE watchdog thread.
         Monitors proper configuration of LTE modem. The modem is configured
         and connected to provider by 'add-lte' request received from flexiManage
@@ -68,74 +69,61 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         parameters received from provider should match these configured in linux
         for the correspondent interface.
         """
-        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+        if  fwglobals.g.router_api.state_is_starting_stopping():
+            return
 
-        while not fwglobals.g.teardown:
-            try: # Ensure thread doesn't exit on exception
+        current_time = int(time.time())
 
-                time.sleep(1)
+        wan_list = fwglobals.g.system_cfg.dump(types=['add-lte'])
+        for wan in wan_list:
+            dev_id = wan['params']['dev_id']
+            modem_mode = fwlte.get_cache_val(dev_id, 'state')
+            if modem_mode == 'resetting' or modem_mode == 'connecting':
+                continue
 
-                if  fwglobals.g.router_api.state_is_starting_stopping():
-                    continue
+            name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True, print_log=False)
+            if not name:
+                name = fwutils.dev_id_to_linux_if(dev_id)
 
-                current_time = int(time.time())
-
-                wan_list = fwglobals.g.system_cfg.dump(types=['add-lte'])
-                for wan in wan_list:
-                    dev_id = wan['params']['dev_id']
-                    modem_mode = fwlte.get_cache_val(dev_id, 'state')
-                    if modem_mode == 'resetting' or modem_mode == 'connecting':
+            # Ensure that lte connection is opened.
+            # Sometimes, the connection between modem and provider becomes disconnected
+            #
+            if current_time % 10 == 0:
+                cmd = "fping 8.8.8.8 -C 1 -q -R -I %s > /dev/null 2>&1" % name
+                ok = not subprocess.call(cmd, shell=True)
+                if not ok:
+                    connected = fwlte.mbim_is_connected(dev_id)
+                    if not connected:
+                        self.log.debug("lte modem is disconnected on %s" % dev_id)
+                        fwglobals.g.system_api.restore_configuration(types=['add-lte'])
                         continue
 
-                    name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True, print_log=False)
-                    if not name:
-                        name = fwutils.dev_id_to_linux_if(dev_id)
+                    # Make sure that LTE Linux interface is up
+                    linux_ifc_name = fwutils.dev_id_to_linux_if(dev_id)
+                    os.system('ifconfig %s up' % linux_ifc_name)
 
-                    # Ensure that lte connection is opened.
-                    # Sometimes, the connection between modem and provider becomes disconnected
-                    #
-                    if current_time % 10 == 0:
-                        cmd = "fping 8.8.8.8 -C 1 -q -R -I %s > /dev/null 2>&1" % name
-                        ok = not subprocess.call(cmd, shell=True)
-                        if not ok:
-                            connected = fwlte.mbim_is_connected(dev_id)
-                            if not connected:
-                                self.log.debug("lte modem is disconnected on %s" % dev_id)
-                                fwglobals.g.system_api.restore_configuration(types=['add-lte'])
-                                continue
+            # Ensure that provider did not change IP provisioned to modem,
+            # so the IP that we assigned to the modem interface is still valid.
+            # If it was changed, go and update the interface, vpp, etc.
+            #
+            if current_time % 60 == 0:
+                modem_addr = fwlte.get_ip_configuration(dev_id, 'ip', False)
+                if modem_addr:
+                    iface_addr = fwutils.get_interface_address(name, log=False)
 
-                            # Make sure that LTE Linux interface is up
-                            linux_ifc_name = fwutils.dev_id_to_linux_if(dev_id)
-                            os.system('ifconfig %s up' % linux_ifc_name)
+                    if iface_addr != modem_addr:
+                        self.log.debug("%s: LTE IP change detected: %s -> %s" % (dev_id, iface_addr, modem_addr))
 
-                    # Ensure that provider did not change IP provisioned to modem,
-                    # so the IP that we assigned to the modem interface is still valid.
-                    # If it was changed, go and update the interface, vpp, etc.
-                    #
-                    if current_time % 60 == 0:
-                        modem_addr = fwlte.get_ip_configuration(dev_id, 'ip', False)
-                        if modem_addr:
-                            iface_addr = fwutils.get_interface_address(name, log=False)
+                        fwlte.configure_interface({
+                            'dev_id': dev_id,
+                            'metric': wan['params']['metric']
+                        })
 
-                            if iface_addr != modem_addr:
-                                self.log.debug("%s: LTE IP change detected: %s -> %s" % (dev_id, iface_addr, modem_addr))
+                        interfaces = fwglobals.g.router_cfg.get_interfaces(dev_id=dev_id)
+                        if len(interfaces) > 0:
+                            params = interfaces[0]
+                            params['addr'] = modem_addr
+                            params['gateway'] = fwlte.get_ip_configuration(dev_id, 'gateway')
+                            fwglobals.g.handle_request({'message':'modify-interface','params': params})
 
-                                fwlte.configure_interface({
-                                    'dev_id': dev_id,
-                                    'metric': wan['params']['metric']
-                                })
-
-                                interfaces = fwglobals.g.router_cfg.get_interfaces(dev_id=dev_id)
-                                if len(interfaces) > 0:
-                                    params = interfaces[0]
-                                    params['addr'] = modem_addr
-                                    params['gateway'] = fwlte.get_ip_configuration(dev_id, 'gateway')
-                                    fwglobals.g.handle_request({'message':'modify-interface','params': params})
-
-                                self.log.debug("%s: LTE IP was changed: %s -> %s" % (dev_id, iface_addr, modem_addr))
-
-            except Exception as e:
-                self.log.error("%s: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
-
+                        self.log.debug("%s: LTE IP was changed: %s -> %s" % (dev_id, iface_addr, modem_addr))

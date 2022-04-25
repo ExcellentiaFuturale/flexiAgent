@@ -31,6 +31,7 @@ import fwglobals
 import fwnetplan
 import fwutils
 import fwroutes
+import fwthread
 
 from fwobject import FwObject
 
@@ -401,9 +402,8 @@ class FwPppoeClient(FwObject):
         self.scan()
         self.start()
 
-        self.thread_pppoec = threading.Thread(target=self.pppoec_thread, name='PPPOE Client Thread')
+        self.thread_pppoec = fwthread.FwThread(target=self.pppoec_thread_func, name='PPPOE Client', log=self.log)
         self.thread_pppoec.start()
-        self.log.debug('PPPoE thread started')
 
     def __enter__(self):
         return self
@@ -742,20 +742,13 @@ class FwPppoeClient(FwObject):
 
         return (True, None)
 
-    def pppoec_thread(self):
+    def pppoec_thread_func(self):
         """PPPoE client thread.
         Its function is to monitor state of interfaces with PPPoE.
         """
-        while not fwglobals.g.teardown:
-            time.sleep(1)
+        if not fwglobals.g.router_api.state_is_starting_stopping():
+            self.scan(connect_if_needed=True)
 
-            try:  # Ensure thread doesn't exit on exception
-                if not fwglobals.g.router_api.state_is_starting_stopping():
-                    self.scan(connect_if_needed=True)
-            except Exception as e:
-                self.log.error("%s: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
 
     def get_dev_id_from_ppp_if_name(self, ppp_if_name):
         if not self.connections:

@@ -30,6 +30,7 @@ import time
 import traceback
 
 import fwglobals
+import fwthread
 import fwutils
 from fwapplications_cfg import FwApplicationsCfg
 from fwcfg_request_handler import FwCfgRequestHandler
@@ -55,12 +56,15 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         self.processing_request = False
 
         self.stats    = {}
+        self.stats_threshold = 10
+        self.stats_counter   = 0
+
         self.app_instances = {}
 
         self._build_app_instances()
 
         if start_application_stats:
-            self.thread_stats = threading.Thread(target=self._run_stats_thread, name='Applications Statistics Thread')
+            self.thread_stats = fwthread.FwThread(target=self.app_stats_thread_func, name='App Stats', log=self.log)
             self.thread_stats.start()
 
     def __enter__(self):
@@ -174,31 +178,23 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
     def get_stats(self):
         return copy.deepcopy(self.stats)
 
-    def _run_stats_thread(self):
-        threshold = 10
-        counter = 0
-        while not fwglobals.g.teardown:
-            try:  # Ensure thread doesn't exit on exception
-                if (counter % threshold) == 0 and not self.processing_request:
-                    apps = self.cfg_db.get_applications()
-                    for app in apps:
-                        identifier = app['identifier']
-                        self._call_application_api(identifier, 'on_watchdog')
+    def app_stats_thread_func(self):
+        if (self.stats_counter % self.stats_threshold) == 0 and not self.processing_request:
+            apps = self.cfg_db.get_applications()
+            for app in apps:
+                identifier = app['identifier']
+                self._call_application_api(identifier, 'on_watchdog')
 
-                        new_stats = {}
-                        new_stats['running']    = self._call_application_api_safe(identifier, 'is_app_running', default_ret=False)
-                        new_stats['statistics'] = self._call_application_api_safe(identifier, 'get_statistics', default_ret={})
-                        self.stats[identifier]  = new_stats
+                new_stats = {}
+                new_stats['running']    = self._call_application_api_safe(identifier, 'is_app_running', default_ret=False)
+                new_stats['statistics'] = self._call_application_api_safe(identifier, 'get_statistics', default_ret={})
+                self.stats[identifier]  = new_stats
 
-                    if not apps and self.stats:
-                        self.stats = {}
+            if not apps and self.stats:
+                self.stats = {}
 
-            except Exception as e:
-                self.log.excep("%s: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
+        self.stats_counter += 1
 
-            time.sleep(1)
-            counter += 1
 
     def _call_application_api(self, identifier, method, params=None):
         if not identifier:

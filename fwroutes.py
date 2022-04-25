@@ -22,6 +22,7 @@ import enum
 import socket
 import fwglobals
 import fwpppoe
+import fwthread
 import fwtunnel_stats
 import fwutils
 import pyroute2
@@ -96,7 +97,7 @@ class FwRoutes(FwObject):
     def initialize(self):
         """Starts the FwRoutes activity - runs the main loop thread.
         """
-        self.thread_routes = threading.Thread(target=self.thread_routes_func, name="FwRoutes")
+        self.thread_routes = fwthread.FwRouterThread(target=self.route_thread_func, name="Routes", log=self.log)
         self.thread_routes.start()
 
     def finalize(self):
@@ -106,42 +107,26 @@ class FwRoutes(FwObject):
             self.thread_routes.join()
             self.thread_routes = None
 
-    def thread_routes_func(self):
-        """The FwRoutes main loop thread.
-        """
-        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+    def route_thread_func(self):
+        # Firstly sync static routes from router configuration DB to Linux
+        # in order to restore routes that disappeared for some reason,
+        # for example due to 'netplan apply' that overrod cfg routes.
+        # We do that only if router was started already.
+        #
+        if fwglobals.g.router_api and fwglobals.g.router_api.state_is_started():
+            if int(time.time()) % 5 == 0:  # Check routes every 5 seconds
+                self._check_reinstall_static_routes()
 
-        while not fwglobals.g.teardown:
+        # Check if the default route was modified.
+        # If it was, reconnect the agent to avoid WebSocket timeout.
+        #
+        if fwglobals.g.fwagent:
+            default_route = fwutils.get_default_route()
+            if self.default_route[2] != default_route[2]:
+                self.log.debug(f"reconnect as default route was changed: '{self.default_route}' -> '{default_route}'")
+                self.default_route = default_route
+                fwglobals.g.fwagent.reconnect()
 
-            time.sleep(1)
-
-            try: # Ensure thread doesn't exit on exception
-
-                # Firstly sync static routes from router configuration DB to Linux
-                # in order to restore routes that disappeared for some reason,
-                # for example due to 'netplan apply' that overrod cfg routes.
-                # We do that only if router was started already.
-                #
-                if fwglobals.g.router_api and fwglobals.g.router_api.state_is_started():
-                    if int(time.time()) % 5 == 0:  # Check routes every 5 seconds
-                        with fwglobals.g.request_lock:
-                            self._check_reinstall_static_routes()
-
-                # Check if the default route was modified.
-                # If it was, reconnect the agent to avoid WebSocket timeout.
-                #
-                if fwglobals.g.fwagent:
-                    default_route = fwutils.get_default_route()
-                    if self.default_route[2] != default_route[2]:
-                        self.log.debug(f"reconnect as default route was changed: '{self.default_route}' -> '{default_route}'")
-                        self.default_route = default_route
-                        fwglobals.g.fwagent.reconnect()
-
-            except Exception as _e:      # pylint: disable=broad-except
-                self.log.error("%s: %s (%s)" % \
-                    (threading.current_thread().getName(), str(_e), traceback.format_exc()))
-
-        self.log.debug("loop stopped")
 
     def _check_reinstall_static_routes(self):
         routes_db = fwglobals.g.router_cfg.get_routes()
