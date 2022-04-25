@@ -1372,22 +1372,30 @@ def vpp_get_interface_status(sw_if_index):
 
      :param sw_if_index:      VPP sw_if_index.
 
-     :returns: Status.
+     :returns: dict with admin and link statuses.
      """
-    flags = 0
-    status = 'down'
-
     try:
         interfaces = fwglobals.g.router_api.vpp_api.vpp.call('sw_interface_dump', sw_if_index=sw_if_index)
         if len(interfaces) == 1:
             flags = interfaces[0].flags
-            # flags are equal to IF_STATUS_API_FLAG_LINK_UP|IF_STATUS_API_FLAG_ADMIN_UP when interface is up
-            # and flags is equal to 0 when interface is down
-            status = 'down' if flags == 0 else 'up'
+
+            # vnet\interface_types_api.h
+            #     enum if_status_flags
+            #     {
+            #       IF_STATUS_API_FLAG_ADMIN_UP = 1,
+            #       IF_STATUS_API_FLAG_LINK_UP = 2,
+            #     };
+            #
+            admin_state = "up" if (flags & 1) else "down"
+            link_status = "up" if (flags & 2) else "down"
+            return {'admin': admin_state , 'link': link_status}
+        else:
+            raise Exception(f"sw_if_index={sw_if_index} retrieved no interface")
+
     except Exception as e:
         fwglobals.log.debug("vpp_get_interface_state: %s" % str(e))
+        return {'admin': "down" , 'link': "down"}
 
-    return status
 
 def _vppctl_read(cmd, wait=True):
     """Read command from VPP.

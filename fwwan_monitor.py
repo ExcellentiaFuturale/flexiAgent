@@ -20,6 +20,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import os
 import re
 import subprocess
 import sys
@@ -124,6 +125,14 @@ class FwWanMonitor(FwObject):
 
             except Exception as e:
                 self.log.error("%s: %s (%s)" %
+                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
+                pass
+
+            try:
+                if fwglobals.g.router_api.state_is_started():
+                    self._sync_link_status()
+            except Exception as e:
+                self.log.error("%s: _sync_link_status: %s (%s)" %
                     (threading.current_thread().getName(), str(e), traceback.format_exc()))
                 pass
 
@@ -351,6 +360,44 @@ class FwWanMonitor(FwObject):
         self.log.debug("'%s' update metric: %d -> %d - done" % \
             (str(route), route.metric, new_metric))
 
+    def _sync_link_status(self):
+        '''Monitors link status (CARRIER-UP / NO-CARRIER or CABLE PLUGGED / CABLE UNPLUGGED)
+        of the VPP physical interfaces and updates the correspondent tap inject
+        interfaces in Linux using the "echo 0/1 > /sys/class/net/vppX/carrier" command,
+            We need this logic, as Linux vppX interfaces are not physical interfaces,
+        so it is not possible to set the NO-CARRIER link status flag for them.
+        As a result, the Linux might continue to use unplugged interface, thus loosing traffic.
+        Note, VPP does detects the NO-CARRIER and removes interface from FIB:
+
+            root@vbox-test-171 ~ # ip r
+            default via 10.72.100.1 dev vpp2 proto dhcp src 10.72.100.172 metric 50
+            default via 192.168.1.1 dev vpp0 proto dhcp src 192.168.1.171 metric 100
+            10.10.10.0/24 dev vpp1 proto kernel scope link src 10.10.10.10
+
+            0@0.0.0.0/0
+            unicast-ip4-chain
+            [@0]: dpo-load-balance: [proto:ip4 index:1 buckets:1 uRPF:16 to:[0:0]]
+                [0] [@5]: ipv4 via 192.168.1.1 GigabitEthernet0/3/0: mtu:1500 next:3 00b8c2
+            8a6baa08002730db130800
+
+            GigabitEthernet0/9/0               3     up   GigabitEthernet0/9/0
+            Link speed: 1 Gbps
+            Ethernet address 08:00:27:eb:00:63
+            Intel 82540EM (e1000)
+                no-carrier full duplex mtu 9206
+        '''
+        interfaces = fwglobals.g.router_cfg.get_interfaces()
+        for interface in interfaces:
+            tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
+            sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(interface['dev_id'])
+            status_vpp  = fwutils.vpp_get_interface_status(sw_if_index)
+            (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{tap_name}/carrier")
+            if status_vpp['link'] == 'down' and ok and status_linux and int(status_linux)==1:
+                self.log.debug(f"detected NO-CARRIER for {tap_name}")
+                fwutils.os_system(f"echo 0 > /sys/class/net/{tap_name}/carrier")
+            elif status_vpp['link'] == 'up' and ok and status_linux and int(status_linux)==0:
+                self.log.debug(f"detected CARRIER UP for {tap_name}")
+                fwutils.os_system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
 
 def get_wan_failover_metric(dev_id, metric):
     '''Fetches the metric of the default route on the device with specified dev_id.
