@@ -987,7 +987,7 @@ def pci_bytes_to_str(pci_bytes):
     function = (bytes) & 0x7
     return "%04x:%02x:%02x.%02x" % (domain, bus, slot, function)
 
-def dev_id_to_vpp_sw_if_index(dev_id):
+def dev_id_to_vpp_sw_if_index(dev_id, verbose=True):
     """Convert device bus address into VPP sw_if_index.
 
     This function maps interface referenced by device bus address, e.g pci - '0000:00:08.00'
@@ -1001,7 +1001,8 @@ def dev_id_to_vpp_sw_if_index(dev_id):
     :returns: sw_if_index.
     """
     vpp_if_name = dev_id_to_vpp_if_name(dev_id)
-    fwglobals.log.debug("dev_id_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (dev_id, str(vpp_if_name)))
+    if verbose or not vpp_if_name:
+        fwglobals.log.debug("dev_id_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (dev_id, str(vpp_if_name)))
     return vpp_if_name_to_vpp_sw_if_index(vpp_if_name)
 
 def vpp_if_name_to_vpp_sw_if_index(vpp_if_name):
