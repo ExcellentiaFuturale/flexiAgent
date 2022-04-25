@@ -56,6 +56,7 @@ class FwRouteNextHop:
 class FwRoute:
     """Class used as a route data."""
     def __init__(self, prefix, via, dev, proto, metric):
+        self.key        = FwRouteKey(metric, prefix, via)
         self.prefix     = prefix
         self.via        = via
         self.dev        = dev
@@ -325,6 +326,22 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
         fwutils.netplan_apply("add_remove_route")
 
     return (True, None)
+
+def remove_route(route):
+    """Removes route in format of FwRoute object from Linux.
+
+    :param route: the FwRoute object that represents route to be removed from Linux.
+
+    :returns: <error string> on failure, None on success.
+    """
+    try:
+        with pyroute2.IPRoute() as ipr:
+            fwglobals.log.debug(f"remove_route: {route.prefix}, metric={route.metric}")
+            ipr.route("del", dst=route.prefix, priority=route.metric)
+        return None
+    except Exception as e:
+        fwglobals.log.debug(f"failed to remove_route({route.prefix} metric={route.metric}): {str(e)}, ignore this error")
+        return str(e)
 
 def add_remove_static_routes(via, is_add):
     routes_db = fwglobals.g.router_cfg.get_routes()

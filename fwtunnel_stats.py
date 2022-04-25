@@ -172,7 +172,7 @@ def tunnel_stats_test():
         vpp_peer_tunnel_name = stats.get('vpp_peer_tunnel_name')
         if vpp_peer_tunnel_name:
             sw_if_index = fwutils.vpp_if_name_to_sw_if_index(vpp_peer_tunnel_name, 'peer-tunnel')
-            status = fwutils.vpp_get_interface_status(sw_if_index)
+            status = fwutils.vpp_get_interface_status(sw_if_index)['admin']
             if 'status' not in stats or ('status' in stats and stats['status'] != status):
                 stats['status'] = status
                 loss = 100 if status == 'down' else 0

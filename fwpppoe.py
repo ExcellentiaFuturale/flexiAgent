@@ -123,14 +123,22 @@ class FwPppoeConnection(FwObject):
     def open(self):
         """Open PPPoE connection.
         """
+        self.opened = False
+
         sys_cmd = f'ip -4 addr flush label "{self.if_name}"'
-        fwutils.os_system(sys_cmd, 'PPPoE open')
+        rc = fwutils.os_system(sys_cmd, 'PPPoE open')
+        if not rc:
+            return
 
         sys_cmd = f'ip link set dev {self.if_name} up'
-        fwutils.os_system(sys_cmd, 'PPPoE open')
+        rc = fwutils.os_system(sys_cmd, 'PPPoE open')
+        if not rc:
+            return
 
         sys_cmd = 'pon %s' % self.filename
-        fwutils.os_system(sys_cmd, 'PPPoE open')
+        rc = fwutils.os_system(sys_cmd, 'PPPoE open')
+        if not rc:
+            return
 
         self.opened = True
 
@@ -142,7 +150,9 @@ class FwPppoeConnection(FwObject):
             return
 
         sys_cmd = 'poff %s' % self.filename
-        fwutils.os_system(sys_cmd, 'PPPoE close')
+        rc = fwutils.os_system(sys_cmd, 'PPPoE close')
+        if not rc:
+            return
 
         self.opened = False
 
