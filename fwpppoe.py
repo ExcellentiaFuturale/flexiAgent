@@ -394,11 +394,6 @@ class FwPppoeClient(FwObject):
         if self.standalone:
             return
 
-        # before the installation make sure that tap and tc modules are enabled
-        fwutils.load_linux_tap_modules()
-        fwutils.load_linux_tc_modules()
-        fwutils.load_linux_modules(['pppoe'])
-
         self.scan()
         self.start()
 
