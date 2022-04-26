@@ -420,7 +420,7 @@ class FwWanMonitor(FwObject):
         interfaces = fwglobals.g.router_cfg.get_interfaces()
         for interface in interfaces:
             tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
-            sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(interface['dev_id'])
+            sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(interface['dev_id'], verbose=False)
             status_vpp  = fwutils.vpp_get_interface_status(sw_if_index)
             (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{tap_name}/carrier")
             if status_vpp['link'] == 'down' and ok and status_linux and int(status_linux)==1:

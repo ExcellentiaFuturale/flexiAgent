@@ -97,7 +97,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         self.router_state    = FwRouterState.STOPPED
         self.thread_watchdog     = None
         self.thread_tunnel_stats = None
-        self.thread_dhcpc        = None
         self.pending_coredump_processing = False
 
         FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, self._on_revert_failed)
@@ -143,35 +142,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         """
         if self.state_is_started():
             fwtunnel_stats.tunnel_stats_test()
-
-    def dhcpc_thread_func(self):
-        """DHCP client thread function.
-        Its function is to monitor state of WAN interfaces with DHCP.
-        """
-        if not self.state_is_started():
-            return
-
-        apply_netplan = False
-        wan_list = self.cfg_db.get_interfaces(type='wan')
-
-        for wan in wan_list:
-            dhcp = wan.get('dhcp', 'no')
-            device_type = wan.get('deviceType')
-            is_pppoe = fwpppoe.is_pppoe_interface(dev_id=wan.get('dev_id'))
-
-            if dhcp == 'no' or device_type == 'lte' or is_pppoe:
-                continue
-
-            name = fwutils.dev_id_to_tap(wan['dev_id'])
-            addr = fwutils.get_interface_address(name, log=False)
-            if not addr:
-                self.log.debug("dhcpc_thread: %s has no ip address" % name)
-                apply_netplan = True
-
-        if apply_netplan:
-            fwutils.netplan_apply('dhcpc_thread')
-            time.sleep(3)
-
 
     def restore_vpp_if_needed(self):
         """Restore VPP.
@@ -897,9 +867,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             fwtunnel_stats.fill_tunnel_stats_dict()
             self.thread_tunnel_stats = fwthread.FwRouterThread(self.tunnel_stats_thread_func, 'Tunnel Stats', self.log)
             self.thread_tunnel_stats.start()
-        if self.thread_dhcpc is None or self.thread_dhcpc.is_alive() == False:
-            self.thread_dhcpc = fwthread.FwRouterThread(self.dhcpc_thread_func, 'DHCP Client', self.log)
-            self.thread_dhcpc.start()
 
     def _stop_threads(self):
         """Stop all threads.
@@ -911,10 +878,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         if self.thread_tunnel_stats:
             self.thread_tunnel_stats.stop()
             self.thread_tunnel_stats = None
-
-        if self.thread_dhcpc:
-            self.thread_dhcpc.stop()
-            self.thread_dhcpc = None
 
     def _on_start_router_before(self):
         """Handles pre start VPP activities.
