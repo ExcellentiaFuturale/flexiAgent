@@ -3645,4 +3645,4 @@ def os_system(cmd, log_prefix="", log=False, print_error=True):
         prefix = f'{log_prefix}: ' if log_prefix else ''
         fwglobals.log.error(f'{prefix}command failed: {cmd}')
 
-    return True if rc else False
+    return not bool(rc)
