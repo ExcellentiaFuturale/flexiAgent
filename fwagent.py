@@ -452,7 +452,8 @@ class FwAgent(FwObject):
 
         self.thread_statistics = fwthread.FwThread(
                                     target=fwstats.statistics_thread_func,
-                                    name='Statistics', log=self.log, args=(self,))
+                                    name='Statistics', log=self.log,
+                                    generate_ticks=True, args=(self,))
         self.thread_statistics.start()
 
         if not fwutils.vpp_does_run():

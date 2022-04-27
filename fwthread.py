@@ -43,19 +43,25 @@ class FwThread(threading.Thread):
     The monitoring thread wakes up every second, runs until the agent is not
     teared down and never exits on exception.
     """
-    def __init__(self, target, name, log, args=(), kwargs={}):
+    def __init__(self, target, name, log, generate_ticks=False, args=(), kwargs={}):
         threading.Thread.__init__(self, target=None, name='FwThread ' + name, args=args, kwargs=kwargs)
         self.log            = log
         self.func           = target
         self.stop_called    = False
+        self.generate_ticks = generate_ticks
 
     def _thread_func(self, args, kwargs):
         self.log.debug(f"tid={fwutils.get_thread_tid()} ({self.getName()})")
+        ticks = 0
 
         while not fwglobals.g.router_threads.teardown and not self.stop_called:
             time.sleep(1)
+            ticks += 1
             try:
-                self.func(*args, **kwargs)
+                if self.generate_ticks:
+                    self.func(ticks, *args, **kwargs)
+                else:
+                    self.func(*args, **kwargs)
             except Exception as e:
                 self.log.error("%s: %s (%s)" % (self.getName(), str(e), traceback.format_exc()))
 
@@ -78,22 +84,25 @@ class FwThread(threading.Thread):
         self.stop_called = True
         if block:
             self.join()
+        self.ticks = 0
 
 class FwRouterThread(FwThread):
     """Implements variation of monitoring thread, which does not run,
     if there is undergoing re-configuration of router. The reconfiguration
     happens when agent receives request from flexiManage.
     """
-    def __init__(self, target, name, log, args=(), kwargs={}):
-        FwThread.__init__(self, target=target, name=name, log=log, args=args, kwargs=kwargs)
+    def __init__(self, target, name, log, generate_ticks=False, args=(), kwargs={}):
+        FwThread.__init__(self, target=target, name=name, log=log, generate_ticks=generate_ticks, args=args, kwargs=kwargs)
         self.join_called = False
 
     def _thread_func(self, args, kwargs):
         self.log.debug(f"tid={fwutils.get_thread_tid()} ({self.getName()})")
+        ticks = 0
 
         rt = fwglobals.g.router_threads
         while not rt.teardown and not self.stop_called:
             time.sleep(1)        # 1 sec ticks for monitoring functionality
+            ticks += 1
 
             # 'request_cond_var' ensures there is no undergoing routing configuration
             #
@@ -109,7 +118,10 @@ class FwRouterThread(FwThread):
             rt.request_cond_var.release()
 
             try:                      # 'try' prevents thread to exit on exception
-                self.func(*args, **kwargs)
+                if self.generate_ticks:
+                    self.func(ticks, *args, **kwargs)
+                else:
+                    self.func(*args, **kwargs)
             except Exception as e:
                 self.log.error("%s: %s (%s)" % (self.name, str(e), traceback.format_exc()))
 
