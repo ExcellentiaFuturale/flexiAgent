@@ -140,22 +140,6 @@ class FwRouterCfg(FwCfgDatabase):
             return self.db['add-firewall-policy']['params']
         return None
 
-    def get_wan_interface_gw(self, ip):
-        import fwutils
-        interfaces = self.get_interfaces(type='wan', ip=ip)
-        if not interfaces:
-            return (None, None)
-        dev_id = interfaces[0]['dev_id']
-        gw  = interfaces[0].get('gateway')
-        # If gateway not exist in interface configuration, use default
-        # This is needed when upgrading from version 1.1.52 to 1.2.X
-        if not gw:
-            tap = fwutils.dev_id_to_tap(dev_id)
-            rip, _ = fwutils.get_interface_gateway(tap)
-            return dev_id, rip
-        else:
-            return dev_id, gw
-
     def get_sync_list(self, requests):
         """Intersects requests provided within 'requests' argument against
         the requests stored in the local database and generates output list that
