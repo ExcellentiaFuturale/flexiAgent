@@ -130,11 +130,6 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         if not os.path.exists(installation_dir):
             raise Exception(f'install file ({installation_dir}) is not exists')
 
-        # before the installation make sure that tap related modules are enabled
-        # Many applications may use them.
-        fwutils.load_linux_tap_modules()
-        fwutils.load_linux_tc_modules()
-
         application_params = {'params': params.get('applicationParams')}
         self._call_application_api(identifier, 'install', application_params)
 
