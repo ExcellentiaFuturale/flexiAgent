@@ -119,12 +119,6 @@ def add_interface(params):
         dhcp = 'no'
 
     if is_wifi or is_lte:
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']   = "load_linux_tap_modules"
-        cmd['cmd']['module'] = "fwutils"
-        cmd['cmd']['descr'] = "load linux tap modules"
-        cmd_list.append(cmd)
         # Create tap interface in linux and vpp.
         # This command will create three interfaces:
         #   1. linux tap interface.
@@ -580,14 +574,6 @@ def add_interface(params):
                         'cmd':    "sudo arp -d DEV-STUB || true",
                         'substs': [ {'replace':'DEV-STUB', 'key': 'cmd', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'gateway'] } ]
         }
-        cmd_list.append(cmd)
-
-
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']   = "load_linux_tc_modules"
-        cmd['cmd']['module'] = "fwutils"
-        cmd['cmd']['descr'] = "load linux tc modules"
         cmd_list.append(cmd)
 
         cmd = {}
