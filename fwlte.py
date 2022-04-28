@@ -125,11 +125,8 @@ def qmi_get_signals_state(dev_id):
     return _run_qmicli_command(dev_id, 'nas-get-signal-strength')
 
 def qmi_get_ip_configuration(dev_id):
+    ip, gateway, primary_dns, secondary_dns  = '', '', '', ''
     try:
-        ip = None
-        gateway = None
-        primary_dns = None
-        secondary_dns = None
         cmd = 'wds-get-current-settings | grep "IPv4 address\\|IPv4 subnet mask\\|IPv4 gateway address\\|IPv4 primary DNS\\|IPv4 secondary DNS"'
         lines, _ = _run_qmicli_command(dev_id, cmd)
         for idx, line in enumerate(lines):
@@ -148,8 +145,10 @@ def qmi_get_ip_configuration(dev_id):
                 secondary_dns = line.split(':')[-1].strip().replace("'", '')
                 break
         return (ip, gateway, primary_dns, secondary_dns)
-    except Exception:
-        return (None, None, None, None)
+    except Exception as e:
+        fwglobals.log.debug(f'qmi_get_ip_configuration({dev_id}) failed: ip={ip}, \
+            gateway={gateway}, primary_dns={primary_dns}, secondary_dns={secondary_dns}: {str(e)}')
+        return (ip, gateway, primary_dns, secondary_dns)
 
 def qmi_get_operator_name(dev_id):
     return _run_qmicli_command(dev_id, 'nas-get-operator-name')
@@ -305,10 +304,10 @@ def set_db_entry(dev_id, key, value):
     lte_db[dev_id] = dev_id_entry
     fwglobals.g.db['lte'] = lte_db # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
 
-def get_cache_val(dev_id, key):
+def get_cache_val(dev_id, key, default=None):
     cache = fwglobals.g.cache.lte
     lte_interface = cache.get(dev_id, {})
-    return lte_interface.get(key)
+    return lte_interface.get(key, default)
 
 def set_cache_val(dev_id, key, value):
     cache = fwglobals.g.cache.lte
@@ -726,9 +725,9 @@ def get_ip_configuration(dev_id, key=None, cache=True):
     }
     try:
         # try to get it from cache
-        ip = get_cache_val(dev_id, 'ip')
-        gateway =  get_cache_val(dev_id, 'gateway')
-        dns_servers =  get_cache_val(dev_id, 'dns_servers')
+        ip = get_cache_val(dev_id, 'ip', '')
+        gateway = get_cache_val(dev_id, 'gateway', '')
+        dns_servers = get_cache_val(dev_id, 'dns_servers', '')
 
         # if not exists in cache, take from modem and update cache
         if not ip or not gateway or not dns_servers or cache == False:
@@ -746,10 +745,12 @@ def get_ip_configuration(dev_id, key=None, cache=True):
         response['gateway'] = gateway
         response['dns_servers'] = dns_servers
 
-        if key:
-            return response[key]
-    except Exception:
+    except Exception as e:
+        fwglobals.log.debug(f"get_ip_configuration({dev_id}, {key}, {cache}) failed: {str(e)}")
         pass
+
+    if key:
+        return response[key]
     return response
 
 def dev_id_to_usb_device(dev_id):
