@@ -3648,7 +3648,7 @@ def get_linux_interface_mtu(if_name):
 
     return str(net_if_stats[if_name].mtu)
 
-def os_system(cmd, log_prefix="", log=False, print_error=True):
+def os_system(cmd, log_prefix="", log=True, print_error=True):
     if log:
         fwglobals.log.debug(cmd)
 

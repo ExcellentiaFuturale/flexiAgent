@@ -537,7 +537,7 @@ class FwPppoeClient(FwObject):
         for nameserver in nameservers:
             cmd += f' --set-dns {nameserver}'
 
-        fwutils.os_system(cmd, '_update_resolvd', log=True)
+        fwutils.os_system(cmd, '_update_resolvd')
 
     def _restore_netplan(self):
         """Restore Netplan by adding PPPoE interfaces back.
