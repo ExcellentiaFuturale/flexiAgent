@@ -24,7 +24,6 @@ import fwglobals
 import fwpppoe
 import fwtunnel_stats
 import fwutils
-import pyroute2
 import subprocess
 import time
 import threading
@@ -32,8 +31,7 @@ import traceback
 
 
 from fwobject import FwObject
-
-ipdb = pyroute2.IPDB()
+from pyroute2 import IPRoute
 
 class FwRouteProto(enum.Enum):
    BOOT = 3
@@ -185,8 +183,11 @@ class FwLinuxRoutes(dict):
             fwglobals.log.debug("_linux_get_routes: proto %s is not supported" % proto)
             return
 
-        with pyroute2.IPRoute() as ipr:
-            routes = ipr.get_routes(family=socket.AF_INET, proto=proto_id)
+        with IPRoute() as ipr:
+            if prefix == '0.0.0.0/0':
+                routes = ipr.get_default_routes(family=socket.AF_INET)
+            else:
+                routes = ipr.get_routes(dst=prefix, family=socket.AF_INET, proto=proto_id)
 
             for route in routes:
                 nexthops = []
@@ -206,14 +207,20 @@ class FwLinuxRoutes(dict):
                     if attr[0] == 'RTA_PRIORITY':
                         metric = int(attr[1])
                     if attr[0] == 'RTA_OIF':
-                        dev = ipdb.interfaces[attr[1]].ifname
+                        try:
+                            dev = ipr.get_links(attr[1])[0].get_attr('IFLA_IFNAME')
+                        except NetlinkError as e:
+                            continue
                     if attr[0] == 'RTA_DST':
                         dst = attr[1]
                     if attr[0] == 'RTA_GATEWAY':
                         gw = attr[1]
                     if attr[0] == 'RTA_MULTIPATH':
                         for elem in attr[1]:
-                            dev = ipdb.interfaces[elem['oif']].ifname
+                            try:
+                                dev = ipr.get_links(elem['oif'])[0].get_attr('IFLA_IFNAME')
+                            except NetlinkError as e:
+                                continue
                             for attr2 in elem['attrs']:
                                 if attr2[0] == 'RTA_GATEWAY':
                                     nexthops.append(FwRouteNextHop(attr2[1],dev))
