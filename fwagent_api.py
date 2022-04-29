@@ -23,6 +23,7 @@
 import yaml
 import sys
 import os
+import socket
 from shutil import copyfile
 import fwglobals
 import fwstats
@@ -31,8 +32,7 @@ import fwlte
 import fwwifi
 
 from fwobject import FwObject
-
-from pyroute2 import IPDB
+from pyroute2 import IPRoute
 
 fwagent_api = {
     'get-device-certificate':        '_get_device_certificate',
@@ -260,8 +260,10 @@ class FWAGENT_API(FwObject):
 
         route_entries = []
 
-        with IPDB() as ipdb:
-            for route in ipdb.routes:
+        with IPRoute() as ipr:
+            routes = ipr.get_routes(family=socket.AF_INET)
+
+            for route in routes:
                 try:
                     dst = route.dst
                     if dst == 'default':
@@ -272,7 +274,10 @@ class FWAGENT_API(FwObject):
 
                     if not route.multipath:
                         gateway = route.gateway
-                        interface = ipdb.interfaces[route.oif].ifname
+                        try:
+                            interface = ipr.get_links(route.oif)[0].get_attr('IFLA_IFNAME')
+                        except NetlinkError as e:
+                            continue
 
                         route_entries.append({
                             'destination': dst,
@@ -284,7 +289,10 @@ class FWAGENT_API(FwObject):
                     else:
                         for path in route.multipath:
                             gateway = path.gateway
-                            interface = ipdb.interfaces[path.oif].ifname
+                            try:
+                                interface = ipr.get_links(path.oif)[0].get_attr('IFLA_IFNAME')
+                            except NetlinkError as e:
+                                continue
 
                             route_entries.append({
                                 'destination': dst,
@@ -294,8 +302,7 @@ class FWAGENT_API(FwObject):
                                 'protocol': protocol
                             })
                 except Exception as e:
-                    self.log.error("_get_device_os_routes: failed to parse route %s.\nroutes=%s." % \
-                        (str(route), str(ipdb.routes)))
+                    self.log.error(f"_get_device_os_routes: {str(e)}: failed to parse route '{str(route)}'.\nroutes='{str(routes)}'")
                     pass
 
         return {'message': route_entries, 'ok': 1}
