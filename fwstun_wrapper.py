@@ -72,7 +72,6 @@ class FwStunWrap(FwObject):
         self.stun_retry    = 60
         fwstun.set_log(fwglobals.log)
 
-        self.thread_slept = 1
         self.thread_reset_all_timeout = 10 * 60
         self.thread_update_cache_from_os_timeout = 2 * 60
         self.thread_send_stun_timeout = 3
@@ -339,7 +338,7 @@ class FwStunWrap(FwObject):
 
         return nat_type, nat_ext_ip, nat_ext_port, stun_index
 
-    def stun_thread_func(self, *args):
+    def stun_thread_func(self, ticks):
         """STUN thread function.
         It sends STUN requests for address:4789 in a timely manner
         according to some algorithm-based calculations.
@@ -350,27 +349,25 @@ class FwStunWrap(FwObject):
 
             # send STUN requests for addresses that a request was not sent for
             # them, or for ones that did not get reply previously
-            if self.thread_slept % self.thread_send_stun_timeout == 0:
+            if ticks % self.thread_send_stun_timeout == 0:
                 self._send_stun_requests()
 
             # probe tunnels in down state to see if we could find remote edge
             # address/port from incoming packets for symmetric NAT traversal
 
-            if self.thread_slept % self.thread_send_sym_nat_timeout == 0:
+            if ticks % self.thread_send_sym_nat_timeout == 0:
                 self._send_symmetric_nat()
 
-            if self.thread_slept % self.thread_probe_sym_nat_timeout == 0:
+            if ticks % self.thread_probe_sym_nat_timeout == 0:
                 self._probe_symmetric_nat()
 
-            if self.thread_slept % self.thread_reset_all_timeout == 0:
+            if ticks % self.thread_reset_all_timeout == 0:
                 # reset all STUN information every 10 minutes
                 self._reset_all()
 
-            if self.thread_slept % self.thread_update_cache_from_os_timeout == 0:
+            if ticks % self.thread_update_cache_from_os_timeout == 0:
                 # every update_cache_timeout, refresh cache with updated IP addresses from OS
                 self._update_cache_from_OS()
-
-        self.thread_slept += 1
 
     def handle_down_tunnels(self, tunnel_stats):
         """ Run over all tunnels and get the source IP address of the tunnels that are not connected.

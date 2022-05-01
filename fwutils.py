@@ -291,17 +291,15 @@ def get_interface_gateway(if_name, if_dev_id=None):
 
 
 def get_tunnel_gateway(dst, dev_id):
-    linux_interfaces = get_linux_interfaces()
-    if linux_interfaces:
-        interface = linux_interfaces.get(dev_id)
-        if interface:
-            try:
-                network = interface['IPv4'] + '/' + interface['IPv4Mask']
-                # If src and dst on the same network return an empty gw
-                # In this case the system uses default route as a gateway and connect the interfaces directly and not via the GW
-                if is_ip_in_subnet(dst,network): return ''
-            except Exception as e:
-                fwglobals.log.error("get_tunnel_gateway: failed to check networks: dst=%s, dev_id=%s, network=%s, error=%s" % (dst, dev_id, network, str(e)))
+    interface = get_linux_interfaces(if_dev_id=dev_id)
+    if interface:
+        try:
+            network = interface['IPv4'] + '/' + interface['IPv4Mask']
+            # If src and dst on the same network return an empty gw
+            # In this case the system uses default route as a gateway and connect the interfaces directly and not via the GW
+            if is_ip_in_subnet(dst,network): return ''
+        except Exception as e:
+            fwglobals.log.error("get_tunnel_gateway: failed to check networks: dst=%s, dev_id=%s, network=%s, error=%s" % (dst, dev_id, network, str(e)))
 
     # If src, dst are not on same subnet or any error, use the gateway defined on the device
     gw_ip, _ = get_interface_gateway('', if_dev_id=dev_id)
@@ -522,18 +520,21 @@ def is_bridged_interface(dev_id):
 
     return None
 
-def get_linux_interfaces(cached=True):
+def get_linux_interfaces(cached=True, if_dev_id=None):
     """Fetch interfaces from Linux.
 
     :param cached: if True the data will be fetched from cache.
+    :param if_dev_id: ID of interface to be fetched from cache.
 
-    :return: Dictionary of interfaces by full form dev id.
+    :return: Dictionary of interfaces by full form dev id, or specific interface if 'dev_id' was provided.
     """
     with fwglobals.g.cache.lock:
 
         interfaces = fwglobals.g.cache.linux_interfaces
 
         if cached and interfaces:
+            if if_dev_id:
+                return copy.deepcopy(interfaces.get(if_dev_id))
             return copy.deepcopy(interfaces)
 
         fwglobals.log.debug("get_linux_interfaces: Start to build Linux interfaces cache")
@@ -658,6 +659,8 @@ def get_linux_interfaces(cached=True):
             interfaces[dev_id] = interface
 
         fwglobals.log.debug("get_linux_interfaces: Finished to build Linux interfaces cache")
+        if if_dev_id:
+            return copy.deepcopy(interfaces.get(if_dev_id))
         return copy.deepcopy(interfaces)
 
 def get_interface_dev_id(if_name):
@@ -3645,7 +3648,7 @@ def get_linux_interface_mtu(if_name):
 
     return str(net_if_stats[if_name].mtu)
 
-def os_system(cmd, log_prefix="", log=False, print_error=True):
+def os_system(cmd, log_prefix="", log=True, print_error=True):
     if log:
         fwglobals.log.debug(cmd)
 

@@ -60,7 +60,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
             self.thread_lte_watchdog.join()
             self.thread_lte_watchdog = None
 
-    def lte_watchdog_thread_func(self, *args):
+    def lte_watchdog_thread_func(self, ticks):
         """LTE watchdog thread.
         Monitors proper configuration of LTE modem. The modem is configured
         and connected to provider by 'add-lte' request received from flexiManage
@@ -71,8 +71,6 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         """
         if  fwglobals.g.router_api.state_is_starting_stopping():
             return
-
-        current_time = int(time.time())
 
         wan_list = fwglobals.g.system_cfg.dump(types=['add-lte'])
         for wan in wan_list:
@@ -88,7 +86,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
             # Ensure that lte connection is opened.
             # Sometimes, the connection between modem and provider becomes disconnected
             #
-            if current_time % 10 == 0:
+            if ticks % 10 == 0:
                 cmd = "fping 8.8.8.8 -C 1 -q -R -I %s > /dev/null 2>&1" % name
                 ok = not subprocess.call(cmd, shell=True)
                 if not ok:
@@ -106,7 +104,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
             # so the IP that we assigned to the modem interface is still valid.
             # If it was changed, go and update the interface, vpp, etc.
             #
-            if current_time % 60 == 0:
+            if ticks % 60 == 0:
                 modem_addr = fwlte.get_ip_configuration(dev_id, 'ip', False)
                 if modem_addr:
                     iface_addr = fwutils.get_interface_address(name, log=False)

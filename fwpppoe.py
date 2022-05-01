@@ -537,7 +537,7 @@ class FwPppoeClient(FwObject):
         for nameserver in nameservers:
             cmd += f' --set-dns {nameserver}'
 
-        fwutils.os_system(cmd, '_update_resolvd', log=True)
+        fwutils.os_system(cmd, '_update_resolvd')
 
     def _restore_netplan(self):
         """Restore Netplan by adding PPPoE interfaces back.
@@ -737,7 +737,7 @@ class FwPppoeClient(FwObject):
 
         return (True, None)
 
-    def pppoec_thread_func(self):
+    def pppoec_thread_func(self, ticks):
         """PPPoE client thread.
         Its function is to monitor state of interfaces with PPPoE.
         """

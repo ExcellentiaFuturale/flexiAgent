@@ -780,7 +780,7 @@ def configure_interface(params):
         if fwutils.vpp_does_run() and fwutils.is_interface_assigned_to_vpp(dev_id):
             # Make sure interface is up. It might be down due to suddenly disconnected
             nic_name = fwutils.dev_id_to_linux_if(dev_id)
-            os.system('ifconfig %s up' % nic_name)
+            fwutils.os_system(f"ifconfig {nic_name} up")
             return (True, None)
 
         if not is_lte_interface_by_dev_id(dev_id):
@@ -794,22 +794,22 @@ def configure_interface(params):
             metric = '0'
 
         nic_name = fwutils.dev_id_to_linux_if(dev_id)
-        os.system('ifconfig %s %s up' % (nic_name, ip))
+        fwutils.os_system(f"ifconfig {nic_name} {ip} up")
 
         # remove old default router
         output = os.popen('ip route list match default | grep %s' % nic_name).read()
         if output:
             routes = output.splitlines()
             for r in routes:
-                os.system('ip route del %s' % r)
+                fwutils.os_system(f"ip route del {r}")
         # set updated default route
-        os.system(f"ip route add default via {gateway} proto static metric {metric}")
+        fwutils.os_system(f"ip route add default via {gateway} proto static metric {metric}")
 
         # configure dns servers for the interface.
         # If the LTE interface is configured in netplan, the user must set the dns servers manually in netplan.
         set_dns_str = ' '.join(map(lambda server: '--set-dns=' + server, ip_config['dns_servers']))
         if set_dns_str:
-            os.system('systemd-resolve %s --interface %s' % (set_dns_str, nic_name))
+            fwutils.os_system(f"systemd-resolve {set_dns_str} --interface {nic_name}")
 
         fwutils.clear_linux_interfaces_cache() # remove this code when move ip configuration to netplan
         return (True , None)

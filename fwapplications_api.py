@@ -173,7 +173,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
     def get_stats(self):
         return copy.deepcopy(self.stats)
 
-    def app_stats_thread_func(self):
+    def app_stats_thread_func(self, ticks):
         if (self.stats_counter % self.stats_threshold) == 0 and not self.processing_request:
             apps = self.cfg_db.get_applications()
             for app in apps:

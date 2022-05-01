@@ -51,11 +51,13 @@ class FwThread(threading.Thread):
 
     def _thread_func(self, args, kwargs):
         self.log.debug(f"tid={fwutils.get_thread_tid()} ({self.getName()})")
+        ticks = 0
 
         while not fwglobals.g.router_threads.teardown and not self.stop_called:
             time.sleep(1)
+            ticks += 1
             try:
-                self.func(*args, **kwargs)
+                self.func(ticks, *args, **kwargs)
             except Exception as e:
                 self.log.error("%s: %s (%s)" % (self.getName(), str(e), traceback.format_exc()))
 
@@ -78,6 +80,7 @@ class FwThread(threading.Thread):
         self.stop_called = True
         if block:
             self.join()
+        self.ticks = 0
 
 class FwRouterThread(FwThread):
     """Implements variation of monitoring thread, which does not run,
@@ -90,10 +93,12 @@ class FwRouterThread(FwThread):
 
     def _thread_func(self, args, kwargs):
         self.log.debug(f"tid={fwutils.get_thread_tid()} ({self.getName()})")
+        ticks = 0
 
         rt = fwglobals.g.router_threads
         while not rt.teardown and not self.stop_called:
             time.sleep(1)        # 1 sec ticks for monitoring functionality
+            ticks += 1
 
             # 'request_cond_var' ensures there is no undergoing routing configuration
             #
@@ -109,7 +114,7 @@ class FwRouterThread(FwThread):
             rt.request_cond_var.release()
 
             try:                      # 'try' prevents thread to exit on exception
-                self.func(*args, **kwargs)
+                self.func(ticks, *args, **kwargs)
             except Exception as e:
                 self.log.error("%s: %s (%s)" % (self.name, str(e), traceback.format_exc()))
 

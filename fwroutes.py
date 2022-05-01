@@ -105,14 +105,14 @@ class FwRoutes(FwObject):
             self.thread_routes.join()
             self.thread_routes = None
 
-    def route_thread_func(self):
+    def route_thread_func(self, ticks):
         # Firstly sync static routes from router configuration DB to Linux
         # in order to restore routes that disappeared for some reason,
         # for example due to 'netplan apply' that overrod cfg routes.
         # We do that only if router was started already.
         #
         if fwglobals.g.router_api and fwglobals.g.router_api.state_is_started():
-            if int(time.time()) % 5 == 0:  # Check routes every 5 seconds
+            if ticks % 5 == 0:  # Check routes every ~5 seconds
                 self._check_reinstall_static_routes()
 
         # Check if the default route was modified.

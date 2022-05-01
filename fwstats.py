@@ -44,20 +44,17 @@ vpp_pid = ''
 
 # Keeps last stats
 stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'lte_stats': {}, 'wifi_stats': {}, 'application_stats': {}}
-stats_ticks = 0
 
-def statistics_thread_func(fwagent):
-    global stats_ticks
+def statistics_thread_func(ticks, fwagent):
     if not fwagent.connected:
         return
     timeout = 30
-    if (stats_ticks % timeout) == 0:
+    if (ticks % timeout) == 0:
         if fwglobals.g.loadsimulator:
             fwglobals.g.loadsimulator.update_stats()
         else:
-            renew_lte_wifi_stats = stats_ticks % (timeout * 2) == 0 # Renew LTE and WiFi statistics every second update
+            renew_lte_wifi_stats = ticks % (timeout * 2) == 0 # Renew LTE and WiFi statistics every second update
             update_stats(renew_lte_wifi_stats=renew_lte_wifi_stats)
-    stats_ticks += 1
 
 def update_stats(renew_lte_wifi_stats=True):
     """Update statistics dictionary using values retrieved from VPP interfaces.
