@@ -664,9 +664,6 @@ class FwPppoeClient(FwObject):
             self.interfaces[dev_id] = pppoe_iface
             self.connections[dev_id] = conn
 
-            if fwglobals.g.fwagent:
-                fwglobals.g.fwagent.reconnect()
-
             if connected:
                 nameservers = []
                 if pppoe_iface.usepeerdns:
@@ -697,28 +694,18 @@ class FwPppoeClient(FwObject):
                 conn.open()
                 self.connections[dev_id] = conn
 
-    def restart_interface(self, dev_id, timeout = 60):
+    def restart_interface(self, dev_id):
         """This API is called on VPP router start.
            Change value from nic-ethX into nic-vppX in PPPoE configuration file.
-           Start PPPoE connection and wait until it is established.
         """
         conn = self.connections.get(dev_id)
         rc = conn.create_tun()
         if not rc:
             return (False, f'PPPoE: {dev_id} TUN was not created')
         conn.save()
-        conn.open()
         self.connections[dev_id] = conn
 
-        while timeout >= 0:
-            connected = self.scan_interface(dev_id, conn, connect_if_needed=True)
-            if connected:
-                return (True, None)
-
-            timeout-= 1
-            time.sleep(1)
-
-        return (False, f'PPPoE: {dev_id} is not connected')
+        return (True, None)
 
     def stop_interface(self, dev_id):
         """Close PPPoE connection.
