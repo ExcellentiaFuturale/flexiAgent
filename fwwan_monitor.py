@@ -100,7 +100,7 @@ class FwWanMonitor(FwObject):
             self.thread_wan_monitor.join()
             self.thread_wan_monitor = None
 
-    def wan_monitor_thread_func(self):
+    def wan_monitor_thread_func(self, ticks):
 
         try:
             server = self._get_server()

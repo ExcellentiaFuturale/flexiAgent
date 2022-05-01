@@ -737,7 +737,7 @@ class FwPppoeClient(FwObject):
 
         return (True, None)
 
-    def pppoec_thread_func(self):
+    def pppoec_thread_func(self, ticks):
         """PPPoE client thread.
         Its function is to monitor state of interfaces with PPPoE.
         """

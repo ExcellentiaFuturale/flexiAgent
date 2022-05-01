@@ -109,7 +109,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         self._stop_threads()  # IMPORTANT! Do that before rest of finalizations!
         self.vpp_api.finalize()
 
-    def vpp_watchdog_thread_func(self):
+    def vpp_watchdog_thread_func(self, ticks):
         """Watchdog thread function.
         Its function is to monitor if VPP process is alive.
         Otherwise it will start VPP and restore configuration from DB.
@@ -135,7 +135,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         elif self.pending_coredump_processing:
             self.pending_coredump_processing = fw_vpp_coredump_utils.vpp_coredump_process()
 
-    def tunnel_stats_thread_func(self):
+    def tunnel_stats_thread_func(self, ticks):
         """Tunnel statistics thread function.
         Its function is to monitor tunnel state and RTT.
         It is implemented by pinging the other end of the tunnel.

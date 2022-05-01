@@ -97,9 +97,7 @@ class FwRoutes(FwObject):
     def initialize(self):
         """Starts the FwRoutes activity - runs the main loop thread.
         """
-        self.thread_routes = fwthread.FwRouterThread(
-                                target=self.route_thread_func, name="Routes",
-                                log=self.log, generate_ticks=True)
+        self.thread_routes = fwthread.FwRouterThread(target=self.route_thread_func, name="Routes", log=self.log)
         self.thread_routes.start()
 
     def finalize(self):

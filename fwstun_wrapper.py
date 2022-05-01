@@ -108,7 +108,7 @@ class FwStunWrap(FwObject):
             self._send_stun_requests()
             self._log_address_cache()
 
-        self.thread_stun = fwthread.FwRouterThread(target=self.stun_thread_func, name='STUN', log=self.log, generate_ticks=True)
+        self.thread_stun = fwthread.FwRouterThread(target=self.stun_thread_func, name='STUN', log=self.log)
         self.thread_stun.start()
 
     def finalize(self):

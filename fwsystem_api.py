@@ -52,10 +52,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
     def initialize(self):
         if self.thread_lte_watchdog is None:
-            self.thread_lte_watchdog = fwthread.FwRouterThread(
-                                            target=self.lte_watchdog_thread_func,
-                                            name='LTE Watchdog',
-                                            log=self.log, generate_ticks=True)
+            self.thread_lte_watchdog = fwthread.FwRouterThread(target=self.lte_watchdog_thread_func, name='LTE Watchdog', log=self.log)
             self.thread_lte_watchdog.start()
 
     def finalize(self):
