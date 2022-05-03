@@ -133,6 +133,7 @@ g_dumpers = {
     'fwagent_db_multilink':         { 'shell_cmd': 'fwagent show --database multilink > <dumper_out_file>' },
     'fwagent_multilink_cfg':        { 'shell_cmd': 'fwagent show --configuration multilink-policy > <dumper_out_file>' },
     'fwagent_router_cfg':           { 'shell_cmd': 'fwagent show --configuration router > <dumper_out_file>' },
+    'fwagent_router_pending_cfg':   { 'shell_cmd': 'fwagent show --configuration router-pending > <dumper_out_file>' },
     'fwagent_system_configuration': { 'shell_cmd': 'fwagent show --configuration system > <dumper_out_file>' },
 
     'fwagent_threads':              { 'shell_cmd': 'fwagent show --agent threads > <dumper_out_file>' },

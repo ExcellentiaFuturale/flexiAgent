@@ -246,17 +246,6 @@ def add_interface(params):
             cmd['revert']['params'] = { 'cmd': f"sudo ip link set dev {iface_name} down && sudo ip addr flush dev {iface_name}" }
             cmd_list.append(cmd)
 
-            # connect the modem to the cellular provider
-            configs = copy.deepcopy(params['configuration'])
-            configs['dev_id'] = dev_id
-            cmd = {}
-            cmd['cmd'] = {}
-            cmd['cmd']['func']   = "connect"
-            cmd['cmd']['module'] = "fwlte"
-            cmd['cmd']['params'] = { 'params': configs }
-            cmd['cmd']['descr'] = "connect modem to lte cellular network provider"
-            cmd_list.append(cmd)
-
     # enable DHCP packets detection in VPP
     if dhcp == 'yes':
         cmd = {}
@@ -298,7 +287,6 @@ def add_interface(params):
 
     if bridge_addr:
         netplan_params['ip'] = ''
-        netplan_params['validate_ip'] = False
 
     if is_pppoe:
         cmd = {}
@@ -557,7 +545,7 @@ def add_interface(params):
         }
         cmd_list.append(cmd)
 
-        cmd = {}
+        cmd = {} # nnoww - move this logic to the dedicated thread!!!
         cmd['cmd'] = {}
         cmd['cmd']['func']      = "exec"
         cmd['cmd']['module']    = "fwutils"

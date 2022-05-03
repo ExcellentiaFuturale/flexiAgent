@@ -86,19 +86,13 @@ class FwCfgDatabase(FwObject):
     def close(self):
         self.db.close()
 
-    def clean(self):
+    def clean(self, reset_signature=True):
         """Clean DB
 
         :returns: None.
         """
         for req_key in self.db:
             del self.db[req_key]
-
-        # Reset configuration to the value, that differs from one calculated
-        # by the flexiManage. This is to enforce flexiManage to issue 'sync-device'
-        # in order to fill the configuration database again with most updated
-        # configuration.
-        fwutils.reset_device_config_signature("empty_cfg", log=False)
 
     def set_translators(self, translators):
        self.translators = translators
@@ -167,6 +161,23 @@ class FwCfgDatabase(FwObject):
             self.log.error("update(%s) failed: %s, %s" % \
                         (req_key, str(e), str(traceback.format_exc())))
             raise Exception('failed to update request database')
+
+    def remove(self, request):
+        """Removes configuration request from DB.
+        The request can be in either form of 'add-X', 'remove-X' or 'modify-X'.
+
+        :param request:     The request as it would be received from flexiManage.
+        :returns: None.
+        """
+        try:
+            req_key = self._get_request_key(request)
+            del self.db[req_key]
+        except KeyError:
+            pass
+        except Exception as e:
+            self.log.error("remove(%s) failed: %s, %s" % \
+                        (req_key, str(e), str(traceback.format_exc())))
+            raise Exception('failed to remove request from database')
 
     def get_request_params(self, request):
         req_key = self._get_request_key(request)

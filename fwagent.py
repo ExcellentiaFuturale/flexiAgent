@@ -47,6 +47,7 @@ import fwikev2
 import fwlte
 import fwmultilink
 import fwpppoe
+import fwrouter_cfg
 import fwstats
 import fwthread
 import fwutils
@@ -773,6 +774,8 @@ def show(agent, configuration, database, status):
             fwutils.print_system_config()
         elif configuration == 'router':
             fwutils.print_router_config()
+        elif configuration == 'router-pending':
+            fwutils.print_router_pending_config()
         elif configuration == 'system':
             fwutils.print_system_config()
         elif configuration == 'multilink-policy':
@@ -788,6 +791,8 @@ def show(agent, configuration, database, status):
     if database:
         if database == 'router':
             fwutils.print_router_config(full=True)
+        elif database == 'router-pending':
+            fwutils.print_router_pending_config(full=True)
         elif database == 'system':
             fwutils.print_system_config(full=True)
         elif database == 'general':
@@ -1190,6 +1195,10 @@ def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None,
             cli.run_loop()
     if clean_request_db:
         fwglobals.g.router_cfg.clean()
+        fwutils.reset_device_config_signature("empty_cfg", log=False)
+        with fwrouter_cfg.FwRouterCfg(fwglobals.g.ROUTER_PENDING_CFG_FILE) as router_pending_cfg:
+            router_pending_cfg.clean()
+
 
 
 if __name__ == '__main__':
@@ -1255,7 +1264,7 @@ if __name__ == '__main__':
     parser_show.add_argument('--agent', choices=['version', 'cache', 'threads'],
                         help="show various agent parameters")
     parser_show.add_argument('--configuration', const='all', nargs='?',
-                        choices=['all', 'router', 'system', 'multilink-policy', 'signature'],
+                        choices=['all', 'router', 'system', 'multilink-policy', 'signature', 'router-pending'],
                         help="show flexiEdge configuration")
     parser_show.add_argument('--database',
                         choices=['applications', 'general', 'multilink', 'router', 'system'],

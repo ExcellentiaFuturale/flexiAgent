@@ -362,16 +362,22 @@ def get_all_interfaces():
 
     return dev_id_ip_gw
 
-def get_interface_address(if_name, log=True, log_on_failure=None):
+def get_interface_address(if_name, if_dev_id=None, log=True, log_on_failure=None):
     """Gets IP address of interface by name found in OS.
 
     :param if_name:     Interface name.
+    :param if_dev_id:   Bus address of the interface, address for which is returned.
+                        If provided, the 'if_name' is ignored. The name is fetched
+                        from system by a Bus address.
     :param log:         If True the found/not found address will be logged.
                         Errors or debug info is printed in any case.
     :param log_on_failure: If provided, overrides the 'log' in case of not found address.
 
     :returns: IP address.
     """
+    if if_dev_id:
+        if_name = dev_id_to_tap(if_dev_id)
+
     if log_on_failure == None:
         log_on_failure = log
 
@@ -1514,6 +1520,8 @@ def reset_device_config(pppoe=False, applications=True):
      """
     with FwRouterCfg(fwglobals.g.ROUTER_CFG_FILE) as router_cfg:
         router_cfg.clean()
+    with FwRouterCfg(fwglobals.g.ROUTER_PENDING_CFG_FILE) as router_pending_cfg:
+        router_pending_cfg.clean()
     with FwSystemCfg(fwglobals.g.SYSTEM_CFG_FILE) as system_cfg:
         system_cfg.clean()
     if os.path.exists(fwglobals.g.ROUTER_STATE_FILE):
@@ -1551,6 +1559,8 @@ def reset_device_config(pppoe=False, applications=True):
 
     reset_router_api_db_sa_id() # sa_id-s are used in translations of router configuration, so clean them too.
     reset_router_api_db(enforce=True)
+
+    reset_device_config_signature("empty_cfg", log=False)
 
     restore_dhcpd_files()
 
@@ -1628,6 +1638,17 @@ def print_router_config(basic=True, full=False, multilink=False):
             cfg = router_cfg.dumps(full=full, types=['add-application','add-multilink-policy'])
         else:
             cfg = ''
+        print(cfg)
+
+def print_router_pending_config():
+    """Print router pending configuration - the configuration items that were
+    requested to be configured, but the configuration of that is not possible
+    at the moment. E.g. tunnels for interfaces without IP.
+
+     :returns: None.
+     """
+    with FwRouterCfg(fwglobals.g.ROUTER_PENDING_CFG_FILE) as router_pending_cfg:
+        cfg = router_pending_cfg.dumps()
         print(cfg)
 
 def print_general_database():
@@ -2245,7 +2266,9 @@ def vpp_multilink_update_labels(labels, remove, next_hop=None, dev_id=None, sw_i
         tap = vpp_if_name_to_tap(vpp_if_name)
         next_hop, _ = get_interface_gateway(tap)
     if not next_hop:
-        return (False, "'next_hop' was not provided and there is no default gateway")
+        # nnoww - register this logic with the dedicated thread!!!
+        next_hop = "0.0.0.0"
+        fwglobals.log.warning(f"vpp_multilink_update_labels: no 'next_hop' was provided, use blackhole {next_hop}")
 
     op = 'del' if remove else 'add'
 
