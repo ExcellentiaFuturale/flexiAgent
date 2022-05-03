@@ -54,43 +54,44 @@ def add_bgp(params):
     # enable bgp process
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "exec"
-    cmd['cmd']['params']  = [ 'if [ -n "$(grep bgpd=no %s)" ]; then sudo sed -i -E "s/bgpd=no/bgpd=yes/" %s; fi' % (fwglobals.g.FRR_DAEMONS_FILE, fwglobals.g.FRR_DAEMONS_FILE)]
-    cmd['cmd']['descr']   = "start BGP daemon"
+    cmd['cmd']['func']      = "exec"
+    cmd['cmd']['module']    = "fwutils"
+    cmd['cmd']['params'] = {
+                    'cmd':    'if [ -n "$(grep bgpd=no %s)" ]; then sudo sed -i -E "s/bgpd=no/bgpd=yes/" %s; sudo systemctl restart frr; fi' % (fwglobals.g.FRR_DAEMONS_FILE, fwglobals.g.FRR_DAEMONS_FILE),
+    }
+    cmd['cmd']['descr'] = "start BGP daemon"
     cmd['revert'] = {}
-    cmd['revert']['name']   = "exec"
-    cmd['revert']['params'] = [ 'if [ -n "$(grep bgpd=yes %s)" ]; then sudo sed -i -E "s/bgpd=yes/bgpd=no/" %s; sudo systemctl restart frr; fi' % (fwglobals.g.FRR_DAEMONS_FILE, fwglobals.g.FRR_DAEMONS_FILE)]
+    cmd['revert']['func']   = "exec"
+    cmd['revert']['module'] = "fwutils"
     cmd['revert']['descr']  = "stop BGP daemon"
+    cmd['revert']['params'] = {
+                    'cmd':    'if [ -n "$(grep bgpd=yes %s)" ]; then sudo sed -i -E "s/bgpd=yes/bgpd=no/" %s; sudo systemctl restart frr; fi' % (fwglobals.g.FRR_DAEMONS_FILE, fwglobals.g.FRR_DAEMONS_FILE),
+    }
     cmd_list.append(cmd)
 
     localASN = params.get('localASN')
     router_bgp_asn = 'router bgp %s' % localASN
+
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']   = "python"
-    cmd['cmd']['descr']   =  "set bgp router with %s ASN" % localASN
+    cmd['cmd']['func']    = "frr_vtysh_run"
+    cmd['cmd']['module']  = "fwutils"
+    cmd['cmd']['descr']   =  f"add bgp router ASN={localASN}"
     cmd['cmd']['params'] = {
-            'module': 'fwutils',
-            'func': 'frr_vtysh_run',
-            'args': {
-                'flags'              : '-c "configure" -c "%s"' % router_bgp_asn,
-                'restart_frr_service': True,
-            }
+                    'commands': [f'router bgp {localASN}'],
+                    'restart_frr': True,
     }
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
+    cmd['revert']['func']   = "frr_vtysh_run"
+    cmd['revert']['module'] = "fwutils"
     cmd['revert']['params'] = {
-            'module': 'fwutils',
-            'func': 'frr_vtysh_run',
-            'args': {
-                'flags': '-c "configure" -c "no %s"' % router_bgp_asn
-            }
+                    'commands': [f'no router bgp {localASN}'],
+                    'restart_frr': True,
     }
-    cmd['revert']['descr']   =  "remove bgp router with %s ASN" % localASN
+    cmd['revert']['descr']   =  f"remove bgp router ASN={localASN}"
     cmd_list.append(cmd)
 
-
-    vty_commands = []
+    vty_commands = [router_bgp_asn]
     restart_frr = False
 
     routerId = params.get('routerId')
@@ -131,32 +132,23 @@ def add_bgp(params):
                 vty_commands.append('neighbor %s timers %s %s' % (ip, keepaliveInterval, holdInterval))
 
     if vty_commands:
-        frr_cmd = ' -c '.join(map(lambda x: '"%s"' % x, vty_commands))
-        # reverse the frr_cmd_revert because we need to start removing from the last config
-        #
-        frr_cmd_revert = ' -c '.join(map(lambda x: '"no %s"' % x, list(reversed(vty_commands))))
+        vty_commands_revert = map(lambda x: 'no %s' % x, list(reversed(vty_commands)))
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['name']   = "python"
-        cmd['cmd']['params'] = {
-                'module': 'fwutils',
-                'func': 'frr_vtysh_run',
-                'args': {
-                    'flags'              : '-c "configure" -c "%s" -c %s' % (router_bgp_asn, frr_cmd),
-                    'restart_frr_service': restart_frr
-                }
-        }
+        cmd['cmd']['func']    = "frr_vtysh_run"
+        cmd['cmd']['module']  = "fwutils"
         cmd['cmd']['descr']   =  "add BGP configurations"
+        cmd['cmd']['params'] = {
+                        'commands': list(vty_commands),
+                        'restart_frr': True,
+        }
         cmd['revert'] = {}
-        cmd['revert']['name']   = "python"
+        cmd['revert']['func']   = "frr_vtysh_run"
+        cmd['revert']['module'] = "fwutils"
         cmd['revert']['params'] = {
-                'module': 'fwutils',
-                'func': 'frr_vtysh_run',
-                'args': {
-                    'flags'              : '-c "configure" -c "%s" -c %s' % (router_bgp_asn, frr_cmd_revert),
-                    'restart_frr_service': restart_frr
-                }
+                        'commands': list(vty_commands_revert),
+                        'restart_frr': True,
         }
         cmd['revert']['descr']   =  "remove BGP configurations"
         cmd_list.append(cmd)
