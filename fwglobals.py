@@ -295,6 +295,7 @@ class Fwglobals(FwObject):
         self.DUMP_FOLDER                   = '/var/log/flexiwan/fwdump'
         self.DEFAULT_DNS_SERVERS           = ['8.8.8.8', '8.8.4.4']
         self.router_threads                = FwRouterThreading() # Primitives used for synchronization of router configuration and monitoring threads
+        self.handle_request_lock           = threading.RLock()
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
@@ -479,40 +480,41 @@ class Fwglobals(FwObject):
 
         :returns: Dictionary with error string and status code.
         """
-        try:
-            req    = request['message']
-            params = request.get('params')
+        with self.handle_request_lock:
+            try:
+                req    = request['message']
+                params = request.get('params')
 
-            handler      = request_handlers.get(req)
-            handler_func = getattr(self, handler.get('name'))
+                handler      = request_handlers.get(req)
+                handler_func = getattr(self, handler.get('name'))
 
-            reply = handler_func(request)
-            if reply['ok'] == 0:
-                vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
-                os.system('sudo vppctl api trace save %s' % (vpp_trace_file))
-                raise Exception(reply['message'])
+                reply = handler_func(request)
+                if reply['ok'] == 0:
+                    vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
+                    os.system('sudo vppctl api trace save %s' % (vpp_trace_file))
+                    raise Exception(reply['message'])
 
-            # On router configuration request, e.g. add-interface,
-            # remove-tunnel, etc. update the configuration database
-            # signature. This is needed to assists the database synchronization
-            # feature that keeps the configuration set by user on the flexiManage
-            # in sync with the one stored on the flexiEdge device.
-            # Note we update signature on configuration requests received from flexiManage only,
-            # but retrieve it into replies for all requests. This is to simplify
-            # flexiManage code.
-            #
-            if reply['ok'] == 1 and handler.get('sign') and received_msg:
-                fwutils.update_device_config_signature(received_msg)
-            reply['router-cfg-hash'] = fwutils.get_device_config_signature()
+                # On router configuration request, e.g. add-interface,
+                # remove-tunnel, etc. update the configuration database
+                # signature. This is needed to assists the database synchronization
+                # feature that keeps the configuration set by user on the flexiManage
+                # in sync with the one stored on the flexiEdge device.
+                # Note we update signature on configuration requests received from flexiManage only,
+                # but retrieve it into replies for all requests. This is to simplify
+                # flexiManage code.
+                #
+                if reply['ok'] == 1 and handler.get('sign') and received_msg:
+                    fwutils.update_device_config_signature(received_msg)
+                reply['router-cfg-hash'] = fwutils.get_device_config_signature()
 
-            return reply
+                return reply
 
-        except Exception as e:
-            global log
-            err_str = "%s(%s): %s" % (str(e), req, format(params))
-            log.error(err_str + ': %s' % str(traceback.format_exc()))
-            reply = {"message":err_str, 'ok':0}
-            return reply
+            except Exception as e:
+                global log
+                err_str = "%s(%s): %s" % (str(e), req, format(params))
+                log.error(err_str + ': %s' % str(traceback.format_exc()))
+                reply = {"message":err_str, 'ok':0}
+                return reply
 
     def _get_api_object_attr(self, api_type, attr):
         if api_type == '_call_router_api':
