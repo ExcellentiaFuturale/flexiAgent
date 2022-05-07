@@ -545,23 +545,17 @@ def add_interface(params):
         }
         cmd_list.append(cmd)
 
-        cmd = {} # nnoww - move this logic to the dedicated thread!!!
+        cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']      = "exec"
-        cmd['cmd']['module']    = "fwutils"
-        cmd['cmd']['params'] = {
-                        'cmd':    "sudo arp -s DEV-STUB 00:00:00:00:00:00",
-                        'substs': [ {'replace':'DEV-STUB', 'key': 'cmd', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'gateway']} ]
-        }
+        cmd['cmd']['func']   = "on_add_interface"
+        cmd['cmd']['module'] = "fwlte"
+        cmd['cmd']['params'] = { 'dev_id': dev_id }
         cmd['cmd']['descr'] = "set arp entry on linux for lte interface"
         cmd['revert'] = {}
-        cmd['revert']['func']   = "exec"
-        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['func']   = "on_remove_interface"
+        cmd['revert']['module'] = "fwlte"
+        cmd['revert']['params'] = { 'dev_id': dev_id }
         cmd['revert']['descr']  = "remove arp entry on linux for lte interface"
-        cmd['revert']['params'] = {
-                        'cmd':    "sudo arp -d DEV-STUB || true",
-                        'substs': [ {'replace':'DEV-STUB', 'key': 'cmd', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'gateway'] } ]
-        }
         cmd_list.append(cmd)
 
         cmd = {}

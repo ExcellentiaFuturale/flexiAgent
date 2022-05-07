@@ -1,0 +1,32 @@
+[
+{
+    "entity": "agent",
+    "message": "remove-route",
+    "params": {
+        "addr": "2.2.2.2/32",
+        "via": "66.66.66.66",
+        "redistributeViaOSPF": "false"
+    }
+}
+,
+{
+    "entity": "agent",
+    "message": "remove-route",
+    "params": {
+        "addr": "3.3.3.3/32",
+        "via": "10.72.100.254",
+        "redistributeViaOSPF": "false",
+        "dev_id": "__INTERFACE_2__dev_id"
+    }
+}
+,
+{
+    "entity": "agent",
+    "message": "remove-route",
+    "params": {
+        "addr": "4.4.4.4/32",
+        "via": "10.100.0.4",
+        "redistributeViaOSPF": "false"
+    }
+}
+]

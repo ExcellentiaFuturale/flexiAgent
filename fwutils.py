@@ -2266,7 +2266,6 @@ def vpp_multilink_update_labels(labels, remove, next_hop=None, dev_id=None, sw_i
         tap = vpp_if_name_to_tap(vpp_if_name)
         next_hop, _ = get_interface_gateway(tap)
     if not next_hop:
-        # nnoww - register this logic with the dedicated thread!!!
         next_hop = "0.0.0.0"
         fwglobals.log.warning(f"vpp_multilink_update_labels: no 'next_hop' was provided, use blackhole {next_hop}")
 

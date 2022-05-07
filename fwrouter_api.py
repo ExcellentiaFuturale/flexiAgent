@@ -105,15 +105,13 @@ class FWROUTER_API(FwCfgRequestHandler):
         self.thread_watchdog     = None
         self.thread_tunnel_stats = None
         self.vpp_coredump_in_progress = False
+        self.pending_interfaces  = {}  # Interfaces without IP by dev-id
 
-        FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, self._on_revert_failed)
+        pending_cfg_db = fwrouter_cfg.FwRouterCfg(pending_cfg_file)
+        FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, pending_cfg_db, self._on_revert_failed)
 
         fwutils.reset_router_api_db() # Initialize cache that persists device reboot / daemon restart
 
-        self.pending_cfg_db = fwrouter_cfg.FwRouterCfg(pending_cfg_file)
-        self.pending_cfg_db.set_translators(fwrouter_translators)
-        self.pending_interfaces      = None  # Interfaces without IP by dev-id
-        self.pending_requests_thread = None
 
     def finalize(self):
         """Destructor method
@@ -411,13 +409,16 @@ class FWROUTER_API(FwCfgRequestHandler):
             #   The 'remove-X' for pending requests just deletes request from
             # the pending request database.
             #
+            if self.pending_cfg_db.exists(request):
+                # Clean request from pending database before further processing.
+                #
+                self.pending_cfg_db.remove(request)
+                if re.match('remove-',  req):
+                    return {'ok':1}     # No further processing is needed for 'remove-X'.
             if router_was_started:
                 if re.match('add-',  req) and self._is_pending_request(request):
                     self.pending_cfg_db.update(request)
                     self.cfg_db.remove(request)
-                    return {'ok':1}
-                if re.match('remove-',  req) and self.pending_cfg_db.exists(request):
-                    self.pending_cfg_db.update(request)
                     return {'ok':1}
 
             if router_was_started or req == 'start-router':
@@ -495,8 +496,9 @@ class FWROUTER_API(FwCfgRequestHandler):
             else:
                 # Firstly search for interfaces that match VIA
                 #
-                for interface in self.pending_interfaces.values():
-                    if fwutils.is_ip_in_subnet(request['params']['via'], interface['addr']):
+                for cached_interface in self.pending_interfaces.values():
+                    if cached_interface['addr'] and \
+                       fwutils.is_ip_in_subnet(request['params']['via'], cached_interface['addr']):
                         return False
                 # No suiting interface was found, search tunnels that match VIA
                 #
@@ -1201,6 +1203,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             restart_router = True
             fwglobals.g.handle_request({'message':'stop-router'})
 
+        self.pending_cfg_db.clean()
         FwCfgRequestHandler.sync_full(self, incoming_requests)
 
         if restart_router:
