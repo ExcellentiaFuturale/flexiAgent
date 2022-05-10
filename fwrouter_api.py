@@ -949,6 +949,19 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwutils.remove_linux_bridges()
         fwwifi.stop_hostapd()
 
+        if fwutils.detect_gcp_vm():
+            # GCP configures all interfaces, LAN and WAN as DHCP clients.
+            # Only WAN interfaces they put into Netplan but not LAN interfaces.
+            # As well, the assigned ip is with /32 mask.
+            # To be able to reach the whole subnet (e.f. /24), they push some DHCP options
+            # that install the required static routes. 
+            # So here, after we release the LAN interfaces to Linux, we need to call "dhclient"
+            # for these interfaces to get the IP and the required static routes again.
+            lan_interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
+            for lanIfc in lan_interfaces:
+                name = fwutils.dev_id_to_linux_if(lanIfc.get('dev_id'))
+                os.system(f'dhclient {name}')
+
         # keep LTE connectivity on linux interface
         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
 

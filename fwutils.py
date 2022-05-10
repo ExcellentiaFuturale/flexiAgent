@@ -3658,3 +3658,8 @@ def os_system(cmd, log_prefix="", log=True, print_error=True):
         fwglobals.log.error(f'{prefix}command failed: {cmd}')
 
     return not bool(rc)
+
+def detect_gcp_vm():
+    cmd = 'sudo dmidecode -s system-product-name | grep "Google Compute Engine"'
+    output = os.popen(cmd).read().strip()
+    return output == "Google Compute Engine"
