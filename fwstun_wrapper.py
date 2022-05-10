@@ -345,7 +345,7 @@ class FwStunWrap(FwObject):
         probe_sym_nat_timeout = 30
         send_sym_nat_timeout = 3
 
-        while not fwglobals.g.teardown:
+        while not fwglobals.g.router_threads.teardown:
 
             try:  # Ensure thread doesn't exit on exception
 
