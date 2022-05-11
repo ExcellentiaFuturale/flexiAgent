@@ -307,7 +307,7 @@ def _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw, dnsSer
 
     return config_section
 
-def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dnsServers, dnsDomains, mtu=None, if_name=None, validate_ip=True, netplan_apply=True):
+def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dnsServers, dnsDomains, mtu=None, if_name=None, netplan_apply=True):
     '''
     :param metric:  integer (whole number)
     '''
@@ -321,8 +321,8 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
 
     fwglobals.log.debug(
         "add_remove_netplan_interface: is_add=%d, dev_id=%s, ip=%s, gw=%s, metric=%d, dhcp=%s, type=%s, \
-         dnsServers=%s, dnsDomains=%s, mtu=%s, if_name=%s, validate_ip=%s" %
-        (is_add, dev_id, ip, gw, metric, dhcp, type, dnsServers, dnsDomains, str(mtu), if_name, str(validate_ip)))
+         dnsServers=%s, dnsDomains=%s, mtu=%s, if_name=%s" %
+        (is_add, dev_id, ip, gw, metric, dhcp, type, dnsServers, dnsDomains, str(mtu), if_name))
 
     fo_metric = get_wan_failover_metric(dev_id, metric)
     if fo_metric != metric:
@@ -555,10 +555,6 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
             fwutils.set_dev_id_to_tap(dev_id, ifname)
             fwglobals.log.debug("Interface name in cache is %s, dev_id %s" % (ifname, dev_id_full))
 
-        if validate_ip: # Failover might be easily caused by interface down so no need to validate IP
-            if is_add and not _has_ip(ifname, (dhcp=='yes')):
-                raise Exception("ip was not assigned")
-
     except Exception as e:
         err_str = "add_remove_netplan_interface failed: dev_id: %s, file: %s, error: %s"\
               % (dev_id, fname_run, str(e))
@@ -592,37 +588,6 @@ def get_dhcp_netplan_interface(if_name):
                         if interface['dhcp4'] == True:
                             return 'yes'
     return 'no'
-
-def _has_ip(if_name, dhcp):
-
-    for _ in range(2):          # Check IP and retry "netplan apply" in loop
-        for i in range(30):     # Wait for IP to appear for X seconds
-            log = (i == 29)     # Log only the last trial to avoid log spamming
-            if fwutils.get_interface_address(if_name, log_on_failure=log):
-                return True
-            time.sleep(1)
-        fwutils.netplan_apply('_has_ip')
-
-    # At this point no IP was found on the interface.
-    # If IP was not assigned to the interface, we still return OK if:
-    # - DHCP was configured on secondary interface (not default route),
-    #   hopefully it will get IP at some time later. Right now we don't
-    #   want to fail router-start or router restore on reboot/watchdog.
-    #   The fwagent will take care of dhcp interfaces with no IP, while
-    #   handling tunnels, static routes, etc.
-    #
-    # We return error if:
-    # - IP was configured statically
-    # - DHCP was configured on primary (default route) interface,
-    #   as connection to flexiManage will be lost, so we prefer to revert
-    #   to the previous configuration
-    #
-    if dhcp:
-        (_, dev, _, _) = fwutils.get_default_route()
-        if if_name != dev:
-            return True
-
-    return False
 
 def check_interface_exist(if_name):
     files = netplan_get_filepaths()

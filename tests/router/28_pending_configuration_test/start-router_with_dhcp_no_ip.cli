@@ -1,0 +1,35 @@
+[
+{
+  "entity":  "agent",
+  "message": "start-router",
+  "params": {
+    "interfaces": [
+      {
+        "dev_id":"__INTERFACE_1__dev_id",
+        "addr":"192.168.56.101/24",
+        "routing":"ospf",
+        "type":"lan"
+      },
+      {
+        "dev_id":"__INTERFACE_2__dev_id",
+        "addr":"",
+        "gateway": "",
+        "type":"wan",
+        "dhcp":"yes",
+        "multilink": {
+            "labels": [ "green", "red" ]
+        }
+      },
+      {
+        "dev_id":"__INTERFACE_3__dev_id",
+        "addr":"__INTERFACE_3__addr",
+        "gateway": "__INTERFACE_3__gateway",
+        "type":"wan",
+        "multilink": {
+            "labels": [ "blue" ]
+        }
+      }
+    ]
+  }
+}
+]

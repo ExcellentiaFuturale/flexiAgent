@@ -14,7 +14,11 @@ devices:
       addr_no_mask: 192.168.56.101
       type:         lan
       routing:      ospf
-    __INTERFACE_3__: {}
+    __INTERFACE_3__:
+      addr:         10.72.100.1/24
+      addr_no_mask: 10.72.100.1
+      gateway:      10.72.100.254
+      type:         wan
     __WIFI_1__:
       addr:         192.168.60.1/24
       range_start:  192.168.60.77

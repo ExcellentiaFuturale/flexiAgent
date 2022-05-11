@@ -21,29 +21,30 @@
 ################################################################################
 
 import enum
+import json
 import os
 import re
-import time
-import threading
-import traceback
-import json
 import subprocess
+import threading
+import time
+import traceback
+
+from netaddr import IPAddress, IPNetwork
+
+import fw_vpp_coredump_utils
 import fwglobals
-import fwutils
 import fwnetplan
-import fwpppoe
+import fwrouter_cfg
 import fwroutes
 import fwthread
+import fwtunnel_stats
+import fwutils
 import fwwifi
+from fwcfg_request_handler import FwCfgRequestHandler
+from fwikev2 import FwIKEv2
 from fwmultilink import FwMultilink
 from fwpolicies import FwPolicies
 from vpp_api import VPP_API
-from fwcfg_request_handler import FwCfgRequestHandler
-from fwikev2 import FwIKEv2
-from netaddr import IPNetwork, IPAddress
-
-import fwtunnel_stats
-import fw_vpp_coredump_utils
 
 fwrouter_translators = {
     'start-router':             {'module': __import__('fwtranslate_start_router'),    'api':'start_router'},
@@ -87,9 +88,15 @@ class FWROUTER_API(FwCfgRequestHandler):
     - monitoring vpp and restart it on exceptions
     - restoring vpp configuration on vpp restart or on device reboot
 
+    :param cfg: instance of the FwRouterCfg object that hold router configuration items,
+                like interfaces, tunnels, routes, etc.
+    :param pending_cfg_file:  name of file that stores pending configuration items.
+                Pending items are configuration items, that were requested by user,
+                and that can't be configured at the moment. E.g., tunnel that uses
+                WAN interface without IP.
     :param multilink_db_file: name of file that stores persistent multilink data
     """
-    def __init__(self, cfg, multilink_db_file):
+    def __init__(self, cfg, pending_cfg_file, multilink_db_file):
         """Constructor method
         """
         self.vpp_api         = VPP_API()
@@ -97,11 +104,14 @@ class FWROUTER_API(FwCfgRequestHandler):
         self.router_state    = FwRouterState.STOPPED
         self.thread_watchdog     = None
         self.thread_tunnel_stats = None
-        self.pending_coredump_processing = False
+        self.vpp_coredump_in_progress = False
+        self.pending_interfaces  = {}  # Interfaces without IP by dev-id
 
-        FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, self._on_revert_failed)
+        pending_cfg_db = fwrouter_cfg.FwRouterCfg(pending_cfg_file)
+        FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, pending_cfg_db, self._on_revert_failed)
 
         fwutils.reset_router_api_db() # Initialize cache that persists device reboot / daemon restart
+
 
     def finalize(self):
         """Destructor method
@@ -131,9 +141,9 @@ class FWROUTER_API(FwCfgRequestHandler):
 
             self.log.debug("watchdog: restore finished")
             # Process if any VPP coredump
-            self.pending_coredump_processing = fw_vpp_coredump_utils.vpp_coredump_process()
-        elif self.pending_coredump_processing:
-            self.pending_coredump_processing = fw_vpp_coredump_utils.vpp_coredump_process()
+            self.vpp_coredump_in_progress = fw_vpp_coredump_utils.vpp_coredump_process()
+        elif self.vpp_coredump_in_progress:
+            self.vpp_coredump_in_progress = fw_vpp_coredump_utils.vpp_coredump_process()
 
     def tunnel_stats_thread_func(self, ticks):
         """Tunnel statistics thread function.
@@ -386,6 +396,31 @@ class FWROUTER_API(FwCfgRequestHandler):
                 self.cfg_db.update(request)
                 return {'ok':1}
 
+            # Take care of pending requests.
+            # Pending requests are requests that were received from flexiManage,
+            # but can't be configured in VPP/Linux right now due to some issue,
+            # like absence of IP/GW on interface.
+            # As pending request can't be configured at the moment, just save it
+            # into the dedicated database and return. No further processing is
+            # needed. It is flexiManage responsibility to recreate pending tunnels,
+            # routes, etc. The flexiManage detects no-IP/chenaged-IP condition,
+            # using the "reconfig" feature and removes or reconstructs pending
+            # configuration items.
+            #   The 'remove-X' for pending requests just deletes request from
+            # the pending request database.
+            #
+            if self.pending_cfg_db.exists(request):
+                # Clean request from pending database before further processing.
+                #
+                self.pending_cfg_db.remove(request)
+                if re.match('remove-',  req):
+                    return {'ok':1}     # No further processing is needed for 'remove-X'.
+            if router_was_started:
+                if re.match('add-',  req) and self._is_pending_request(request):
+                    self.pending_cfg_db.update(request)
+                    self.cfg_db.remove(request)
+                    return {'ok':1}
+
             if router_was_started or req == 'start-router':
                 execute = True
             elif re.match('remove-',  req):
@@ -402,6 +437,95 @@ class FWROUTER_API(FwCfgRequestHandler):
             raise e
 
         return {'ok':1}
+
+
+    def _is_pending_request(self, request):
+        """Check if the request can not be configured in VPP/Linux right now.
+        Following are cases where the request is considered to be pending:
+        1. 'add-tunnel'
+            a. If WAN interface used by the tunnel has no IP/GW, e.g. if DHCP
+               interface got no response from DHCP server.
+               We need the GW in multi-WAN setups in order to bind tunnel traffic
+               to the proper WAN interface, and not to rely on default route.
+        2. 'add-route'
+            a. If route is via WAN interface specified by dev-id, and the device
+               has no IP/GW, e.g. if DHCP interface got no response from DHCP server.
+            b. If route is via pending tunnel (specified by loopback IP)
+            c. If route is via interface specified by IP, and there is no
+               successfully configured interface with IP in same network mask.
+               That might happen for either WAN or LAN interfaces that has no IP.
+
+        :param request: the request to be checked.
+
+        :returns: True if request can't be fullfilled right now, becoming thus
+                  to be pending request. False otherwise.
+        """
+        if request['message'] != "add-tunnel" and \
+           request['message'] != "add-route":
+            return False
+
+        # Build cache of interfaces used to detect no-IP condition that might
+        # cause tunnels/routes/etc to be pending.
+        #
+        if not self.pending_interfaces:
+            for i in fwglobals.g.router_cfg.get_interfaces():
+                cached_interface = {}
+                cached_interface['if_name'] = fwutils.dev_id_to_tap(i['dev_id'])
+                cached_interface['addr']    = fwutils.get_interface_address(cached_interface['if_name'], log=False)
+                cached_interface['gw']      = fwutils.get_interface_gateway(cached_interface['if_name'])
+                self.pending_interfaces[i['dev_id']] = cached_interface
+
+        if request['message'] == "add-tunnel":
+            cached_interface =  self.pending_interfaces.get(request['params']['dev_id'])
+            if not cached_interface or not cached_interface['addr']:
+                self.log.debug(f"pending request detected: {str(request)}")
+                return True
+            return False
+
+        if request['message'] == "add-route":
+            # If 'add-route' includes 'dev_id' - we are good - use it, otherwise
+            # use 'via' and search interfaces and tunnel loopbacks that match it.
+            #
+            # {
+            #     "entity": "agent",
+            #     "message": "add-route",
+            #     "params": {
+            #         "addr": "11.11.11.11/32",
+            #         "via": "192.168.1.1",
+            #         "redistributeViaOSPF": false,
+            #         "dev_id": "pci:0000:00:03.00"
+            #     }
+            # }
+            #
+            if 'dev_id' in request['params']:
+                interface =  self.pending_interfaces.get(request['params']['dev_id'])
+                if not interface or not interface['addr']:
+                    self.log.debug(f"pending request detected: {str(request)}")
+                    return True
+                return False
+            else:
+                # Firstly search for interfaces that match VIA
+                #
+                for cached_interface in self.pending_interfaces.values():
+                    if cached_interface['addr'] and \
+                       fwutils.is_ip_in_subnet(request['params']['via'], cached_interface['addr']):
+                        return False
+                # No suiting interface was found, search tunnels that match VIA
+                #
+                for tunnel in fwglobals.g.router_cfg.get_tunnels():
+                    # Try regular tunnel firstly
+                    #
+                    network = tunnel.get('loopback-iface', {}).get('addr')
+                    if not network:
+                        network = tunnel.get('peer', {}).get('addr')  # Try peer tunnel
+                    if network and fwutils.is_ip_in_subnet(request['params']['via'], network):
+                        return False
+
+                self.log.debug(f"pending request detected: {str(request)}")
+                return True
+
+        return False
+
 
     def _on_revert_failed(self, reason):
         self.state_change(FwRouterState.FAILED, "revert failed: %s" % reason)
@@ -860,7 +984,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         """Start all threads.
         """
         if self.thread_watchdog is None or self.thread_watchdog.is_alive() == False:
-            self.pending_coredump_processing = True
+            self.vpp_coredump_in_progress = True
             self.thread_watchdog = fwthread.FwRouterThread(self.vpp_watchdog_thread_func, 'VPP Watchdog', self.log)
             self.thread_watchdog.start()
         if self.thread_tunnel_stats is None or self.thread_tunnel_stats.is_alive() == False:
@@ -1043,6 +1167,18 @@ class FWROUTER_API(FwCfgRequestHandler):
     def _on_apply_router_config(self):
         """Apply router configuration on successful VPP start.
         """
+        # Before applying configuration move pending requests to the main request
+        # database, hopefully their configuration will succeed this time.
+        # Reset cache of interfaces, so it will be rebuilt during configuration
+        # based on the current interface states.
+        #
+        for msg in self.pending_cfg_db.dump():
+            self.cfg_db.update(msg)
+        self.pending_cfg_db.clean()
+        self.pending_interfaces = {}
+
+        # Now fetch configuration items from database and configure them one by one.
+        #
         types = [
             'add-ospf',
             'add-switch',
@@ -1060,6 +1196,10 @@ class FWROUTER_API(FwCfgRequestHandler):
             if reply.get('ok', 1) == 0:  # Break and return error on failure of any request
                 return reply
 
+    def sync(self, incoming_requests, full_sync=False):
+        self.pending_cfg_db.clean()
+        FwCfgRequestHandler.sync(self, incoming_requests, full_sync=full_sync)
+
     def sync_full(self, incoming_requests):
         if len(incoming_requests) == 0:
             self.log.info("sync_full: incoming_requests is empty, no need to full sync")
@@ -1073,6 +1213,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             restart_router = True
             fwglobals.g.handle_request({'message':'stop-router'})
 
+        self.pending_cfg_db.clean()
         FwCfgRequestHandler.sync_full(self, incoming_requests)
 
         if restart_router:
