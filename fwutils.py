@@ -3167,6 +3167,8 @@ def get_reconfig_hash():
 
         mtu = str(linux_interfaces[dev_id]['mtu'])
 
+        link = get_interface_link_state(name, dev_id)
+
         res += 'addr:'    + addr + ','
         res += 'gateway:' + gw + ','
         res += 'metric:'  + metric + ','
@@ -3174,6 +3176,7 @@ def get_reconfig_hash():
         if gw and addr:
             res += 'public_ip:'   + linux_interfaces[dev_id]['public_ip'] + ','
             res += 'public_port:' + str(linux_interfaces[dev_id]['public_port']) + ','
+        res += 'link:'  + link + ','
 
     hash = hashlib.md5(res.encode()).hexdigest()
     fwglobals.log.debug("get_reconfig_hash: %s: %s" % (hash, res))
