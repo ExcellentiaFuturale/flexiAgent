@@ -441,9 +441,19 @@ class FWROUTER_API(FwCfgRequestHandler):
 
     def _is_pending_request(self, request):
         """Check if the request can not be configured in VPP/Linux right now.
-        For examples, tunnels that use WAN DHCP interface without IP can't be
-        configured as tunnel VPP API requires the GW in order to bind tunnel
-        packets to the proper WAN interface in multi-WAN setups.
+        Following are cases where the request is considered to be pending:
+        1. 'add-tunnel'
+            a. If WAN interface used by the tunnel has no IP/GW, e.g. if DHCP
+               interface got no response from DHCP server.
+               We need the GW in multi-WAN setups in order to bind tunnel traffic
+               to the proper WAN interface, and not to rely on default route.
+        2. 'add-route'
+            a. If route is via WAN interface specified by dev-id, and the device
+               has no IP/GW, e.g. if DHCP interface got no response from DHCP server.
+            b. If route is via pending tunnel (specified by loopback IP)
+            c. If route is via interface specified by IP, and there is no
+               successfully configured interface with IP in same network mask.
+               That might happen for either WAN or LAN interfaces that has no IP.
 
         :param request: the request to be checked.
 
