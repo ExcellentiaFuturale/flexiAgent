@@ -135,6 +135,11 @@ def add_bgp(params):
 
     vty_commands.append('exit-address-family')
 
+
+    # add redistribution from bgp to ospf
+    vty_commands.append('router ospf')
+    vty_commands.append('redistribute bgp')
+
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['func']    = "frr_vtysh_run"
