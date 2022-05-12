@@ -99,6 +99,14 @@ class VPP_API_CLIENT(VPPApiClient):
                     self.log.error('rv=%s: %s(%s)' % (rv.retval, api_name, str(**kwargs)))
                     return None
 
+    def connect(self, name):
+        with self.lock:
+            return VPPApiClient.connect(self, name)
+
+    def disconnect(self):
+        with self.lock:
+            return VPPApiClient.disconnect(self)
+
 class VPP_API(FwObject):
     """This is VPP API class representation.
     """
