@@ -38,7 +38,7 @@
 def add_frr_access_list(params):
     """Configure FRR Access list.
 
-    :param params:            
+    :param params:
 
     :returns: cmd_list. List of commands.
     """
@@ -49,7 +49,7 @@ def add_frr_access_list(params):
     description = params.get('description')
 
     vty_commands.append(f'access-list {name} remark {description}')
-    
+
     rules = params.get('rules', [])
     for rule in rules:
         sequence = rule.get('sequence')

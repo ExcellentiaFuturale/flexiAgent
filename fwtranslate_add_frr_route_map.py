@@ -34,7 +34,7 @@
 def add_frr_route_map(params):
     """Configure FRR Route Map.
 
-    :param params:            
+    :param params:
 
     :returns: cmd_list. List of commands.
     """
@@ -52,7 +52,7 @@ def add_frr_route_map(params):
 
     if access_list:
         vty_commands.append(f'match ip address {access_list}')
-    
+
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['func']    = "frr_vtysh_run"

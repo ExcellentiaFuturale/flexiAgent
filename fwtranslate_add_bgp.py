@@ -47,7 +47,7 @@ import fwglobals
 def add_bgp(params):
     """Configure BGP in FRR.
 
-    :param params:            
+    :param params:
 
     :returns: cmd_list. List of commands.
     """
@@ -102,7 +102,7 @@ def add_bgp(params):
         password = neighbor.get('password')
 
         vty_commands.append(f'neighbor {ip} remote-as {remote_asn}')
-        
+
         # Allow peerings between directly connected eBGP peers using loopback addresses.
         vty_commands.append(f'neighbor {ip} disable-connected-check')
 
@@ -126,7 +126,7 @@ def add_bgp(params):
         route_map_outbound_filter = neighbor.get('routeMapOutboundFilter')
         if route_map_outbound_filter:
             vty_commands.append(f'neighbor {ip} route-map {route_map_inbound_filter} out')
-        
+
 
     networks = params.get('networks', [])
     for network in networks:
