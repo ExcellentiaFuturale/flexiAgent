@@ -118,6 +118,10 @@ request_handlers = {
     'remove-ospf':                  {'name': '_call_router_api', 'sign': True},
     'add-bgp':                      {'name': '_call_router_api', 'sign': True},
     'remove-bgp':                   {'name': '_call_router_api', 'sign': True},
+    'add-frr-access-list':          {'name': '_call_router_api', 'sign': True},
+    'remove-frr-access-list':       {'name': '_call_router_api', 'sign': True},
+    'add-frr-route-map':            {'name': '_call_router_api', 'sign': True},
+    'remove-frr-route-map':         {'name': '_call_router_api', 'sign': True},
     'add-switch':                   {'name': '_call_router_api', 'sign': True},
     'remove-switch':                {'name': '_call_router_api', 'sign': True},
     'add-firewall-policy':          {'name': '_call_router_api', 'sign': True},
@@ -300,6 +304,7 @@ class Fwglobals(FwObject):
         self.DEFAULT_DNS_SERVERS           = ['8.8.8.8', '8.8.4.4']
         self.router_threads                = FwRouterThreading() # Primitives used for synchronization of router configuration and monitoring threads
         self.handle_request_lock           = threading.RLock()
+        self.is_gcp_vm                     = fwutils.detect_gcp_vm()
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)

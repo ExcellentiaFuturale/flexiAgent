@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2022  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -34,20 +34,22 @@ import fwglobals
 #           "ip": "8.8.8.8/31",
 #           "remoteASN": "55",
 #           "password": "abc"
+#           "accessList": "default"
 #       },
 #       {
 #           "ip": "6.6.6.6/32",
 #           "remoteASN": "44",
 #           "password": "abc"
+#           "accessList": ""
 #       }
 #   ]
 # }
 def add_bgp(params):
-    """Change /etc/dhcp/dhcpd.conf config file.
+    """Configure BGP in FRR.
 
-    :param cmd_list:            List of commands.
+    :param params:            
 
-    :returns: None.
+    :returns: cmd_list. List of commands.
     """
     cmd_list = []
 
@@ -69,89 +71,88 @@ def add_bgp(params):
     }
     cmd_list.append(cmd)
 
-    localASN = params.get('localASN')
-    router_bgp_asn = 'router bgp %s' % localASN
+    local_asn = params.get('localASN')
+    vty_commands = [
+        f'router bgp {local_asn}',
+
+        # used to disable the connection verification process for EBGP peering sessions
+        # that are reachable by a single hop but are configured on a loopback interface 
+        # or otherwise configured with a non-directly connected IP address.
+        'bgp disable-ebgp-connected-route-check',
+
+        # This command eliminates the need to apply incoming and outgoing filters for eBGP sessions
+        # Without the cancellation of this option, Without the incoming filter, 
+        # no routes will be accepted. Without the outgoing filter, no routes will be announced.
+        'no bgp ebgp-requires-policy',
+    ]
+
+    # router ID
+    router_id = params.get('routerId')
+    if router_id:
+        vty_commands.append(f'bgp router-id {router_id}')
+
+    keepalive_interval = params.get('keepaliveInterval')
+    hold_interval = params.get('holdInterval')
+
+    # Neighbors
+    neighbors = params.get('neighbors', [])
+    for neighbor in neighbors:
+        ip = neighbor.get('ip')
+        remote_asn = neighbor.get('remoteASN')
+        password = neighbor.get('password')
+
+        vty_commands.append(f'neighbor {ip} remote-as {remote_asn}')
+        
+        # Allow peerings between directly connected eBGP peers using loopback addresses.
+        vty_commands.append(f'neighbor {ip} disable-connected-check')
+
+        if password:
+            vty_commands.append(f'neighbor {ip} password {password}')
+
+        if keepalive_interval and hold_interval:
+            vty_commands.append(f'neighbor {ip} timers {keepalive_interval} {hold_interval}')
+
+    vty_commands.append('address-family ipv4 unicast')
+    vty_commands.append('redistribute ospf')
+
+    for neighbor in neighbors:
+        ip = neighbor.get('ip')
+        vty_commands.append(f'neighbor {ip} activate')
+
+        route_map_inbound_filter = neighbor.get('routeMapInboundFilter')
+        if route_map_inbound_filter:
+            vty_commands.append(f'neighbor {ip} route-map {route_map_inbound_filter} in')
+
+        route_map_outbound_filter = neighbor.get('routeMapOutboundFilter')
+        if route_map_outbound_filter:
+            vty_commands.append(f'neighbor {ip} route-map {route_map_inbound_filter} out')
+        
+
+    networks = params.get('networks', [])
+    for network in networks:
+        ip = network.get('ipv4')
+        vty_commands.append(f'network {ip}')
+
+    vty_commands.append('exit-address-family')
 
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['func']    = "frr_vtysh_run"
     cmd['cmd']['module']  = "fwutils"
-    cmd['cmd']['descr']   =  f"add bgp router ASN={localASN}"
+    cmd['cmd']['descr']   =  f"add bgp router ASN={local_asn}"
     cmd['cmd']['params'] = {
-                    'commands': [f'router bgp {localASN}'],
+                    'commands': vty_commands,
                     'restart_frr': True,
     }
     cmd['revert'] = {}
     cmd['revert']['func']   = "frr_vtysh_run"
     cmd['revert']['module'] = "fwutils"
     cmd['revert']['params'] = {
-                    'commands': [f'no router bgp {localASN}'],
+                    'commands': [f'no router bgp {local_asn}'],
                     'restart_frr': True,
     }
-    cmd['revert']['descr']   =  f"remove bgp router ASN={localASN}"
+    cmd['revert']['descr']   =  f"remove bgp router ASN={local_asn}"
     cmd_list.append(cmd)
-
-    vty_commands = [router_bgp_asn]
-    restart_frr = False
-
-    routerId = params.get('routerId')
-    neighbors = params.get('neighbors', [])
-    keepaliveInterval = params.get('keepaliveInterval')
-    holdInterval = params.get('holdInterval')
-    networks = params.get('networks', [])
-
-    # add remote tunnels IP as neighbors
-    # tunnels = fwglobals.g.router_cfg.get_tunnels()
-    # for tunnel in tunnels:
-    #     # calc remote IP based on local
-    #     ip  = IPNetwork(tunnel['loopback-iface']['addr'])     # 10.100.0.4 / 10.100.0.5
-    #     ip.value  ^= IPAddress('0.0.0.1').value               # 10.100.0.4 -> 10.100.0.5 / 10.100.0.5 -> 10.100.0.4
-    #     neighbors.append({
-    #         'ip': str(ip.ip),
-    #         'remoteASN': localASN # we create an iBGP session between tunnels interfaces
-    #     })
-
-    if routerId:
-        vty_commands.append('bgp router-id %s' % routerId)
-        restart_frr = True
-
-    neighbors = params.get('neighbors')
-    keepaliveInterval = params.get('keepaliveInterval')
-    holdInterval = params.get('holdInterval')
-    if neighbors:
-        for neighbor in neighbors:
-            ip = neighbor['ip']
-            remoteASN = neighbor['remoteASN']
-            vty_commands.append('neighbor %s remote-as %s' % (ip, remoteASN))
-
-            password = neighbor.get('password')
-            if password:
-                vty_commands.append('neighbor %s password %s' % (ip, password))
-
-            if keepaliveInterval and holdInterval:
-                vty_commands.append('neighbor %s timers %s %s' % (ip, keepaliveInterval, holdInterval))
-
-    if vty_commands:
-        vty_commands_revert = map(lambda x: 'no %s' % x, list(reversed(vty_commands)))
-
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']    = "frr_vtysh_run"
-        cmd['cmd']['module']  = "fwutils"
-        cmd['cmd']['descr']   =  "add BGP configurations"
-        cmd['cmd']['params'] = {
-                        'commands': list(vty_commands),
-                        'restart_frr': True,
-        }
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "frr_vtysh_run"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['params'] = {
-                        'commands': list(vty_commands_revert),
-                        'restart_frr': True,
-        }
-        cmd['revert']['descr']   =  "remove BGP configurations"
-        cmd_list.append(cmd)
 
     # TODO: complete this section
     # cmd = {}
@@ -187,11 +188,11 @@ def add_bgp(params):
     return cmd_list
 
 def get_request_key(params):
-    """Get add-dhcp-config command.
+    """Get add-bgp command.
 
     :param params:        Parameters from flexiManage.
 
-    :returns: add-dhcp-config command.
+    :returns: add-bgp command.
     """
-    key = 'add-bgp-config'
+    key = 'add-bgp'
     return key

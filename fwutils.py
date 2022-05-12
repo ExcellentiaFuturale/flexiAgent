@@ -362,6 +362,10 @@ def get_all_interfaces():
 
     return dev_id_ip_gw
 
+def get_interface_address_by_dev_id(dev_id):
+    linux_if_name = dev_id_to_linux_if_name(dev_id)
+    return get_interface_address(linux_if_name)
+  
 def get_interface_address(if_name, log=True, log_on_failure=None):
     """Gets IP address of interface by name found in OS.
 
@@ -574,6 +578,10 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
             interface['link'] = get_interface_link_state(if_name, dev_id)
 
             interface['dhcp'] = fwnetplan.get_dhcp_netplan_interface(if_name)
+            if fwglobals.g.is_gcp_vm:
+                # GCP configures all interfaces, LAN and WAN as DHCP clients.
+                # Only WAN interfaces they put into Netplan but not LAN interfaces.
+                interface['dhcp'] = 'yes'
 
             interface['mtu'] = get_linux_interface_mtu(if_name)
 
