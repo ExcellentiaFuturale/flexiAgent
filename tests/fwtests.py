@@ -275,8 +275,6 @@ def fwagent_daemon_pid():
                     return str(p.info['pid'])
     return None
 
-
-
 def linux_interfaces_count():
     cmd = 'ls -A /sys/class/net | wc -l'
     count = subprocess.check_output(cmd, stderr=subprocess.STDOUT, shell=True).decode().strip()
@@ -291,7 +289,7 @@ def linux_interfaces_are_configured(expected_count, print_error=True):
 
 def vpp_is_configured(config_entities, print_error=True):
 
-    def _run_command(cmd, print_error=True):
+    def _run_command(cmd, count_out_lines=False):
         # This function simulates subprocess.check_output() using the Popen
         # object in order to avoid excpetions when process exits with non-zero
         # status. Otherwise pytest intercepts the exception and fails the test.
@@ -300,42 +298,43 @@ def vpp_is_configured(config_entities, print_error=True):
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
         out = p.communicate()[0].decode()
         retcode = p.poll()
+        if count_out_lines:
+            return (retcode, len(out.splitlines()))
         return (retcode, out.rstrip())
 
-    def _check_command_output(cmd, expected_out, descr='', cmd_on_error=None, print_error=True):
+    def _check_command_output(cmd, expected_out, descr='', cmd_on_error=None, print_error=True, ignore_cmd_failure=False):
         # Can't use 'subprocess.check_output' as it raises exception on non-zero return code
         # due to 'clib_socket_init: connect (fd 3, '/run/vpp/cli.sock'): Connection refused' error.
         # Use Popen instead and collect output using communicate() method.
-        (retcode, out) = _run_command(cmd)
-        if retcode != 0 or out != expected_out:
+        (retcode, out) = _run_command(cmd, count_out_lines=True)
+        if out != int(expected_out):
             if print_error:
-                if retcode != 0:
-                    print("ERROR: cmd=%s: exit code=%s" % (cmd, str(retcode)))
-                else:
-                    print("ERROR: number %s doesn't match: expected %s, found %s" % (descr, expected_out, out))
-                    print("ERROR: cmd=%s" % (cmd))
-                    print("ERROR: out=%s" % (out))
-                    if cmd_on_error:
-                        (retcode, out) = _run_command(cmd_on_error)
-                        print("ERROR: (%s):\n%s" % (cmd_on_error, str(out)))
+                print("ERROR: number %s doesn't match: expected %s, found %s" % (descr, expected_out, out))
+                print("ERROR: cmd=%s" % (cmd))
+                print("ERROR: out=%s" % (out))
+                if cmd_on_error:
+                    (retcode, out) = _run_command(cmd_on_error)
+                    print("ERROR: (%s):\n%s" % (cmd_on_error, str(out)))
             return False
+        if retcode != 0 and not ignore_cmd_failure:
+            print("WARN: cmd=%s: exit code=%s" % (cmd, str(retcode)))
         return True
 
     for (e, amount) in config_entities:
         output = str(amount)
         if e == 'interfaces':
             # Count number of interfaces that are UP
-            cmd          = r"sudo vppctl sh int addr | grep -E '^(loop|Gigabit|TenGigabit|vmxnet3|tap).* \(up\)' | wc -l"  # Don't use 'grep -c'! It exits with failure if not found!
-            cmd_on_error = r"sudo vppctl sh int addr | grep -E '^(loop|Gigabit|TenGigabit|vmxnet3|tap).* \(up\)'"
-            if not _check_command_output(cmd, output, 'UP interfaces', cmd_on_error, print_error):
+            cmd          = r"sudo vppctl sh int addr | grep -E '^(loop|Gigabit|TenGigabit|vmxnet3|tap).* \(up\)'"
+            cmd_on_error = r"sudo vppctl sh int addr"
+            if not _check_command_output(cmd, output, 'UP interfaces', cmd_on_error, print_error, ignore_cmd_failure=True):
                 return False
         if e == 'tunnels':
             # Count number of existing tunnel
             # Firstly try ipsec gre tunnels. If not found, try the vxlan tunnels.
-            cmd          = "sudo vppctl sh gre tunnel | grep src | wc -l"
+            cmd          = "sudo vppctl sh gre tunnel | grep src "
             cmd_on_error = "sudo vppctl sh gre tunnel"
-            if not _check_command_output(cmd, output, 'tunnels', cmd_on_error, print_error):
-                cmd          = "sudo vppctl show vxlan tunnel | grep src | wc -l"
+            if not _check_command_output(cmd, output, 'tunnels', cmd_on_error, print_error, ignore_cmd_failure=True):
+                cmd          = "sudo vppctl show vxlan tunnel | grep src "
                 cmd_on_error = "sudo vppctl show vxlan tunnel"
                 if not _check_command_output(cmd, output, 'tunnels', cmd_on_error, print_error) and print_error:
                     return False
@@ -347,14 +346,14 @@ def vpp_is_configured(config_entities, print_error=True):
         if e == 'multilink-policies':
             # Count number of existing tunnel
             # Firstly try  tunnels. If not found, try the vxlan tunnels.
-            cmd          = "sudo vppctl show fwabf policy | grep fwabf: | wc -l"
+            cmd          = "sudo vppctl show fwabf policy | grep fwabf: "
             cmd_on_error = "sudo vppctl show fwabf policy"
-            if not _check_command_output(cmd, output, 'multilink-policies', cmd_on_error, print_error):
+            if not _check_command_output(cmd, output, 'multilink-policies', cmd_on_error, print_error, ignore_cmd_failure=True):
                 return False
         if e == 'dhcp-servers':
             # Count number of existing tunnel
             # Firstly try ipsec gre tunnels. If not found, try the vxlan tunnels.
-            cmd          = "sudo grep -E '^subnet [0-9.]+ netmask' /etc/dhcp/dhcpd.conf | wc -l"
+            cmd          = "sudo grep -E '^subnet [0-9.]+ netmask' /etc/dhcp/dhcpd.conf"
             cmd_on_error = "sudo cat /etc/dhcp/dhcpd.conf"
             if not _check_command_output(cmd, output, 'dhcp-servers', cmd_on_error, print_error):
                 return False
@@ -446,6 +445,37 @@ def router_is_configured(expected_cfg_dump_filename,
         actual_json.update(json.loads(dump_multilink))
     if dump_system.strip():
         actual_json.update(json.loads(dump_system))
+
+    expected_json = fwutils.replace_file_variables(template_path, expected_cfg_dump_filename)
+
+    actual_json_dump = json.dumps(actual_json, indent=2, sort_keys=True)
+    expected_json_dump = json.dumps(expected_json, indent=2, sort_keys=True)
+
+    ok = actual_json_dump == expected_json_dump
+    if ok:
+        if os.path.exists(actual_cfg_dump_filename):
+            os.remove(actual_cfg_dump_filename)
+        if os.path.exists(replaced_expected_cfg_dump_filename):
+            os.remove(replaced_expected_cfg_dump_filename)
+    else:
+        with open(actual_cfg_dump_filename, 'w+') as f:
+            f.write(actual_json_dump)
+        with open(replaced_expected_cfg_dump_filename, 'w+') as f:
+            f.write(expected_json_dump)
+        if print_error:
+            print("ERROR: %s does not match %s" % (replaced_expected_cfg_dump_filename, actual_cfg_dump_filename))
+    return ok
+
+def router_is_pending_configured(expected_cfg_dump_filename,
+                         fwagent_py='python3 /usr/share/flexiwan/agent/fwagent.py',
+                         print_error=True):
+    # Dumps current router pending configuration into temporary file and checks
+    # if the dump file is equal to the provided expected dump file.
+    actual_cfg_dump_filename = expected_cfg_dump_filename + ".actual.txt"
+    replaced_expected_cfg_dump_filename = expected_cfg_dump_filename + ".replaced.txt"
+
+    dump_configuration = subprocess.check_output("sudo %s show --configuration router-pending" % fwagent_py, shell=True).decode().replace('\t', '').replace('\n', '').strip()
+    actual_json = json.loads(dump_configuration) if dump_configuration else {}
 
     expected_json = fwutils.replace_file_variables(template_path, expected_cfg_dump_filename)
 

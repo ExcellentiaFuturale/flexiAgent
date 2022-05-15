@@ -241,6 +241,7 @@ class Fwglobals(FwObject):
         self.DEVICE_TOKEN_FILE   = self.DATA_PATH + 'fwagent_info.txt'
         self.VERSIONS_FILE       = self.DATA_PATH + '.versions.yaml'
         self.ROUTER_CFG_FILE     = self.DATA_PATH + '.requests.sqlite'
+        self.ROUTER_PENDING_CFG_FILE = self.DATA_PATH + '.requests.pending.sqlite'
         self.SYSTEM_CFG_FILE     = self.DATA_PATH + '.system.sqlite'
         self.APPLICATIONS_CFG_FILE = self.DATA_PATH + '.applications.sqlite'
         self.ROUTER_STATE_FILE   = self.DATA_PATH + '.router.state'
@@ -373,7 +374,7 @@ class Fwglobals(FwObject):
         self.system_cfg       = FwSystemCfg(self.SYSTEM_CFG_FILE)
         self.agent_api        = FWAGENT_API()
         self.system_api       = FWSYSTEM_API(self.system_cfg)
-        self.router_api       = FWROUTER_API(self.router_cfg, self.MULTILINK_DB_FILE)
+        self.router_api       = FWROUTER_API(self.router_cfg, self.ROUTER_PENDING_CFG_FILE, self.MULTILINK_DB_FILE)
         self.applications_api = FWAPPLICATIONS_API(start_application_stats=True)
         self.os_api           = OS_API()
         self.policies         = FwPolicies(self.POLICY_REC_DB_FILE)

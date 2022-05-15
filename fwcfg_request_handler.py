@@ -50,17 +50,20 @@ class FwCfgRequestHandler(FwObject):
     2. Implement sync and full sync logic
     """
 
-    def __init__(self, translators, cfg_db, revert_failure_callback = None):
+    def __init__(self, translators, cfg_db, pending_cfg_db=None, revert_failure_callback = None):
         """Constructor method.
         """
         FwObject.__init__(self)
 
         self.translators = translators
         self.cfg_db = cfg_db
+        self.pending_cfg_db = pending_cfg_db
         self.revert_failure_callback = revert_failure_callback
         self.cache_func_by_name = {}
 
         self.cfg_db.set_translators(translators)
+        if self.pending_cfg_db:
+            self.pending_cfg_db.set_translators(translators)
 
     def __enter__(self):
         return self
@@ -607,6 +610,8 @@ class FwCfgRequestHandler(FwObject):
                     if _exist_in_list(complement_request, aggregated_requests):
                         noop = False
                 if noop:
+                    if re.match('remove-',  req) and self.pending_cfg_db.exists(__request):
+                        self.pending_cfg_db.update(request)
                     return True
             elif re.match('add-', req) and self.cfg_db.exists(__request):
                 # Ensure this is actually not modification request :)

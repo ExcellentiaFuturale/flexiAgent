@@ -23,3 +23,6 @@ pytestdebug.log
 
 #Swap files
 *.sw[g-p]
+
+# Backup files by Notepad++
+*.bak

@@ -20,9 +20,7 @@
 
 import os
 import psutil
-import threading
 import time
-import traceback
 
 from netaddr import IPNetwork
 from sqlitedict import SqliteDict
@@ -95,8 +93,8 @@ class FwPppoeConnection(FwObject):
     def scan_and_connect_if_needed(self, is_connected, connect_if_needed):
         """Check Linux interfaces if PPPoE tunnel (pppX) is created.
         """
-        pppd_id = fwutils.pid_of('pppd')
-        if not pppd_id and self.opened and connect_if_needed:
+        addr = self.addr
+        if not self._is_open() and self.opened and connect_if_needed:
             self.open()
 
         interfaces = psutil.net_if_addrs()
@@ -116,7 +114,7 @@ class FwPppoeConnection(FwObject):
             else:
                 self.log.debug(f'pppoe disconnected: {self}')
                 if self.tun_if_name:
-                    self.remove_linux_ip_route()
+                    self.remove_linux_ip_route(addr)
 
         return connected
 
@@ -142,16 +140,48 @@ class FwPppoeConnection(FwObject):
 
         self.opened = True
 
-    def close(self):
-        """Close PPPoE connection.
+    def _is_open(self):
+        """Check if connection is open.
+        The information is parsed from the output similar to 'pgrep -a pppd'.
+        '14210 /usr/sbin/pppd call flexiwan-dsl-provider-0'
+        flexiwan-dsl-provider-X is compared with filename stored in DB.
         """
         pppd_id = fwutils.pid_of('pppd')
         if not pppd_id:
+            return False
+
+        pppd_process = psutil.Process(pid=int(pppd_id))
+
+        cmdline = pppd_process.cmdline()
+        if len(cmdline) < 3:
+            return False
+
+        provider_name = cmdline[2]
+
+        if provider_name == self.filename:
+            return True
+
+        return False
+
+    def close(self, timeout = 120):
+        """Close PPPoE connection.
+        """
+        if not self._is_open():
             return
 
         sys_cmd = 'poff %s' % self.filename
         rc = fwutils.os_system(sys_cmd, 'PPPoE close')
         if not rc:
+            return
+
+        while timeout >= 0:
+            if not self._is_open():
+                break
+            timeout-= 1
+            time.sleep(1)
+
+        if timeout == 0:
+            self.log.error(f'pppoe close: timeout on waiting pppd to stop')
             return
 
         self.opened = False
@@ -234,7 +264,7 @@ class FwPppoeConnection(FwObject):
             if not success:
                 self.log.error(f"add_linux_ip_route: failed to add route: {err_str}")
 
-    def remove_linux_ip_route(self):
+    def remove_linux_ip_route(self, addr):
         """Remove ip address from TUN interface.
            Remove default route.
            Remove TC mirroring.
@@ -246,7 +276,7 @@ class FwPppoeConnection(FwObject):
         if not success:
             self.log.error(f"remove_linux_ip_route: failed to remove route: {err_str}")
 
-        sys_cmd = f'ip -4 addr flush label "{self.tun_vppsb_if_name}"'
+        sys_cmd = f'ip addr del {addr} dev {self.tun_vppsb_if_name}'
         fwutils.os_system(sys_cmd, 'PPPoE remove_linux_ip_route')
 
         sys_cmd = f'ip link set dev {self.tun_vppsb_if_name} down'
@@ -415,7 +445,7 @@ class FwPppoeClient(FwObject):
            Also close SQLDict databases.
         """
         if self.thread_pppoec:
-            self.thread_pppoec.join()
+            self.thread_pppoec.stop()
             self.thread_pppoec = None
 
         if not self.standalone:
@@ -478,28 +508,13 @@ class FwPppoeClient(FwObject):
         for conn in self.connections.values():
             conn.remove()
 
-    def stop(self, timeout = 120):
+    def stop(self, remove_tun=False):
         """Stop all PPPoE connections.
         """
-        pppd_id = fwutils.pid_of('pppd')
-        if not pppd_id:
-            return
-
         for dev_id in self.interfaces.keys():
             self.stop_interface(dev_id)
-
-        while timeout >= 0:
-            pppd_id = fwutils.pid_of('pppd')
-            if not pppd_id:
-                self.scan()
-                return
-
-            sys_cmd = 'poff -a'
-            fwutils.os_system(sys_cmd, 'PPPoE stop')
-            timeout-= 1
-            time.sleep(1)
-
-        self.log.error(f'pppoe stop: timeout on waiting pppd to stop ({timeout} sec)')
+            if remove_tun:
+                self.remove_tun(dev_id)
 
     def _add_user(self, name, password):
         self.chap_config.add_user(name, password)
@@ -694,14 +709,23 @@ class FwPppoeClient(FwObject):
                 conn.open()
                 self.connections[dev_id] = conn
 
-    def restart_interface(self, dev_id):
-        """This API is called on VPP router start.
-           Change value from nic-ethX into nic-vppX in PPPoE configuration file.
+    def create_tun(self, dev_id):
+        """Create TUN.
         """
         conn = self.connections.get(dev_id)
         rc = conn.create_tun()
         if not rc:
             return (False, f'PPPoE: {dev_id} TUN was not created')
+        conn.save()
+        self.connections[dev_id] = conn
+
+        return (True, None)
+
+    def remove_tun(self, dev_id):
+        """Remove TUN.
+        """
+        conn = self.connections.get(dev_id)
+        conn.remove_tun()
         conn.save()
         self.connections[dev_id] = conn
 
@@ -716,7 +740,6 @@ class FwPppoeClient(FwObject):
 
         if conn:
             conn.close()
-            conn.remove_tun()
             self.connections[dev_id] = conn
             conn.save()
             pppoe_iface.is_connected = False

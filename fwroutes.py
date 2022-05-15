@@ -26,13 +26,11 @@ import fwthread
 import fwtunnel_stats
 import fwutils
 import subprocess
-import time
-import threading
-import traceback
 
 
 from fwobject import FwObject
 from pyroute2 import IPRoute
+from pyroute2.netlink import exceptions as netlink_exceptions
 
 class FwRouteProto(enum.Enum):
    BOOT = 3
@@ -170,10 +168,14 @@ class FwLinuxRoutes(dict):
             return
 
         with IPRoute() as ipr:
-            if prefix == '0.0.0.0/0':
-                routes = ipr.get_default_routes(family=socket.AF_INET)
-            else:
-                routes = ipr.get_routes(dst=prefix, family=socket.AF_INET, proto=proto_id)
+            try:
+                if prefix == '0.0.0.0/0':
+                    routes = ipr.get_default_routes(family=socket.AF_INET)
+                else:
+                    routes = ipr.get_routes(dst=prefix, family=socket.AF_INET, proto=proto_id)
+            except netlink_exceptions.NetlinkError:
+                routes = []     # If no matching route exists in kernel, NetlinkError is raised
+
 
             for route in routes:
                 nexthops = []
