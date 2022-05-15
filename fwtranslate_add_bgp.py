@@ -73,6 +73,10 @@ def add_bgp(params):
 
     local_asn = params.get('localASN')
     vty_commands = [
+        # create the kernel redistribution filter
+        f"route-map {fwglobals.g.FRR_BGP_ROUTE_MAP} permit 1",
+        f"match ip address {fwglobals.g.FRR_BGP_ACL}",
+
         f'router bgp {local_asn}',
 
         # used to disable the connection verification process for EBGP peering sessions
@@ -114,6 +118,7 @@ def add_bgp(params):
 
     vty_commands.append('address-family ipv4 unicast')
     vty_commands.append('redistribute ospf')
+    vty_commands.append(f"redistribute kernel route-map {fwglobals.g.FRR_BGP_ROUTE_MAP}")
 
     for neighbor in neighbors:
         ip = neighbor.get('ip')
@@ -158,37 +163,6 @@ def add_bgp(params):
     }
     cmd['revert']['descr']   =  f"remove bgp router ASN={local_asn}"
     cmd_list.append(cmd)
-
-    # TODO: complete this section
-    # cmd = {}
-    # cmd['cmd'] = {}
-    # cmd['cmd']['name']   = "python"
-    # cmd['cmd']['params'] = {
-    #         'module': 'fwutils',
-    #         'func':   'frr_create_redistribution_filter',
-    #         'args': {
-    #             'router': router_bgp_asn,
-    #             'acl': fwglobals.g.FRR_BGP_ACL,
-    #             'route_map': fwglobals.g.FRR_BGP_ROUTE_MAP,
-    #             'route_map_num': '2', # 1 is for OSPF, 2 is for BGP
-    #         }
-    # }
-    # cmd['cmd']['descr']   =  "add bgp redistribution filter"
-    # cmd['revert'] = {}
-    # cmd['revert']['name']   = "python"
-    # cmd['revert']['params'] = {
-    #         'module': 'fwutils',
-    #         'func':   'frr_create_redistribution_filter',
-    #         'args': {
-    #             'router': router_bgp_asn,
-    #             'acl': fwglobals.g.FRR_BGP_ACL,
-    #             'route_map': fwglobals.g.FRR_BGP_ROUTE_MAP,
-    #             'route_map_num': '2', # 1 is for OSPF, 2 is for BGP
-    #             'revert': True
-    #         }
-    # }
-    # cmd['revert']['descr']   =  "remove bgp redistribution filter"
-    # cmd_list.append(cmd)
 
     return cmd_list
 
