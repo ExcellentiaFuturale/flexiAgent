@@ -153,6 +153,7 @@ def add_bgp(params):
     cmd['cmd']['params'] = {
                     'commands': vty_commands,
                     'restart_frr': True,
+                    'wait_after': 2
     }
     cmd['revert'] = {}
     cmd['revert']['func']   = "frr_vtysh_run"
@@ -160,6 +161,7 @@ def add_bgp(params):
     cmd['revert']['params'] = {
                     'commands': [f'no router bgp {local_asn}'],
                     'restart_frr': True,
+                    'wait_after': 2
     }
     cmd['revert']['descr']   =  f"remove bgp router ASN={local_asn}"
     cmd_list.append(cmd)
