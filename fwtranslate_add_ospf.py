@@ -51,6 +51,25 @@ def add_ospf(params):
         cmd['revert']['descr']   =  "remove routerId %s from OSPF" % routerId
         cmd_list.append(cmd)
 
+    redistribute_bgp = params.get('redistributeBgp')
+    if redistribute_bgp:
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']   = "frr_vtysh_run"
+        cmd['cmd']['module'] = "fwutils"
+        cmd['cmd']['descr']  =  "add redistribute bgp to OSPF configuration"
+        cmd['cmd']['params'] = {
+                    'commands'   : ["router ospf", "redistribute bgp"],
+        }
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "frr_vtysh_run"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['params'] = {
+                    'commands'   : ["router ospf", "no redistribute bgp" % routerId],
+        }
+        cmd['revert']['descr']   =  "remove redistribute bgp to OSPF configuration"
+        cmd_list.append(cmd)
+
     return cmd_list
 
 def get_request_key(params):

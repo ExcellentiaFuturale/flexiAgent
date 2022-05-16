@@ -117,7 +117,10 @@ def add_bgp(params):
             vty_commands.append(f'neighbor {ip} timers {keepalive_interval} {hold_interval}')
 
     vty_commands.append('address-family ipv4 unicast')
-    vty_commands.append('redistribute ospf')
+
+    if params.get('redistributeOspf'):
+        vty_commands.append('redistribute ospf')
+
     vty_commands.append(f"redistribute kernel route-map {fwglobals.g.FRR_BGP_ROUTE_MAP}")
 
     for neighbor in neighbors:
@@ -139,11 +142,6 @@ def add_bgp(params):
         vty_commands.append(f'network {ip}')
 
     vty_commands.append('exit-address-family')
-
-
-    # add redistribution from bgp to ospf
-    vty_commands.append('router ospf')
-    vty_commands.append('redistribute bgp')
 
     cmd = {}
     cmd['cmd'] = {}
