@@ -146,20 +146,12 @@ class FwPppoeConnection(FwObject):
         '14210 /usr/sbin/pppd call flexiwan-dsl-provider-0'
         flexiwan-dsl-provider-X is compared with filename stored in DB.
         """
-        pppd_id = fwutils.pid_of('pppd')
-        if not pppd_id:
-            return False
+        for proc in psutil.process_iter(attrs=['name', 'cmdline']):
+            if proc.info['name'] != 'pppd':
+                continue
 
-        pppd_process = psutil.Process(pid=int(pppd_id))
-
-        cmdline = pppd_process.cmdline()
-        if len(cmdline) < 3:
-            return False
-
-        provider_name = cmdline[2]
-
-        if provider_name == self.filename:
-            return True
+            if proc.info['cmdline'][2] == self.filename:
+                return True
 
         return False
 
@@ -168,6 +160,9 @@ class FwPppoeConnection(FwObject):
         """
         if not self._is_open():
             return
+
+        if self.addr and self.tun_if_name:
+            self.remove_linux_ip_route(self.addr)
 
         sys_cmd = 'poff %s' % self.filename
         rc = fwutils.os_system(sys_cmd, 'PPPoE close')
@@ -184,6 +179,8 @@ class FwPppoeConnection(FwObject):
             self.log.error(f'pppoe close: timeout on waiting pppd to stop')
             return
 
+        self.addr = ''
+        self.gw = ''
         self.opened = False
 
     def remove(self):

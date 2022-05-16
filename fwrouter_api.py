@@ -1025,7 +1025,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         fwnetplan.load_netplan_filenames()
 
-        fwglobals.g.pppoe.stop()
+        fwglobals.g.pppoe.stop(remove_tun=True)
 
     def _on_start_router_after(self):
         """Handles post start VPP activities.
