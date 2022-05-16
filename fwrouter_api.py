@@ -1049,7 +1049,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             # We don't want to fail router start due to failure to save frr configuration file,
             # so we just log the error and return. Hopefully frr will not crash,
             # so the configuration file will be not needed.
-            fwglobals.log.error(f"_on_apply_router_config: failed to flush frr configuration into file: {str(err)}")
+            fwglobals.log.error(f"_on_start_router_after: failed to flush frr configuration into file: {str(err)}")
 
         fwglobals.g.pppoe.start()
         self.log.info("router was started: vpp_pid=%s" % str(fwutils.vpp_pid()))

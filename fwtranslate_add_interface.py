@@ -459,15 +459,13 @@ def add_interface(params):
         cmd['cmd']['module']  = "fwutils"
         cmd['cmd']['descr']   =  f"add interface {dev_id} to OSPF"
         cmd['cmd']['params'] = {
-                        'commands': ["router ospf", f"network DEV-NETWORK area {area}"],
-                        'substs': [ {'replace':'DEV-NETWORK', 'key': 'commands', 'val_by_func': 'get_interface_address_by_dev_id', 'arg': dev_id} ]
+                        'commands': ["router ospf", f"network {iface_addr} area {area}"],
         }
         cmd['revert'] = {}
         cmd['revert']['func']   = "frr_vtysh_run"
         cmd['revert']['module'] = "fwutils"
         cmd['revert']['params'] = {
-                        'commands': ["router ospf", f"no network DEV-NETWORK area {area}"],
-                        'substs': [ {'replace':'DEV-NETWORK', 'key': 'commands', 'val_by_func': 'get_interface_address_by_dev_id', 'arg': dev_id} ]
+                        'commands': ["router ospf", f"no network {iface_addr} area {area}"],
         }
         cmd['revert']['descr']   =  f"remove interface {dev_id} from OSPF"
         cmd_list.append(cmd)

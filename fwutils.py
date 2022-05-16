@@ -362,10 +362,6 @@ def get_all_interfaces():
 
     return dev_id_ip_gw
 
-def get_interface_address_by_dev_id(dev_id):
-    # linux_if_name = dev_id_to_linux_if_name(dev_id)
-    return get_interface_address(None, dev_id)
-
 def get_interface_address(if_name, if_dev_id=None, log=True, log_on_failure=None):
     """Gets IP address of interface by name found in OS.
 
