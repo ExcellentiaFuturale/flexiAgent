@@ -181,7 +181,6 @@ class FwPppoeConnection(FwObject):
 
         self.addr = ''
         self.gw = ''
-        self.opened = False
 
     def remove(self):
         """Remove PPPoE connection configuration file.
@@ -491,7 +490,7 @@ class FwPppoeClient(FwObject):
     def _remove_connection(self, dev_id):
         """Remove connection
         """
-        self.connections[dev_id].close()
+        self.stop_interface(dev_id)
         self.connections[dev_id].remove()
         del self.connections[dev_id]
 
@@ -638,8 +637,8 @@ class FwPppoeClient(FwObject):
             pppoe_iface = self.interfaces[dev_id]
             netplan_fname = pppoe_iface.netplan_fname
             netplan_section = pppoe_iface.netplan_section
-            del self.interfaces[dev_id]
             self._remove_connection(dev_id)
+            del self.interfaces[dev_id]
             self.reset_interfaces()
             self.start()
             if pppoe_iface.netplan_fname:
@@ -735,10 +734,11 @@ class FwPppoeClient(FwObject):
         conn = self.connections.get(dev_id)
         pppoe_iface = self.interfaces.get(dev_id)
 
-        if conn:
+        if conn and pppoe_iface:
+            conn.opened = False
+            self.connections[dev_id] = conn
             conn.close()
             self.connections[dev_id] = conn
-            conn.save()
             pppoe_iface.is_connected = False
             self.interfaces[dev_id] = pppoe_iface
 
