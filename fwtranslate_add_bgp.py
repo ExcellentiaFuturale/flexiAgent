@@ -71,32 +71,55 @@ def add_bgp(params):
     }
     cmd_list.append(cmd)
 
-    local_asn = params.get('localASN')
-    vty_commands = [
-        # create the kernel redistribution filter
+    # kernel redistribute route-map
+    kernel_redistribute_route_map = [
         f"route-map {fwglobals.g.FRR_BGP_ROUTE_MAP} permit 1",
         f"match ip address {fwglobals.g.FRR_BGP_ACL}",
+    ]
+    # revert kernel redistribute route-map
+    kernel_redistribute_route_map_revert = [
+        f"no route-map {fwglobals.g.FRR_BGP_ROUTE_MAP} permit 1",
+    ]
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']    = "frr_vtysh_run"
+    cmd['cmd']['module']  = "fwutils"
+    cmd['cmd']['descr']   =  "create BGP redistribute kernel route-map"
+    cmd['cmd']['params'] = {
+                    'commands': kernel_redistribute_route_map,
+                    'revert_commands': kernel_redistribute_route_map_revert
+    }
+    cmd['revert'] = {}
+    cmd['revert']['func']   = "frr_vtysh_run"
+    cmd['revert']['module'] = "fwutils"
+    cmd['revert']['params'] = {
+                    'commands': kernel_redistribute_route_map_revert,
+    }
+    cmd['revert']['descr']   =  "remove BGP redistribute kernel route-map"
+    cmd_list.append(cmd)
 
+
+    local_asn = params.get('localASN')
+    router_id = params.get('routerId')
+    keepalive_interval = params.get('keepaliveInterval')
+    hold_interval = params.get('holdInterval')
+    redistribute_ospf = params.get('redistributeOspf')
+
+    vty_commands = [
         f'router bgp {local_asn}',
 
         # used to disable the connection verification process for EBGP peering sessions
-        # that are reachable by a single hop but are configured on a loopback interface 
+        # that are reachable by a single hop but are configured on a loopback interface
         # or otherwise configured with a non-directly connected IP address.
         'bgp disable-ebgp-connected-route-check',
 
         # This command eliminates the need to apply incoming and outgoing filters for eBGP sessions
-        # Without the cancellation of this option, Without the incoming filter, 
+        # Without the cancellation of this option, Without the incoming filter,
         # no routes will be accepted. Without the outgoing filter, no routes will be announced.
         'no bgp ebgp-requires-policy',
+
+        f'bgp router-id {router_id}' if router_id else None,
     ]
-
-    # router ID
-    router_id = params.get('routerId')
-    if router_id:
-        vty_commands.append(f'bgp router-id {router_id}')
-
-    keepalive_interval = params.get('keepaliveInterval')
-    hold_interval = params.get('holdInterval')
 
     # Neighbors
     neighbors = params.get('neighbors', [])
@@ -105,43 +128,43 @@ def add_bgp(params):
         remote_asn = neighbor.get('remoteASN')
         password = neighbor.get('password')
 
-        vty_commands.append(f'neighbor {ip} remote-as {remote_asn}')
+        vty_commands += [
+            f'neighbor {ip} remote-as {remote_asn}',
 
-        # Allow peerings between directly connected eBGP peers using loopback addresses.
-        vty_commands.append(f'neighbor {ip} disable-connected-check')
+            # Allow peerings between directly connected eBGP peers using loopback addresses.
+            f'neighbor {ip} disable-connected-check',
 
-        if password:
-            vty_commands.append(f'neighbor {ip} password {password}')
+            f'neighbor {ip} password {password}' if password else None,
 
-        if keepalive_interval and hold_interval:
-            vty_commands.append(f'neighbor {ip} timers {keepalive_interval} {hold_interval}')
+            f'neighbor {ip} timers {keepalive_interval} {hold_interval}' if keepalive_interval and hold_interval else None,
+        ]
 
-    vty_commands.append('address-family ipv4 unicast')
-
-    if params.get('redistributeOspf'):
-        vty_commands.append('redistribute ospf')
-
-    vty_commands.append(f"redistribute kernel route-map {fwglobals.g.FRR_BGP_ROUTE_MAP}")
+    vty_commands += [
+        'address-family ipv4 unicast',
+        f"redistribute kernel route-map {fwglobals.g.FRR_BGP_ROUTE_MAP}",
+        'redistribute ospf' if redistribute_ospf else None,
+    ]
 
     for neighbor in neighbors:
         ip = neighbor.get('ip')
-        vty_commands.append(f'neighbor {ip} activate')
-
         route_map_inbound_filter = neighbor.get('routeMapInboundFilter')
-        if route_map_inbound_filter:
-            vty_commands.append(f'neighbor {ip} route-map {route_map_inbound_filter} in')
-
         route_map_outbound_filter = neighbor.get('routeMapOutboundFilter')
-        if route_map_outbound_filter:
-            vty_commands.append(f'neighbor {ip} route-map {route_map_inbound_filter} out')
 
+        vty_commands += [
+            f'neighbor {ip} activate',
+            f'neighbor {ip} route-map {route_map_inbound_filter} in' if route_map_inbound_filter else None,
+            f'neighbor {ip} route-map {route_map_inbound_filter} out' if route_map_inbound_filter else None,
+        ]
 
     networks = params.get('networks', [])
     for network in networks:
         ip = network.get('ipv4')
-        vty_commands.append(f'network {ip}')
+        vty_commands += [f'network {ip}']
 
-    vty_commands.append('exit-address-family')
+    vty_commands += ['exit-address-family']
+
+    # During above code lines we put None sometimes. Here we are filtering all None out.
+    vty_commands = list(filter(None, vty_commands))
 
     cmd = {}
     cmd['cmd'] = {}
@@ -151,7 +174,8 @@ def add_bgp(params):
     cmd['cmd']['params'] = {
                     'commands': vty_commands,
                     'restart_frr': True,
-                    'wait_after': 2
+                    'wait_after': 2,
+                    'revert_commands': [f'no router bgp {local_asn}']
     }
     cmd['revert'] = {}
     cmd['revert']['func']   = "frr_vtysh_run"

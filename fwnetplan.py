@@ -555,6 +555,9 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
             fwutils.set_dev_id_to_tap(dev_id, ifname)
             fwglobals.log.debug("Interface name in cache is %s, dev_id %s" % (ifname, dev_id_full))
 
+        if re.match('yes', dhcp):
+            time.sleep(5) #TODO: remove it since Igor should handle this fix. this is temporary to skip blockage
+
     except Exception as e:
         err_str = "add_remove_netplan_interface failed: dev_id: %s, file: %s, error: %s"\
               % (dev_id, fname_run, str(e))

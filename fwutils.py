@@ -2841,7 +2841,7 @@ def is_non_dpdk_interface(dev_id):
 
     return False
 
-def frr_vtysh_run(commands, restart_frr=False, wait_after=None):
+def frr_vtysh_run(commands, restart_frr=False, wait_after=None, revert_commands=[]):
     '''Run vtysh command to configure router
 
     :param commands:    array of frr commands
@@ -2849,6 +2849,9 @@ def frr_vtysh_run(commands, restart_frr=False, wait_after=None):
     :param wait_after:  seconds to wait after successfull command execution.
                         It might be needed to give a systemt/vpp time to get updates as a result of frr update.
     '''
+    def _revert():
+        if revert_commands:
+            frr_vtysh_run(revert_commands, restart_frr, revert_commands=[]) # revert_commands= empty list to prevent infinite loop
     try:
         shell_commands = ' -c '.join(map(lambda x: '"%s"' % x, commands))
         vtysh_cmd = f'sudo /usr/bin/vtysh -c "configure" -c {shell_commands}'
@@ -2862,11 +2865,13 @@ def frr_vtysh_run(commands, restart_frr=False, wait_after=None):
         if restart_frr or fwglobals.g.router_api.state_is_started() == True:
             vtysh_cmd += (' ; sudo /usr/bin/vtysh -c "write" > /dev/null')
 
-        output = os.popen(vtysh_cmd).read().splitlines()
-
-        # in output, the first line might contains error. So we print only the first line
-        fwglobals.log.debug("frr_vtysh_run: vtysh_cmd=%s, wait_after=%s, output=%s" %
-                            (vtysh_cmd, str(wait_after), output[0] if output else ''))
+        p = subprocess.Popen(vtysh_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        (out, err) = p.communicate()
+        # Note, vtysh cli prints errors to STDOUT. If no errors, "out" is empty string.
+        if out:
+            fwglobals.log.error(f"frr_vtysh_run: failed to run FRR commands. vtysh_cmd={vtysh_cmd} out={out}. err={err}. reverting..")
+            _revert()
+            return (False, out)
 
         if restart_frr:
             os.system('systemctl restart frr')
@@ -2876,6 +2881,8 @@ def frr_vtysh_run(commands, restart_frr=False, wait_after=None):
 
         return (True, None)
     except Exception as e:
+        fwglobals.log.error(f"frr_vtysh_run: exception occured. commands={commands} err={str(e)}. reverting..")
+        _revert()
         return (False, str(e))
 
 def frr_flush_config_into_file():

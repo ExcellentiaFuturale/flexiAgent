@@ -64,7 +64,8 @@ def add_frr_access_list(params):
     cmd['cmd']['module']  = "fwutils"
     cmd['cmd']['descr']   =  f"add FRR access list. Name={name}"
     cmd['cmd']['params'] = {
-                    'commands': vty_commands
+                    'commands': vty_commands,
+                    'revert_commands': [f'no access-list {name}'],
     }
     cmd['revert'] = {}
     cmd['revert']['func']   = "frr_vtysh_run"
