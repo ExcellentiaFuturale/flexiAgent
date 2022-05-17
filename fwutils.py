@@ -526,6 +526,17 @@ def is_bridged_interface(dev_id):
 
     return None
 
+def detect_if_interface_is_dhcp(if_name):
+    is_dhcp_in_netplan = fwnetplan.get_dhcp_netplan_interface(if_name)
+    if is_dhcp_in_netplan == 'yes':
+        return is_dhcp_in_netplan
+
+    dhclient_running_for_if_name = os.popen(f'ps -aux | grep "dhclient {if_name}" | grep -v grep').read()
+    if dhclient_running_for_if_name:
+        return 'yes'
+
+    return 'no'
+
 def get_linux_interfaces(cached=True, if_dev_id=None):
     """Fetch interfaces from Linux.
 
@@ -579,11 +590,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
 
             interface['link'] = get_interface_link_state(if_name, dev_id)
 
-            interface['dhcp'] = fwnetplan.get_dhcp_netplan_interface(if_name)
-            if fwglobals.g.is_gcp_vm:
-                # GCP configures all interfaces, LAN and WAN as DHCP clients.
-                # Only WAN interfaces they put into Netplan but not LAN interfaces.
-                interface['dhcp'] = 'yes'
+            interface['dhcp'] = detect_if_interface_is_dhcp(if_name)
 
             interface['mtu'] = get_linux_interface_mtu(if_name)
 
