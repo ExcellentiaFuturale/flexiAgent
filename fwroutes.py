@@ -133,18 +133,18 @@ class FwRoutes(FwObject):
             addr = route['addr']
             via = route['via']
             metric = str(route.get('metric', '0'))
-            dev = route.get('dev_id')
+            dev_id = route.get('dev_id')
             exist_in_linux = routes_linux.exist(addr, metric, via)
 
             if tunnel_addresses.get(via) == 'down':
                 if exist_in_linux:
                     fwglobals.log.debug(f"remove static route through the broken tunnel: {str(route)}")
-                    add_remove_route(addr, via, metric, True, dev)
+                    add_remove_route(addr, via, metric, True, dev_id)
                 continue
 
             if not exist_in_linux:
                 fwglobals.log.debug(f"restore static route: {str(route)}")
-                add_remove_route(addr, via, metric, False, dev)
+                add_remove_route(addr, via, metric, False, dev_id)
 
 
 class FwLinuxRoutes(dict):
