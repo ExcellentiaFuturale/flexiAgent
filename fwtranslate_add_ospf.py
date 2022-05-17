@@ -65,7 +65,7 @@ def add_ospf(params):
         cmd['revert']['func']   = "frr_vtysh_run"
         cmd['revert']['module'] = "fwutils"
         cmd['revert']['params'] = {
-                    'commands'   : ["router ospf", "no redistribute bgp" % routerId],
+                    'commands'   : ["router ospf", "no redistribute bgp"],
         }
         cmd['revert']['descr']   =  "remove redistribute bgp to OSPF configuration"
         cmd_list.append(cmd)
