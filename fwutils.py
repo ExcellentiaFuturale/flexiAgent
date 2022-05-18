@@ -1537,10 +1537,6 @@ def reset_device_config(pppoe=False, applications=True):
         system_cfg.clean()
     if os.path.exists(fwglobals.g.ROUTER_STATE_FILE):
         os.remove(fwglobals.g.ROUTER_STATE_FILE)
-    if os.path.exists(fwglobals.g.FRR_CONFIG_FILE):
-        os.remove(fwglobals.g.FRR_CONFIG_FILE)
-    if os.path.exists(fwglobals.g.FRR_OSPFD_FILE):
-        os.remove(fwglobals.g.FRR_OSPFD_FILE)
     if os.path.exists(fwglobals.g.VPP_CONFIG_FILE_BACKUP):
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE_BACKUP, fwglobals.g.VPP_CONFIG_FILE)
     elif os.path.exists(fwglobals.g.VPP_CONFIG_FILE_RESTORE):
@@ -1568,6 +1564,7 @@ def reset_device_config(pppoe=False, applications=True):
     if pppoe:
         fwpppoe.pppoe_remove()
 
+    frr_clean_files()
     reset_router_api_db_sa_id() # sa_id-s are used in translations of router configuration, so clean them too.
     reset_router_api_db(enforce=True)
 
@@ -2848,6 +2845,103 @@ def is_non_dpdk_interface(dev_id):
 
     return False
 
+def add_remove_interface_routes_to_frr_if_needed(is_add, routing, dev_id):
+    """Check if we need to advertise in FRR some build-in routes automatically.
+
+    For example, if an interface has an address with /32 netmask,
+        the DHCP server pushes routes to the client to reach the whole network via the gateway.
+        Once we call "netplan apply" for this interface,
+        new routes are installed with the "DHCP" protocol.
+            root@VB1:/etc/frr# ip a
+            vpp1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UNKNOWN group default qlen 1000
+                link/ether 08:00:27:96:18:0e brd ff:ff:ff:ff:ff:ff
+                inet 155.155.155.10/32 scope global dynamic vpp1
+                valid_lft 455sec preferred_lft 455sec
+
+            root@VB1:/etc/frr# ip route
+            155.155.155.0/24 via 155.155.155.1 dev vpp1 proto dhcp src 155.155.155.10
+            155.155.155.1 dev vpp1 proto dhcp scope link src 155.155.155.10
+
+        In order to advertised the whole netowrk to OSPF/BGP nieghboors,
+        We need to specify them in our build-it frr access lists.
+
+    :param is_add: Indiciate if to add the routes or removed them (add-X or remove-X process).
+    :param routing: Routing protocol to add routes for ("ospf" or "bgp").
+    :param dev_id: Bus address of interface to check.
+
+    :returns: (True, None) tuple on success, (False, <error string>) on failure.
+    """
+    def _get_ip_network_from_str(str):
+        ''' Returns True if given string is a
+            valid IP Address, else returns False'''
+        try:
+            return ipaddress.ip_network(str)
+        except:
+            fwglobals.log.warning(f"_get_ip_network_from_str: {str} is not ip address")
+            return None
+
+    try:
+        if_addr = get_interface_address(None, dev_id)
+        if not if_addr:
+            fwglobals.log.warning(f"add_remove_interface_routes_to_frr_if_needed: no ip found for dev_id {dev_id}")
+            return (True, None) # We do not fail add-interface if there is no IP
+
+        if_addr = _get_ip_network_from_str(if_addr)
+
+        overlapped_routes = []
+
+        # get linux ip routes
+        routes = os.popen('ip route').read().splitlines()
+        for route in routes:
+            if 'default' in route:
+                continue
+
+            # only dhcp routes in order to prevent conflicts with user routes
+            if not 'dhcp' in route:
+                continue
+
+            dest_network = route.split(' ')[0] # filter nexthop routes
+            dest_network = _get_ip_network_from_str(dest_network)
+            if not dest_network:
+                continue
+
+            # /32 routes are not relevant here
+            if dest_network.prefixlen == 32:
+                continue
+
+            # get linux ip routes
+            if dest_network.overlaps(if_addr):
+                overlapped_routes.append(str(dest_network))
+
+        if routing == 'ospf':
+            frr_acl_name = fwglobals.g.FRR_OSPF_ACL
+        elif routing == 'bgp':
+            frr_acl_name = fwglobals.g.FRR_BGP_ACL
+        else:
+            return (False, f'add_remove_interface_routes_to_frr_if_needed(): unsupported routing protocol ({routing}) provided')
+
+        revert_succeeded_vtysh_commands = []
+        for overlapped_route in overlapped_routes:
+            if is_add:
+                cmd = f"access-list {frr_acl_name} permit {overlapped_route}"
+                revert_cmd = f"no {cmd}"
+            else:
+                cmd = f"no access-list {frr_acl_name} permit {overlapped_route}"
+                revert_cmd = cmd.split(maxsplit=1)[1] # take out the "no" by spliting by first space and take the rest.
+
+            succss, err = frr_vtysh_run([cmd])
+            if succss:
+                revert_succeeded_vtysh_commands.append(revert_cmd)
+            else:
+                # revert succeded commands and throw exception.
+                # don't catch expection of revert because it has no end. In any case execption will be thorwn
+                frr_vtysh_run(revert_succeeded_vtysh_commands)
+                raise Exception(err)
+
+        return (True, None)
+    except Exception as e:
+        return (False, f'add_remove_interface_routes_to_frr_if_needed({is_add}, {routing}, {dev_id}): failed. error={str(e)}')
+
 def frr_vtysh_run(commands, restart_frr=False, wait_after=None, revert_commands=[]):
     '''Run vtysh command to configure router
 
@@ -2903,6 +2997,25 @@ def frr_flush_config_into_file():
         return None
     except Exception as e:
         return str(e)
+
+def frr_clean_files():
+    if os.path.exists(fwglobals.g.FRR_CONFIG_FILE):
+        os.remove(fwglobals.g.FRR_CONFIG_FILE)
+
+    if os.path.exists(fwglobals.g.FRR_OSPFD_FILE):
+        os.remove(fwglobals.g.FRR_OSPFD_FILE)
+    if os.path.exists(fwglobals.g.FRR_OSPFD_FILE + '.sav'): # frr cache file
+        os.remove(fwglobals.g.FRR_OSPFD_FILE + '.sav')
+
+    if os.path.exists(fwglobals.g.FRR_BGPD_FILE):
+        os.remove(fwglobals.g.FRR_BGPD_FILE)
+    if os.path.exists(fwglobals.g.FRR_BGPD_FILE + '.sav'): # frr cache file
+        os.remove(fwglobals.g.FRR_BGPD_FILE + '.sav')
+
+    if os.path.exists(fwglobals.g.FRR_ZEBRA_FILE):
+        os.remove(fwglobals.g.FRR_ZEBRA_FILE)
+    if os.path.exists(fwglobals.g.FRR_ZEBRA_FILE + '.sav'): # frr cache file
+        os.remove(fwglobals.g.FRR_ZEBRA_FILE + '.sav')
 
 def frr_setup_config():
     '''Setup the /etc/frr/frr.conf file, initializes it and

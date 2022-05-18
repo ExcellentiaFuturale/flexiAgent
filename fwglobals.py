@@ -261,6 +261,7 @@ class Fwglobals(FwObject):
         self.VPP_CONFIG_FILE_BACKUP   = '/etc/vpp/startup.conf.baseline'
         self.VPP_CONFIG_FILE_RESTORE = '/etc/vpp/startup.conf.orig'
         self.VPP_TRACE_FILE_EXT  = '.vpp.api'
+        self.FRR_ZEBRA_FILE      = '/etc/frr/zebra.conf'
         self.FRR_DAEMONS_FILE    = '/etc/frr/daemons'
         self.FRR_CONFIG_FILE     = '/etc/frr/frr.conf'
         self.FRR_OSPFD_FILE      = '/etc/frr/ospfd.conf'
