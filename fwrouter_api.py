@@ -498,11 +498,18 @@ class FWROUTER_API(FwCfgRequestHandler):
             # }
             #
             if 'dev_id' in request['params']:
-                interface =  self.pending_interfaces.get(request['params']['dev_id'])
-                if not interface or not interface['addr']:
-                    self.log.debug(f"pending request detected: {str(request)}")
+                # Check assigned interfaces
+                #
+                interface = self.pending_interfaces.get(request['params']['dev_id'])
+                if interface and not interface['addr']:
+                    self.log.debug(f"pending request detected by dev-id: {str(request)}")
                     return True
-                return False
+                # Check unassigned interfaces
+                #
+                if_name = fwutils.get_interface_name(request['params']['via'], by_subnet=True)
+                if if_name:
+                    return False
+                return True
             else:
                 # Firstly search for interfaces that match VIA
                 #
@@ -520,6 +527,12 @@ class FWROUTER_API(FwCfgRequestHandler):
                         network = tunnel.get('peer', {}).get('addr')  # Try peer tunnel
                     if network and fwutils.is_ip_in_subnet(request['params']['via'], network):
                         return False
+
+                # Search for unassigned interfaces that match VIA
+                #
+                if_name = fwutils.get_interface_name(request['params']['via'], by_subnet=True)
+                if if_name:
+                    return False
 
                 self.log.debug(f"pending request detected: {str(request)}")
                 return True
