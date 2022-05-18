@@ -468,12 +468,12 @@ class FWROUTER_API(FwCfgRequestHandler):
         # cause tunnels/routes/etc to be pending.
         #
         if not self.pending_interfaces:
-            for i in fwglobals.g.router_cfg.get_interfaces():
+            for interface in fwglobals.g.router_cfg.get_interfaces():
                 cached_interface = {}
-                cached_interface['if_name'] = fwutils.dev_id_to_tap(i['dev_id'])
+                cached_interface['if_name'] = fwutils.dev_id_to_tap(interface['dev_id'])
                 cached_interface['addr']    = fwutils.get_interface_address(cached_interface['if_name'], log=False)
                 cached_interface['gw']      = fwutils.get_interface_gateway(cached_interface['if_name'])
-                self.pending_interfaces[i['dev_id']] = cached_interface
+                self.pending_interfaces[interface['dev_id']] = cached_interface
 
         if request['message'] == "add-tunnel":
             cached_interface =  self.pending_interfaces.get(request['params']['dev_id'])
