@@ -727,6 +727,21 @@ class FwPppoeClient(FwObject):
 
         return (True, None)
 
+    def start_interface(self, dev_id, timeout = 20):
+        """ Start PPPoE for this interface.
+        """
+        conn = self.connections.get(dev_id)
+        conn.open()
+
+        while timeout >= 0:
+            is_connected = self.scan_interface(dev_id, conn, connect_if_needed=True)
+            if is_connected:
+                break
+            timeout-= 1
+            time.sleep(1)
+
+        return (True, None)
+
     def stop_interface(self, dev_id):
         """Close PPPoE connection.
            Remove TUN interface if VPP is running.
