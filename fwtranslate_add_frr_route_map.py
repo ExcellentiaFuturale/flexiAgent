@@ -61,14 +61,12 @@ def add_frr_route_map(params):
     cmd['cmd']['params'] = {
                     'commands': vty_commands,
                     'revert_commands': [f'no route-map {name}'],
-                    'wait_after': 2,
     }
     cmd['revert'] = {}
     cmd['revert']['func']   = "frr_vtysh_run"
     cmd['revert']['module'] = "fwutils"
     cmd['revert']['params'] = {
                     'commands': [f'no route-map {name}'],
-                    'wait_after': 2,
     }
     cmd['revert']['descr']   =  f"remove FRR route map. Name={name}"
     cmd_list.append(cmd)
