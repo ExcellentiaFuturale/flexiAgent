@@ -153,7 +153,7 @@ def add_bgp(params):
         vty_commands += [
             f'neighbor {ip} activate',
             f'neighbor {ip} route-map {route_map_inbound_filter} in' if route_map_inbound_filter else None,
-            f'neighbor {ip} route-map {route_map_inbound_filter} out' if route_map_inbound_filter else None,
+            f'neighbor {ip} route-map {route_map_outbound_filter} out' if route_map_outbound_filter else None,
         ]
 
     networks = params.get('networks', [])
