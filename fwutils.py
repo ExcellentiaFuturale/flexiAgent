@@ -535,6 +535,9 @@ def detect_if_interface_is_dhcp(if_name):
     if dhclient_running_for_if_name:
         return 'yes'
 
+    if fwglobals.g.is_gcp_vm:
+        return 'yes'
+
     return 'no'
 
 def get_linux_interfaces(cached=True, if_dev_id=None):
