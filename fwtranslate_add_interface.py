@@ -481,7 +481,7 @@ def add_interface(params):
         cmd_list.append(cmd)
 
         # for static, the user has to configure static routes.
-        # Consider moving check for dhcp == yes to inside of the function
+        # Consider moving the check for "dhcp == yes" to inside of the function
         if dhcp == 'yes':
             cmd = {}
             cmd['cmd'] = {}
@@ -517,7 +517,7 @@ def add_interface(params):
 
         cost = ospf.get('cost')
         if cost:
-            frr_cmd.append('ip ospf cost {cost}')
+            frr_cmd.append(f'ip ospf cost {cost}')
 
         key_id = ospf.get('keyId')
         key = ospf.get('key')
@@ -559,7 +559,7 @@ def add_interface(params):
 
     if 'BGP' in routing:
         # for static, the user has to configure static routes.
-        # Consider moving check for dhcp == yes to inside of the function
+        # Consider moving the check for "dhcp == yes" to inside of the function
         if dhcp == 'yes':
             cmd = {}
             cmd['cmd'] = {}

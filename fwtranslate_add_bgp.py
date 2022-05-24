@@ -30,18 +30,24 @@ import fwglobals
 #       "keepaliveInterval": "40",
 #       "localASN": "35",
 #       "neighbors": [
-#       {
-#           "ip": "8.8.8.8/31",
-#           "remoteASN": "55",
-#           "password": "abc"
-#           "accessList": "default"
-#       },
-#       {
-#           "ip": "6.6.6.6/32",
-#           "remoteASN": "44",
-#           "password": "abc"
-#           "accessList": ""
-#       }
+#           {
+#               "ip": "8.8.8.8/31",
+#               "remoteASN": "55",
+#               "password": "abc"
+#               "accessList": "default"
+#           },
+#           {
+#               "ip": "6.6.6.6/32",
+#               "remoteASN": "44",
+#               "password": "abc"
+#               "accessList": ""
+#           },
+#       ]
+#       "networks": [
+#           {
+#               "ipv4": "192.168.70.1/24"
+#           }
+#       ]
 #   ]
 # }
 def add_bgp(params):
@@ -127,6 +133,7 @@ def add_bgp(params):
         'redistribute ospf' if redistribute_ospf else None,
     ]
 
+    # loop again on neighbors. "address-family" (above) must be before that and after the first neighbors commands.
     for neighbor in neighbors:
         ip = neighbor.get('ip')
         route_map_inbound_filter = neighbor.get('routeMapInboundFilter')
