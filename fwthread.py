@@ -44,15 +44,15 @@ class FwThread(threading.Thread):
     teared down and never exits on exception.
     """
     def __init__(self, target, name, log, args=(), kwargs={}):
-        threading.Thread.__init__(self, target=None, name='FwThread ' + name, args=args, kwargs=kwargs)
+        self.name           = 'FwThread ' + name
+        self.tid            = ""
         self.log            = log
         self.func           = target
         self.stop_called    = False
+        threading.Thread.__init__(self, target=None, name=self.name, args=args, kwargs=kwargs)
 
     def _thread_func(self, args, kwargs):
-        self.log.debug(f"tid={fwutils.get_thread_tid()} ({self.getName()})")
         ticks = 0
-
         while not fwglobals.g.router_threads.teardown and not self.stop_called:
             time.sleep(1)
             ticks += 1
@@ -67,7 +67,12 @@ class FwThread(threading.Thread):
         as user can create FwThread-s with different arguments, so _thread_func()
         definition can't match all use cases if arguments are unpacked.
         """
+        self.tid = fwutils.get_thread_tid()
+        self.log.debug(f"tid={self.tid}: {self.name}: started")
+
         self._thread_func(self._args, self._kwargs)
+
+        self.log.debug(f"tid={self.tid}: {self.name}: stopped")
 
     def stop(self, block=True):
         """Enables other threads to break the _thread_func() main loop.
@@ -77,6 +82,7 @@ class FwThread(threading.Thread):
 
         :param block: if True, this function is blocked until thread function exits.
         """
+        self.log.debug(f"tid={self.tid}: {self.name}: stopping (block={str(block)})")
         self.stop_called = True
         if block:
             self.join()
@@ -92,9 +98,7 @@ class FwRouterThread(FwThread):
         self.join_called = False
 
     def _thread_func(self, args, kwargs):
-        self.log.debug(f"tid={fwutils.get_thread_tid()} ({self.getName()})")
         ticks = 0
-
         rt = fwglobals.g.router_threads
         while not rt.teardown and not self.stop_called:
             time.sleep(1)        # 1 sec ticks for monitoring functionality
@@ -106,6 +110,7 @@ class FwRouterThread(FwThread):
             if self.join_called:     # Avoid deadlock when join() is called by request processing thread
                 self.join_called = False
                 rt.request_cond_var.release()
+                self.log.debug(f"tid={self.tid}: {self.name}: exit on join()")
                 return
             if rt.handling_request:  # Avoid starvation of request thread - skip this iteration
                 rt.request_cond_var.release()

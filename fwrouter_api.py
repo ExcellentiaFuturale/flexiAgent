@@ -474,12 +474,12 @@ class FWROUTER_API(FwCfgRequestHandler):
         # cause tunnels/routes/etc to be pending.
         #
         if not self.pending_interfaces:
-            for i in fwglobals.g.router_cfg.get_interfaces():
+            for interface in fwglobals.g.router_cfg.get_interfaces():
                 cached_interface = {}
-                cached_interface['if_name'] = fwutils.dev_id_to_tap(i['dev_id'])
+                cached_interface['if_name'] = fwutils.dev_id_to_tap(interface['dev_id'])
                 cached_interface['addr']    = fwutils.get_interface_address(cached_interface['if_name'], log=False)
                 cached_interface['gw']      = fwutils.get_interface_gateway(cached_interface['if_name'])
-                self.pending_interfaces[i['dev_id']] = cached_interface
+                self.pending_interfaces[interface['dev_id']] = cached_interface
 
         if request['message'] == "add-tunnel":
             cached_interface =  self.pending_interfaces.get(request['params']['dev_id'])
@@ -504,11 +504,18 @@ class FWROUTER_API(FwCfgRequestHandler):
             # }
             #
             if 'dev_id' in request['params']:
-                interface =  self.pending_interfaces.get(request['params']['dev_id'])
-                if not interface or not interface['addr']:
-                    self.log.debug(f"pending request detected: {str(request)}")
+                # Check assigned interfaces
+                #
+                interface = self.pending_interfaces.get(request['params']['dev_id'])
+                if interface and not interface['addr']:
+                    self.log.debug(f"pending request detected by dev-id: {str(request)}")
                     return True
-                return False
+                # Check unassigned interfaces
+                #
+                if_name = fwutils.get_interface_name(request['params']['via'], by_subnet=True)
+                if if_name:
+                    return False
+                return True
             else:
                 # Firstly search for interfaces that match VIA
                 #
@@ -526,6 +533,12 @@ class FWROUTER_API(FwCfgRequestHandler):
                         network = tunnel.get('peer', {}).get('addr')  # Try peer tunnel
                     if network and fwutils.is_ip_in_subnet(request['params']['via'], network):
                         return False
+
+                # Search for unassigned interfaces that match VIA
+                #
+                if_name = fwutils.get_interface_name(request['params']['via'], by_subnet=True)
+                if if_name:
+                    return False
 
                 self.log.debug(f"pending request detected: {str(request)}")
                 return True
@@ -1029,7 +1042,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         fwnetplan.load_netplan_filenames()
 
-        fwglobals.g.pppoe.stop()
+        fwglobals.g.pppoe.stop(remove_tun=True)
 
     def _on_start_router_after(self):
         """Handles post start VPP activities.

@@ -404,17 +404,25 @@ def get_interface_address(if_name, if_dev_id=None, log=True, log_on_failure=None
         fwglobals.log.debug("get_interface_address(%s): %s" % (if_name, str(addresses)))
     return None
 
-def get_interface_name(ip_no_mask):
+def get_interface_name(ip_no_mask, by_subnet=False):
     """ Get interface name based on IP address
 
     : param ip_no_mask: ip address with no mask
+    : param by_subnet:  if True, the function retrieves the first interface
+                        with IP in the same sub network as 'ip'.
     : returns : if_name - interface name
     """
     interfaces = psutil.net_if_addrs()
     for if_name in interfaces:
         addresses = interfaces[if_name]
         for address in addresses:
-            if address.family == socket.AF_INET and address.address == ip_no_mask:
+            if address.family != socket.AF_INET:
+                continue
+            if by_subnet:
+                addr_with_mask = '%s/%s' % (address.address, IPAddress(address.netmask).netmask_bits())
+                if is_ip_in_subnet(ip_no_mask, addr_with_mask):
+                    return if_name
+            elif address.address == ip_no_mask:
                 return if_name
     return None
 
