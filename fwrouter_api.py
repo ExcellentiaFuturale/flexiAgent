@@ -507,9 +507,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                 # Check assigned interfaces
                 #
                 interface = self.pending_interfaces.get(request['params']['dev_id'])
-                if interface and not interface['addr']:
-                    self.log.debug(f"pending request detected by dev-id: {str(request)}")
-                    return True
+                if interface:
+                    if not interface['addr']:
+                        self.log.debug(f"pending request detected by dev-id: {str(request)}")
+                        return True
+                    return False
                 # Check unassigned interfaces
                 #
                 if_name = fwutils.get_interface_name(request['params']['via'], by_subnet=True)
