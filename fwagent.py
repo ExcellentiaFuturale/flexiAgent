@@ -986,7 +986,7 @@ class FwagentDaemon(FwObject):
 
         :returns: None.
         """
-        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}: started")
 
         self.log.info("connection loop was started, use 'fwagent stop' to stop it if needed")
 
@@ -1018,6 +1018,7 @@ class FwagentDaemon(FwObject):
                     self.agent.register_error == prev_register_error:
                     self.log.info("stop registration trials, use 'fwagent start' to resume")
                     self.active = False
+                    self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}: exit on registration failure")
                     return
                 # Sleep a little bit and retry
                 else:
@@ -1060,6 +1061,7 @@ class FwagentDaemon(FwObject):
                     retry_sec -= 1
 
         self.log.info("connection loop was stopped, use 'fwagent start' to start it again")
+        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}: stopped")
 
 
     def api(self, api_name, api_args=None):
