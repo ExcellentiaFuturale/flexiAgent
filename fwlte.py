@@ -64,7 +64,7 @@ def reset_modem_if_needed(err_str, dev_id):
     if not any(x in err_str for x in reset_modem_error_triggers):
         return False
 
-    last_reset_time = get_cache_val(dev_id, 'healing_reset_last_time')
+    last_reset_time = get_db_entry(dev_id, 'healing_reset_last_time')
 
     now = datetime.now()
     if last_reset_time:
@@ -75,7 +75,7 @@ def reset_modem_if_needed(err_str, dev_id):
     # do reset
     fwglobals.log.debug(f"reset_modem_if_needed: resetting modem while error. err: {err_str}")
 
-    set_cache_val(dev_id, 'healing_reset_last_time', datetime.timestamp(now))
+    set_db_entry(dev_id, 'healing_reset_last_time', datetime.timestamp(now))
     reset_modem(dev_id)
     return True
 
