@@ -44,12 +44,12 @@ class FwThread(threading.Thread):
     teared down and never exits on exception.
     """
     def __init__(self, target, name, log, args=(), kwargs={}):
-        threading.Thread.__init__(self, target=None, name=name, args=args, kwargs=kwargs)
         self.name           = 'FwThread ' + name
         self.tid            = ""
         self.log            = log
         self.func           = target
         self.stop_called    = False
+        threading.Thread.__init__(self, target=None, name=self.name, args=args, kwargs=kwargs)
 
     def _thread_func(self, args, kwargs):
         ticks = 0

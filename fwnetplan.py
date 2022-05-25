@@ -563,9 +563,6 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
             fwutils.set_dev_id_to_tap(dev_id, ifname)
             fwglobals.log.debug("Interface name in cache is %s, dev_id %s" % (ifname, dev_id_full))
 
-        if is_add and dhcp =='yes':
-            _has_ip(ifname) #TODO: remove it since Igor should handle this fix. this is temporary to skip blockage
-
     except Exception as e:
         err_str = "add_remove_netplan_interface failed: dev_id: %s, file: %s, error: %s"\
               % (dev_id, fname_run, str(e))
@@ -574,17 +571,6 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         return (False, err_str)
 
     return (True, None)
-
-def _has_ip(if_name):
-    for _ in range(2):          # Check IP and retry "netplan apply" in loop
-        for i in range(30):     # Wait for IP to appear for X seconds
-            log = (i == 29)     # Log only the last trial to avoid log spamming
-            if fwutils.get_interface_address(if_name, log_on_failure=log):
-                return True
-            time.sleep(1)
-        fwutils.netplan_apply('_has_ip')
-
-    return False
 
 def get_dhcp_netplan_interface(if_name):
     files = glob.glob("/etc/netplan/*.yaml") + \
