@@ -27,15 +27,36 @@ import fwtunnel_stats
 import fwutils
 import subprocess
 
-
 from fwobject import FwObject
 from pyroute2 import IPRoute
 from pyroute2.netlink import exceptions as netlink_exceptions
 
-class FwRouteProto(enum.Enum):
-   BOOT = 3
-   STATIC = 4
-   DHCP = 16
+routes_protocol_map = {
+    -1: '',
+    0: 'unspec',
+    1: 'redirect',
+    2: 'kernel',
+    3: 'boot',
+    4: 'static',
+    8: 'gated',
+    9: 'ra',
+    10: 'mrt',
+    11: 'zebra',
+    12: 'bird',
+    13: 'dnrouted',
+    14: 'xorp',
+    15: 'ntk',
+    16: 'dhcp',
+    18: 'keepalived',
+    42: 'babel',
+    186: 'bgp',
+    187: 'isis',
+    188: 'ospf',
+    189: 'rip',
+    192: 'eigrp',
+}
+
+routes_protocol_id_map = { y:x for x, y in routes_protocol_map.items() }
 
 class FwRouteKey(str):
     """Route key"""
@@ -133,18 +154,24 @@ class FwRoutes(FwObject):
             addr = route['addr']
             via = route['via']
             metric = str(route.get('metric', '0'))
-            dev = route.get('dev_id')
+            dev_id = route.get('dev_id')
             exist_in_linux = routes_linux.exist(addr, metric, via)
 
             if tunnel_addresses.get(via) == 'down':
                 if exist_in_linux:
-                    fwglobals.log.debug(f"remove static route through the broken tunnel: {str(route)}")
-                    add_remove_route(addr, via, metric, True, dev)
+                    success, err_str = add_remove_route(addr, via, metric, True, dev_id, 'static')
+                    if success:
+                        fwglobals.log.debug(f"remove static route through the broken tunnel: {str(route)}")
+                    else:
+                        fwglobals.log.error(f"failed to remove static route ({str(route)}): {err_str}")
                 continue
 
             if not exist_in_linux:
-                fwglobals.log.debug(f"restore static route: {str(route)}")
-                add_remove_route(addr, via, metric, False, dev)
+                success, err_str = add_remove_route(addr, via, metric, False, dev_id, 'static')
+                if success:
+                    fwglobals.log.debug(f"restore static route: {str(route)}")
+                else:
+                    fwglobals.log.error(f"failed to restore static route ({str(route)}): {err_str}")
 
 
 class FwLinuxRoutes(dict):
@@ -159,23 +186,20 @@ class FwLinuxRoutes(dict):
     def _linux_get_routes(self, prefix=None, preference=None, via=None, proto=None):
         if not proto:
             proto_id = None
-        elif proto == 'dhcp':
-            proto_id = FwRouteProto.DHCP.value
-        elif proto == 'static':
-            proto_id = FwRouteProto.STATIC.value
         else:
-            fwglobals.log.debug("_linux_get_routes: proto %s is not supported" % proto)
-            return
+            proto_id = routes_protocol_id_map.get(proto, -1)
 
         with IPRoute() as ipr:
             try:
                 if prefix == '0.0.0.0/0':
                     routes = ipr.get_default_routes(family=socket.AF_INET)
                 else:
-                    routes = ipr.get_routes(dst=prefix, family=socket.AF_INET, proto=proto_id)
+                    # if we set filter by prefix ipr.get_routes() returns corrupted routes info (incorrect protocol type, priority, etc.)
+                    # so we pass only proto instead and filter results by other params like prefix, metric, etc.
+                    # routes = ipr.get_routes(dst=prefix, family=socket.AF_INET, proto=proto_id) - returns wrong data
+                    routes = ipr.get_routes(family=socket.AF_INET, proto=proto_id)
             except netlink_exceptions.NetlinkError:
                 routes = []     # If no matching route exists in kernel, NetlinkError is raised
-
 
             for route in routes:
                 nexthops = []
@@ -184,12 +208,7 @@ class FwLinuxRoutes(dict):
                 gw = None
                 rt_table = 0
 
-                if route['proto'] == FwRouteProto.DHCP.value:
-                    proto = 'dhcp'
-                elif route['proto'] == FwRouteProto.STATIC.value:
-                    proto = 'static'
-                else:
-                    proto = 'unsupported'
+                rt_proto = routes_protocol_map[route.get('proto', -1)]
 
                 for attr in route['attrs']:
                     if attr[0] == 'RTA_PRIORITY':
@@ -215,7 +234,7 @@ class FwLinuxRoutes(dict):
                     if attr[0] == 'RTA_TABLE':
                         rt_table = int(attr[1])
 
-                if rt_table > 255:  # ignore bizare routes which are not in main/local tables
+                if rt_table >= 255:  # ignore bizare routes which are not in main/local tables
                     continue        # See RT_TABLE_X in /usr/include/linux/rtnetlink.h
 
                 if not dst: # Default routes have no RTA_DST
@@ -232,10 +251,13 @@ class FwLinuxRoutes(dict):
                 if prefix and addr != prefix:
                     continue
 
+                if not nexthops:
+                    nexthops.append(FwRouteNextHop(None,dev))
+
                 for nexthop in nexthops:
                     if via and via != nexthop.via:
                         continue
-                    self[FwRouteKey(metric, addr, nexthop.via)] = FwRoute(addr, nexthop.via, nexthop.dev, proto, metric)
+                    self[FwRouteKey(metric, addr, nexthop.via)] = FwRoute(addr, nexthop.via, nexthop.dev, rt_proto, metric)
 
     def exist(self, addr, metric, via):
         metric = int(metric) if metric else 0
@@ -287,8 +309,7 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
                 return (True, None)
 
     routes_linux = FwLinuxRoutes(prefix=addr, preference=metric, proto=proto)
-    nexthop = FwLinuxRoutes(prefix=addr, preference=metric,via=via, proto=proto)
-    exist_in_linux = True if len(nexthop) >= 1 else False
+    exist_in_linux = routes_linux.exist(addr, metric, via)
 
     if remove and not exist_in_linux:
         return (True, None)
@@ -361,10 +382,12 @@ def add_remove_static_routes(via, is_add):
 
         addr = route['addr']
         metric = str(route.get('metric', '0'))
-        dev = route.get('dev_id')
+        dev_id = route.get('dev_id')
         via = route['via']
 
-        add_remove_route(addr, via, metric, not is_add, dev)
+        success, err_str = add_remove_route(addr, via, metric, not is_add, dev_id, 'static')
+        if not success:
+            fwglobals.log.error(f"failed to add/remove static route ({str(route)}): {err_str}")
 
 
 def update_route_metric(route, new_metric, netplan_apply=False):
