@@ -23,16 +23,15 @@
 import yaml
 import sys
 import os
-import socket
 from shutil import copyfile
 import fwglobals
 import fwstats
 import fwutils
 import fwlte
 import fwwifi
+import fwroutes
 
 from fwobject import FwObject
-from pyroute2 import IPRoute
 
 fwagent_api = {
     'get-device-certificate':        '_get_device_certificate',
@@ -49,31 +48,6 @@ fwagent_api = {
     'reset-device':                  '_reset_device_soft',
     'sync-device':                   '_sync_device',
     'upgrade-device-sw':             '_upgrade_device_sw',
-}
-
-routes_protocol_map = {
-    -1: '',
-    0: 'unspec',
-    1: 'redirect',
-    2: 'kernel',
-    3: 'boot',
-    4: 'static',
-    8: 'gated',
-    9: 'ra',
-    10: 'mrt',
-    11: 'zebra',
-    12: 'bird',
-    13: 'dnrouted',
-    14: 'xorp',
-    15: 'ntk',
-    16: 'dhcp',
-    18: 'keepalived',
-    42: 'babel',
-    186: 'bgp',
-    187: 'isis',
-    188: 'ospf',
-    189: 'rip',
-    192: 'eigrp',
 }
 
 class FWAGENT_API(FwObject):
@@ -259,51 +233,15 @@ class FWAGENT_API(FwObject):
         """
 
         route_entries = []
-
-        with IPRoute() as ipr:
-            routes = ipr.get_routes(family=socket.AF_INET)
-
-            for route in routes:
-                try:
-                    dst = route.dst
-                    if dst == 'default':
-                        dst = '0.0.0.0/0'
-
-                    metric = route.priority
-                    protocol = routes_protocol_map[route.get('proto', -1)]
-
-                    if not route.multipath:
-                        gateway = route.gateway
-                        try:
-                            interface = ipr.get_links(route.oif)[0].get_attr('IFLA_IFNAME')
-                        except NetlinkError as e:
-                            continue
-
-                        route_entries.append({
-                            'destination': dst,
-                            'gateway': gateway,
-                            'metric': metric,
-                            'interface': interface,
-                            'protocol': protocol
-                        })
-                    else:
-                        for path in route.multipath:
-                            gateway = path.gateway
-                            try:
-                                interface = ipr.get_links(path.oif)[0].get_attr('IFLA_IFNAME')
-                            except NetlinkError as e:
-                                continue
-
-                            route_entries.append({
-                                'destination': dst,
-                                'gateway': gateway,
-                                'metric': metric,
-                                'interface': interface,
-                                'protocol': protocol
-                            })
-                except Exception as e:
-                    self.log.error(f"_get_device_os_routes: {str(e)}: failed to parse route '{str(route)}'.\nroutes='{str(routes)}'")
-                    pass
+        routes_linux = fwroutes.FwLinuxRoutes().values()
+        for route in routes_linux:
+            route_entries.append({
+                'destination': route.prefix,
+                'gateway': route.via,
+                'metric': route.metric,
+                'interface': route.dev,
+                'protocol': route.proto
+            })
 
         return {'message': route_entries, 'ok': 1}
 
