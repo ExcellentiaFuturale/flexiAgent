@@ -633,11 +633,11 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                     'default_settings':   fwlte.get_default_settings(dev_id)
                 }
 
-            if is_wifi:
+            elif is_wifi:
                 interface['deviceType'] = 'wifi'
                 interface['deviceParams'] = fwwifi.wifi_get_capabilities(dev_id)
 
-            if is_pppoe:
+            elif is_pppoe:
                 pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
                 interface['deviceType'] = 'pppoe'
                 interface['dhcp'] = 'yes'
@@ -646,6 +646,9 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                     address = IPNetwork(pppoe_iface.addr)
                     interface['IPv4'] = str(address.ip)
                     interface['IPv4Mask'] = str(address.prefixlen)
+
+            else:
+                interface['deviceType'] = 'dpdk'
 
             # Add information specific for WAN interfaces
             #
@@ -3149,6 +3152,7 @@ def get_reconfig_hash():
 
         link = get_interface_link_state(name, dev_id)
 
+        res += 'deviceType:'  + linux_interfaces[dev_id].get('deviceType') + ','
         res += 'addr:'    + addr + ','
         res += 'gateway:' + gw + ','
         res += 'metric:'  + metric + ','
