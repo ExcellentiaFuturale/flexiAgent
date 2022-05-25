@@ -3124,34 +3124,6 @@ def remove_linux_default_route(dev):
         fwglobals.log.error(str(e))
         return (False, str(e))
 
-def vmxnet3_unassigned_interfaces_up():
-    """This function finds vmxnet3 interfaces that should NOT be controlled by
-    VPP and brings them up. We call these interfaces 'unassigned'.
-    This hack is needed to prevent disappearing of unassigned interfaces from
-    Linux, as VPP captures all down interfaces on start.
-
-    Note for non vmxnet3 interfaces we solve this problem in elegant way - we
-    just add assigned interfaces to the white list in the VPP startup.conf,
-    so VPP captures only them, while ignoring the unassigned interfaces, either
-    down or up. In case of vmxnet3 we can't use the startup.conf white list,
-    as placing them there causes VPP to bind them to vfio-pci driver on start,
-    so trial to bind them later to the vmxnet3 driver by call to the VPP
-    vmxnet3_create() API fails. Hence we go with the dirty workaround of UP state.
-    """
-    try:
-        linux_interfaces = get_linux_interfaces()
-        assigned_list    = fwglobals.g.router_cfg.get_interfaces()
-        assigned_dev_ids    = [params['dev_id'] for params in assigned_list]
-
-        for dev_id in linux_interfaces:
-            if not dev_id in assigned_dev_ids:
-                if dev_id_is_vmxnet3(dev_id):
-                    os.system("ip link set dev %s up" % linux_interfaces[dev_id]['name'])
-
-    except Exception as e:
-        fwglobals.log.debug('vmxnet3_unassigned_interfaces_up: %s (%s)' % (str(e),traceback.format_exc()))
-        pass
-
 def get_reconfig_hash():
     """ This function creates a string that holds all the information added to the reconfig
     data, and then create a hash string from it.

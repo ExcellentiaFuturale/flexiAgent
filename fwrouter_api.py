@@ -1034,8 +1034,6 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         fwutils.reset_router_api_db(enforce=True)
 
-        fwutils.vmxnet3_unassigned_interfaces_up()
-
         fwnetplan.load_netplan_filenames()
 
         fwglobals.g.pppoe.stop(remove_tun=True)
