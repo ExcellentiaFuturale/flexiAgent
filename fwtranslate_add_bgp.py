@@ -30,18 +30,24 @@ import fwglobals
 #       "keepaliveInterval": "40",
 #       "localASN": "35",
 #       "neighbors": [
-#       {
-#           "ip": "8.8.8.8/31",
-#           "remoteASN": "55",
-#           "password": "abc"
-#           "accessList": "default"
-#       },
-#       {
-#           "ip": "6.6.6.6/32",
-#           "remoteASN": "44",
-#           "password": "abc"
-#           "accessList": ""
-#       }
+#           {
+#               "ip": "8.8.8.8/31",
+#               "remoteASN": "55",
+#               "password": "abc"
+#               "accessList": "default"
+#           },
+#           {
+#               "ip": "6.6.6.6/32",
+#               "remoteASN": "44",
+#               "password": "abc"
+#               "accessList": ""
+#           },
+#       ]
+#       "networks": [
+#           {
+#               "ipv4": "192.168.70.1/24"
+#           }
+#       ]
 #   ]
 # }
 def add_bgp(params):
@@ -52,24 +58,6 @@ def add_bgp(params):
     :returns: cmd_list. List of commands.
     """
     cmd_list = []
-
-    # enable bgp process
-    cmd = {}
-    cmd['cmd'] = {}
-    cmd['cmd']['func']      = "exec"
-    cmd['cmd']['module']    = "fwutils"
-    cmd['cmd']['params'] = {
-                    'cmd':    'if [ -n "$(grep bgpd=no %s)" ]; then sudo sed -i -E "s/bgpd=no/bgpd=yes/" %s; sudo systemctl restart frr; fi' % (fwglobals.g.FRR_DAEMONS_FILE, fwglobals.g.FRR_DAEMONS_FILE),
-    }
-    cmd['cmd']['descr'] = "start BGP daemon"
-    cmd['revert'] = {}
-    cmd['revert']['func']   = "exec"
-    cmd['revert']['module'] = "fwutils"
-    cmd['revert']['descr']  = "stop BGP daemon"
-    cmd['revert']['params'] = {
-                    'cmd':    'if [ -n "$(grep bgpd=yes %s)" ]; then sudo sed -i -E "s/bgpd=yes/bgpd=no/" %s; sudo systemctl restart frr; fi' % (fwglobals.g.FRR_DAEMONS_FILE, fwglobals.g.FRR_DAEMONS_FILE),
-    }
-    cmd_list.append(cmd)
 
     # kernel redistribute route-map
     kernel_redistribute_route_map = [
@@ -87,7 +75,7 @@ def add_bgp(params):
     cmd['cmd']['descr']   =  "create BGP redistribute kernel route-map"
     cmd['cmd']['params'] = {
                     'commands': kernel_redistribute_route_map,
-                    'revert_commands': kernel_redistribute_route_map_revert
+                    'revert_commands': kernel_redistribute_route_map_revert,
     }
     cmd['revert'] = {}
     cmd['revert']['func']   = "frr_vtysh_run"
@@ -145,6 +133,7 @@ def add_bgp(params):
         'redistribute ospf' if redistribute_ospf else None,
     ]
 
+    # loop again on neighbors. "address-family" (above) must be before that and after the first neighbors commands.
     for neighbor in neighbors:
         ip = neighbor.get('ip')
         route_map_inbound_filter = neighbor.get('routeMapInboundFilter')

@@ -480,26 +480,29 @@ def add_interface(params):
         cmd['revert']['descr']   =  f"remove interface {dev_id} from OSPF"
         cmd_list.append(cmd)
 
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']    = "add_remove_interface_routes_to_frr_if_needed"
-        cmd['cmd']['module']  = "fwutils"
-        cmd['cmd']['descr']   = f"add interface routes to OSPF if needed. ({dev_id})"
-        cmd['cmd']['params'] = {
-                        'is_add': True,
-                        'routing': 'ospf',
-                        'dev_id': dev_id,
-        }
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "add_remove_interface_routes_to_frr_if_needed"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['params'] = {
-                        'is_add': False,
-                        'routing': 'ospf',
-                        'dev_id': dev_id,
-        }
-        cmd['revert']['descr']   = f"remove interface routes from OSPF if needed. ({dev_id})"
-        cmd_list.append(cmd)
+        # for static, the user has to configure static routes.
+        # Consider moving the check for "dhcp == yes" to inside of the function
+        if dhcp == 'yes':
+            cmd = {}
+            cmd['cmd'] = {}
+            cmd['cmd']['func']    = "frr_add_remove_interface_routes_if_needed"
+            cmd['cmd']['module']  = "fwutils"
+            cmd['cmd']['descr']   = f"add interface routes to OSPF if needed. ({dev_id})"
+            cmd['cmd']['params'] = {
+                            'is_add': True,
+                            'routing': 'ospf',
+                            'dev_id': dev_id,
+            }
+            cmd['revert'] = {}
+            cmd['revert']['func']   = "frr_add_remove_interface_routes_if_needed"
+            cmd['revert']['module'] = "fwutils"
+            cmd['revert']['params'] = {
+                            'is_add': False,
+                            'routing': 'ospf',
+                            'dev_id': dev_id,
+            }
+            cmd['revert']['descr']   = f"remove interface routes from OSPF if needed. ({dev_id})"
+            cmd_list.append(cmd)
 
         # OSPF per interface configuration
         frr_cmd = []
@@ -514,7 +517,7 @@ def add_interface(params):
 
         cost = ospf.get('cost')
         if cost:
-            frr_cmd.append('ip ospf cost {cost}')
+            frr_cmd.append(f'ip ospf cost {cost}')
 
         key_id = ospf.get('keyId')
         key = ospf.get('key')
@@ -555,26 +558,29 @@ def add_interface(params):
             cmd_list.append(cmd)
 
     if 'BGP' in routing:
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']    = "add_remove_interface_routes_to_frr_if_needed"
-        cmd['cmd']['module']  = "fwutils"
-        cmd['cmd']['descr']   = f"add interface routes to BGP if needed. ({dev_id})"
-        cmd['cmd']['params'] = {
-                        'is_add': True,
-                        'routing': 'bgp',
-                        'dev_id': dev_id,
-        }
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "add_remove_interface_routes_to_frr_if_needed"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['params'] = {
-                        'is_add': False,
-                        'routing': 'bgp',
-                        'dev_id': dev_id,
-        }
-        cmd['revert']['descr']   = f"remove interface routes from BGP if needed. ({dev_id})"
-        cmd_list.append(cmd)
+        # for static, the user has to configure static routes.
+        # Consider moving the check for "dhcp == yes" to inside of the function
+        if dhcp == 'yes':
+            cmd = {}
+            cmd['cmd'] = {}
+            cmd['cmd']['func']    = "frr_add_remove_interface_routes_if_needed"
+            cmd['cmd']['module']  = "fwutils"
+            cmd['cmd']['descr']   = f"add interface routes to BGP if needed. ({dev_id})"
+            cmd['cmd']['params'] = {
+                            'is_add': True,
+                            'routing': 'bgp',
+                            'dev_id': dev_id,
+            }
+            cmd['revert'] = {}
+            cmd['revert']['func']   = "frr_add_remove_interface_routes_if_needed"
+            cmd['revert']['module'] = "fwutils"
+            cmd['revert']['params'] = {
+                            'is_add': False,
+                            'routing': 'bgp',
+                            'dev_id': dev_id,
+            }
+            cmd['revert']['descr']   = f"remove interface routes from BGP if needed. ({dev_id})"
+            cmd_list.append(cmd)
 
     if is_lte:
         substs = [ {'replace':'DEV-STUB', 'key': 'cmds', 'val_by_func':'dev_id_to_vpp_if_name', 'arg': dev_id},

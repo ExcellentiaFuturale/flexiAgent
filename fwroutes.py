@@ -274,7 +274,7 @@ class FwLinuxRoutes(dict):
 
         return False
 
-def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev=None, netplan_apply=True):
+def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev=None, netplan_apply=True, onLink=False):
     """Add/Remove route.
 
     :param addr:            Destination network.
@@ -301,7 +301,7 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
 
     pppoe = fwpppoe.is_pppoe_interface(dev_id=dev_id)
     if not pppoe:  # PPPoE interfaces can use any peer in the world as a GW, so escape sanity checks for it
-        if not fwutils.linux_check_gateway_exist(via):
+        if not onLink and not fwutils.linux_check_gateway_exist(via):
             return (True, None)
         if not remove:
             tunnel_addresses = fwtunnel_stats.get_tunnel_info()
@@ -312,6 +312,7 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
     exist_in_linux = routes_linux.exist(addr, metric, via)
 
     if remove and not exist_in_linux:
+        # TODO: implement remove onlink routes
         return (True, None)
 
     if not remove and exist_in_linux:
@@ -337,7 +338,7 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
         if not dev:
             cmd = "sudo ip route %s %s%s proto %s nexthop via %s %s" % (op, addr, metric, proto, via, next_hops)
         else:
-            cmd = "sudo ip route %s %s%s proto %s nexthop via %s dev %s %s" % (op, addr, metric, proto, via, dev, next_hops)
+            cmd = "sudo ip route %s %s%s proto %s nexthop via %s dev %s %s %s" % (op, addr, metric, proto, via, dev, next_hops, 'onlink' if onLink else '')
 
     try:
         fwglobals.log.debug(cmd)

@@ -543,6 +543,10 @@ def detect_if_interface_is_dhcp(if_name):
     if dhclient_running_for_if_name:
         return 'yes'
 
+    if fwglobals.g.is_gcp_vm:
+        # all GCP interfaces are configured by their agent as dhcp
+        return 'yes'
+
     return 'no'
 
 def get_linux_interfaces(cached=True, if_dev_id=None):
@@ -2853,13 +2857,12 @@ def is_non_dpdk_interface(dev_id):
 
     return False
 
-def add_remove_interface_routes_to_frr_if_needed(is_add, routing, dev_id):
-    """Check if we need to advertise in FRR some build-in routes automatically.
+def frr_add_remove_interface_routes_if_needed(is_add, routing, dev_id):
+    """Check if need to advertise in FRR some built-in routes automatically along with the given interface.
 
     For example, if an interface has an address with /32 netmask,
         the DHCP server pushes routes to the client to reach the whole network via the gateway.
-        Once we call "netplan apply" for this interface,
-        new routes are installed with the "DHCP" protocol.
+        Once we call "netplan apply" for this interface, new routes are installed with the "DHCP" protocol.
             root@VB1:/etc/frr# ip a
             vpp1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UNKNOWN group default qlen 1000
                 link/ether 08:00:27:96:18:0e brd ff:ff:ff:ff:ff:ff
@@ -2870,8 +2873,8 @@ def add_remove_interface_routes_to_frr_if_needed(is_add, routing, dev_id):
             155.155.155.0/24 via 155.155.155.1 dev vpp1 proto dhcp src 155.155.155.10
             155.155.155.1 dev vpp1 proto dhcp scope link src 155.155.155.10
 
-        In order to advertised the whole netowrk to OSPF/BGP nieghboors,
-        We need to specify them in our build-it frr access lists.
+        In order to advertised the whole netowrk to OSPF/BGP nieghboors, and not only the interface ip and mask,
+        We need to specify them in our frr access lists.
 
     :param is_add: Indiciate if to add the routes or removed them (add-X or remove-X process).
     :param routing: Routing protocol to add routes for ("ospf" or "bgp").
@@ -2891,12 +2894,12 @@ def add_remove_interface_routes_to_frr_if_needed(is_add, routing, dev_id):
     try:
         if_addr = get_interface_address(None, dev_id)
         if not if_addr:
-            fwglobals.log.warning(f"add_remove_interface_routes_to_frr_if_needed: no ip found for dev_id {dev_id}")
+            fwglobals.log.warning(f"frr_add_remove_interface_routes_if_needed: no ip found for dev_id {dev_id}")
             return (True, None) # We do not fail add-interface if there is no IP
 
         if_addr = _get_ip_network_from_str(if_addr)
 
-        overlapped_routes = []
+        routes_to_advertise = []
 
         # get linux ip routes
         routes = os.popen('ip route').read().splitlines()
@@ -2904,10 +2907,11 @@ def add_remove_interface_routes_to_frr_if_needed(is_add, routing, dev_id):
             if 'default' in route:
                 continue
 
-            # only dhcp routes in order to prevent conflicts with user routes
+            # only dhcp routes in order to prevent conflicts with add-route requests
             if not 'dhcp' in route:
                 continue
 
+            # make sure first word is a network
             dest_network = route.split(' ')[0] # filter nexthop routes
             dest_network = _get_ip_network_from_str(dest_network)
             if not dest_network:
@@ -2919,36 +2923,36 @@ def add_remove_interface_routes_to_frr_if_needed(is_add, routing, dev_id):
 
             # get linux ip routes
             if dest_network.overlaps(if_addr):
-                overlapped_routes.append(str(dest_network))
+                routes_to_advertise.append(str(dest_network))
 
         if routing == 'ospf':
             frr_acl_name = fwglobals.g.FRR_OSPF_ACL
         elif routing == 'bgp':
             frr_acl_name = fwglobals.g.FRR_BGP_ACL
         else:
-            return (False, f'add_remove_interface_routes_to_frr_if_needed(): unsupported routing protocol ({routing}) provided')
+            return (False, f'frr_add_remove_interface_routes_if_needed(): unsupported routing protocol ({routing}) provided')
 
         revert_succeeded_vtysh_commands = []
-        for overlapped_route in overlapped_routes:
+        for route in routes_to_advertise:
             if is_add:
-                cmd = f"access-list {frr_acl_name} permit {overlapped_route}"
+                cmd = f"access-list {frr_acl_name} permit {route}"
                 revert_cmd = f"no {cmd}"
             else:
-                cmd = f"no access-list {frr_acl_name} permit {overlapped_route}"
+                cmd = f"no access-list {frr_acl_name} permit {route}"
                 revert_cmd = cmd.split(maxsplit=1)[1] # take out the "no" by spliting by first space and take the rest.
 
             succss, err = frr_vtysh_run([cmd])
             if succss:
                 revert_succeeded_vtysh_commands.append(revert_cmd)
             else:
-                # revert succeded commands and throw exception.
+                # first revert the succeeded commands, then throw exception.
                 # don't catch expection of revert because it has no end. In any case execption will be thorwn
                 frr_vtysh_run(revert_succeeded_vtysh_commands)
                 raise Exception(err)
 
         return (True, None)
     except Exception as e:
-        return (False, f'add_remove_interface_routes_to_frr_if_needed({is_add}, {routing}, {dev_id}): failed. error={str(e)}')
+        return (False, f'frr_add_remove_interface_routes_if_needed({is_add}, {routing}, {dev_id}): failed. error={str(e)}')
 
 def frr_vtysh_run(commands, restart_frr=False, wait_after=None, revert_commands=[]):
     '''Run vtysh command to configure router
@@ -2960,7 +2964,9 @@ def frr_vtysh_run(commands, restart_frr=False, wait_after=None, revert_commands=
     '''
     def _revert():
         if revert_commands:
+            fwglobals.log.debug(f"frr_vtysh_run: revert starting. revert_command={str(revert_commands)}")
             frr_vtysh_run(revert_commands, restart_frr, revert_commands=[]) # revert_commands= empty list to prevent infinite loop
+            fwglobals.log.debug(f"frr_vtysh_run: revert finished")
     try:
         shell_commands = ' -c '.join(map(lambda x: '"%s"' % x, commands))
         vtysh_cmd = f'sudo /usr/bin/vtysh -c "configure" -c {shell_commands}'
@@ -2978,7 +2984,7 @@ def frr_vtysh_run(commands, restart_frr=False, wait_after=None, revert_commands=
         (out, err) = p.communicate()
         # Note, vtysh cli prints errors to STDOUT. If no errors, "out" is empty string.
         if out:
-            fwglobals.log.error(f"frr_vtysh_run: failed to run FRR commands. vtysh_cmd={vtysh_cmd} out={out}. err={err}. reverting..")
+            fwglobals.log.error(f"frr_vtysh_run: failed to run FRR commands. vtysh_cmd={vtysh_cmd} out={out}. err={err}. reverting...")
             _revert()
             return (False, out)
 
@@ -3032,6 +3038,12 @@ def frr_setup_config():
     # Ensure that ospfd is switched on in /etc/frr/daemons.
     subprocess.check_call('if [ -n "$(grep ospfd=no %s)" ]; then sudo sed -i -E "s/ospfd=no/ospfd=yes/" %s; sudo systemctl restart frr; fi'
             % (fwglobals.g.FRR_DAEMONS_FILE,fwglobals.g.FRR_DAEMONS_FILE), shell=True)
+
+    # Ensure that bgpd is switched on in /etc/frr/daemons.
+    # Importnat! We have to enable it always in order that access-lists and route-maps
+    # will be recognized by bgpd deamon
+    subprocess.check_call('if [ -n "$(grep bgpd=no %s)" ]; then sudo sed -i -E "s/bgpd=no/bgpd=yes/" %s; sudo systemctl restart frr; fi'
+            % (fwglobals.g.FRR_DAEMONS_FILE, fwglobals.g.FRR_DAEMONS_FILE), shell=True)
 
     # Ensure that integrated-vtysh-config is disabled in /etc/frr/vtysh.conf.
     subprocess.check_call('sudo sed -i -E "s/^service integrated-vtysh-config/no service integrated-vtysh-config/" %s' % (fwglobals.g.FRR_VTYSH_FILE), shell=True)

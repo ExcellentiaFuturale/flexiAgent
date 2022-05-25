@@ -67,7 +67,8 @@ def add_route(params):
                                     'via'   : params['via'],
                                     'metric': params.get('metric'),
                                     'remove': False,
-                                    'dev_id': params.get('dev_id')
+                                    'dev_id': params.get('dev_id'),
+                                    'onLink': params.get('onLink')
                               }
     cmd['revert'] = {}
     cmd['revert']['func']   = "add_remove_route"
@@ -78,7 +79,8 @@ def add_route(params):
                                     'via'   : params['via'],
                                     'metric': params.get('metric'),
                                     'remove': True,
-                                    'dev_id': params.get('dev_id')
+                                    'dev_id': params.get('dev_id'),
+                                    'onLink': params.get('onLink')
                               }
     cmd_list.append(cmd)
 
