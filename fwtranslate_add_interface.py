@@ -485,7 +485,7 @@ def add_interface(params):
         if dhcp == 'yes':
             cmd = {}
             cmd['cmd'] = {}
-            cmd['cmd']['func']    = "add_remove_interface_routes_to_frr_if_needed"
+            cmd['cmd']['func']    = "frr_add_remove_interface_routes_if_needed"
             cmd['cmd']['module']  = "fwutils"
             cmd['cmd']['descr']   = f"add interface routes to OSPF if needed. ({dev_id})"
             cmd['cmd']['params'] = {
@@ -494,7 +494,7 @@ def add_interface(params):
                             'dev_id': dev_id,
             }
             cmd['revert'] = {}
-            cmd['revert']['func']   = "add_remove_interface_routes_to_frr_if_needed"
+            cmd['revert']['func']   = "frr_add_remove_interface_routes_if_needed"
             cmd['revert']['module'] = "fwutils"
             cmd['revert']['params'] = {
                             'is_add': False,
@@ -563,7 +563,7 @@ def add_interface(params):
         if dhcp == 'yes':
             cmd = {}
             cmd['cmd'] = {}
-            cmd['cmd']['func']    = "add_remove_interface_routes_to_frr_if_needed"
+            cmd['cmd']['func']    = "frr_add_remove_interface_routes_if_needed"
             cmd['cmd']['module']  = "fwutils"
             cmd['cmd']['descr']   = f"add interface routes to BGP if needed. ({dev_id})"
             cmd['cmd']['params'] = {
@@ -572,7 +572,7 @@ def add_interface(params):
                             'dev_id': dev_id,
             }
             cmd['revert'] = {}
-            cmd['revert']['func']   = "add_remove_interface_routes_to_frr_if_needed"
+            cmd['revert']['func']   = "frr_add_remove_interface_routes_if_needed"
             cmd['revert']['module'] = "fwutils"
             cmd['revert']['params'] = {
                             'is_add': False,
