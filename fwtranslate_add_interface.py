@@ -534,12 +534,11 @@ def add_interface(params):
             cmd_list.append(cmd)
 
     for routing_protocol in routing:
-        # for static, the user has to configure static routes.
-        # Consider moving the check for "dhcp == yes" to inside of the function
+        # for static, the user has to configure static routes him self.
         if not dhcp == 'yes':
             continue
 
-        if not routing == 'BGP' or not routing == 'OSPF':
+        if not (routing_protocol == 'BGP' or routing_protocol == 'OSPF'):
             continue
 
         cmd = {}

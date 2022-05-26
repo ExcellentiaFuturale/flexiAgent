@@ -31,16 +31,18 @@ import fwglobals
 #       "localASN": "35",
 #       "neighbors": [
 #           {
-#               "ip": "8.8.8.8/31",
-#               "remoteASN": "55",
-#               "password": "abc"
-#               "accessList": "default"
+#               "ip": "8.8.8.8",
+#               "remoteASN": "666",
+#               "password": "",
+#               "routeMapInboundFilter": "test-rm",
+#               "routeMapOutboundFilter": "test-rm"
 #           },
 #           {
-#               "ip": "6.6.6.6/32",
-#               "remoteASN": "44",
-#               "password": "abc"
-#               "accessList": ""
+#               "ip": "9.9.9.9",
+#               "remoteASN": "555",
+#               "password": "",
+#               "routeMapInboundFilter": "",
+#               "routeMapOutboundFilter": ""
 #           },
 #       ]
 #       "networks": [

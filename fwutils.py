@@ -58,6 +58,7 @@ from fwmultilink    import FwMultilink
 from fwpolicies     import FwPolicies
 from fwrouter_cfg   import FwRouterCfg
 from fwsystem_cfg   import FwSystemCfg
+from fwroutes       import FwLinuxRoutes
 from fwapplications_cfg import FwApplicationsCfg
 from fwwan_monitor  import get_wan_failover_metric
 from fw_traffic_identification import FwTrafficIdentifications
@@ -534,7 +535,7 @@ def is_bridged_interface(dev_id):
 
     return None
 
-def detect_if_interface_is_dhcp(if_name):
+def get_interface_configured_as_dhcp(if_name):
     is_dhcp_in_netplan = fwnetplan.get_dhcp_netplan_interface(if_name)
     if is_dhcp_in_netplan == 'yes':
         return is_dhcp_in_netplan
@@ -602,7 +603,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
 
             interface['link'] = get_interface_link_state(if_name, dev_id)
 
-            interface['dhcp'] = detect_if_interface_is_dhcp(if_name)
+            interface['dhcp'] = get_interface_configured_as_dhcp(if_name)
 
             interface['mtu'] = get_linux_interface_mtu(if_name)
 
@@ -2885,7 +2886,7 @@ def frr_add_remove_interface_routes_if_needed(is_add, routing, dev_id):
 
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
-    def _get_ip_network_from_str(str):
+    def _get_ip_network_obj_from_str(str):
         try:
             return ipaddress.ip_network(str)
         except:
@@ -2898,23 +2899,18 @@ def frr_add_remove_interface_routes_if_needed(is_add, routing, dev_id):
             fwglobals.log.warning(f"frr_add_remove_interface_routes_if_needed: no ip found for dev_id {dev_id}")
             return (True, None) # We do not fail add-interface if there is no IP
 
-        if_addr = _get_ip_network_from_str(if_addr)
+        if_addr = _get_ip_network_obj_from_str(if_addr)
 
         routes_to_advertise = []
 
         # get linux ip routes
-        routes = os.popen('ip route').read().splitlines()
-        for route in routes:
-            if 'default' in route:
-                continue
-
-            # only dhcp routes in order to prevent conflicts with add-route requests
-            if not 'dhcp' in route:
+        routes_linux = FwLinuxRoutes(proto='dhcp')
+        for route in routes_linux.values():
+            if route.prefix == '0.0.0.0/0':
                 continue
 
             # make sure first word is a network
-            dest_network = route.split(' ')[0] # filter nexthop routes
-            dest_network = _get_ip_network_from_str(dest_network)
+            dest_network = _get_ip_network_obj_from_str(route.prefix)
             if not dest_network:
                 continue
 
