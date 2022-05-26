@@ -159,15 +159,15 @@ def get_machine_serial():
         return str(serial)
     except:
         return '0'
-def pid_of(proccess_name):
+def pid_of(process_name):
     """Get pid of process.
 
-    :param proccess_name:   Proccess name.
+    :param process_name:   Process name.
 
     :returns:           process identifier.
     """
     try:
-        pid = subprocess.check_output(['pidof', proccess_name]).decode()
+        pid = subprocess.check_output(['pidof', process_name]).decode()
     except:
         pid = None
     return pid
@@ -2873,18 +2873,16 @@ def frr_add_remove_interface_routes_if_needed(is_add, routing, dev_id):
             155.155.155.0/24 via 155.155.155.1 dev vpp1 proto dhcp src 155.155.155.10
             155.155.155.1 dev vpp1 proto dhcp scope link src 155.155.155.10
 
-        In order to advertised the whole netowrk to OSPF/BGP nieghboors, and not only the interface ip and mask,
+        In order to advertised the whole network to OSPF/BGP neighbors, and not only the interface ip and mask,
         We need to specify them in our frr access lists.
 
-    :param is_add: Indiciate if to add the routes or removed them (add-X or remove-X process).
-    :param routing: Routing protocol to add routes for ("ospf" or "bgp").
+    :param is_add: Indicate if to add the routes or removed them (add-X or remove-X process).
+    :param routing: Routing protocol to add routes for ("ospf" or "bgp"). ?k]jh=.
     :param dev_id: Bus address of interface to check.
 
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
     def _get_ip_network_from_str(str):
-        ''' Returns True if given string is a
-            valid IP Address, else returns False'''
         try:
             return ipaddress.ip_network(str)
         except:
@@ -2939,14 +2937,14 @@ def frr_add_remove_interface_routes_if_needed(is_add, routing, dev_id):
                 revert_cmd = f"no {cmd}"
             else:
                 cmd = f"no access-list {frr_acl_name} permit {route}"
-                revert_cmd = cmd.split(maxsplit=1)[1] # take out the "no" by spliting by first space and take the rest.
+                revert_cmd = cmd.split(maxsplit=1)[1] # take out the "no" by splitting by first space and take the rest.
 
-            succss, err = frr_vtysh_run([cmd])
-            if succss:
+            success, err = frr_vtysh_run([cmd])
+            if success:
                 revert_succeeded_vtysh_commands.append(revert_cmd)
             else:
                 # first revert the succeeded commands, then throw exception.
-                # don't catch expection of revert because it has no end. In any case execption will be thorwn
+                # don't catch exception of revert because it has no end. In any case exception will be thrown
                 frr_vtysh_run(revert_succeeded_vtysh_commands)
                 raise Exception(err)
 
@@ -2954,18 +2952,20 @@ def frr_add_remove_interface_routes_if_needed(is_add, routing, dev_id):
     except Exception as e:
         return (False, f'frr_add_remove_interface_routes_if_needed({is_add}, {routing}, {dev_id}): failed. error={str(e)}')
 
-def frr_vtysh_run(commands, restart_frr=False, wait_after=None, revert_commands=[]):
+def frr_vtysh_run(commands, restart_frr=False, wait_after=None, on_error_commands=[]):
     '''Run vtysh command to configure router
 
-    :param commands:    array of frr commands
-    :param restart_frr: some OSPF configurations require restarting the service in order to apply them
-    :param wait_after:  seconds to wait after successfull command execution.
-                        It might be needed to give a systemt/vpp time to get updates as a result of frr update.
+    :param commands:          array of frr commands
+    :param restart_frr:       some OSPF configurations require restarting the service in order to apply them
+    :param wait_after:        seconds to wait after successfull command execution.
+                              It might be needed to give a systemt/vpp time to get updates as a result of frr update.
+    :param on_error_commands: array of frr commands to run if one of the "commands" fails.
     '''
     def _revert():
-        if revert_commands:
-            fwglobals.log.debug(f"frr_vtysh_run: revert starting. revert_command={str(revert_commands)}")
-            frr_vtysh_run(revert_commands, restart_frr, revert_commands=[]) # revert_commands= empty list to prevent infinite loop
+        if on_error_commands:
+            str_error_commands = "\n".join(on_error_commands)
+            fwglobals.log.debug(f"frr_vtysh_run: revert starting. on_error_commands={str_error_commands}")
+            frr_vtysh_run(on_error_commands, restart_frr, on_error_commands=[]) # on_error_commands= empty list to prevent infinite loop
             fwglobals.log.debug(f"frr_vtysh_run: revert finished")
     try:
         shell_commands = ' -c '.join(map(lambda x: '"%s"' % x, commands))

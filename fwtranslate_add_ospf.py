@@ -40,7 +40,7 @@ def add_ospf(params):
         cmd['cmd']['params'] = {
                     'commands'   : ["router ospf", f"ospf router-id {routerId}"],
                     'restart_frr': True,
-                    'revert_commands': ["router ospf", f"no ospf router-id {routerId}"],
+                    'on_error_commands': ["router ospf", f"no ospf router-id {routerId}"],
         }
         cmd['revert'] = {}
         cmd['revert']['func']   = "frr_vtysh_run"
@@ -61,7 +61,7 @@ def add_ospf(params):
         cmd['cmd']['descr']  =  "add redistribute bgp to OSPF configuration"
         cmd['cmd']['params'] = {
                     'commands'   : ["router ospf", "redistribute bgp"],
-                    'revert_commands': ["router ospf", "no redistribute bgp"],
+                    'on_error_commands': ["router ospf", "no redistribute bgp"],
         }
         cmd['revert'] = {}
         cmd['revert']['func']   = "frr_vtysh_run"

@@ -75,7 +75,7 @@ def add_bgp(params):
     cmd['cmd']['descr']   =  "create BGP redistribute kernel route-map"
     cmd['cmd']['params'] = {
                     'commands': kernel_redistribute_route_map,
-                    'revert_commands': kernel_redistribute_route_map_revert,
+                    'on_error_commands': kernel_redistribute_route_map_revert,
     }
     cmd['revert'] = {}
     cmd['revert']['func']   = "frr_vtysh_run"
@@ -119,7 +119,7 @@ def add_bgp(params):
         vty_commands += [
             f'neighbor {ip} remote-as {remote_asn}',
 
-            # Allow peerings between directly connected eBGP peers using loopback addresses.
+            # Allow peering between directly connected eBGP peers using loopback addresses.
             f'neighbor {ip} disable-connected-check',
 
             f'neighbor {ip} password {password}' if password else None,
@@ -164,7 +164,7 @@ def add_bgp(params):
                     'commands': vty_commands,
                     'restart_frr': True,
                     'wait_after': 2,
-                    'revert_commands': [f'no router bgp {local_asn}']
+                    'on_error_commands': [f'no router bgp {local_asn}']
     }
     cmd['revert'] = {}
     cmd['revert']['func']   = "frr_vtysh_run"
