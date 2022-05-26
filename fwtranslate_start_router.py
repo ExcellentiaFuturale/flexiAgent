@@ -121,16 +121,12 @@ def start_router(params=None):
             assigned_linux_interfaces.append(linux_if)
 
             # Mark 'vmxnet3' interfaces as they need special care:
-            #   1. They should not appear in /etc/vpp/startup.conf.
-            #      If they appear in /etc/vpp/startup.conf, vpp will capture
-            #      them with vfio-pci driver, and 'create interface vmxnet3'
-            #      command will fail with 'device in use'.
-            #   2. They require additional VPP call vmxnet3_create on start
+            #   They require additional VPP call vmxnet3_create on start
             #      and complement vmxnet3_delete on stop
             if fwutils.dev_id_is_vmxnet3(params['dev_id']):
                 pci_list_vmxnet3.append(params['dev_id'])
-            else:
-                dev_id_list.append(params['dev_id'])
+
+            dev_id_list.append(params['dev_id'])
 
     vpp_filename = fwglobals.g.VPP_CONFIG_FILE
 
@@ -171,13 +167,11 @@ def start_router(params=None):
         cmd['revert']['descr']  = "remove devices from %s" % vpp_filename
         cmd['revert']['params'] = { 'vpp_config_filename' : vpp_filename, 'devices': dev_id_list }
         cmd_list.append(cmd)
-    elif len(pci_list_vmxnet3) == 0:
+    else:
         # When the list of devices in the startup.conf file is empty, the vpp attempts
         # to manage all the down linux interfaces.
         # Since we allow non-dpdk interfaces (LTE, WiFi), this list could be empty.
         # In order to prevent vpp from doing so, we need to add the "no-pci" flag.
-        # Note, on VMWare don't use no-pci, so vpp will capture interfaces and
-        # vmxnet3_create() called after vpp start will succeed.
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']    = "vpp_startup_conf_add_nopci"
