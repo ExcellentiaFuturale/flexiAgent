@@ -2960,8 +2960,8 @@ def frr_vtysh_run(commands, restart_frr=False, wait_after=None, on_error_command
 
     :param commands:          array of frr commands
     :param restart_frr:       some OSPF configurations require restarting the service in order to apply them
-    :param wait_after:        seconds to wait after successfull command execution.
-                              It might be needed to give a systemt/vpp time to get updates as a result of frr update.
+    :param wait_after:        seconds to wait after successful command execution.
+                              It might be needed to give a system/vpp time to get updates as a result of frr update.
     :param on_error_commands: array of frr commands to run if one of the "commands" fails.
     '''
     def _revert():
@@ -2999,7 +2999,7 @@ def frr_vtysh_run(commands, restart_frr=False, wait_after=None, on_error_command
 
         return (True, None)
     except Exception as e:
-        fwglobals.log.error(f"frr_vtysh_run: exception occured. commands={commands} err={str(e)}. reverting..")
+        fwglobals.log.error(f"frr_vtysh_run: exception occurred. commands={commands} err={str(e)}. reverting..")
         _revert()
         return (False, str(e))
 
