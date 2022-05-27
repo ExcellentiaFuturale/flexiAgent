@@ -340,6 +340,8 @@ class FwCfgRequestHandler(FwObject):
                     func = getattr(fwglobals.g.router_api, func_name)
                 elif object_name == 'fwglobals.g.router_api.vpp_api':
                     func = getattr(fwglobals.g.router_api.vpp_api, func_name)
+                elif object_name == 'fwglobals.g.router_api.multilink':
+                    func = getattr(fwglobals.g.router_api.multilink, func_name)
                 elif object_name == 'fwglobals.g.ikev2':
                     func = getattr(fwglobals.g.ikev2, func_name)
                 elif object_name == 'fwglobals.g.traffic_identifications':

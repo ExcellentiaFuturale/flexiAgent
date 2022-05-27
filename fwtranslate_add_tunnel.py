@@ -355,20 +355,20 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
             next_hop = str(IPNetwork(addr).ip ^ IPAddress("0.0.0.1"))
             cmd = {}
             cmd['cmd'] = {}
-            cmd['cmd']['func']    = "vpp_multilink_update_labels"
-            cmd['cmd']['module']  = "fwutils"
+            cmd['cmd']['func']    = "vpp_update_labels"
+            cmd['cmd']['object']  = "fwglobals.g.router_api.multilink"
             cmd['cmd']['descr']   = "add multilink labels into loopback interface %s: %s" % (addr, labels)
             cmd['cmd']['params']  = {
                             'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
                             'labels': labels, 'next_hop': next_hop, 'remove': False
             }
             cmd['revert'] = {}
-            cmd['revert']['func']   = "vpp_multilink_update_labels"
-            cmd['revert']['module'] = "fwutils"
+            cmd['revert']['func']   = "vpp_update_labels"
+            cmd['revert']['object'] = "fwglobals.g.router_api.multilink"
             cmd['revert']['descr']  = "remove multilink labels from loopback interface %s: %s" % (addr, labels)
             cmd['revert']['params'] = {
                             'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ],
-                            'labels': labels, 'next_hop': next_hop, 'remove': True
+                            'remove': True
             }
             cmd_list.append(cmd)
 
@@ -1640,20 +1640,20 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
             # next_hop is a remote gateway
             cmd = {}
             cmd['cmd'] = {}
-            cmd['cmd']['func']    = "vpp_multilink_update_labels"
-            cmd['cmd']['module']  = "fwutils"
+            cmd['cmd']['func']    = "vpp_update_labels"
+            cmd['cmd']['object']  = "fwglobals.g.router_api.multilink"
             cmd['cmd']['descr']   = "add multilink labels into tunnel interface %s: %s" % (params['src'], labels)
             cmd['cmd']['params']  = {
                             'substs': [ { 'add_param':'sw_if_index', 'val_by_key':tunnel_cache_key} ],
                             'labels': labels, 'next_hop': next_hop, 'remove': False,
             }
             cmd['revert'] = {}
-            cmd['revert']['func']   = "vpp_multilink_update_labels"
-            cmd['revert']['module'] = "fwutils"
+            cmd['revert']['func']   = "vpp_update_labels"
+            cmd['revert']['object'] = "fwglobals.g.router_api.multilink"
             cmd['revert']['descr']  = "remove multilink labels from tunnel interface %s: %s" % (params['src'], labels)
             cmd['revert']['params'] = {
                             'substs': [ { 'add_param':'sw_if_index', 'val_by_key':tunnel_cache_key} ],
-                            'labels': labels, 'next_hop': next_hop, 'remove': True,
+                            'remove': True,
             }
             cmd_list.append(cmd)
 

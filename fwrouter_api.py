@@ -33,6 +33,7 @@ from netaddr import IPAddress, IPNetwork
 
 import fw_vpp_coredump_utils
 import fwglobals
+import fwlte
 import fwnetplan
 import fwrouter_cfg
 import fwroutes
@@ -104,8 +105,9 @@ class FWROUTER_API(FwCfgRequestHandler):
         self.router_state    = FwRouterState.STOPPED
         self.thread_watchdog     = None
         self.thread_tunnel_stats = None
+        self.thread_monitor_interfaces = None
         self.vpp_coredump_in_progress = False
-        self.pending_interfaces  = {}  # Interfaces without IP by dev-id
+        self.monitor_interfaces  = {}  # Interfaces that are monitored for IP changes
 
         pending_cfg_db = fwrouter_cfg.FwRouterCfg(pending_cfg_file)
         FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, pending_cfg_db, self._on_revert_failed)
@@ -152,6 +154,134 @@ class FWROUTER_API(FwCfgRequestHandler):
         """
         if self.state_is_started():
             fwtunnel_stats.tunnel_stats_test()
+
+    def monitor_interfaces_thread_func(self, ticks):
+        """Monitors VPP interfaces for various dynamic data like DHCP IP addresses,
+        link status (carrier-on/no-carrier) and other and adjust system with
+        the change. See more details in the specific _sync_X() function.
+        """
+        if not self.state_is_started():
+            return
+        try:
+            self._sync_link_status()
+        except Exception as e:
+            self.thread_monitor_interfaces.log_error(
+                f"_sync_link_status: {str(e)} ({traceback.format_exc()})")
+        try:
+            old = self.monitor_interfaces
+            new = self._get_monitor_interfaces(cached=False)
+            self._sync_dhcp_address(old, new)
+        except Exception as e:
+            self.thread_monitor_interfaces.log_error(
+                f"_sync_interfaces: {str(e)} ({traceback.format_exc()})")
+
+
+    def _sync_link_status(self):
+        '''Monitors link status (CARRIER-UP / NO-CARRIER or CABLE PLUGGED / CABLE UNPLUGGED)
+        of the VPP physical interfaces and updates the correspondent tap inject
+        interfaces in Linux using the "echo 0/1 > /sys/class/net/vppX/carrier" command,
+            We need this logic, as Linux vppX interfaces are not physical interfaces,
+        so it is not possible to set the NO-CARRIER link status flag for them.
+        As a result, the Linux might continue to use unplugged interface, thus loosing traffic.
+        Note, VPP does detects the NO-CARRIER and removes interface from FIB:
+
+            root@vbox-test-171 ~ # ip r
+            default via 10.72.100.1 dev vpp2 proto dhcp src 10.72.100.172 metric 50
+            default via 192.168.1.1 dev vpp0 proto dhcp src 192.168.1.171 metric 100
+            10.10.10.0/24 dev vpp1 proto kernel scope link src 10.10.10.10
+
+            0@0.0.0.0/0
+            unicast-ip4-chain
+            [@0]: dpo-load-balance: [proto:ip4 index:1 buckets:1 uRPF:16 to:[0:0]]
+                [0] [@5]: ipv4 via 192.168.1.1 GigabitEthernet0/3/0: mtu:1500 next:3 00b8c2
+            8a6baa08002730db130800
+
+            GigabitEthernet0/9/0               3     up   GigabitEthernet0/9/0
+            Link speed: 1 Gbps
+            Ethernet address 08:00:27:eb:00:63
+            Intel 82540EM (e1000)
+                no-carrier full duplex mtu 9206
+        '''
+        interfaces = fwglobals.g.router_cfg.get_interfaces()
+        for interface in interfaces:
+            tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
+            sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(interface['dev_id'], verbose=False)
+            status_vpp  = fwutils.vpp_get_interface_status(sw_if_index)
+            (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{tap_name}/carrier")
+            if status_vpp['link'] == 'down' and ok and status_linux and int(status_linux)==1:
+                self.log.debug(f"detected NO-CARRIER for {tap_name}")
+                fwutils.os_system(f"echo 0 > /sys/class/net/{tap_name}/carrier")
+            elif status_vpp['link'] == 'up' and ok and status_linux and int(status_linux)==0:
+                self.log.debug(f"detected CARRIER UP for {tap_name}")
+                fwutils.os_system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
+
+    def _sync_dhcp_address(self, old_interfaces, new_interfaces):
+        """Monitors VPP interfaces for IP/GW change and updates system as follows:
+
+        - on IP/GW change on WAN interface:
+            1. update multi-link policy DIA links with proper GW, so the link
+               reachability could be detected properly
+            2. reconstruct pending tunnels and static routes if IP was acquired
+
+        - on IP/GW change on LAN interface:
+            1. update FRR with new local network
+
+        :param old_interfaces: the last interface snap
+        :param new_interfaces: the current interface snap
+        """
+        for dev_id, new in new_interfaces.items():
+            old = old_interfaces.get(dev_id)
+            if not old:
+                continue   # escape newly added interface, take care of it on next sync
+            if old['dhcp'] != 'yes' and new['dhcp'] != 'yes':
+                continue   # escape non dhcp interfaces
+            if old['gw'] != new['gw']:
+                if new['type'] == 'wan':
+                    # Update FWABF link with new GW, it is used for multilink policies
+                    #
+                    link = self.multilink.get_link(dev_id)
+                    if link:
+                        self.multilink.vpp_update_labels(
+                            remove=False, labels=link.labels, next_hop=new['gw'], dev_id=dev_id)
+                    # Update ARP entry of LTE interface
+                    #
+                    if new['deviceType'] == 'lte':
+                        fwlte.set_arp_entry(is_add=False, dev_id=dev_id, gw=old['gw'])
+                        fwlte.set_arp_entry(is_add=True,  dev_id=dev_id, gw=new['gw'])
+            if old['addr'] != new['addr']:
+                if new['type'] == 'wan':
+                    # Reconstruct pending tunnels and static routes
+                    nnoww
+                elif new['type'] == 'lan':
+                    # Update OSPF configuration with new network
+                    nnoww
+
+
+    def _get_monitor_interfaces(self, cached=True):
+        '''Retrieves interfaces from the configuration database, fetches their
+        current IP, GW and other data from Linux and returns this information
+        back to the caller in form of dictionary by dev-id.
+
+        :param cached: if True, the cached data is returned, otherwise the cache
+                       is rebuilt and the result is returned.
+
+        :return: dictionary <dev-id> -> <interface name, IP/mask, GW, LAN/WAN, DPDK/LTE/WIFI, etc>
+        '''
+        if not cached:
+            self.monitor_interfaces = {}
+        if not self.monitor_interfaces:
+            for interface in fwglobals.g.router_cfg.get_interfaces():
+                dev_id  = interface['dev_id']
+                if_name = fwutils.dev_id_to_tap(dev_id)
+                cached_interface = {}
+                cached_interface['if_name'] = if_name
+                cached_interface['addr']        = fwutils.get_interface_address(if_name, log=False)
+                cached_interface['gw']          = fwutils.get_interface_gateway(if_name)
+                cached_interface['dhcp']        = interface['type'].lower()         # yes/no
+                cached_interface['type']        = interface['type'].lower()         # LAN/WAN
+                cached_interface['deviceType']  = interface['deviceType'].lower()   # DPDK/WIFI/LTE
+                self.monitor_interfaces[dev_id] = cached_interface
+        return self.monitor_interfaces
 
     def restore_vpp_if_needed(self):
         """Restore VPP.
@@ -464,20 +594,11 @@ class FWROUTER_API(FwCfgRequestHandler):
            request['message'] != "add-route":
             return False
 
-        # Build cache of interfaces used to detect no-IP condition that might
-        # cause tunnels/routes/etc to be pending.
-        #
-        if not self.pending_interfaces:
-            for interface in fwglobals.g.router_cfg.get_interfaces():
-                cached_interface = {}
-                cached_interface['if_name'] = fwutils.dev_id_to_tap(interface['dev_id'])
-                cached_interface['addr']    = fwutils.get_interface_address(cached_interface['if_name'], log=False)
-                cached_interface['gw']      = fwutils.get_interface_gateway(cached_interface['if_name'])
-                self.pending_interfaces[interface['dev_id']] = cached_interface
+        monitor_interfaces = self._get_monitor_interfaces()
 
         if request['message'] == "add-tunnel":
-            cached_interface =  self.pending_interfaces.get(request['params']['dev_id'])
-            if not cached_interface or not cached_interface['addr']:
+            interface = monitor_interfaces.get(request['params']['dev_id'])
+            if not interface or not interface['addr']:
                 self.log.debug(f"pending request detected: {str(request)}")
                 return True
             return False
@@ -500,7 +621,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             if 'dev_id' in request['params']:
                 # Check assigned interfaces
                 #
-                interface = self.pending_interfaces.get(request['params']['dev_id'])
+                interface =  monitor_interfaces.get(request['params']['dev_id'])
                 if interface and not interface['addr']:
                     self.log.debug(f"pending request detected by dev-id: {str(request)}")
                     return True
@@ -513,9 +634,9 @@ class FWROUTER_API(FwCfgRequestHandler):
             else:
                 # Firstly search for interfaces that match VIA
                 #
-                for cached_interface in self.pending_interfaces.values():
-                    if cached_interface['addr'] and \
-                       fwutils.is_ip_in_subnet(request['params']['via'], cached_interface['addr']):
+                for interface in monitor_interfaces.values():
+                    if interface['addr'] and \
+                       fwutils.is_ip_in_subnet(request['params']['via'], interface['addr']):
                         return False
                 # No suiting interface was found, search tunnels that match VIA
                 #
@@ -1004,6 +1125,9 @@ class FWROUTER_API(FwCfgRequestHandler):
             fwtunnel_stats.fill_tunnel_stats_dict()
             self.thread_tunnel_stats = fwthread.FwRouterThread(self.tunnel_stats_thread_func, 'Tunnel Stats', self.log)
             self.thread_tunnel_stats.start()
+        if self.thread_monitor_interfaces is None or self.thread_monitor_interfaces.is_alive() == False:
+            self.thread_monitor_interfaces = fwthread.FwRouterThread(self.monitor_interfaces_thread_func, 'Interface Monitor', self.log)
+            self.thread_monitor_interfaces.start()
 
     def _stop_threads(self):
         """Stop all threads.
@@ -1015,6 +1139,10 @@ class FWROUTER_API(FwCfgRequestHandler):
         if self.thread_tunnel_stats:
             self.thread_tunnel_stats.stop()
             self.thread_tunnel_stats = None
+
+        if self.thread_monitor_interfaces:
+            self.thread_monitor_interfaces.stop()
+            self.thread_monitor_interfaces = None
 
     def _on_start_router_before(self):
         """Handles pre start VPP activities.
@@ -1037,6 +1165,8 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwnetplan.load_netplan_filenames()
 
         fwglobals.g.pppoe.stop(remove_tun=True)
+
+        self.multilink.db['links'] = {}
 
     def _on_start_router_after(self):
         """Handles post start VPP activities.

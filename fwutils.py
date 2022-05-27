@@ -2239,65 +2239,6 @@ def modify_dhcpd(is_add, params):
 
     return True
 
-def vpp_multilink_update_labels(labels, remove, next_hop=None, dev_id=None, sw_if_index=None, result_cache=None):
-    """Updates VPP with flexiwan multilink labels.
-    These labels are used for Multi-Link feature: user can mark interfaces
-    or tunnels with labels and than add policy to choose interface/tunnel by
-    label where to forward packets to.
-
-        REMARK: this function is temporary solution as it uses VPP CLI to
-    configure lables. Remove it, when correspondent Python API will be added.
-    In last case the API should be called directly from translation.
-
-    :param labels:      python list of labels
-    :param is_dia:      type of labels (DIA - Direct Internet Access)
-    :param remove:      True to remove labels, False to add.
-    :param dev_id:      Interface bus address if device to apply labels to.
-    :param next_hop:    IP address of next hop.
-    :param result_cache: cache, key and variable, that this function should store in the cache:
-                            {'result_attr': 'next_hop', 'cache': <dict>, 'key': <key>}
-
-    :returns: (True, None) tuple on success, (False, <error string>) on failure.
-    """
-
-    ids_list = fwglobals.g.router_api.multilink.get_label_ids_by_names(labels, remove)
-    ids = ','.join(map(str, ids_list))
-
-    if dev_id:
-        vpp_if_name = dev_id_to_vpp_if_name(dev_id)
-    elif sw_if_index:
-        vpp_if_name = vpp_sw_if_index_to_name(sw_if_index)
-    else:
-        return (False, "Neither 'dev_id' nor 'sw_if_index' was found in params")
-
-    if not vpp_if_name:
-        return (False, "'vpp_if_name' was not found for %s" % dev_id)
-
-    if not next_hop:
-        tap = vpp_if_name_to_tap(vpp_if_name)
-        next_hop, _ = get_interface_gateway(tap)
-    if not next_hop:
-        next_hop = "0.0.0.0"
-        fwglobals.log.warning(f"vpp_multilink_update_labels: no 'next_hop' was provided, use blackhole {next_hop}")
-
-    op = 'del' if remove else 'add'
-
-    vppctl_cmd = 'fwabf link %s label %s via %s %s' % (op, ids, next_hop, vpp_if_name)
-    fwglobals.log.debug(vppctl_cmd)
-
-    out = _vppctl_read(vppctl_cmd, wait=False)
-    if out is None:
-        return (False, "failed vppctl_cmd=%s" % vppctl_cmd)
-
-    # Store 'next_hope' in cache if provided by caller.
-    #
-    if result_cache and result_cache['result_attr'] == 'next_hop':
-        key = result_cache['key']
-        result_cache['cache'][key] = next_hop
-
-    return (True, None)
-
-
 def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order,
                                      acl_id=None, priority=None, override_default_route=False,
                                      attach_to_wan=False):

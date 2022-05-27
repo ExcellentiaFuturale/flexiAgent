@@ -424,8 +424,8 @@ def add_interface(params):
         if len(labels) > 0:
             cmd = {}
             cmd['cmd'] = {}
-            cmd['cmd']['func']    = "vpp_multilink_update_labels"
-            cmd['cmd']['module']  = "fwutils"
+            cmd['cmd']['func']    = "vpp_update_labels"
+            cmd['cmd']['object']  = "fwglobals.g.router_api.multilink"
             cmd['cmd']['descr']   = "add multilink labels into interface %s %s: %s" % (iface_addr, dev_id, labels)
             cmd['cmd']['params']  = {
                                         'labels':   labels,
@@ -433,22 +433,13 @@ def add_interface(params):
                                         'dev_id':   dev_id,
                                         'remove':   False
             }
-            # Cache 'next_hop' resolved by vpp_multilink_update_labels on 'add-interface',
-            # to be used on 'remove-interface'. This is needed for DHCP interfaces,
-            # where GW can be changed/removed under our legs
-            #
-            cache_key = 'next_hop-%s' % dev_id
-            cmd['cmd']['cache_ret_val'] = ('next_hop', cache_key)
-
             cmd['revert'] = {}
-            cmd['revert']['func']   = "vpp_multilink_update_labels"
-            cmd['revert']['module'] = "fwutils"
+            cmd['revert']['func']    = "vpp_update_labels"
+            cmd['revert']['object']  = "fwglobals.g.router_api.multilink"
             cmd['revert']['descr']  = "remove multilink labels from interface %s %s: %s" % (iface_addr, dev_id, labels)
             cmd['revert']['params'] = {
-                            'labels':   labels,
-                            'dev_id':   dev_id,
-                            'remove':   True,
-                            'substs': [ { 'add_param':'next_hop', 'val_by_key':cache_key} ],
+                                        'dev_id':   dev_id,
+                                        'remove':   True,
             }
             cmd_list.append(cmd)
 
@@ -531,39 +522,24 @@ def add_interface(params):
             cmd_list.append(cmd)
 
     if is_lte:
-        substs = [ {'replace':'DEV-STUB', 'key': 'cmds', 'val_by_func':'dev_id_to_vpp_if_name', 'arg': dev_id},
-                   {'replace':'LTE-GW', 'key': 'cmds', 'val_by_func':'fwlte.get_ip_configuration', 'arg':[dev_id, 'gateway']} ]
-
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']    = "vpp_cli_execute"
-        cmd['cmd']['module']  = "fwutils"
-        cmd['cmd']['descr']   = f"add arp static entry to vpp for LTE device {dev_id}"
-        cmd['cmd']['params']  = {
-                        'substs': substs,
-                        'cmds':   ['set ip neighbor static DEV-STUB LTE-GW ff:ff:ff:ff:ff:ff']
-        }
-        cmd['revert'] = {}
-        cmd['revert']['func']    = "vpp_cli_execute"
-        cmd['revert']['module']  = "fwutils"
-        cmd['revert']['descr']   = f"remove arp static entry from vpp for LTE device {dev_id}"
-        cmd['revert']['params']  = {
-                        'substs': substs,
-                        'cmds':   ['set ip neighbor del static DEV-STUB LTE-GW ff:ff:ff:ff:ff:ff']
-        }
-        cmd_list.append(cmd)
-
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']   = "on_add_interface"
+        cmd['cmd']['func']   = "set_arp_entry"
         cmd['cmd']['module'] = "fwlte"
-        cmd['cmd']['params'] = { 'dev_id': dev_id }
-        cmd['cmd']['descr'] = "set arp entry on linux for lte interface"
+        cmd['cmd']['params'] = {
+                                'is_add': True,
+                                'dev_id': dev_id,
+                                'substs': [ {'add_param': 'gw', 'val_by_func': 'fwlte.get_ip_configuration', 'arg':[dev_id, 'gateway']} ]
+        }
+        cmd['cmd']['descr'] = f"set arp entry for lte interface {dev_id}"
         cmd['revert'] = {}
-        cmd['revert']['func']   = "on_remove_interface"
+        cmd['revert']['func']   = "set_arp_entry"
         cmd['revert']['module'] = "fwlte"
-        cmd['revert']['params'] = { 'dev_id': dev_id }
-        cmd['revert']['descr']  = "remove arp entry on linux for lte interface"
+        cmd['revert']['params'] = {
+                                'is_add': False,
+                                'dev_id': dev_id,
+        }
+        cmd['revert']['descr']  = f"remove arp entry for lte interface {dev_id}"
         cmd_list.append(cmd)
 
         cmd = {}

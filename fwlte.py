@@ -717,7 +717,7 @@ def mbim_get_ip_configuration(dev_id):
     except Exception:
         return (ip, gateway)
 
-def get_ip_configuration(dev_id, key=None, cache=True):
+def get_ip_configuration(dev_id, key=None, cache=True, result_cache=None):
     response = {
         'ip'           : '',
         'gateway'      : '',
@@ -749,8 +749,15 @@ def get_ip_configuration(dev_id, key=None, cache=True):
         fwglobals.log.debug(f"get_ip_configuration({dev_id}, {key}, {cache}) failed: {str(e)}")
         pass
 
+    # Store 'gateway' in result cache if provided by translation executor.
+    #
+    if result_cache and result_cache['result_attr'] == 'gw':
+        key = result_cache['key']
+        result_cache['cache'][key] = gateway
+
     if key:
         return response[key]
+
     return response
 
 def dev_id_to_usb_device(dev_id):
@@ -1015,14 +1022,28 @@ def get_stats():
 
     return out
 
-def on_add_interface(dev_id):
-    gw = get_ip_configuration(dev_id,'gateway')
-    if gw:
-        ret = fwutils.os_system(f"sudo arp -s {gw} 00:00:00:00:00:00")
-        return ret
+def set_arp_entry(is_add, dev_id, gw=None):
+    '''
+    :param is_add:      if True the static ARP entry is added, o/w it is removed.
+    :param dev_id:      the dev-id of the interface, the GW of which should be
+                        used for the ARP entry. We used it to find the vpp_if_name,
+                        which is needed to update VPP with the ARP entry.
+                        As well it is needed to find the GW, of the last was not provided.
+    :param gw:          the IP of GW for which the ARP entry should be added/removed.
+    '''
+    vpp_if_name = fwutils.dev_id_to_vpp_if_name(dev_id)
+    if not vpp_if_name:
+        raise Exception(f"set_arp_entry: failed to resolve {dev_id} to vpp_if_name")
 
-def on_remove_interface(dev_id):
-    gw = get_ip_configuration(dev_id,'gateway')
-    if gw:
+    if not gw:
+        gw = get_ip_configuration(dev_id, 'gateway', cache=False)
+        if not gw:
+            fwglobals.log.debug(f"set_arp_entry: no GW was found for {dev_id}")
+            return
+
+    if is_add:
+        fwutils.os_system(f"sudo arp -s {gw} 00:00:00:00:00:00")
+        fwutils.vpp_cli_execute([f"set ip neighbor static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"])
+    else:
         fwutils.os_system(f"sudo arp -d {gw}")
-
+        fwutils.vpp_cli_execute([f"set ip neighbor del static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"])
