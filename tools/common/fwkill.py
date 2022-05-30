@@ -78,6 +78,9 @@ def main():
     fwwifi.stop_hostapd()
     fwnetplan.restore_linux_netplan_files()
 
+    if fwglobals.g.is_gcp_vm:
+        fwutils.restart_gcp_agent()
+
     lte_interfaces = fwlte.get_lte_interfaces_dev_ids()
     for dev_id in lte_interfaces:
         fwlte.disconnect(dev_id, False)
