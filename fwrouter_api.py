@@ -71,10 +71,8 @@ fwrouter_translators = {
     'remove-ospf':              {'module': __import__('fwtranslate_revert'),          'api':'revert'},
     'add-bgp':                  {'module': __import__('fwtranslate_add_bgp'),         'api':'add_bgp'},
     'remove-bgp':               {'module': __import__('fwtranslate_revert'),          'api':'revert'},
-    'add-frr-access-list':      {'module': __import__('fwtranslate_add_frr_access_list'), 'api':'add_frr_access_list'},
-    'remove-frr-access-list':   {'module': __import__('fwtranslate_revert'),           'api':'revert'},
-    'add-frr-route-map':        {'module': __import__('fwtranslate_add_frr_route_map'),    'api':'add_frr_route_map'},
-    'remove-frr-route-map':     {'module': __import__('fwtranslate_revert'),           'api':'revert'},
+    'add-routing-filter':       {'module': __import__('fwtranslate_add_routing_filter'), 'api':'add_routing_filter'},
+    'remove-routing-filter':    {'module': __import__('fwtranslate_revert'),           'api':'revert'},
 }
 
 class FwRouterState(enum.Enum):
@@ -828,9 +826,9 @@ class FWROUTER_API(FwCfgRequestHandler):
         #     'add-application', 'add-multilink-policy', 'add-firewall-policy' ]
         #
         add_order = [
-            'add-ospf', 'add-frr-access-list', 'add-frr-route-map', 'add-bgp', 
+            'add-ospf', 'add-routing-filter', 'add-bgp',
             'add-switch', 'add-interface', 'add-tunnel', 'add-route',
-            'add-dhcp-config', 'add-application', 'add-multilink-policy', 
+            'add-dhcp-config', 'add-application', 'add-multilink-policy',
             'add-firewall-policy', 'start-router'
         ]
         remove_order = [ re.sub('add-','remove-', name) for name in add_order if name != 'start-router' ]
@@ -1208,9 +1206,8 @@ class FWROUTER_API(FwCfgRequestHandler):
         #
         types = [
             'add-ospf',
-            'add-frr-access-list',
-            'add-frr-route-map',   # FRR route map should come after access list, as it might use them!
-            'add-bgp',             # BGP should come after frr route maps, as it might use them!
+            'add-routing-filter',
+            'add-bgp',             # BGP should come after routing filter, as it might use them!
             'add-switch',
             'add-interface',
             'add-tunnel',
