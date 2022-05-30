@@ -34,15 +34,15 @@ import fwglobals
 #               "ip": "8.8.8.8",
 #               "remoteASN": "666",
 #               "password": "",
-#               "routeMapInboundFilter": "test-rm",
-#               "routeMapOutboundFilter": "test-rm"
+#               "inboundFilter": "test-rm",
+#               "outboundFilter": "test-rm"
 #           },
 #           {
 #               "ip": "9.9.9.9",
 #               "remoteASN": "555",
 #               "password": "",
-#               "routeMapInboundFilter": "",
-#               "routeMapOutboundFilter": ""
+#               "inboundFilter": "",
+#               "outboundFilter": ""
 #           },
 #       ]
 #       "networks": [
@@ -138,13 +138,13 @@ def add_bgp(params):
     # loop again on neighbors. "address-family" (above) must be before that and after the first neighbors commands.
     for neighbor in neighbors:
         ip = neighbor.get('ip')
-        route_map_inbound_filter = neighbor.get('routeMapInboundFilter')
-        route_map_outbound_filter = neighbor.get('routeMapOutboundFilter')
+        inbound_filter = neighbor.get('inboundFilter')
+        outbound_filter = neighbor.get('outboundFilter')
 
         vty_commands += [
             f'neighbor {ip} activate',
-            f'neighbor {ip} route-map {route_map_inbound_filter} in' if route_map_inbound_filter else None,
-            f'neighbor {ip} route-map {route_map_outbound_filter} out' if route_map_outbound_filter else None,
+            f'neighbor {ip} route-map {inbound_filter} in' if inbound_filter else None,
+            f'neighbor {ip} route-map {outbound_filter} out' if outbound_filter else None,
         ]
 
     networks = params.get('networks', [])

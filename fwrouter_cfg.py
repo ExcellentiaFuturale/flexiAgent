@@ -66,9 +66,8 @@ class FwRouterCfg(FwCfgDatabase):
         if not types:
             types = [
                 'start-router',
-                'add-frr-access-list',
-                'add-frr-route-map', # FRR route map should come after access list, as it might use them!
-                'add-bgp',           # BGP should come after frr route maps, as it might use them!
+                'add-routing-filter',
+                'add-bgp',           # BGP should come after frr routing filter, as it might use them!
                 'add-interface',
                 'add-switch',
                 'add-tunnel',
@@ -103,8 +102,7 @@ class FwRouterCfg(FwCfgDatabase):
             'add-firewall-policy':  "============= FIREWALL POLICY =============",
             'add-ospf':             "============= OSPF =============",
             'add-bgp':              "============= BGP =============",
-            'add-frr-access-list':  "============= FRR ACCESS LISTS =============",
-            'add-frr-route-map':    "============= FRR ROUTE MAPS =============",
+            'add-routing-filter':  "============= ROUTING FILTERS =============",
         }
 
         cfg = self.dump(types=types, escape=escape, full=full, keys=True)

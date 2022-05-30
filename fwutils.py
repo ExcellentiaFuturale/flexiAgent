@@ -3811,3 +3811,14 @@ def detect_gcp_vm():
     cmd = 'sudo dmidecode -s system-product-name | grep "Google Compute Engine"'
     output = os.popen(cmd).read().strip()
     return output == "Google Compute Engine"
+
+def restart_gcp_agent():
+    # GCP configures all interfaces, LAN and WAN as DHCP clients.
+    # Only WAN interfaces they put into Netplan but not LAN interfaces.
+    # As well, the assigned ip is with /32 mask.
+    # To be able to reach the whole subnet (e.f. /24), they push some DHCP options
+    # that install the required static routes.
+    # So here, after we release the LAN interfaces back to Linux, we need to restart
+    # their agent service to reconfigured all network interfaces.
+    os_system('systemctl restart google-guest-agent')
+
