@@ -475,7 +475,7 @@ class Checker:
         files = fwnetplan.load_netplan_filenames(get_only=True)
         metric = 100
         for fname, devices in list(files.items()):
-            fwnetplan.create_baseline_if_not_exist(fname)
+            fname = fwnetplan.create_baseline_if_not_exist(fname)
 
             for dev in devices:
                 ifname = dev.get('ifname')
