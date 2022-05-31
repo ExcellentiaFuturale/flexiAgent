@@ -3278,6 +3278,14 @@ def get_reconfig_hash():
     for dev_id in linux_interfaces:
         name = linux_interfaces[dev_id]['name']
 
+        # Link state has to be retrieved first. Otherwise code below will.
+        # change the interface name to be used. And this can create an issue.
+        # For example, in case of bridge interface we need state of member interface
+        # and not the state of bridge itself.
+        link = get_interface_link_state(name, dev_id)
+
+        # Some interfaces need special logic to get their ip
+        # For LTE/WiFi/Bridged interfaces - we need to take it from the tap name
         tap_name = linux_interfaces[dev_id].get('tap_name')
         if tap_name:
             name = tap_name
@@ -3288,8 +3296,6 @@ def get_reconfig_hash():
         addr = addr.split('/')[0] if addr else ''
 
         mtu = str(linux_interfaces[dev_id]['mtu'])
-
-        link = get_interface_link_state(name, dev_id)
 
         res += 'deviceType:'  + linux_interfaces[dev_id].get('deviceType') + ','
         res += 'addr:'    + addr + ','

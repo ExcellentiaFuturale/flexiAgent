@@ -367,7 +367,7 @@ def remove_route(route):
     :returns: <error string> on failure, None on success.
     """
     try:
-        with pyroute2.IPRoute() as ipr:
+        with IPRoute() as ipr:
             fwglobals.log.debug(f"remove_route: {route.prefix}, metric={route.metric}")
             ipr.route("del", dst=route.prefix, priority=route.metric)
         return None
