@@ -71,6 +71,7 @@ fwrouter_translators = {
     'remove-ospf':              {'module': __import__('fwtranslate_revert'),          'api':'revert'},
     'add-bgp':                  {'module': __import__('fwtranslate_add_bgp'),         'api':'add_bgp'},
     'remove-bgp':               {'module': __import__('fwtranslate_revert'),          'api':'revert'},
+    'modify-bgp':               {'module': __import__('fwtranslate_add_bgp'),         'api':'modify_bgp',     'supported_params':'modify_bgp_supported_params'},
     'add-routing-filter':       {'module': __import__('fwtranslate_add_routing_filter'), 'api':'add_routing_filter'},
     'remove-routing-filter':    {'module': __import__('fwtranslate_revert'),           'api':'revert'},
 }
@@ -829,9 +830,9 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-ospf', 'add-routing-filter', 'add-bgp',
             'add-switch', 'add-interface', 'add-tunnel', 'add-route',
             'add-dhcp-config', 'add-application', 'add-multilink-policy',
-            'add-firewall-policy', 'start-router'
+            'add-firewall-policy', 'start-router', 'modify-bgp'
         ]
-        remove_order = [ re.sub('add-','remove-', name) for name in add_order if name != 'start-router' ]
+        remove_order = [ re.sub('add-','remove-', name) for name in add_order if name != 'start-router' and not re.match('modify-', name) ]
         remove_order.append('stop-router')
         remove_order.reverse()
         requests     = []

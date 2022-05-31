@@ -21,28 +21,33 @@
 ################################################################################
 
 import fwglobals
+import fwutils
+
 # {
 #   "entity": "agent",
 #   "message": "add-bgp",
 #   "params": {
 #       "routerId": "",
-#       "holdInterval": "40",
-#       "keepaliveInterval": "40",
 #       "localASN": "35",
+#       "redistributeOspf": True,
 #       "neighbors": [
 #           {
 #               "ip": "8.8.8.8",
 #               "remoteASN": "666",
 #               "password": "",
 #               "inboundFilter": "test-rm",
-#               "outboundFilter": "test-rm"
+#               "outboundFilter": "test-rm",
+#               "holdInterval": "40",
+#               "keepaliveInterval": "40",
 #           },
 #           {
 #               "ip": "9.9.9.9",
 #               "remoteASN": "555",
 #               "password": "",
 #               "inboundFilter": "",
-#               "outboundFilter": ""
+#               "outboundFilter": "",
+#               "holdInterval": "40",
+#               "keepaliveInterval": "40",
 #           },
 #       ]
 #       "networks": [
@@ -91,8 +96,6 @@ def add_bgp(params):
 
     local_asn = params.get('localASN')
     router_id = params.get('routerId')
-    keepalive_interval = params.get('keepaliveInterval')
-    hold_interval = params.get('holdInterval')
     redistribute_ospf = params.get('redistributeOspf')
 
     vty_commands = [
@@ -114,20 +117,7 @@ def add_bgp(params):
     # Neighbors
     neighbors = params.get('neighbors', [])
     for neighbor in neighbors:
-        ip = neighbor.get('ip')
-        remote_asn = neighbor.get('remoteASN')
-        password = neighbor.get('password')
-
-        vty_commands += [
-            f'neighbor {ip} remote-as {remote_asn}',
-
-            # Allow peering between directly connected eBGP peers using loopback addresses.
-            f'neighbor {ip} disable-connected-check',
-
-            f'neighbor {ip} password {password}' if password else None,
-
-            f'neighbor {ip} timers {keepalive_interval} {hold_interval}' if keepalive_interval and hold_interval else None,
-        ]
+        vty_commands += _get_neighbor_commands(neighbor)
 
     vty_commands += [
         'address-family ipv4 unicast',
@@ -137,15 +127,7 @@ def add_bgp(params):
 
     # loop again on neighbors. "address-family" (above) must be before that and after the first neighbors commands.
     for neighbor in neighbors:
-        ip = neighbor.get('ip')
-        inbound_filter = neighbor.get('inboundFilter')
-        outbound_filter = neighbor.get('outboundFilter')
-
-        vty_commands += [
-            f'neighbor {ip} activate',
-            f'neighbor {ip} route-map {inbound_filter} in' if inbound_filter else None,
-            f'neighbor {ip} route-map {outbound_filter} out' if outbound_filter else None,
-        ]
+        vty_commands += _get_neighbor_address_family_commands(neighbor)
 
     networks = params.get('networks', [])
     for network in networks:
@@ -180,6 +162,212 @@ def add_bgp(params):
     cmd_list.append(cmd)
 
     return cmd_list
+
+def _get_neighbor_commands(neighbor):
+    ip = neighbor.get('ip')
+    remote_asn = neighbor.get('remoteASN')
+    password = neighbor.get('password')
+    keepalive_interval = neighbor.get('keepaliveInterval')
+    hold_interval = neighbor.get('holdInterval')
+
+    commands = [
+        f'neighbor {ip} remote-as {remote_asn}',
+
+        # Allow peering between directly connected eBGP peers using loopback addresses.
+        f'neighbor {ip} disable-connected-check',
+    ]
+
+    if password:
+        commands.append(f'neighbor {ip} password {password}')
+
+    if keepalive_interval and hold_interval:
+        commands.append(f'neighbor {ip} timers {keepalive_interval} {hold_interval}')
+
+    return commands
+
+def _get_neighbor_address_family_commands(neighbor):
+    ip = neighbor.get('ip')
+    inbound_filter = neighbor.get('inboundFilter')
+    outbound_filter = neighbor.get('outboundFilter')
+
+    commands = [
+        f'neighbor {ip} activate',
+    ]
+
+    if inbound_filter:
+        commands.append(f'neighbor {ip} route-map {inbound_filter} in')
+
+    if outbound_filter:
+        commands.append(f'neighbor {ip} route-map {outbound_filter} out')
+
+    return commands
+
+def _compare_dicts(old_dict, new_dict, remove, add):
+    # loop on the old list
+    for old in old_dict:
+        # if item doesn't exists in new - generate remove neighbor commands
+        if not old in new_dict:
+            remove(old_dict[old])
+            continue
+
+        # if item exists in new and they are the same - remove it from new list
+        if old_dict[old] == new_dict[old]:
+            del new_dict[old]
+            continue
+
+    for new in new_dict:
+        add(new_dict[new])
+
+def _modify_networks(cmd_list, new_params, old_params):
+    local_asn = new_params.get('localASN')
+
+    def _remove(network):
+        ipv4 = network.get('ipv4')
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']    = "frr_vtysh_run"
+        cmd['cmd']['module']  = "fwutils"
+        cmd['cmd']['descr']   =  f"remove existing BGP network {ipv4}"
+        cmd['cmd']['params'] = {
+                        'commands': [f'router bgp {local_asn}', f'address-family ipv4 unicast', f'no network {ipv4}'],
+        }
+        cmd_list.append(cmd)
+
+    def _add(network):
+        ipv4 = network.get('ipv4')
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']    = "frr_vtysh_run"
+        cmd['cmd']['module']  = "fwutils"
+        cmd['cmd']['descr']   =  f"add/override BGP network {ipv4}"
+        cmd['cmd']['params'] = {
+                        'commands': [f'router bgp {local_asn}', f'address-family ipv4 unicast', f'network {ipv4}'],
+        }
+        cmd_list.append(cmd)
+
+    # convert old and new lists to dicts with IP as keys
+    old_networks = fwutils.keyBy(old_params.get('networks', []), 'ipv4')
+    new_networks = fwutils.keyBy(new_params.get('networks', []), 'ipv4')
+
+    _compare_dicts(old_networks, new_networks, _remove, _add)
+
+def _modify_neighbors(cmd_list, new_params, old_params):
+    local_asn = new_params.get('localASN')
+
+    def _remove(neighbor):
+        ip = neighbor.get('ip')
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']    = "frr_vtysh_run"
+        cmd['cmd']['module']  = "fwutils"
+        cmd['cmd']['descr']   =  f"remove existing BGP neighbor {ip}"
+        cmd['cmd']['params'] = {
+                        'commands': [f'router bgp {local_asn}', f'no neighbor {ip}'],
+        }
+        cmd_list.append(cmd)
+
+    def _add(neighbor):
+        ip = neighbor.get('ip')
+        vtysh_commands = [f'router bgp {local_asn}']
+        vtysh_commands += _get_neighbor_commands(neighbor)
+
+        vtysh_commands.append(f'address-family ipv4 unicast')
+
+        vtysh_commands += _get_neighbor_address_family_commands(neighbor)
+
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']    = "frr_vtysh_run"
+        cmd['cmd']['module']  = "fwutils"
+        cmd['cmd']['descr']   =  f"add/override BGP neighbor {ip}"
+        cmd['cmd']['params'] = {
+                        'commands': vtysh_commands,
+        }
+        cmd_list.append(cmd)
+
+    # convert old and new lists to dicts with IP as keys
+    old_neighbors = fwutils.keyBy(old_params.get('neighbors', []), 'ip')
+    new_neighbors = fwutils.keyBy(new_params.get('neighbors', []), 'ip')
+
+    _compare_dicts(old_neighbors, new_neighbors, _remove, _add)
+
+# {
+#     "entity": "agent",
+#     "message": "modify-bgp",
+#     "params": {
+#         "localASN": "65001",
+#         "neighbors": [
+#             {
+#                 "ip": "8.8.8.8",
+#                 "remoteASN": "6668",
+#                 "password": "",
+#                 "inboundFilter": "",
+#                 "outboundFilter": "",
+#                 "holdInterval": "90",
+#                 "keepaliveInterval": "30"
+#             },
+#             {
+#                 "ip": "9.9.9.9",
+#                 "remoteASN": "45",
+#                 "password": "",
+#                 "inboundFilter": "",
+#                 "outboundFilter": "",
+#                 "holdInterval": "90",
+#                 "keepaliveInterval": "30"
+#             }
+#         ],
+#         "networks": [
+#             {
+#                 "ipv4": "155.155.155.12/32"
+#             }
+#         ],
+#         "redistributeOspf": true
+#     }
+# }
+#
+def modify_bgp(new_params, old_params):
+    cmd_list = []
+
+    local_asn = new_params.get('localASN')
+
+    _modify_neighbors(cmd_list, new_params, old_params)
+    _modify_networks(cmd_list, new_params, old_params)
+
+    old_redistribute_ospf = old_params.get('redistributeOspf', True)
+    new_redistribute_ospf = new_params.get('redistributeOspf', True)
+
+    if old_redistribute_ospf != new_redistribute_ospf:
+        redistribute_ospf_cmd = 'redistribute ospf'
+        if not new_redistribute_ospf:
+            redistribute_ospf_cmd = 'no ' + redistribute_ospf_cmd
+
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']    = "frr_vtysh_run"
+        cmd['cmd']['module']  = "fwutils"
+        cmd['cmd']['descr']   =  f"change BGP redistribute ospf option to {new_redistribute_ospf}"
+        cmd['cmd']['params'] = {
+                        'commands': [f'router bgp {local_asn}', f'address-family ipv4 unicast', redistribute_ospf_cmd],
+        }
+        cmd_list.append(cmd)
+
+    return cmd_list
+
+# The modify_X_supported_params variable represents set of modifiable parameters
+# that can be received from flexiManage within the 'modify-X' request.
+# If the received 'modify-X' includes parameters that do not present in this set,
+# the agent framework will not modify the configuration item, but will recreate
+# it from scratch. To do that it replaces 'modify-X' request with pair of 'remove-X'
+# and 'add-X' requests, where 'remove-X' request uses parameters stored
+# in the agent configuration database, and the 'add-X' request uses modified
+# parameters received with the 'modify-X' request and all the rest of parameters
+# are taken from the configuration database.
+#
+modify_bgp_supported_params = {
+    'neighbors': None,
+    'networks': None,
+    'redistributeOspf': None,
+}
 
 def get_request_key(params):
     """Get add-bgp command.

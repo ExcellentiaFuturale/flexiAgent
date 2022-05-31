@@ -118,6 +118,7 @@ request_handlers = {
     'remove-ospf':                  {'name': '_call_router_api', 'sign': True},
     'add-bgp':                      {'name': '_call_router_api', 'sign': True},
     'remove-bgp':                   {'name': '_call_router_api', 'sign': True},
+    'modify-bgp':                   {'name': '_call_router_api', 'sign': True},
     'add-routing-filter':           {'name': '_call_router_api', 'sign': True},
     'remove-routing-filter':        {'name': '_call_router_api', 'sign': True},
     'add-switch':                   {'name': '_call_router_api', 'sign': True},
