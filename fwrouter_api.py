@@ -830,9 +830,15 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-ospf', 'add-routing-filter', 'add-bgp',
             'add-switch', 'add-interface', 'add-tunnel', 'add-route',
             'add-dhcp-config', 'add-application', 'add-multilink-policy',
-            'add-firewall-policy', 'start-router', 'modify-bgp'
+            'add-firewall-policy',
+
+            # modify-x after all add-x
+            'modify-bgp',
+
+            # start-router at the end
+            'start-router'
         ]
-        remove_order = [ re.sub('add-','remove-', name) for name in add_order if name != 'start-router' and not re.match('modify-', name) ]
+        remove_order = [ re.sub('add-','remove-', name) for name in add_order if re.match('add-', name) ]
         remove_order.append('stop-router')
         remove_order.reverse()
         requests     = []
