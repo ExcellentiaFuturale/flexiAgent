@@ -69,9 +69,9 @@ fwrouter_translators = {
     'remove-firewall-policy':   {'module': __import__('fwtranslate_revert'),          'api':'revert'},
     'add-ospf':                 {'module': __import__('fwtranslate_add_ospf'),        'api':'add_ospf'},
     'remove-ospf':              {'module': __import__('fwtranslate_revert'),          'api':'revert'},
-    'add-bgp':                  {'module': __import__('fwtranslate_add_bgp'),         'api':'add_bgp'},
-    'remove-bgp':               {'module': __import__('fwtranslate_revert'),          'api':'revert'},
-    'modify-bgp':               {'module': __import__('fwtranslate_add_bgp'),         'api':'modify_bgp',     'supported_params':'modify_bgp_supported_params'},
+    'add-routing-bgp':          {'module': __import__('fwtranslate_add_routing_bgp'),  'api':'add_routing_bgp'},
+    'remove-routing-bgp':       {'module': __import__('fwtranslate_revert'),          'api':'revert'},
+    'modify-routing-bgp':       {'module': __import__('fwtranslate_add_routing_bgp'),  'api':'modify_routing_bgp',     'supported_params':'modify_routing_bgp_supported_params'},
     'add-routing-filter':       {'module': __import__('fwtranslate_add_routing_filter'), 'api':'add_routing_filter'},
     'remove-routing-filter':    {'module': __import__('fwtranslate_revert'),           'api':'revert'},
 }
@@ -827,19 +827,11 @@ class FWROUTER_API(FwCfgRequestHandler):
         #     'add-application', 'add-multilink-policy', 'add-firewall-policy' ]
         #
         add_order = [
-            'add-ospf', 'add-routing-filter', 'add-bgp',
-            'add-switch', 'add-interface', 'add-tunnel', 'add-route',
-            'add-dhcp-config', 'add-application', 'add-multilink-policy',
-            'add-firewall-policy',
-
-            # modify-x after all add-x
-            'modify-bgp',
-
-            # start-router at the end
-            'start-router'
+            'add-ospf', 'add-routing-filter', 'add-routing-bgp', 'add-switch',
+            'add-interface', 'add-tunnel', 'add-route', 'add-dhcp-config',
+            'add-application', 'add-multilink-policy', 'add-firewall-policy',
         ]
-        remove_order = [ re.sub('add-','remove-', name) for name in add_order if re.match('add-', name) ]
-        remove_order.append('stop-router')
+        remove_order = [ re.sub('add-','remove-', name) for name in add_order ]
         remove_order.reverse()
         requests     = []
         for req_name in remove_order:
@@ -850,6 +842,30 @@ class FWROUTER_API(FwCfgRequestHandler):
             for _request in params['requests']:
                 if re.match(req_name, _request['message']):
                     requests.append(_request)
+
+        start_router_request = None
+        stop_router_request = None
+        # append modify-x after all remove-x and add-x
+        for _request in params['requests']:
+            if _request['message'] == 'start-router':
+                start_router_request = _request
+                continue
+
+            if _request['message'] == 'stop-router':
+                stop_router_request = _request
+                continue
+
+            if re.match('modify-', _request['message']):
+                requests.append(_request)
+
+        # append start-router at the end
+        if start_router_request:
+            requests.append(start_router_request)
+
+        # insert stop-router as the first request
+        if stop_router_request:
+            requests.insert(0, stop_router_request)
+
         if requests != params['requests']:
             params['requests'] = requests
         requests = params['requests']
@@ -1207,7 +1223,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         types = [
             'add-ospf',
             'add-routing-filter',
-            'add-bgp',             # BGP should come after routing filter, as it might use them!
+            'add-routing-bgp',             # BGP should come after routing filter, as it might use them!
             'add-switch',
             'add-interface',
             'add-tunnel',

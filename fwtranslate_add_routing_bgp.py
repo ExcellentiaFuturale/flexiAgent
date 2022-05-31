@@ -25,7 +25,7 @@ import fwutils
 
 # {
 #   "entity": "agent",
-#   "message": "add-bgp",
+#   "message": "add-routing-bgp",
 #   "params": {
 #       "routerId": "",
 #       "localASN": "35",
@@ -57,7 +57,7 @@ import fwutils
 #       ]
 #   ]
 # }
-def add_bgp(params):
+def add_routing_bgp(params):
     """Configure BGP in FRR.
 
     :param params:
@@ -293,7 +293,7 @@ def _modify_neighbors(cmd_list, new_params, old_params):
 
 # {
 #     "entity": "agent",
-#     "message": "modify-bgp",
+#     "message": "modify-routing-bgp",
 #     "params": {
 #         "localASN": "65001",
 #         "neighbors": [
@@ -325,7 +325,7 @@ def _modify_neighbors(cmd_list, new_params, old_params):
 #     }
 # }
 #
-def modify_bgp(new_params, old_params):
+def modify_routing_bgp(new_params, old_params):
     cmd_list = []
 
     local_asn = new_params.get('localASN')
@@ -363,18 +363,18 @@ def modify_bgp(new_params, old_params):
 # parameters received with the 'modify-X' request and all the rest of parameters
 # are taken from the configuration database.
 #
-modify_bgp_supported_params = {
+modify_routing_bgp_supported_params = {
     'neighbors': None,
     'networks': None,
     'redistributeOspf': None,
 }
 
 def get_request_key(params):
-    """Get add-bgp command.
+    """Get add-routing-bgp command.
 
     :param params:        Parameters from flexiManage.
 
-    :returns: add-bgp command.
+    :returns: add-routing-bgp command.
     """
-    key = 'add-bgp'
+    key = 'add-routing-bgp'
     return key
