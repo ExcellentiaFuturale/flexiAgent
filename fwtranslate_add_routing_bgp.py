@@ -28,12 +28,12 @@ import fwutils
 #   "message": "add-routing-bgp",
 #   "params": {
 #       "routerId": "",
-#       "localASN": "35",
+#       "localAsn": "35",
 #       "redistributeOspf": True,
 #       "neighbors": [
 #           {
 #               "ip": "8.8.8.8",
-#               "remoteASN": "666",
+#               "remoteAsn": "666",
 #               "password": "",
 #               "inboundFilter": "test-rm",
 #               "outboundFilter": "test-rm",
@@ -42,7 +42,7 @@ import fwutils
 #           },
 #           {
 #               "ip": "9.9.9.9",
-#               "remoteASN": "555",
+#               "remoteAsn": "555",
 #               "password": "",
 #               "inboundFilter": "",
 #               "outboundFilter": "",
@@ -94,7 +94,7 @@ def add_routing_bgp(params):
     cmd_list.append(cmd)
 
 
-    local_asn = params.get('localASN')
+    local_asn = params.get('localAsn')
     router_id = params.get('routerId')
     redistribute_ospf = params.get('redistributeOspf')
 
@@ -165,7 +165,7 @@ def add_routing_bgp(params):
 
 def _get_neighbor_frr_commands(neighbor):
     ip = neighbor.get('ip')
-    remote_asn = neighbor.get('remoteASN')
+    remote_asn = neighbor.get('remoteAsn')
     password = neighbor.get('password')
     keepalive_interval = neighbor.get('keepaliveInterval')
     hold_interval = neighbor.get('holdInterval')
@@ -221,7 +221,7 @@ def _generate_modify_cmd(old_dict, new_dict, generate_remove_cmd_func, generate_
         cmd_list += commands
 
 def _modify_networks(cmd_list, new_params, old_params):
-    local_asn = new_params.get('localASN')
+    local_asn = new_params.get('localAsn')
 
     def _remove_cmd_func(network):
         ipv4 = network.get('ipv4')
@@ -254,7 +254,7 @@ def _modify_networks(cmd_list, new_params, old_params):
     _generate_modify_cmd(old_networks, new_networks, _remove_cmd_func, _add_cmd_func, cmd_list)
 
 def _modify_neighbors(cmd_list, new_params, old_params):
-    local_asn = new_params.get('localASN')
+    local_asn = new_params.get('localAsn')
 
     def _remove_cmd_func(neighbor):
         ip = neighbor.get('ip')
@@ -297,11 +297,11 @@ def _modify_neighbors(cmd_list, new_params, old_params):
 #     "entity": "agent",
 #     "message": "modify-routing-bgp",
 #     "params": {
-#         "localASN": "65001",
+#         "localAsn": "65001",
 #         "neighbors": [
 #             {
 #                 "ip": "8.8.8.8",
-#                 "remoteASN": "6668",
+#                 "remoteAsn": "6668",
 #                 "password": "",
 #                 "inboundFilter": "",
 #                 "outboundFilter": "",
@@ -310,7 +310,7 @@ def _modify_neighbors(cmd_list, new_params, old_params):
 #             },
 #             {
 #                 "ip": "9.9.9.9",
-#                 "remoteASN": "45",
+#                 "remoteAsn": "45",
 #                 "password": "",
 #                 "inboundFilter": "",
 #                 "outboundFilter": "",
@@ -330,7 +330,7 @@ def _modify_neighbors(cmd_list, new_params, old_params):
 def modify_routing_bgp(new_params, old_params):
     cmd_list = []
 
-    local_asn = new_params.get('localASN')
+    local_asn = new_params.get('localAsn')
 
     _modify_neighbors(cmd_list, new_params, old_params)
     _modify_networks(cmd_list, new_params, old_params)

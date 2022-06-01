@@ -534,7 +534,7 @@ def is_bridged_interface(dev_id):
 
     return None
 
-def get_interface_configured_as_dhcp(if_name):
+def get_interface_is_dhcp(if_name):
     is_dhcp_in_netplan = fwnetplan.get_dhcp_netplan_interface(if_name)
     if is_dhcp_in_netplan == 'yes':
         return is_dhcp_in_netplan
@@ -602,7 +602,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
 
             interface['link'] = get_interface_link_state(if_name, dev_id)
 
-            interface['dhcp'] = get_interface_configured_as_dhcp(if_name)
+            interface['dhcp'] = get_interface_is_dhcp(if_name)
 
             interface['mtu'] = get_linux_interface_mtu(if_name)
 
