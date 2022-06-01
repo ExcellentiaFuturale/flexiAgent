@@ -117,7 +117,7 @@ def add_routing_bgp(params):
     # Neighbors
     neighbors = params.get('neighbors', [])
     for neighbor in neighbors:
-        vty_commands += _get_neighbor_commands(neighbor)
+        vty_commands += _get_neighbor_frr_commands(neighbor)
 
     vty_commands += [
         'address-family ipv4 unicast',
@@ -127,7 +127,7 @@ def add_routing_bgp(params):
 
     # loop again on neighbors. "address-family" (above) must be before that and after the first neighbors commands.
     for neighbor in neighbors:
-        vty_commands += _get_neighbor_address_family_commands(neighbor)
+        vty_commands += _get_neighbor_address_family_frr_commands(neighbor)
 
     networks = params.get('networks', [])
     for network in networks:
@@ -163,7 +163,7 @@ def add_routing_bgp(params):
 
     return cmd_list
 
-def _get_neighbor_commands(neighbor):
+def _get_neighbor_frr_commands(neighbor):
     ip = neighbor.get('ip')
     remote_asn = neighbor.get('remoteASN')
     password = neighbor.get('password')
@@ -185,7 +185,7 @@ def _get_neighbor_commands(neighbor):
 
     return commands
 
-def _get_neighbor_address_family_commands(neighbor):
+def _get_neighbor_address_family_frr_commands(neighbor):
     ip = neighbor.get('ip')
     inbound_filter = neighbor.get('inboundFilter')
     outbound_filter = neighbor.get('outboundFilter')
@@ -202,12 +202,13 @@ def _get_neighbor_address_family_commands(neighbor):
 
     return commands
 
-def _compare_dicts(old_dict, new_dict, remove, add):
+def _generate_modify_cmd(old_dict, new_dict, generate_remove_cmd_func, generate_add_cmd_func, cmd_list):
     # loop on the old list
     for old in old_dict:
-        # if item doesn't exists in new - generate remove neighbor commands
+        # if item doesn't exists in new - generate remove frr commands
         if not old in new_dict:
-            remove(old_dict[old])
+            commands = generate_remove_cmd_func(old_dict[old])
+            cmd_list += commands
             continue
 
         # if item exists in new and they are the same - remove it from new list
@@ -216,12 +217,13 @@ def _compare_dicts(old_dict, new_dict, remove, add):
             continue
 
     for new in new_dict:
-        add(new_dict[new])
+        commands = generate_add_cmd_func(new_dict[new])
+        cmd_list += commands
 
 def _modify_networks(cmd_list, new_params, old_params):
     local_asn = new_params.get('localASN')
 
-    def _remove(network):
+    def _remove_cmd_func(network):
         ipv4 = network.get('ipv4')
         cmd = {}
         cmd['cmd'] = {}
@@ -231,9 +233,9 @@ def _modify_networks(cmd_list, new_params, old_params):
         cmd['cmd']['params'] = {
                         'commands': [f'router bgp {local_asn}', f'address-family ipv4 unicast', f'no network {ipv4}'],
         }
-        cmd_list.append(cmd)
+        return [cmd]
 
-    def _add(network):
+    def _add_cmd_func(network):
         ipv4 = network.get('ipv4')
         cmd = {}
         cmd['cmd'] = {}
@@ -243,18 +245,18 @@ def _modify_networks(cmd_list, new_params, old_params):
         cmd['cmd']['params'] = {
                         'commands': [f'router bgp {local_asn}', f'address-family ipv4 unicast', f'network {ipv4}'],
         }
-        cmd_list.append(cmd)
+        return [cmd]
 
     # convert old and new lists to dicts with IP as keys
-    old_networks = fwutils.keyBy(old_params.get('networks', []), 'ipv4')
-    new_networks = fwutils.keyBy(new_params.get('networks', []), 'ipv4')
+    old_networks = fwutils.list_to_dict_by_key(old_params.get('networks', []), 'ipv4')
+    new_networks = fwutils.list_to_dict_by_key(new_params.get('networks', []), 'ipv4')
 
-    _compare_dicts(old_networks, new_networks, _remove, _add)
+    _generate_modify_cmd(old_networks, new_networks, _remove_cmd_func, _add_cmd_func, cmd_list)
 
 def _modify_neighbors(cmd_list, new_params, old_params):
     local_asn = new_params.get('localASN')
 
-    def _remove(neighbor):
+    def _remove_cmd_func(neighbor):
         ip = neighbor.get('ip')
         cmd = {}
         cmd['cmd'] = {}
@@ -264,16 +266,16 @@ def _modify_neighbors(cmd_list, new_params, old_params):
         cmd['cmd']['params'] = {
                         'commands': [f'router bgp {local_asn}', f'no neighbor {ip}'],
         }
-        cmd_list.append(cmd)
+        return [cmd]
 
-    def _add(neighbor):
+    def _add_cmd_func(neighbor):
         ip = neighbor.get('ip')
         vtysh_commands = [f'router bgp {local_asn}']
-        vtysh_commands += _get_neighbor_commands(neighbor)
+        vtysh_commands += _get_neighbor_frr_commands(neighbor)
 
         vtysh_commands.append(f'address-family ipv4 unicast')
 
-        vtysh_commands += _get_neighbor_address_family_commands(neighbor)
+        vtysh_commands += _get_neighbor_address_family_frr_commands(neighbor)
 
         cmd = {}
         cmd['cmd'] = {}
@@ -283,13 +285,13 @@ def _modify_neighbors(cmd_list, new_params, old_params):
         cmd['cmd']['params'] = {
                         'commands': vtysh_commands,
         }
-        cmd_list.append(cmd)
+        return [cmd]
 
     # convert old and new lists to dicts with IP as keys
-    old_neighbors = fwutils.keyBy(old_params.get('neighbors', []), 'ip')
-    new_neighbors = fwutils.keyBy(new_params.get('neighbors', []), 'ip')
+    old_neighbors = fwutils.list_to_dict_by_key(old_params.get('neighbors', []), 'ip')
+    new_neighbors = fwutils.list_to_dict_by_key(new_params.get('neighbors', []), 'ip')
 
-    _compare_dicts(old_neighbors, new_neighbors, _remove, _add)
+    _generate_modify_cmd(old_neighbors, new_neighbors, _remove_cmd_func, _add_cmd_func, cmd_list)
 
 # {
 #     "entity": "agent",
@@ -337,10 +339,8 @@ def modify_routing_bgp(new_params, old_params):
     new_redistribute_ospf = new_params.get('redistributeOspf', True)
 
     if old_redistribute_ospf != new_redistribute_ospf:
-        redistribute_ospf_cmd = 'redistribute ospf'
-        if not new_redistribute_ospf:
-            redistribute_ospf_cmd = 'no ' + redistribute_ospf_cmd
-
+        redistribute_ospf_cmd = 'redistribute ospf' if new_redistribute_ospf else \
+                                'no redistribute ospf'
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']    = "frr_vtysh_run"

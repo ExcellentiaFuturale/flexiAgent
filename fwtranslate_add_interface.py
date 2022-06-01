@@ -534,7 +534,7 @@ def add_interface(params):
             cmd_list.append(cmd)
 
     for routing_protocol in routing:
-        # for static, the user has to configure static routes him self.
+        # for static, the user has to configure static routes himself.
         if not dhcp == 'yes':
             continue
 
@@ -545,7 +545,7 @@ def add_interface(params):
         cmd['cmd'] = {}
         cmd['cmd']['func']    = "frr_add_remove_interface_routes_if_needed"
         cmd['cmd']['module']  = "fwutils"
-        cmd['cmd']['descr']   = f"add interface routes to {routing} if needed. ({dev_id})"
+        cmd['cmd']['descr']   = f"add interface routes to {routing} for {dev_id}"
         cmd['cmd']['params'] = {
                         'is_add': True,
                         'routing': routing_protocol.lower(),
@@ -559,7 +559,7 @@ def add_interface(params):
                         'routing': routing_protocol.lower(),
                         'dev_id': dev_id,
         }
-        cmd['revert']['descr']   = f"remove interface routes from {routing} if needed. ({dev_id})"
+        cmd['revert']['descr']   = f"remove interface routes from {routing} for {dev_id}"
         cmd_list.append(cmd)
 
     if is_lte:

@@ -22,7 +22,7 @@
 
 # add_routing_filter
 # --------------------------------------
-# Translates request:
+# Translates following request into list of commands:
 #
 # {
 #     "entity": "agent",
@@ -39,14 +39,15 @@
 #     }
 # }
 #
-# into FRR terminology and commands.
+# As generated commands configure the FRR, the FRR terminology is used as follows:
+#
 #   "defaultAction" -
 #       if 'deny' - all routes should be denied except those specified in the "rules".
 #       if 'allow' - all routes should be allowed except those specified in the "rules".
 #
 # FRR has many filtering operations, and basically it is done by "Route Map" and "Access list".
 #
-# A route map schema in FR includes few parts but the following are important for us:
+# A route map schema in FRR includes few parts but the following are important for us:
 #   1. Matching Conditions - filter condition, optional.
 #   2. Matching Policy - what to do if "Matching Conditions" is matched, required.
 #   example:
@@ -58,10 +59,10 @@
 #       The "permit" is the "Matching Policy" which means what do to if "Matching Conditions" is matched.
 #
 # Important things to know when using FRR route maps and access lists:
-#   1. Multiple route-map can be implemented with different order number.
-#       The frr will go over them one be one, starting from the lower order number, and try to find a match.
+#   1. Multiple route-map with the same name can be implemented with different order number.
+#       The FRR will go over them one be one, starting from the lower order number, and try to find a match.
 #       if matched, it will use the "Matching Policy", if not matched, it will try to go the next route-map if exists.
-#   2. At the end of route-map process, if not matched, the default is to deny.
+#   2. At the end of route-map process, if not matched, the default is always to deny.
 #       The "permit" and "deny" are only used for *matched* routes.
 #   3. If no "Matching Conditions" specified (since it's optional) - all routes will be *matched*.
 #       If route map uses "permit", all routes will be permitted.
@@ -79,7 +80,7 @@
 #       The 166.66.66.1/24 will be denied because it is denied by the access list, hence it not matched,
 #           and go to default which is to deny.
 #
-# -------------------------------
+#
 #       So, when using FRR route maps to achieve the "routing filter" functionally,
 #       here is the way (the names and networks are the params of the request example above):
 #
@@ -153,14 +154,14 @@ def add_routing_filter(params):
     if default_action == 'deny':  # deny all
         route_map_vtysh_commands += [
             f'route-map {name} permit 5',
-                f'description {description}',
-                f'match ip address {name}',
+            f'  description {description}',
+            f'  match ip address {name}',
         ]
     else: # allow all
         route_map_vtysh_commands += [
             f'route-map {name} deny 5',
-                f'description {description}',
-                f'match ip address {name}',
+            f'  description {description}',
+            f'  match ip address {name}',
 
             f'route-map {name} permit 10',
         ]

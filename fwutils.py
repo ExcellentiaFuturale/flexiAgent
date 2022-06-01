@@ -42,7 +42,6 @@ import shutil
 import sys
 import traceback
 import yaml
-import ipaddress
 import zlib
 import base64
 
@@ -545,7 +544,7 @@ def get_interface_configured_as_dhcp(if_name):
         return 'yes'
 
     if fwglobals.g.is_gcp_vm:
-        # all GCP interfaces are configured by their agent as dhcp
+        # all Google Cloud Platform interfaces are configured by their agent as dhcp
         return 'yes'
 
     return 'no'
@@ -2861,6 +2860,13 @@ def is_non_dpdk_interface(dev_id):
 
     return False
 
+def get_ipaddress_ip_network(ip_str):
+    try:
+        return ipaddress.ip_network(ip_str)
+    except Exception as e:
+        fwglobals.log.warning(f"_get_ip_network_from_str: {ip_str} is not ip address. err={str(e)}")
+        return None
+
 def frr_add_remove_interface_routes_if_needed(is_add, routing, dev_id):
     """Check if need to advertise in FRR some built-in routes automatically along with the given interface.
 
@@ -2881,25 +2887,20 @@ def frr_add_remove_interface_routes_if_needed(is_add, routing, dev_id):
         We need to specify them in our frr access lists.
 
     :param is_add: Indicate if to add the routes or removed them (add-X or remove-X process).
-    :param routing: Routing protocol to add routes for ("ospf" or "bgp"). ?k]jh=.
+    :param routing: Routing protocol to add routes for ("ospf" or "bgp").
     :param dev_id: Bus address of interface to check.
 
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
-    def _get_ip_network_obj_from_str(str):
-        try:
-            return ipaddress.ip_network(str)
-        except:
-            fwglobals.log.warning(f"_get_ip_network_from_str: {str} is not ip address")
-            return None
-
     try:
-        if_addr = get_interface_address(None, dev_id)
-        if not if_addr:
+        if_addr_str = get_interface_address(None, dev_id)
+        if not if_addr_str:
             fwglobals.log.warning(f"frr_add_remove_interface_routes_if_needed: no ip found for dev_id {dev_id}")
             return (True, None) # We do not fail add-interface if there is no IP
 
-        if_addr = _get_ip_network_obj_from_str(if_addr)
+        if_addr = get_ipaddress_ip_network(if_addr_str)
+        if not if_addr:
+            return (False, f'failed to convert {if_addr_str} to ip_network object')
 
         routes_to_advertise = []
 
@@ -2910,7 +2911,7 @@ def frr_add_remove_interface_routes_if_needed(is_add, routing, dev_id):
                 continue
 
             # make sure first word is a network
-            dest_network = _get_ip_network_obj_from_str(route.prefix)
+            dest_network = get_ipaddress_ip_network(route.prefix)
             if not dest_network:
                 continue
 
@@ -3833,14 +3834,15 @@ def restart_gcp_agent():
     '''
     os_system('systemctl restart google-guest-agent')
 
-def keyBy(list, key_name):
+def list_to_dict_by_key(list, key_name):
     ''' Creates an object that composed of keys generated from the results of running an each item of the given list.
 
     Currently, the function returns the element only if the "key" exists in the nested object.
     '''
     res = {}
     for item in list:
-        key = item.get(key_name)
-        if key:
-            res[key] = item
+        if type(item) == dict:
+            key = item.get(key_name)
+            if key:
+                res[key] = item
     return res

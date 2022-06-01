@@ -78,7 +78,7 @@ def main():
     fwwifi.stop_hostapd()
     fwnetplan.restore_linux_netplan_files()
 
-    if fwglobals.g.is_gcp_vm:
+    if fwglobals.g.is_gcp_vm: # Take care of Google Cloud Provider VM
         fwutils.restart_gcp_agent()
 
     lte_interfaces = fwlte.get_lte_interfaces_dev_ids()

@@ -850,11 +850,9 @@ class FWROUTER_API(FwCfgRequestHandler):
             if _request['message'] == 'start-router':
                 start_router_request = _request
                 continue
-
-            if _request['message'] == 'stop-router':
+            elif _request['message'] == 'stop-router':
                 stop_router_request = _request
                 continue
-
             if re.match('modify-', _request['message']):
                 requests.append(_request)
 
@@ -1107,7 +1105,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwutils.remove_linux_bridges()
         fwwifi.stop_hostapd()
 
-        if fwglobals.g.is_gcp_vm:
+        if fwglobals.g.is_gcp_vm: # Take care of Google Cloud Platform VM
             fwutils.restart_gcp_agent()
 
         # keep LTE connectivity on linux interface
