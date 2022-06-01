@@ -521,7 +521,7 @@ def add_interface(params):
                         'restart_frr': restart_frr,
                         'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func': func, 'arg': arg} ]
             }
-            cmd['cmd']['descr']   =  "add OSPF per link configuration of interface %s" % dev_id
+            cmd['cmd']['descr']   =  f"add OSPF per link configuration of interface {dev_id} ({iface_addr})"
             cmd['revert'] = {}
             cmd['revert']['func']    = "frr_vtysh_run"
             cmd['revert']['module']  = "fwutils"
@@ -530,7 +530,7 @@ def add_interface(params):
                         'restart_frr': restart_frr,
                         'substs': [ {'replace':'DEV-STUB', 'key': 'commands', 'val_by_func': func, 'arg': arg} ]
             }
-            cmd['revert']['descr']   =  "remove OSPF per link configuration of interface %s" % dev_id
+            cmd['revert']['descr']   =  f"remove OSPF per link configuration from interface {dev_id} ({iface_addr})"
             cmd_list.append(cmd)
 
     for routing_protocol in routing:
