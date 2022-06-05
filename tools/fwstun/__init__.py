@@ -11,6 +11,8 @@ sys.path.append(globals)
 __version__ = '1.0.0'
 
 g_stun_log = None # log object
+g_stun_socket = None
+g_stun_teardown = False
 
 STUN_SERVERS = (
     'stun.l.google.com:19302',
@@ -126,6 +128,15 @@ def _initialize():
     dictValToAttr= {v: k for k, v in list(dictAttrToVal.items())}
     dictValToMsgType = {v: k for k, v in list(dictMsgTypeToVal.items())}
 
+def finalize():
+    global g_stun_socket, g_stun_teardown
+    stun_log(f"Stun: teardown")
+    g_stun_teardown = True
+    if g_stun_socket:
+        stun_log(f"Stun: kill g_stun_socket={g_stun_socket})")
+        g_stun_socket.close()   # Break waiting in s.recvfrom() for response from dead server
+        g_stun_socket = None
+
 def set_log(log):
     global g_stun_log
     g_stun_log = log
@@ -240,6 +251,12 @@ def get_nat_type(s, source_ip, source_port, stun_host, stun_port, idx_start):
     else:
         list_len = len(stun_servers_list)
         for idx in range(idx_start, idx_start+list_len):
+
+            global g_stun_teardown
+            if g_stun_teardown:
+                stun_log(f"Stun: get_nat_type: break loop on teardown")
+                return None, None, None
+
             stun_host_ = stun_servers_list[idx%list_len]
             #FLEXIWAN_FIX: handle STUN server addresses in the form of ip:port
             stun_info = stun_host_.split(':')
@@ -321,9 +338,12 @@ def get_ip_info(source_ip="0.0.0.0", source_port=4789, stun_host=None,
     : param idx         : index in list of STUN servers, pointing to the server to send STUN from
 
     """
+    global g_stun_socket
+
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(3)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    g_stun_socket = s
     try:
         stun_log("get_ip_info, binding to %s:%d" %(source_ip, source_port))
         if dev_name != None:
@@ -331,13 +351,17 @@ def get_ip_info(source_ip="0.0.0.0", source_port=4789, stun_host=None,
         s.bind((source_ip, source_port))
     except Exception as e:
         stun_log("get_ip_info: bind: %s" % str(e))
+        g_stun_socket = None
         s.close()
         return ('', '', '', '')
 
     nat_type, nat, stun_idx = get_nat_type(s, source_ip, source_port, \
                                 stun_host=stun_host, stun_port=stun_port, idx_start = idx)
+    if not nat:
+        return '', '', '', ''
     external_ip = nat['ExternalIP'] if nat['ExternalIP'] != None else ''
     external_port = nat['ExternalPort'] if nat['ExternalPort'] != None else ''
+    g_stun_socket = None
     s.close()
     nat_type = '' if nat_type == None else nat_type
     return (nat_type, external_ip, external_port, stun_idx)
