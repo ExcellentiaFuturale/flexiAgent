@@ -115,17 +115,17 @@ class FwPppoeConnection(FwObject):
         self.opened = False
 
         sys_cmd = f'ip -4 addr flush label "{self.if_name}"'
-        rc = fwutils.os_system(sys_cmd, 'PPPoE open')
+        rc, _ = fwutils.os_system(sys_cmd, 'PPPoE open')
         if not rc:
             return
 
         sys_cmd = f'ip link set dev {self.if_name} up'
-        rc = fwutils.os_system(sys_cmd, 'PPPoE open')
+        rc, _ = fwutils.os_system(sys_cmd, 'PPPoE open')
         if not rc:
             return
 
         sys_cmd = 'pon %s' % self.filename
-        rc = fwutils.os_system(sys_cmd, 'PPPoE open')
+        rc, _ = fwutils.os_system(sys_cmd, 'PPPoE open')
         if not rc:
             return
 
@@ -156,7 +156,7 @@ class FwPppoeConnection(FwObject):
             self.remove_linux_ip_route(self.addr)
 
         sys_cmd = 'poff %s' % self.filename
-        rc = fwutils.os_system(sys_cmd, 'PPPoE close')
+        rc, _ = fwutils.os_system(sys_cmd, 'PPPoE close')
         if not rc:
             return
 

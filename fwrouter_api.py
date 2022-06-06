@@ -336,7 +336,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             #
             if restart_dhcp_service:
                 if not restart_router: # on router restart DHCP service is restarted as well
-                    fwutils.restart_service(service='isc-dhcp-server', timeout=5)
+                    cmd = 'systemctl restart isc-dhcp-server'
+                    fwutils.os_system(cmd, 'call')
 
             # Reconnect agent if needed
             #

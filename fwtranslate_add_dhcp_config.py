@@ -56,14 +56,14 @@ def _restart_dhcp_server(cmd_list):
     """
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['func']   = "restart_service"
+    cmd['cmd']['func']   = "os_system"
     cmd['cmd']['module'] = "fwutils"
-    cmd['cmd']['params'] = { 'service': 'isc-dhcp-server', 'timeout': 5 }
+    cmd['cmd']['params'] = { 'cmd': 'systemctl restart isc-dhcp-server', 'log_prefix': '_restart_dhcp_server' }
     cmd['cmd']['descr'] = "restart dhcp service"
     cmd['revert'] = {}
-    cmd['revert']['func']   = "restart_service"
+    cmd['revert']['func']   = "os_system"
     cmd['revert']['module'] = "fwutils"
-    cmd['revert']['params'] = { 'service': 'isc-dhcp-server', 'timeout': 5 }
+    cmd['revert']['params'] = { 'cmd': 'systemctl restart isc-dhcp-server', 'log_prefix': '_restart_dhcp_server' }
     cmd['revert']['descr'] = "restart dhcp service"
     cmd_list.append(cmd)
 
