@@ -70,6 +70,11 @@ fwrouter_translators = {
     'remove-firewall-policy':   {'module': __import__('fwtranslate_revert'),          'api':'revert'},
     'add-ospf':                 {'module': __import__('fwtranslate_add_ospf'),        'api':'add_ospf'},
     'remove-ospf':              {'module': __import__('fwtranslate_revert'),          'api':'revert'},
+    'add-routing-bgp':          {'module': __import__('fwtranslate_add_routing_bgp'),  'api':'add_routing_bgp'},
+    'remove-routing-bgp':       {'module': __import__('fwtranslate_revert'),          'api':'revert'},
+    'modify-routing-bgp':       {'module': __import__('fwtranslate_add_routing_bgp'),  'api':'modify_routing_bgp',     'supported_params':'modify_routing_bgp_supported_params'},
+    'add-routing-filter':       {'module': __import__('fwtranslate_add_routing_filter'), 'api':'add_routing_filter'},
+    'remove-routing-filter':    {'module': __import__('fwtranslate_revert'),           'api':'revert'},
 }
 
 class FwRouterState(enum.Enum):
@@ -622,9 +627,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                 # Check assigned interfaces
                 #
                 interface =  monitor_interfaces.get(request['params']['dev_id'])
-                if interface and not interface['addr']:
-                    self.log.debug(f"pending request detected by dev-id: {str(request)}")
-                    return True
+                if interface:
+                    if not interface['addr']:
+                        self.log.debug(f"pending request detected by dev-id: {str(request)}")
+                        return True
+                    return False
                 # Check unassigned interfaces
                 #
                 if_name = fwutils.get_interface_name(request['params']['via'], by_subnet=True)
@@ -941,11 +948,11 @@ class FWROUTER_API(FwCfgRequestHandler):
         #     'add-application', 'add-multilink-policy', 'add-firewall-policy' ]
         #
         add_order = [
-            'add-ospf', 'add-switch', 'add-interface', 'add-tunnel', 'add-route',
-            'add-dhcp-config', 'add-application', 'add-multilink-policy', 'add-firewall-policy', 'start-router'
+            'add-ospf', 'add-routing-filter', 'add-routing-bgp', 'add-switch',
+            'add-interface', 'add-tunnel', 'add-route', 'add-dhcp-config',
+            'add-application', 'add-multilink-policy', 'add-firewall-policy',
         ]
-        remove_order = [ re.sub('add-','remove-', name) for name in add_order if name != 'start-router' ]
-        remove_order.append('stop-router')
+        remove_order = [ re.sub('add-','remove-', name) for name in add_order ]
         remove_order.reverse()
         requests     = []
         for req_name in remove_order:
@@ -956,6 +963,28 @@ class FWROUTER_API(FwCfgRequestHandler):
             for _request in params['requests']:
                 if re.match(req_name, _request['message']):
                     requests.append(_request)
+
+        start_router_request = None
+        stop_router_request = None
+        # append modify-x after all remove-x and add-x
+        for _request in params['requests']:
+            if _request['message'] == 'start-router':
+                start_router_request = _request
+                continue
+            elif _request['message'] == 'stop-router':
+                stop_router_request = _request
+                continue
+            if re.match('modify-', _request['message']):
+                requests.append(_request)
+
+        # append start-router at the end
+        if start_router_request:
+            requests.append(start_router_request)
+
+        # insert stop-router as the first request
+        if stop_router_request:
+            requests.insert(0, stop_router_request)
+
         if requests != params['requests']:
             params['requests'] = requests
         requests = params['requests']
@@ -1154,11 +1183,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         #
         os.system('sudo rm -rf /tmp/*%s' % fwglobals.g.VPP_TRACE_FILE_EXT)
 
-        # Clean FRR config files
-        if os.path.exists(fwglobals.g.FRR_CONFIG_FILE):
-            os.remove(fwglobals.g.FRR_CONFIG_FILE)
-        if os.path.exists(fwglobals.g.FRR_OSPFD_FILE):
-            os.remove(fwglobals.g.FRR_OSPFD_FILE)
+        fwutils.frr_clean_files()
 
         fwutils.reset_router_api_db(enforce=True)
 
@@ -1180,7 +1205,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             # We don't want to fail router start due to failure to save frr configuration file,
             # so we just log the error and return. Hopefully frr will not crash,
             # so the configuration file will be not needed.
-            fwglobals.log.error(f"_on_apply_router_config: failed to flush frr configuration into file: {str(err)}")
+            fwglobals.log.error(f"_on_start_router_after: failed to flush frr configuration into file: {str(err)}")
 
         fwglobals.g.pppoe.start()
         self.log.info("router was started: vpp_pid=%s" % str(fwutils.vpp_pid()))
@@ -1209,6 +1234,9 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwutils.reset_traffic_control()
         fwutils.remove_linux_bridges()
         fwwifi.stop_hostapd()
+
+        if fwglobals.g.is_gcp_vm: # Take care of Google Cloud Platform VM
+            fwutils.restart_gcp_agent()
 
         # keep LTE connectivity on linux interface
         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
@@ -1322,13 +1350,15 @@ class FWROUTER_API(FwCfgRequestHandler):
         #
         types = [
             'add-ospf',
+            'add-routing-filter',
+            'add-routing-bgp',             # BGP should come after routing filter, as it might use them!
             'add-switch',
             'add-interface',
             'add-tunnel',
             'add-application',
             'add-multilink-policy',
             'add-firewall-policy',
-            'add-route',            # Routes should come after tunnels as they might use them!
+            'add-route',            # Routes should come after tunnels and after BGP, as they might use them!
             'add-dhcp-config'
         ]
         messages = self.cfg_db.dump(types=types)

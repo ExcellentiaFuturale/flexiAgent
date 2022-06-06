@@ -67,7 +67,8 @@ def add_route(params):
                                     'via'   : params['via'],
                                     'metric': params.get('metric'),
                                     'remove': False,
-                                    'dev_id': params.get('dev_id')
+                                    'dev_id': params.get('dev_id'),
+                                    'on_link': params.get('onLink'),
                               }
     cmd['revert'] = {}
     cmd['revert']['func']   = "add_remove_route"
@@ -78,29 +79,47 @@ def add_route(params):
                                     'via'   : params['via'],
                                     'metric': params.get('metric'),
                                     'remove': True,
-                                    'dev_id': params.get('dev_id')
+                                    'dev_id': params.get('dev_id'),
+                                    'on_link': params.get('onLink'),
                               }
     cmd_list.append(cmd)
 
     # Add this static route to the ACL permit filter
-    if params.get('redistributeViaOSPF', False) == True:
+    if params.get('redistributeViaOSPF'):
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']   = "frr_vtysh_run"
         cmd['cmd']['module'] = "fwutils"
         cmd['cmd']['params'] = {
-                    'commands': ["router ospf", "access-list %s permit %s" % (fwglobals.g.FRR_OSPF_ACL, params['addr'])]
+                    'commands': [f"access-list {fwglobals.g.FRR_OSPF_ACL} permit {params['addr']}"]
         }
-        cmd['cmd']['descr']   =  "add %s to the allowed redistribution filter list" % params['addr']
+        cmd['cmd']['descr']   =  "add %s to the allowed OSPF redistribution filter list" % params['addr']
         cmd['revert'] = {}
         cmd['revert']['func']   = "frr_vtysh_run"
         cmd['revert']['module'] = "fwutils"
         cmd['revert']['params'] = {
-                    'commands': ["router ospf", "no access-list %s permit %s" % (fwglobals.g.FRR_OSPF_ACL, params['addr'])]
+                    'commands': ["no access-list %s permit %s" % (fwglobals.g.FRR_OSPF_ACL, params['addr'])]
         }
-        cmd['revert']['descr']   =  "remove %s from the allowed redistribution filter list" % params['addr']
+        cmd['revert']['descr']   =  "remove %s from the allowed OSPF redistribution filter list" % params['addr']
         cmd_list.append(cmd)
 
+    if params.get('redistributeViaBGP'):
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']   = "frr_vtysh_run"
+        cmd['cmd']['module'] = "fwutils"
+        cmd['cmd']['params'] = {
+                    'commands': [f"access-list {fwglobals.g.FRR_BGP_ACL} permit {params['addr']}"]
+        }
+        cmd['cmd']['descr']   =  "add %s to the allowed BGP redistribution filter list" % params['addr']
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "frr_vtysh_run"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['params'] = {
+                'commands': [f"no access-list {fwglobals.g.FRR_BGP_ACL} permit {params['addr']}"]
+        }
+        cmd['revert']['descr']   =  "remove %s from the BGP allowed redistribution filter list" % params['addr']
+        cmd_list.append(cmd)
     return cmd_list
 
 def get_request_key(params):
