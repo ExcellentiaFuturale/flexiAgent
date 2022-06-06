@@ -466,13 +466,18 @@ def add_interface(params):
         # which always up and has ip.
         # Unlike a standard LAN interface that can also be DHCP without IP and
         # we need to query IP on real time.
-        network = bridge_addr if bridge_addr else 'DEV-NETWORK'
-        cmd_params = { 'commands': ["router ospf", f"network {network} area {area}"] }
-        revert_params = { 'commands': ["router ospf", f"no network {network} area {area}"] }
-
-        if not bridge_addr:
-            cmd_params['substs'] = [ {'replace':'DEV-NETWORK', 'key': 'commands', 'val_by_func': 'get_interface_address', 'arg': [None, dev_id]} ]
-            revert_params['substs'] = [ {'replace':'DEV-NETWORK', 'key': 'commands', 'val_by_func': 'get_interface_address', 'arg': [None, dev_id]} ]
+        if bridge_addr:
+            cmd_params    = { 'commands': ["router ospf", f"network {bridge_addr} area {area}"] }
+            revert_params = { 'commands': ["router ospf", f"no network {bridge_addr} area {area}"] }
+        else:
+            cmd_params = {
+                       'commands': ["router ospf", f"network DEV-NETWORK area {area}"],
+                       'substs': [ {'replace':'DEV-NETWORK', 'key': 'commands', 'val_by_func': 'get_interface_address', 'arg': [None, dev_id]} ]
+            }
+            revert_params = {
+                       'commands': ["router ospf", f"no network DEV-NETWORK area {area}"],
+                       'substs': [ {'replace':'DEV-NETWORK', 'key': 'commands', 'val_by_func': 'get_interface_address', 'arg': [None, dev_id]} ]
+            }
 
         cmd = {}
         cmd['cmd'] = {}
