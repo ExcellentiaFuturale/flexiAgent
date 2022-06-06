@@ -1018,7 +1018,7 @@ def get_stats():
 def on_add_interface(dev_id):
     gw = get_ip_configuration(dev_id,'gateway')
     if gw:
-        ret = fwutils.os_system(f"sudo arp -s {gw} 00:00:00:00:00:00")
+        ret, _ = fwutils.os_system(f"sudo arp -s {gw} 00:00:00:00:00:00")
         return ret
 
 def on_remove_interface(dev_id):
