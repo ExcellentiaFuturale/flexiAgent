@@ -116,6 +116,11 @@ request_handlers = {
     'remove-multilink-policy':      {'name': '_call_router_api', 'sign': True},
     'add-ospf':                     {'name': '_call_router_api', 'sign': True},
     'remove-ospf':                  {'name': '_call_router_api', 'sign': True},
+    'add-routing-bgp':              {'name': '_call_router_api', 'sign': True},
+    'remove-routing-bgp':           {'name': '_call_router_api', 'sign': True},
+    'modify-routing-bgp':           {'name': '_call_router_api', 'sign': True},
+    'add-routing-filter':           {'name': '_call_router_api', 'sign': True},
+    'remove-routing-filter':        {'name': '_call_router_api', 'sign': True},
     'add-switch':                   {'name': '_call_router_api', 'sign': True},
     'remove-switch':                {'name': '_call_router_api', 'sign': True},
     'add-firewall-policy':          {'name': '_call_router_api', 'sign': True},
@@ -255,12 +260,16 @@ class Fwglobals(FwObject):
         self.VPP_CONFIG_FILE_BACKUP   = '/etc/vpp/startup.conf.baseline'
         self.VPP_CONFIG_FILE_RESTORE = '/etc/vpp/startup.conf.orig'
         self.VPP_TRACE_FILE_EXT  = '.vpp.api'
+        self.FRR_ZEBRA_FILE      = '/etc/frr/zebra.conf'
         self.FRR_DAEMONS_FILE    = '/etc/frr/daemons'
         self.FRR_CONFIG_FILE     = '/etc/frr/frr.conf'
         self.FRR_OSPFD_FILE      = '/etc/frr/ospfd.conf'
+        self.FRR_BGPD_FILE      = '/etc/frr/bgpd.conf'
         self.FRR_VTYSH_FILE      = '/etc/frr/vtysh.conf'
         self.FRR_OSPF_ACL       = 'fw-redist-ospf-acl'
         self.FRR_OSPF_ROUTE_MAP = 'fw-redist-ospf-rm'
+        self.FRR_BGP_ACL       = 'fw-redist-bgp-acl'
+        self.FRR_BGP_ROUTE_MAP = 'fw-redist-bgp-rm'
         self.DHCPD_CONFIG_FILE   = '/etc/dhcp/dhcpd.conf'
         self.DHCPD_CONFIG_FILE_BACKUP = '/etc/dhcp/dhcpd.conf.fworig'
         self.ISC_DHCP_CONFIG_FILE = '/etc/default/isc-dhcp-server'
@@ -296,6 +305,7 @@ class Fwglobals(FwObject):
         self.DEFAULT_DNS_SERVERS           = ['8.8.8.8', '8.8.4.4']
         self.router_threads                = FwRouterThreading() # Primitives used for synchronization of router configuration and monitoring threads
         self.handle_request_lock           = threading.RLock()
+        self.is_gcp_vm                     = fwutils.detect_gcp_vm()
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)

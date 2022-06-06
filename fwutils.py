@@ -42,7 +42,6 @@ import shutil
 import sys
 import traceback
 import yaml
-import ipaddress
 import zlib
 import base64
 
@@ -58,6 +57,7 @@ from fwmultilink    import FwMultilink
 from fwpolicies     import FwPolicies
 from fwrouter_cfg   import FwRouterCfg
 from fwsystem_cfg   import FwSystemCfg
+from fwroutes       import FwLinuxRoutes
 from fwapplications_cfg import FwApplicationsCfg
 from fwwan_monitor  import get_wan_failover_metric
 from fw_traffic_identification import FwTrafficIdentifications
@@ -159,15 +159,15 @@ def get_machine_serial():
         return str(serial)
     except:
         return '0'
-def pid_of(proccess_name):
+def pid_of(process_name):
     """Get pid of process.
 
-    :param proccess_name:   Proccess name.
+    :param process_name:   Process name.
 
     :returns:           process identifier.
     """
     try:
-        pid = subprocess.check_output(['pidof', proccess_name]).decode()
+        pid = subprocess.check_output(['pidof', process_name]).decode()
     except:
         pid = None
     return pid
@@ -534,6 +534,21 @@ def is_bridged_interface(dev_id):
 
     return None
 
+def get_interface_is_dhcp(if_name):
+    is_dhcp_in_netplan = fwnetplan.get_dhcp_netplan_interface(if_name)
+    if is_dhcp_in_netplan == 'yes':
+        return is_dhcp_in_netplan
+
+    dhclient_running_for_if_name = os.popen(f'ps -aux | grep "dhclient {if_name}" | grep -v grep').read()
+    if dhclient_running_for_if_name:
+        return 'yes'
+
+    if fwglobals.g.is_gcp_vm:
+        # all Google Cloud Platform interfaces are configured by their agent as dhcp
+        return 'yes'
+
+    return 'no'
+
 def get_linux_interfaces(cached=True, if_dev_id=None):
     """Fetch interfaces from Linux.
 
@@ -587,7 +602,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
 
             interface['link'] = get_interface_link_state(if_name, dev_id)
 
-            interface['dhcp'] = fwnetplan.get_dhcp_netplan_interface(if_name)
+            interface['dhcp'] = get_interface_is_dhcp(if_name)
 
             interface['mtu'] = get_linux_interface_mtu(if_name)
 
@@ -1537,10 +1552,6 @@ def reset_device_config(pppoe=False, applications=True):
         system_cfg.clean()
     if os.path.exists(fwglobals.g.ROUTER_STATE_FILE):
         os.remove(fwglobals.g.ROUTER_STATE_FILE)
-    if os.path.exists(fwglobals.g.FRR_CONFIG_FILE):
-        os.remove(fwglobals.g.FRR_CONFIG_FILE)
-    if os.path.exists(fwglobals.g.FRR_OSPFD_FILE):
-        os.remove(fwglobals.g.FRR_OSPFD_FILE)
     if os.path.exists(fwglobals.g.VPP_CONFIG_FILE_BACKUP):
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE_BACKUP, fwglobals.g.VPP_CONFIG_FILE)
     elif os.path.exists(fwglobals.g.VPP_CONFIG_FILE_RESTORE):
@@ -1568,6 +1579,7 @@ def reset_device_config(pppoe=False, applications=True):
     if pppoe:
         fwpppoe.pppoe_remove()
 
+    frr_clean_files()
     reset_router_api_db_sa_id() # sa_id-s are used in translations of router configuration, so clean them too.
     reset_router_api_db(enforce=True)
 
@@ -2848,14 +2860,113 @@ def is_non_dpdk_interface(dev_id):
 
     return False
 
-def frr_vtysh_run(commands, restart_frr=False, wait_after=None):
+def get_ipaddress_ip_network(ip_str):
+    try:
+        return ipaddress.ip_network(ip_str)
+    except Exception as e:
+        fwglobals.log.warning(f"_get_ip_network_from_str: {ip_str} is not ip address. err={str(e)}")
+        return None
+
+def frr_add_remove_interface_routes_if_needed(is_add, routing, dev_id):
+    """Check if need to advertise in FRR some built-in routes automatically along with the given interface.
+
+    For example, if an interface has an address with /32 netmask,
+        the DHCP server pushes routes to the client to reach the whole network via the gateway.
+        Once we call "netplan apply" for this interface, new routes are installed with the "DHCP" protocol.
+            root@VB1:/etc/frr# ip a
+            vpp1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UNKNOWN group default qlen 1000
+                link/ether 08:00:27:96:18:0e brd ff:ff:ff:ff:ff:ff
+                inet 155.155.155.10/32 scope global dynamic vpp1
+                valid_lft 455sec preferred_lft 455sec
+
+            root@VB1:/etc/frr# ip route
+            155.155.155.0/24 via 155.155.155.1 dev vpp1 proto dhcp src 155.155.155.10
+            155.155.155.1 dev vpp1 proto dhcp scope link src 155.155.155.10
+
+        In order to advertised the whole network to OSPF/BGP neighbors, and not only the interface ip and mask,
+        We need to specify them in our frr access lists.
+
+    :param is_add: Indicate if to add the routes or removed them (add-X or remove-X process).
+    :param routing: Routing protocol to add routes for ("ospf" or "bgp").
+    :param dev_id: Bus address of interface to check.
+
+    :returns: (True, None) tuple on success, (False, <error string>) on failure.
+    """
+    try:
+        if_addr_str = get_interface_address(None, dev_id)
+        if not if_addr_str:
+            fwglobals.log.warning(f"frr_add_remove_interface_routes_if_needed: no ip found for dev_id {dev_id}")
+            return (True, None) # We do not fail add-interface if there is no IP
+
+        if_addr = get_ipaddress_ip_network(if_addr_str)
+        if not if_addr:
+            return (False, f'failed to convert {if_addr_str} to ip_network object')
+
+        routes_to_advertise = []
+
+        # get linux ip routes
+        routes_linux = FwLinuxRoutes(proto='dhcp')
+        for route in routes_linux.values():
+            if route.prefix == '0.0.0.0/0':
+                continue
+
+            # make sure first word is a network
+            dest_network = get_ipaddress_ip_network(route.prefix)
+            if not dest_network:
+                continue
+
+            # /32 routes are not relevant here
+            if dest_network.prefixlen == 32:
+                continue
+
+            # get linux ip routes
+            if dest_network.overlaps(if_addr):
+                routes_to_advertise.append(str(dest_network))
+
+        if routing == 'ospf':
+            frr_acl_name = fwglobals.g.FRR_OSPF_ACL
+        elif routing == 'bgp':
+            frr_acl_name = fwglobals.g.FRR_BGP_ACL
+        else:
+            return (False, f'frr_add_remove_interface_routes_if_needed(): unsupported routing protocol ({routing}) provided')
+
+        revert_succeeded_vtysh_commands = []
+        for route in routes_to_advertise:
+            if is_add:
+                cmd = f"access-list {frr_acl_name} permit {route}"
+                revert_cmd = f"no {cmd}"
+            else:
+                cmd = f"no access-list {frr_acl_name} permit {route}"
+                revert_cmd = cmd.split(maxsplit=1)[1] # take out the "no" by splitting by first space and take the rest.
+
+            success, err = frr_vtysh_run([cmd])
+            if success:
+                revert_succeeded_vtysh_commands.append(revert_cmd)
+            else:
+                # first revert the succeeded commands, then throw exception.
+                # don't catch exception of revert because it has no end. In any case exception will be thrown
+                frr_vtysh_run(revert_succeeded_vtysh_commands)
+                raise Exception(err)
+
+        return (True, None)
+    except Exception as e:
+        return (False, f'frr_add_remove_interface_routes_if_needed({is_add}, {routing}, {dev_id}): failed. error={str(e)}')
+
+def frr_vtysh_run(commands, restart_frr=False, wait_after=None, on_error_commands=[]):
     '''Run vtysh command to configure router
 
-    :param commands:    array of frr commands
-    :param restart_frr: some OSPF configurations require restarting the service in order to apply them
-    :param wait_after:  seconds to wait after successfull command execution.
-                        It might be needed to give a systemt/vpp time to get updates as a result of frr update.
+    :param commands:          array of frr commands
+    :param restart_frr:       some OSPF configurations require restarting the service in order to apply them
+    :param wait_after:        seconds to wait after successful command execution.
+                              It might be needed to give a system/vpp time to get updates as a result of frr update.
+    :param on_error_commands: array of frr commands to run if one of the "commands" fails.
     '''
+    def _revert():
+        if on_error_commands:
+            str_error_commands = "\n".join(on_error_commands)
+            fwglobals.log.debug(f"frr_vtysh_run: revert starting. on_error_commands={str_error_commands}")
+            frr_vtysh_run(on_error_commands, restart_frr, on_error_commands=[]) # on_error_commands= empty list to prevent infinite loop
+            fwglobals.log.debug(f"frr_vtysh_run: revert finished")
     try:
         shell_commands = ' -c '.join(map(lambda x: '"%s"' % x, commands))
         vtysh_cmd = f'sudo /usr/bin/vtysh -c "configure" -c {shell_commands}'
@@ -2869,11 +2980,13 @@ def frr_vtysh_run(commands, restart_frr=False, wait_after=None):
         if restart_frr or fwglobals.g.router_api.state_is_started() == True:
             vtysh_cmd += (' ; sudo /usr/bin/vtysh -c "write" > /dev/null')
 
-        output = os.popen(vtysh_cmd).read().splitlines()
-
-        # in output, the first line might contains error. So we print only the first line
-        fwglobals.log.debug("frr_vtysh_run: vtysh_cmd=%s, wait_after=%s, output=%s" %
-                            (vtysh_cmd, str(wait_after), output[0] if output else ''))
+        p = subprocess.Popen(vtysh_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        (out, err) = p.communicate()
+        # Note, vtysh cli prints errors to STDOUT. If no errors, "out" is empty string.
+        if out:
+            fwglobals.log.error(f"frr_vtysh_run: failed to run FRR commands. vtysh_cmd={vtysh_cmd} out={out}. err={err}. reverting...")
+            _revert()
+            return (False, out)
 
         if restart_frr:
             os.system('systemctl restart frr')
@@ -2883,6 +2996,8 @@ def frr_vtysh_run(commands, restart_frr=False, wait_after=None):
 
         return (True, None)
     except Exception as e:
+        fwglobals.log.error(f"frr_vtysh_run: exception occurred. commands={commands} err={str(e)}. reverting..")
+        _revert()
         return (False, str(e))
 
 def frr_flush_config_into_file():
@@ -2897,6 +3012,25 @@ def frr_flush_config_into_file():
     except Exception as e:
         return str(e)
 
+def frr_clean_files():
+    if os.path.exists(fwglobals.g.FRR_CONFIG_FILE):
+        os.remove(fwglobals.g.FRR_CONFIG_FILE)
+
+    if os.path.exists(fwglobals.g.FRR_OSPFD_FILE):
+        os.remove(fwglobals.g.FRR_OSPFD_FILE)
+    if os.path.exists(fwglobals.g.FRR_OSPFD_FILE + '.sav'): # frr cache file
+        os.remove(fwglobals.g.FRR_OSPFD_FILE + '.sav')
+
+    if os.path.exists(fwglobals.g.FRR_BGPD_FILE):
+        os.remove(fwglobals.g.FRR_BGPD_FILE)
+    if os.path.exists(fwglobals.g.FRR_BGPD_FILE + '.sav'): # frr cache file
+        os.remove(fwglobals.g.FRR_BGPD_FILE + '.sav')
+
+    if os.path.exists(fwglobals.g.FRR_ZEBRA_FILE):
+        os.remove(fwglobals.g.FRR_ZEBRA_FILE)
+    if os.path.exists(fwglobals.g.FRR_ZEBRA_FILE + '.sav'): # frr cache file
+        os.remove(fwglobals.g.FRR_ZEBRA_FILE + '.sav')
+
 def frr_setup_config():
     '''Setup the /etc/frr/frr.conf file, initializes it and
     ensures that ospf is switched on in the frr configuration'''
@@ -2904,6 +3038,12 @@ def frr_setup_config():
     # Ensure that ospfd is switched on in /etc/frr/daemons.
     subprocess.check_call('if [ -n "$(grep ospfd=no %s)" ]; then sudo sed -i -E "s/ospfd=no/ospfd=yes/" %s; sudo systemctl restart frr; fi'
             % (fwglobals.g.FRR_DAEMONS_FILE,fwglobals.g.FRR_DAEMONS_FILE), shell=True)
+
+    # Ensure that bgpd is switched on in /etc/frr/daemons.
+    # Importnat! We have to enable it always in order that access-lists and route-maps
+    # will be recognized by bgpd deamon
+    subprocess.check_call('if [ -n "$(grep bgpd=no %s)" ]; then sudo sed -i -E "s/bgpd=no/bgpd=yes/" %s; sudo systemctl restart frr; fi'
+            % (fwglobals.g.FRR_DAEMONS_FILE, fwglobals.g.FRR_DAEMONS_FILE), shell=True)
 
     # Ensure that integrated-vtysh-config is disabled in /etc/frr/vtysh.conf.
     subprocess.check_call('sudo sed -i -E "s/^service integrated-vtysh-config/no service integrated-vtysh-config/" %s' % (fwglobals.g.FRR_VTYSH_FILE), shell=True)
@@ -3673,3 +3813,36 @@ def os_system(cmd, log_prefix="", log=True, print_error=True):
         fwglobals.log.error(f'{prefix}command failed: {cmd}')
 
     return not bool(rc)
+
+def detect_gcp_vm():
+    '''Detect if the machine is a VM of Google Cloud Platform.
+    '''
+    cmd = 'sudo dmidecode -s system-product-name | grep "Google Compute Engine"'
+    output = os.popen(cmd).read().strip()
+    return output == "Google Compute Engine"
+
+def restart_gcp_agent():
+    '''Restart the google-guest-agent service
+
+    GCP configures all interfaces, LAN and WAN as DHCP clients.
+    Only WAN interfaces they put into Netplan but not LAN interfaces.
+    As well, the assigned ip is with /32 mask.
+    To be able to reach the whole subnet (e.f. /24), they push some DHCP options
+    that install the required static routes.
+    So here, after we release the LAN interfaces back to Linux, we need to restart
+    their agent service to reconfigured all network interfaces.
+    '''
+    os_system('systemctl restart google-guest-agent')
+
+def list_to_dict_by_key(list, key_name):
+    ''' Creates an object that composed of keys generated from the results of running an each item of the given list.
+
+    Currently, the function returns the element only if the "key" exists in the nested object.
+    '''
+    res = {}
+    for item in list:
+        if type(item) == dict:
+            key = item.get(key_name)
+            if key:
+                res[key] = item
+    return res

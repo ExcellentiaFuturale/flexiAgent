@@ -274,7 +274,7 @@ class FwLinuxRoutes(dict):
 
         return False
 
-def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev=None, netplan_apply=True):
+def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev=None, netplan_apply=True, on_link=False):
     """Add/Remove route.
 
     :param addr:            Destination network.
@@ -286,6 +286,8 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
     :param dev:             Name of device in Linux to be used for the route.
                             This parameter has higher priority than the 'dev_id'.
     :param netplan_apply:   If False, the 'netplan apply' command will be not run at the end of this function.
+    :param on_link:         If True, "onlink" option will be set to the route.
+                            It pretends that the 'nexthop' is directly attached to this link, even if it does not match any interface prefix
 
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
@@ -301,7 +303,7 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
 
     pppoe = fwpppoe.is_pppoe_interface(dev_id=dev_id)
     if not pppoe:  # PPPoE interfaces can use any peer in the world as a GW, so escape sanity checks for it
-        if not fwutils.linux_check_gateway_exist(via):
+        if not on_link and not fwutils.linux_check_gateway_exist(via):
             return (True, None)
         if not remove:
             tunnel_addresses = fwtunnel_stats.get_tunnel_info()
@@ -337,7 +339,7 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
         if not dev:
             cmd = "sudo ip route %s %s%s proto %s nexthop via %s %s" % (op, addr, metric, proto, via, next_hops)
         else:
-            cmd = "sudo ip route %s %s%s proto %s nexthop via %s dev %s %s" % (op, addr, metric, proto, via, dev, next_hops)
+            cmd = "sudo ip route %s %s%s proto %s nexthop via %s dev %s %s %s" % (op, addr, metric, proto, via, dev, next_hops, 'onlink' if on_link else '')
 
     try:
         fwglobals.log.debug(cmd)
