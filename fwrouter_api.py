@@ -256,10 +256,10 @@ class FWROUTER_API(FwCfgRequestHandler):
             if old['addr'] != new['addr']:
                 if new['type'] == 'wan':
                     # Reconstruct pending tunnels and static routes
-                    nnoww
+                    _restore_pending_requests(dev_id, new)
                 elif new['type'] == 'lan':
                     # Update OSPF configuration with new network
-                    nnoww
+                    nnoww - take bride_addr in account!!!!!!!!!!!!
 
 
     def _get_monitor_interfaces(self, cached=True):
@@ -282,7 +282,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 cached_interface['if_name'] = if_name
                 cached_interface['addr']        = fwutils.get_interface_address(if_name, log=False)
                 cached_interface['gw']          = fwutils.get_interface_gateway(if_name)
-                cached_interface['dhcp']        = interface['type'].lower()         # yes/no
+                cached_interface['dhcp']        = interface['dhcp'].lower()         # yes/no
                 cached_interface['type']        = interface['type'].lower()         # LAN/WAN
                 cached_interface['deviceType']  = interface['deviceType'].lower()   # DPDK/WIFI/LTE
                 self.monitor_interfaces[dev_id] = cached_interface
@@ -349,6 +349,11 @@ class FWROUTER_API(FwCfgRequestHandler):
             self.log.excep("restore_vpp_if_needed: %s" % str(e))
             self.state_change(FwRouterState.FAILED, "failed to restore vpp configuration")
         self.log.info("====restore vpp: finished===")
+
+    def _restore_pending_requests(dev_id, monitor_interface):
+        '''
+        '''
+        nnoww
 
     def start_router(self):
         """Execute start router command.
