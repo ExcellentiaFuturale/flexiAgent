@@ -420,13 +420,16 @@ class FwWanMonitor(FwObject):
         interfaces = fwglobals.g.router_cfg.get_interfaces()
         for interface in interfaces:
             tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
-            sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(interface['dev_id'], verbose=False)
-            status_vpp  = fwutils.vpp_get_interface_status(sw_if_index)
+            if fwpppoe.is_pppoe_interface(dev_id=interface['dev_id']):
+                status_vpp  = fwutils.get_interface_link_state(tap_name, interface['dev_id'])
+            else:
+                sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(interface['dev_id'], verbose=False)
+                status_vpp  = fwutils.vpp_get_interface_status(sw_if_index)['link']
             (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{tap_name}/carrier")
-            if status_vpp['link'] == 'down' and ok and status_linux and int(status_linux)==1:
+            if status_vpp == 'down' and ok and status_linux and int(status_linux)==1:
                 self.log.debug(f"detected NO-CARRIER for {tap_name}")
                 fwutils.os_system(f"echo 0 > /sys/class/net/{tap_name}/carrier")
-            elif status_vpp['link'] == 'up' and ok and status_linux and int(status_linux)==0:
+            elif status_vpp == 'up' and ok and status_linux and int(status_linux)==0:
                 self.log.debug(f"detected CARRIER UP for {tap_name}")
                 fwutils.os_system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
 
