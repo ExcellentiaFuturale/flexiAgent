@@ -37,8 +37,8 @@ conf_file = sys.argv[1]
 
 try:
     # get all frr routes
-    ospf_output = os.popen('vtysh -c "show ip route json"').read()
-    parsed = json.loads(ospf_output)
+    frr_output = os.popen('vtysh -c "show ip route json"').read()
+    parsed = json.loads(frr_output)
 
     routes = set()
 
