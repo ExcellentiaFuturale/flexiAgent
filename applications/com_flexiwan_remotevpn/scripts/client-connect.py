@@ -36,16 +36,26 @@ logger = Logger()
 conf_file = sys.argv[1]
 
 try:
-    # get all ospf routes
-    output = os.popen('vtysh -c "show ip route ospf json"').read()
-    parsed = json.loads(output)
+    # get all frr routes
+    ospf_output = os.popen('vtysh -c "show ip route json"').read()
+    parsed = json.loads(ospf_output)
 
-    # push ospf routes to the clients
+    routes = set()
+
+    # push ospf/bgp routes to the clients
     for network in parsed:
-        ip_network = IPv4Network(network)
-        network = ip_network.network_address
-        netmask = ip_network.netmask
-        os.system(f"sudo echo 'push \"route {network} {netmask}\"' >> {conf_file}")
+        for item in parsed[network]:
+            protocol = item.get('protocol')
+            if not (protocol == 'ospf' or protocol == 'bgp'):
+                continue
+
+            ip_network = IPv4Network(network)
+            network = ip_network.network_address
+            netmask = ip_network.netmask
+            routes.add(f"{network} {netmask}")
+
+    for route in routes:
+        os.system(f"sudo echo 'push \"route {route}\"' >> {conf_file}")
 
 except Exception as e:
     logger.error(f"client-connect: {str(e)}. {str(traceback.extract_stack())}")

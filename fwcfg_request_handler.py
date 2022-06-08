@@ -182,7 +182,7 @@ class FwCfgRequestHandler(FwObject):
                         err_str = "_call_aggregated: failed to revert request %s while running rollback on aggregated request" % op
                         self.log.excep("%s: %s" % (err_str, format(e)))
                         if self.revert_failure_callback:
-                            self.revert_failure_callback(t)
+                            self.revert_failure_callback(str(e))
                         pass
                 raise e
 
