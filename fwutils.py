@@ -600,8 +600,6 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                 'mtu':              '',
             }
 
-            interface['link'] = get_interface_link_state(if_name, dev_id)
-
             interface['dhcp'] = get_interface_is_dhcp(if_name)
 
             interface['mtu'] = get_linux_interface_mtu(if_name)
@@ -609,6 +607,17 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
             is_pppoe = fwpppoe.is_pppoe_interface(if_name=if_name)
             is_wifi = fwwifi.is_wifi_interface(if_name)
             is_lte = fwlte.is_lte_interface(if_name)
+
+            if is_lte:
+                interface['deviceType'] = 'lte'
+            elif is_wifi:
+                interface['deviceType'] = 'wifi'
+            elif is_pppoe:
+                interface['deviceType'] = 'pppoe'
+            else:
+                interface['deviceType'] = 'dpdk'
+
+            interface['link'] = get_interface_link_state(if_name, dev_id, device_type=interface['deviceType'])
 
             # Some interfaces need special logic to get their ip
             # For LTE/WiFi/Bridged interfaces - we need to take it from the tap
@@ -641,7 +650,6 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                         interface[addr_af_name + 'Mask'] = (str(IPAddress(addr.netmask).netmask_bits()))
 
             if is_lte:
-                interface['deviceType'] = 'lte'
                 interface['dhcp'] = 'yes'
                 interface['deviceParams'] = {
                     'initial_pin1_state': fwlte.get_pin_state(dev_id),
@@ -649,21 +657,16 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                 }
 
             elif is_wifi:
-                interface['deviceType'] = 'wifi'
                 interface['deviceParams'] = fwwifi.wifi_get_capabilities(dev_id)
 
             elif is_pppoe:
                 pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
-                interface['deviceType'] = 'pppoe'
                 interface['dhcp'] = 'yes'
                 interface['mtu'] = str(pppoe_iface.mtu)
                 if pppoe_iface.addr:
                     address = IPNetwork(pppoe_iface.addr)
                     interface['IPv4'] = str(address.ip)
                     interface['IPv4Mask'] = str(address.prefixlen)
-
-            else:
-                interface['deviceType'] = 'dpdk'
 
             # Add information specific for WAN interfaces
             #
@@ -2763,7 +2766,7 @@ def get_ethtool_value(if_name, ethtool_key):
 
     return val
 
-def get_interface_link_state(if_name, dev_id):
+def get_interface_link_state(if_name, dev_id, device_type=None):
     """Gets interface link state.
 
     :param if_name: interface name (e.g enp0s3).
@@ -2774,39 +2777,53 @@ def get_interface_link_state(if_name, dev_id):
     if not if_name:
         fwglobals.log.error('get_interface_link_state: if_name is empty')
         return ''
-    # First, check if interface is managed by vpp (vppctl).
-    # Otherwise, check as linux interface (ethtool).
-    if fwglobals.g.router_api.state_is_started() and is_interface_assigned_to_vpp(dev_id):
-        vpp_if_name = tap_to_vpp_if_name(if_name)
-        if vpp_if_name:
-            state = ''
-            try:
-                cmd = 'show hardware-interfaces brief'
-                vppctl_read_response = _vppctl_read(cmd, False)
-                if vppctl_read_response:
-                    lines = vppctl_read_response.splitlines()
-                    for line in lines:
-                        if vpp_if_name in line:
-                            # Here is an example response from the command. We are interested in the
-                            # Link column, hence using index 2 after the split
-                            #               Name                Idx   Link  Hardware
-                            # GigabitEthernet0/3/0               1     up   GigabitEthernet0/3/0
-                            #   Link speed: 1 Gbps
-                            # GigabitEthernet0/8/0               2     up   GigabitEthernet0/8/0
-                            #   Link speed: 1 Gbps
-                            # local0                             0    down  local0
-                            #   Link speed: unknown
-                            state = line.split(None, 4)[2]
-                            break
-            except subprocess.CalledProcessError:
-                pass
 
-            if state:
-                return state
+    def _return_ethtool_value(if_name):
+        state = get_ethtool_value(if_name, 'Link detected')
+        # 'Link detected' field has yes/no values, so conversion is needed
+        return 'up' if state == 'yes' else 'down' if state == 'no' else ''
 
-    state = get_ethtool_value(if_name, 'Link detected')
-    # 'Link detected' field has yes/no values, so conversion is needed
-    return 'up' if state == 'yes' else 'down' if state == 'no' else ''
+    if device_type == 'lte' or device_type == 'wifi':
+        # no need to check for tap interface in case of LTE or WiFi
+        return _return_ethtool_value(if_name)
+
+    if not fwglobals.g.router_api.state_is_started():
+        # no need to check for tap if router is not running
+        return _return_ethtool_value(if_name)
+
+    if not is_interface_assigned_to_vpp(dev_id):
+        # no need to check for tap if interface is not assigned to vpp
+        return _return_ethtool_value(if_name)
+
+    # Check if interface is managed by vpp (vppctl).
+    vpp_if_name = tap_to_vpp_if_name(if_name)
+    if vpp_if_name:
+        state = ''
+        try:
+            cmd = 'show hardware-interfaces brief'
+            vppctl_read_response = _vppctl_read(cmd, False)
+            if vppctl_read_response:
+                lines = vppctl_read_response.splitlines()
+                for line in lines:
+                    if vpp_if_name in line:
+                        # Here is an example response from the command. We are interested in the
+                        # Link column, hence using index 2 after the split
+                        #               Name                Idx   Link  Hardware
+                        # GigabitEthernet0/3/0               1     up   GigabitEthernet0/3/0
+                        #   Link speed: 1 Gbps
+                        # GigabitEthernet0/8/0               2     up   GigabitEthernet0/8/0
+                        #   Link speed: 1 Gbps
+                        # local0                             0    down  local0
+                        #   Link speed: unknown
+                        state = line.split(None, 4)[2]
+                        break
+        except subprocess.CalledProcessError:
+            pass
+
+        if state:
+            return state
+
+    return _return_ethtool_value(if_name)
 
 def get_interface_driver_by_dev_id(dev_id):
     if_name = dev_id_to_linux_if(dev_id)
@@ -3278,12 +3295,13 @@ def get_reconfig_hash():
     linux_interfaces = get_linux_interfaces()
     for dev_id in linux_interfaces:
         name = linux_interfaces[dev_id]['name']
+        device_type = linux_interfaces[dev_id].get('deviceType')
 
         # Link state has to be retrieved first. Otherwise code below will.
         # change the interface name to be used. And this can create an issue.
         # For example, in case of bridge interface we need state of member interface
         # and not the state of bridge itself.
-        link = get_interface_link_state(name, dev_id)
+        link = get_interface_link_state(name, dev_id, device_type=device_type)
 
         # Some interfaces need special logic to get their ip
         # For LTE/WiFi/Bridged interfaces - we need to take it from the tap name
