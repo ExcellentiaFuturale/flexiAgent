@@ -105,6 +105,7 @@ class FwStunWrap(FwObject):
         self.thread_stun.start()
 
     def finalize(self):
+        fwstun.finalize()
         if self.thread_stun:
             self.thread_stun.join()
             self.thread_stun = None
@@ -301,6 +302,10 @@ class FwStunWrap(FwObject):
                 local_ip = cached_addr['local_ip']
                 nat_type, nat_ext_ip, nat_ext_port, server_index = \
                     self._send_single_stun_request(local_ip, 4789, cached_addr['server_index'])
+
+                if fwglobals.g.router_threads.teardown:
+                    self.log.debug("teardown: stop requests")
+                    return  # handle shutdown in the middle _send_single_stun_request() loop
 
                 if nat_ext_port == '':
                     self._handle_stun_none_response(dev_id)

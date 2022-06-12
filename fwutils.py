@@ -3729,34 +3729,6 @@ class SlidingWindow(list):
             return 0
         return float(sum(self)) / float(len(self))
 
-def restart_service(service, timeout=0):
-    '''Restart service
-
-    :param service:     Service name.
-    :param timeout:     Number of retrials.
-
-    :returns: (True, None) tuple on success, (False, <error string>) on failure.
-    '''
-    try:
-        while timeout >= 0:
-            cmd = 'systemctl restart %s.service > /dev/null 2>&1;' % service
-            os.system(cmd)
-
-            cmd = 'systemctl is-active --quiet %s' % service
-            rc = os.system(cmd)
-            if rc == 0:
-                return (True, None)
-
-            timeout-= 1
-            time.sleep(1)
-
-    except Exception as e:
-        fwglobals.log.error(f'restart_service({service}): {str(e)}')
-        return (False, str(e))
-
-    fwglobals.log.error(f'restart_service({service}): failed on timeout ({timeout} seconds)')
-    return (False, "Service is not running")
-
 def load_linux_module(module):
     '''
     Sometimes, due to a problem in the machine boot process, some of the modules do not load properly for the first time.
@@ -3822,15 +3794,19 @@ def get_linux_interface_mtu(if_name):
     return str(net_if_stats[if_name].mtu)
 
 def os_system(cmd, log_prefix="", log=True, print_error=True):
+    error = None
     if log:
         fwglobals.log.debug(cmd)
 
     rc = os.system(cmd)
-    if rc and print_error:
+    if rc:
         prefix = f'{log_prefix}: ' if log_prefix else ''
-        fwglobals.log.error(f'{prefix}command failed: {cmd}')
+        error = f'{prefix}command failed: {cmd}'
 
-    return not bool(rc)
+        if print_error:
+            fwglobals.log.error(error)
+
+    return (not bool(rc), error)
 
 def detect_gcp_vm():
     '''Detect if the machine is a VM of Google Cloud Platform.

@@ -424,14 +424,17 @@ class Fwglobals(FwObject):
 
         self.router_threads.teardown = True   # Stop all threads in parallel to speedup gracefull exit
 
-        self.routes.finalize()
-        self.pppoe.finalize()
-        self.wan_monitor.finalize()
-        self.stun_wrapper.finalize()
-        self.system_api.finalize()
-        self.router_api.finalize()
-        self.fwagent.finalize()
-        self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
+        try:
+            self.routes.finalize()
+            self.pppoe.finalize()
+            self.wan_monitor.finalize()
+            self.stun_wrapper.finalize()
+            self.system_api.finalize()
+            self.router_api.finalize()
+            self.fwagent.finalize()
+            self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
+        except Exception as e:
+            self.log.error(f"finalize_agent: {str(e)}")
 
         del self.routes
         del self.pppoe

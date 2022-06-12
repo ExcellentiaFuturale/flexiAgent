@@ -214,7 +214,13 @@ def _generate_modify_cmd(old_dict, new_dict, generate_remove_cmd_func, generate_
         # if item exists in new and they are the same - remove it from new list
         if old_dict[old] == new_dict[old]:
             del new_dict[old]
-            continue
+        else:
+            # if item exists in new_dict and they are not the same,
+            # generate remove frr commands.
+            # So at the end of this function the final result for this item in the dict
+            # will be two commands, remove and add.
+            commands = generate_remove_cmd_func(old_dict[old])
+            cmd_list += commands
 
     for new in new_dict:
         commands = generate_add_cmd_func(new_dict[new])
