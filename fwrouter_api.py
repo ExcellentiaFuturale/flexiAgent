@@ -1078,6 +1078,11 @@ class FWROUTER_API(FwCfgRequestHandler):
             # so the configuration file will be not needed.
             fwglobals.log.error(f"_on_start_router_after: failed to flush frr configuration into file: {str(err)}")
 
+        if fwglobals.g.is_gcp_vm:
+            # When we shutting down the interfaces on Linux before assigning them to VPP
+            # the GCP agent is stopped. Hence, we need to restart it again.
+            fwutils.restart_gcp_agent()
+
         fwglobals.g.pppoe.start()
         self.log.info("router was started: vpp_pid=%s" % str(fwutils.vpp_pid()))
 
