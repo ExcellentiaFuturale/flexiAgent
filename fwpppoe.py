@@ -824,20 +824,29 @@ def is_pppoe_interface(if_name = None, dev_id = None):
 def pppoe_remove():
     """Remove PPPoE configuration files and clean internal DB
     """
-    with FwPppoeClient() as pppoe_client:
-        pppoe_client.clean()
+    if fwglobals.g.pppoe:
+        fwglobals.g.pppoe.clean()
+    else:
+        with FwPppoeClient() as pppoe:
+            pppoe.clean()
 
 def is_pppoe_configured():
     """Check if PPPoE is configured
     """
-    with FwPppoeClient() as pppoe_client:
-        return pppoe_client.is_pppoe_configured()
+    if fwglobals.g.pppoe:
+        return fwglobals.g.pppoe.is_pppoe_configured()
+    else:
+        with FwPppoeClient() as pppoe:
+            return pppoe.is_pppoe_configured()
 
 def pppoe_reset():
     """Reset PPPoE configuration files
     """
-    with FwPppoeClient() as pppoe_client:
-        pppoe_client.reset_interfaces()
+    if fwglobals.g.pppoe:
+        fwglobals.g.pppoe.reset_interfaces()
+    else:
+        with FwPppoeClient() as pppoe:
+            pppoe.reset_interfaces()
 
 def build_dev_id_to_vpp_if_name_map():
     """Get PPPoE connections.
