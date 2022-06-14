@@ -126,6 +126,15 @@ def run_linux_commands(commands, exception_on_error=True):
 def create_tun_in_vpp(ifconfig_local_ip, ifconfig_netmask):
     mask = IPAddress(ifconfig_netmask).netmask_bits()
 
+    # ensure that tun is not exists in case of down-script failed
+    tun_exists = os.popen('sudo vppctl show tun | grep -B 1 "t_vpp_remotevpn"').read().strip()
+    if tun_exists:
+        # root@flexiwan-zn1:/home/shneorp# sudo vppctl show tun | grep -B 1 "t_vpp_remotevpn"
+        # Interface: tun0 (ifindex 7)
+        #   name "t_vpp_remotevpn"
+        tun_name = tun_exists.splitlines()[0].split(' ')[1]
+        os.system(f'sudo vppctl delete tap {tun_name}')
+
     # configure the vpp interface
     tun_vpp_if_name = os.popen('sudo vppctl create tap host-if-name t_vpp_remotevpn tun').read().strip()
     if not tun_vpp_if_name:
