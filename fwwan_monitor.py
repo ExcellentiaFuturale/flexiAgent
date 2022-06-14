@@ -69,6 +69,10 @@ class FwWanMonitor(FwObject):
         self.THRESHOLD       = fwglobals.g.WAN_FAILOVER_THRESHOLD
         self.WATERMARK       = fwglobals.g.WAN_FAILOVER_METRIC_WATERMARK
 
+        self.APPROX_FACTOR = 16
+        self.HYSTERESIS_LOSS = 1
+        self.HYSTERESIS_DELAY = 30
+
         self.num_servers     = len(self.SERVERS)
         self.current_server  = self.num_servers - 1  # The first selection will take #0
         self.routes          = fwglobals.g.cache.wan_monitor['enabled_routes']
@@ -177,6 +181,7 @@ class FwWanMonitor(FwObject):
                 cached = self.routes[route.dev_id]
                 route.probes    = cached.probes
                 route.ok        = cached.ok
+                route.stats     = cached.stats
             else:
                 self.log.debug("Start WAN Monitoring on '%s'" % (str(route)))
 
@@ -257,8 +262,23 @@ class FwWanMonitor(FwObject):
 
     def _check_connectivity(self, route, server_address):
 
-        cmd = "fping %s -C 1 -q -R -I %s > /dev/null 2>&1" % (server_address, route.dev)
-        ok = not subprocess.call(cmd, shell=True)
+        cmd = "fping %s -C 1 -q -R -I %s 2>&1" % (server_address, route.dev)
+        (ok, output) = fwutils.exec(cmd)
+
+        new_rtt = 0.0
+        rows = output.strip().splitlines()
+        if rows:
+            rtts = []
+            for row in rows:
+                host_rtt = [x.strip() for x in row.strip().split(':')]
+                try:
+                    float_rtt = float(host_rtt[1])
+                except ValueError:
+                    float_rtt = 0.0
+                rtts.append(float_rtt)
+            new_rtt = sum(rtts) / len(rtts) if len(rtts) > 0 else 0
+
+        ok = (new_rtt > 0)
 
         server = route.probes.get(server_address)
         if not server:
@@ -309,6 +329,41 @@ class FwWanMonitor(FwObject):
             state = 'lost' if new_metric >= self.WATERMARK else 'restored'
             self.log.debug("connectivity %s on %s" % (state, route.dev))
             self._update_metric(route, new_metric)
+
+        # update statistics for QBR on DIA links if VPP is started and interface is assigned
+        if not fwglobals.g.router_api.state_is_started() or not fwutils.is_interface_assigned_to_vpp(route.dev_id):
+            return
+
+        ifname = route.stats.get('ifname')
+        if not ifname:
+            ifname = fwutils.dev_id_to_vpp_if_name(route.dev_id)
+            if not ifname:
+                self.log.debug(f"WAN Monitor: Cannot get VPP interface name for {route.dev_id}")
+                return
+            route.stats['ifname'] = ifname
+
+        old_rtt = route.stats.get('rtt', 0.0)
+        if old_rtt > 0:
+            rtt = old_rtt + (new_rtt - old_rtt) / self.APPROX_FACTOR
+        else:
+            rtt = new_rtt
+
+        old_drop_rate = route.stats.get('drop_rate', 0)
+        new_drop_rate = 100.0 * float(failures) / float(fwglobals.g.WAN_FAILOVER_WND_SIZE)
+        drop_rate = float(old_drop_rate + new_drop_rate) / 2
+
+        route.stats['drop_rate'] = drop_rate
+        route.stats['rtt'] = rtt
+
+        update = False
+        if abs(round(drop_rate) - round(old_drop_rate)) >= self.HYSTERESIS_LOSS:
+            update = True
+        elif abs(round(rtt) - round(old_rtt)) >= self.HYSTERESIS_DELAY:
+            update = True
+
+        if update:
+            vppctl_cmd = 'fwabf quality %s loss %s delay %s jitter %s' % (ifname, round(drop_rate), round(rtt), 0)
+            fwutils.vpp_cli_execute([vppctl_cmd])
 
 
     def _update_metric(self, route, new_metric):
