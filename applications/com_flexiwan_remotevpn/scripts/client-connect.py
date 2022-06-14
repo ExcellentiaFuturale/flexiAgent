@@ -52,10 +52,21 @@ try:
             ip_network = IPv4Network(network)
             network = ip_network.network_address
             netmask = ip_network.netmask
-            routes.add(f"{network} {netmask}")
+            routes.add(f'push \"route {network} {netmask}\"')
 
-    for route in routes:
-        os.system(f"sudo echo 'push \"route {route}\"' >> {conf_file}")
+    # [root@flexiwan-router /usr/bin]# fwagent show --configuration networks
+    # [
+    #   "185.55.66.1/24"
+    # ]
+    agent_networks = os.popen('fwagent show --configuration networks').read()
+    parsed_networks = json.loads(agent_networks)
+
+    for network in parsed_networks:
+        routes.add(f'push \"route {network}\"')
+
+    if len(routes) > 0:
+        route_str = '\n'.join(routes)
+        os.system(f"sudo echo '{route_str}' >> {conf_file}")
 
 except Exception as e:
     logger.error(f"client-connect: {str(e)}. {str(traceback.extract_stack())}")

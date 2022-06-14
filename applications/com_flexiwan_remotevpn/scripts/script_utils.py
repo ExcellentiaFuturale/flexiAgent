@@ -46,6 +46,38 @@ def remove_from_ospf(ifconfig_local_ip, ifconfig_netmask):
         logger.error(f'remove_from_ospf({ifconfig_local_ip, ifconfig_netmask}): {str(e)}')
         pass
 
+def add_to_bgp(ifconfig_local_ip, ifconfig_netmask):
+    bgp_data = os.popen('vtysh -c "show bgp json" 2>/dev/null').read()
+    parsed = json.loads(bgp_data)
+    local_asn = parsed.get('localAS')
+    if local_asn: # if not, bgp is not enabled
+        mask = IPAddress(ifconfig_netmask).netmask_bits()
+        vtysh_cmd = f'sudo /usr/bin/vtysh \
+            -c "configure" \
+            -c "router bgp {local_asn}" \
+            -c "address-family ipv4 unicast" \
+            -c "network {ifconfig_local_ip}/{mask}"'
+        rc = os.system(vtysh_cmd)
+        if rc:
+            raise Exception('Failed to add openvpn network to BGP')
+
+def remove_from_bgp(ifconfig_local_ip, ifconfig_netmask):
+    try:
+        bgp_data = os.popen('vtysh -c "show bgp json" 2>/dev/null').read()
+        parsed = json.loads(bgp_data)
+        local_asn = parsed.get('localAS')
+        if local_asn: # if not, bgp is not enabled
+            mask = IPAddress(ifconfig_netmask).netmask_bits()
+            vtysh_cmd = f'sudo /usr/bin/vtysh \
+                -c "configure" \
+                -c "router bgp {local_asn}" \
+                -c "address-family ipv4 unicast" \
+                -c "no network {ifconfig_local_ip}/{mask}"'
+            os.system(vtysh_cmd)
+    except Exception as e:
+        logger.error(f'remove_from_bgp({ifconfig_local_ip, ifconfig_netmask}): {str(e)}')
+        pass
+
 def add_tc_commands(ifconfig_local_ip):
     tc_cmd = [
         # configure mirror ingress traffic from the tun interface created by vpp to the the openvpn tun interface

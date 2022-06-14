@@ -23,8 +23,11 @@ import fwglobals
 from fwcfg_database import FwCfgDatabase
 
 class FwApplicationsCfg(FwCfgDatabase):
-    def __init__(self):
-        FwCfgDatabase.__init__(self, fwglobals.g.APPLICATIONS_CFG_FILE)
+    def __init__(self, cfg_file=None):
+        if cfg_file:
+            FwCfgDatabase.__init__(self, cfg_file)
+        else:
+            FwCfgDatabase.__init__(self, fwglobals.g.APPLICATIONS_CFG_FILE)
 
     def get_applications(self):
         return self.get_requests('add-app-install')

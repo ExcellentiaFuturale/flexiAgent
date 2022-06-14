@@ -37,12 +37,16 @@ ifconfig_local_ip = sys.argv[4]
 ifconfig_netmask = sys.argv[5]
 
 ospf = False
+bgp = False
 vpp_tun = False
 tc_commands = False
 
 try:
     ospf = True
     script_utils.add_to_ospf(ifconfig_local_ip, ifconfig_netmask)
+
+    bgp = True
+    script_utils.add_to_bgp(ifconfig_local_ip, ifconfig_netmask)
 
     vpp_tun = True
     script_utils.create_tun_in_vpp(ifconfig_local_ip, ifconfig_netmask)
@@ -55,6 +59,9 @@ except Exception as e:
 
     if vpp_tun:
         script_utils.remove_tun_from_vpp()
+
+    if bgp:
+        script_utils.remove_from_bgp(ifconfig_local_ip, ifconfig_netmask)
 
     if ospf:
         script_utils.remove_from_ospf(ifconfig_local_ip, ifconfig_netmask)

@@ -782,6 +782,10 @@ def show(agent, configuration, database, status):
             fwutils.print_router_config(basic=False, multilink=True)
         elif configuration == 'signature':
             fwutils.print_device_config_signature()
+        elif configuration == 'networks':
+            out = daemon_rpc('show', what='networks')
+            if out:
+                print(out)
 
     if agent:
         out = daemon_rpc('show', what=agent)
@@ -978,6 +982,8 @@ class FwagentDaemon(FwObject):
             for thd in threading.enumerate():
                 thread_list.append(thd.name)
             return json.dumps(sorted(thread_list), indent=2, sort_keys=True)
+        if what == 'networks':
+            return fwutils.get_device_networks_json()
 
 
     def main(self):
@@ -1266,7 +1272,7 @@ if __name__ == '__main__':
     parser_show.add_argument('--agent', choices=['version', 'cache', 'threads'],
                         help="show various agent parameters")
     parser_show.add_argument('--configuration', const='all', nargs='?',
-                        choices=['all', 'router', 'system', 'multilink-policy', 'signature', 'router-pending'],
+                        choices=['all', 'router', 'system', 'multilink-policy', 'signature', 'router-pending', 'networks'],
                         help="show flexiEdge configuration")
     parser_show.add_argument('--database',
                         choices=['applications', 'general', 'multilink', 'router', 'system'],

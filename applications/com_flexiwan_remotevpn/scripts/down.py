@@ -35,4 +35,5 @@ ifconfig_netmask = sys.argv[5]
 
 script_utils.remove_tc_commands(vpn_tun_is_up=False)
 script_utils.remove_from_ospf(ifconfig_local_ip, ifconfig_netmask)
+script_utils.remove_from_bgp(ifconfig_local_ip, ifconfig_netmask)
 script_utils.remove_tun_from_vpp()
