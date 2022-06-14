@@ -46,6 +46,38 @@ def remove_from_ospf(ifconfig_local_ip, ifconfig_netmask):
         logger.error(f'remove_from_ospf({ifconfig_local_ip, ifconfig_netmask}): {str(e)}')
         pass
 
+def add_to_bgp(ifconfig_local_ip, ifconfig_netmask):
+    bgp_data = os.popen('vtysh -c "show bgp json" 2>/dev/null').read()
+    parsed = json.loads(bgp_data)
+    local_asn = parsed.get('localAS')
+    if local_asn: # if not, bgp is not enabled
+        mask = IPAddress(ifconfig_netmask).netmask_bits()
+        vtysh_cmd = f'sudo /usr/bin/vtysh \
+            -c "configure" \
+            -c "router bgp {local_asn}" \
+            -c "address-family ipv4 unicast" \
+            -c "network {ifconfig_local_ip}/{mask}"'
+        rc = os.system(vtysh_cmd)
+        if rc:
+            raise Exception('Failed to add openvpn network to BGP')
+
+def remove_from_bgp(ifconfig_local_ip, ifconfig_netmask):
+    try:
+        bgp_data = os.popen('vtysh -c "show bgp json" 2>/dev/null').read()
+        parsed = json.loads(bgp_data)
+        local_asn = parsed.get('localAS')
+        if local_asn: # if not, bgp is not enabled
+            mask = IPAddress(ifconfig_netmask).netmask_bits()
+            vtysh_cmd = f'sudo /usr/bin/vtysh \
+                -c "configure" \
+                -c "router bgp {local_asn}" \
+                -c "address-family ipv4 unicast" \
+                -c "no network {ifconfig_local_ip}/{mask}"'
+            os.system(vtysh_cmd)
+    except Exception as e:
+        logger.error(f'remove_from_bgp({ifconfig_local_ip, ifconfig_netmask}): {str(e)}')
+        pass
+
 def add_tc_commands(ifconfig_local_ip):
     tc_cmd = [
         # configure mirror ingress traffic from the tun interface created by vpp to the the openvpn tun interface
@@ -93,6 +125,15 @@ def run_linux_commands(commands, exception_on_error=True):
 
 def create_tun_in_vpp(ifconfig_local_ip, ifconfig_netmask):
     mask = IPAddress(ifconfig_netmask).netmask_bits()
+
+    # ensure that tun is not exists in case of down-script failed
+    tun_exists = os.popen('sudo vppctl show tun | grep -B 1 "t_vpp_remotevpn"').read().strip()
+    if tun_exists:
+        # root@flexiwan-zn1:/home/shneorp# sudo vppctl show tun | grep -B 1 "t_vpp_remotevpn"
+        # Interface: tun0 (ifindex 7)
+        #   name "t_vpp_remotevpn"
+        tun_name = tun_exists.splitlines()[0].split(' ')[1]
+        os.system(f'sudo vppctl delete tap {tun_name}')
 
     # configure the vpp interface
     tun_vpp_if_name = os.popen('sudo vppctl create tap host-if-name t_vpp_remotevpn tun').read().strip()

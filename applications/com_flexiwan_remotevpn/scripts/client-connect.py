@@ -36,16 +36,37 @@ logger = Logger()
 conf_file = sys.argv[1]
 
 try:
-    # get all ospf routes
-    output = os.popen('vtysh -c "show ip route ospf json"').read()
-    parsed = json.loads(output)
+    # get all frr routes
+    frr_output = os.popen('vtysh -c "show ip route json"').read()
+    parsed = json.loads(frr_output)
 
-    # push ospf routes to the clients
+    routes = set()
+
+    # push ospf/bgp routes to the clients
     for network in parsed:
-        ip_network = IPv4Network(network)
-        network = ip_network.network_address
-        netmask = ip_network.netmask
-        os.system(f"sudo echo 'push \"route {network} {netmask}\"' >> {conf_file}")
+        for item in parsed[network]:
+            protocol = item.get('protocol')
+            if not (protocol == 'ospf' or protocol == 'bgp'):
+                continue
+
+            ip_network = IPv4Network(network)
+            network = ip_network.network_address
+            netmask = ip_network.netmask
+            routes.add(f'push \"route {network} {netmask}\"')
+
+    # [root@flexiwan-router /usr/bin]# fwagent show --configuration networks
+    # [
+    #   "185.55.66.1/24"
+    # ]
+    agent_networks = os.popen('fwagent show --configuration networks lan').read()
+    parsed_networks = json.loads(agent_networks)
+
+    for network in parsed_networks:
+        routes.add(f'push \"route {network}\"')
+
+    if len(routes) > 0:
+        route_str = '\n'.join(routes)
+        os.system(f"sudo echo '{route_str}' >> {conf_file}")
 
 except Exception as e:
     logger.error(f"client-connect: {str(e)}. {str(traceback.extract_stack())}")

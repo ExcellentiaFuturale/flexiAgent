@@ -3840,3 +3840,26 @@ def list_to_dict_by_key(list, key_name):
             if key:
                 res[key] = item
     return res
+
+def get_lan_interfaces(type):
+    if getattr(fwglobals.g, 'router_cfg', False):
+        return fwglobals.g.router_cfg.get_interfaces(type=type)
+    else:
+        with FwRouterCfg(fwglobals.g.ROUTER_CFG_FILE) as router_cfg:
+            return router_cfg.get_interfaces(type=type)
+
+def get_device_networks_json(type=None):
+    networks = []
+
+    interfaces = get_lan_interfaces(type)
+    for interface in interfaces:
+        if interface['dhcp'] == 'yes':
+            # take from interface itself
+            linux_if_name = dev_id_to_linux_if_name(interface['dev_id'])
+            network = get_interface_address(linux_if_name)
+            if network:
+                networks.append(network)
+        else:
+            networks.append(interface['addr'])
+
+    return json.dumps(networks, indent=2, sort_keys=True)
