@@ -58,7 +58,7 @@ try:
     # [
     #   "185.55.66.1/24"
     # ]
-    agent_networks = os.popen('fwagent show --configuration networks').read()
+    agent_networks = os.popen('fwagent show --configuration networks lan').read()
     parsed_networks = json.loads(agent_networks)
 
     for network in parsed_networks:

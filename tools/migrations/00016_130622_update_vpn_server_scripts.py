@@ -47,27 +47,28 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
         try:
             print("* Migrating vpn server scripts ...")
 
-            with FwApplicationsCfg("/etc/flexiwan/agent/.applications.sqlite") as application_cfg:
-                apps = application_cfg.get_applications()
+            application_db_path = "/etc/flexiwan/agent/.applications.sqlite"
+            if os.path.exists(application_db_path):
+                with FwApplicationsCfg(application_db_path) as application_cfg:
+                    apps = application_cfg.get_applications()
 
-                for app in apps:
-                    identifier = app.get('identifier')
-                    if not identifier == 'com.flexiwan.remotevpn':
-                        continue
+                    for app in apps:
+                        identifier = app.get('identifier')
+                        if not identifier == 'com.flexiwan.remotevpn':
+                            continue
 
-                    agent_dir = str(pathlib.Path(__file__).parent.parent.parent.resolve())
-                    path = f'{agent_dir}/applications/com_flexiwan_remotevpn'
-                    shutil.copyfile('{}/scripts/up.py'.format(path), '/etc/openvpn/server/up-script.py')
-                    shutil.copyfile('{}/scripts/down.py'.format(path), '/etc/openvpn/server/down-script.py')
-                    shutil.copyfile('{}/scripts/client-connect.py'.format(path), '/etc/openvpn/server/client-connect.py')
-                    shutil.copyfile('{}/scripts/scripts_logger.py'.format(path), '/etc/openvpn/server/scripts_logger.py')
-                    shutil.copyfile('{}/scripts/script_utils.py'.format(path), '/etc/openvpn/server/script_utils.py')
+                        agent_dir = str(pathlib.Path(__file__).parent.parent.parent.resolve())
+                        path = f'{agent_dir}/applications/com_flexiwan_remotevpn'
+                        shutil.copyfile('{}/scripts/up.py'.format(path), '/etc/openvpn/server/up-script.py')
+                        shutil.copyfile('{}/scripts/down.py'.format(path), '/etc/openvpn/server/down-script.py')
+                        shutil.copyfile('{}/scripts/client-connect.py'.format(path), '/etc/openvpn/server/client-connect.py')
+                        shutil.copyfile('{}/scripts/scripts_logger.py'.format(path), '/etc/openvpn/server/scripts_logger.py')
+                        shutil.copyfile('{}/scripts/script_utils.py'.format(path), '/etc/openvpn/server/script_utils.py')
 
-                    os.system('killall openvpn') # it will be start again by our application watchdog
+                        os.system('killall openvpn') # it will be start again by our application watchdog
 
         except Exception as e:
             print("Migration error: %s : %s" % (__file__, str(e)))
 
 if __name__ == "__main__":
-    migrate('5.2.3-sdf', '5.3.7-sdf', 'upgrade')
-
+    migrate("")
