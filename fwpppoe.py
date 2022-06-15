@@ -93,8 +93,7 @@ class FwPppoeConnection(FwObject):
     def scan_and_connect_if_needed(self, connect_if_needed):
         """Check Linux interfaces if PPPoE tunnel (pppX) is created.
         """
-        addr = self.addr
-        if not self._is_open() and self.opened and connect_if_needed:
+        if self.opened and connect_if_needed:
             self.open()
 
         interfaces = psutil.net_if_addrs()
@@ -112,6 +111,9 @@ class FwPppoeConnection(FwObject):
     def open(self):
         """Open PPPoE connection.
         """
+        if self._is_open():
+            return
+
         self.opened = False
 
         sys_cmd = f'ip -4 addr flush label "{self.if_name}"'
