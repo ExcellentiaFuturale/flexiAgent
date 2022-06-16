@@ -3849,7 +3849,7 @@ def get_lan_interfaces(type):
             return router_cfg.get_interfaces(type=type)
 
 def get_device_networks_json(type=None):
-    networks = []
+    networks = set() # prevent duplication of bridged interfaces
 
     interfaces = get_lan_interfaces(type)
     for interface in interfaces:
@@ -3858,8 +3858,8 @@ def get_device_networks_json(type=None):
             linux_if_name = dev_id_to_linux_if_name(interface['dev_id'])
             network = get_interface_address(linux_if_name)
             if network:
-                networks.append(network)
+                networks.add(network)
         else:
-            networks.append(interface['addr'])
+            networks.add(interface['addr'])
 
-    return json.dumps(networks, indent=2, sort_keys=True)
+    return json.dumps(list(networks), indent=2, sort_keys=True)
