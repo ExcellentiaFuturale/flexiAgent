@@ -57,13 +57,12 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
                         if not identifier == 'com.flexiwan.remotevpn':
                             continue
 
-                        agent_dir = str(pathlib.Path(__file__).parent.parent.parent.resolve())
-                        path = f'{agent_dir}/applications/com_flexiwan_remotevpn'
-                        shutil.copyfile('{}/scripts/up.py'.format(path), '/etc/openvpn/server/up-script.py')
-                        shutil.copyfile('{}/scripts/down.py'.format(path), '/etc/openvpn/server/down-script.py')
-                        shutil.copyfile('{}/scripts/client-connect.py'.format(path), '/etc/openvpn/server/client-connect.py')
-                        shutil.copyfile('{}/scripts/scripts_logger.py'.format(path), '/etc/openvpn/server/scripts_logger.py')
-                        shutil.copyfile('{}/scripts/script_utils.py'.format(path), '/etc/openvpn/server/script_utils.py')
+                        path = '/usr/share/flexiwan/agent/applications/com_flexiwan_remotevpn/scripts'
+                        shutil.copyfile('{}/up.py'.format(path), '/etc/openvpn/server/up-script.py')
+                        shutil.copyfile('{}/down.py'.format(path), '/etc/openvpn/server/down-script.py')
+                        shutil.copyfile('{}/client-connect.py'.format(path), '/etc/openvpn/server/client-connect.py')
+                        shutil.copyfile('{}/scripts_logger.py'.format(path), '/etc/openvpn/server/scripts_logger.py')
+                        shutil.copyfile('{}/script_utils.py'.format(path), '/etc/openvpn/server/script_utils.py')
 
                         os.system('killall openvpn') # it will be start again by our application watchdog
 
@@ -71,4 +70,4 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
             print("Migration error: %s : %s" % (__file__, str(e)))
 
 if __name__ == "__main__":
-    migrate("")
+    migrate("5.2.23", "5.3.9", "upgrade")
