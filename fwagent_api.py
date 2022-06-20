@@ -193,6 +193,7 @@ class FWAGENT_API(FwObject):
 
         :returns: Dictionary with logs and status code.
         """
+        application = params.get('application')
         dl_map = {
             'fwagent': fwglobals.g.ROUTER_LOG_FILE,
             'application_ids': fwglobals.g.APPLICATION_IDS_LOG_FILE,
@@ -202,7 +203,7 @@ class FWAGENT_API(FwObject):
             'ospf': fwglobals.g.OSPF_LOG_FILE,
             'hostapd': fwglobals.g.HOSTAPD_LOG_FILE,
             'agentui': fwglobals.g.AGENT_UI_LOG_FILE,
-            'application': fwglobals.g.applications_api.get_log_filename(params.get('application', {}).get('identifier')),
+            'application': fwglobals.g.applications_api.get_log_filename(application.get('identifier')) if application else '',
         }
         file = dl_map.get(params['filter'], '')
         try:
