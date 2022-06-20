@@ -238,6 +238,8 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         return source_installation_dir
 
     def get_log_filename(self, identifier):
+        if not identifier:
+            return ''
         return self._call_application_api_safe(identifier, 'get_log_filename')
 
 def call_applications_hook(hook):
