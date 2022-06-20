@@ -194,21 +194,18 @@ class FWAGENT_API(FwObject):
         :returns: Dictionary with logs and status code.
         """
         application = params.get('application')
-        if application:
-            identifier = application.get('identifier')
-            file = fwglobals.g.applications_api.get_log_filename(identifier)
-        else:
-            dl_map = {
-                'fwagent': fwglobals.g.ROUTER_LOG_FILE,
-                'application_ids': fwglobals.g.APPLICATION_IDS_LOG_FILE,
-                'syslog': fwglobals.g.SYSLOG_FILE,
-                'dhcp': fwglobals.g.DHCP_LOG_FILE,
-                'vpp': fwglobals.g.VPP_LOG_FILE,
-                'ospf': fwglobals.g.OSPF_LOG_FILE,
-                'hostapd': fwglobals.g.HOSTAPD_LOG_FILE,
-                'agentui': fwglobals.g.AGENT_UI_LOG_FILE,
-            }
-            file = dl_map.get(params['filter'], '')
+        dl_map = {
+            'fwagent': fwglobals.g.ROUTER_LOG_FILE,
+            'application_ids': fwglobals.g.APPLICATION_IDS_LOG_FILE,
+            'syslog': fwglobals.g.SYSLOG_FILE,
+            'dhcp': fwglobals.g.DHCP_LOG_FILE,
+            'vpp': fwglobals.g.VPP_LOG_FILE,
+            'ospf': fwglobals.g.OSPF_LOG_FILE,
+            'hostapd': fwglobals.g.HOSTAPD_LOG_FILE,
+            'agentui': fwglobals.g.AGENT_UI_LOG_FILE,
+            'application': fwglobals.g.applications_api.get_log_filename(application.get('identifier')) if application else '',
+        }
+        file = dl_map.get(params['filter'], '')
         try:
             logs = fwutils.get_device_logs(file, params['lines'])
             return {'message': logs, 'ok': 1}
