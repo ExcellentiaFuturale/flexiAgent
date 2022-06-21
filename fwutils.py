@@ -3057,8 +3057,8 @@ def frr_setup_config():
             % (fwglobals.g.FRR_DAEMONS_FILE,fwglobals.g.FRR_DAEMONS_FILE), shell=True)
 
     # Ensure that bgpd is switched on in /etc/frr/daemons.
-    # Importnat! We have to enable it always in order that access-lists and route-maps
-    # will be recognized by bgpd deamon
+    # Important! We have to enable it always in order that access-lists and route-maps
+    # will be recognized by bgpd daemon
     subprocess.check_call('if [ -n "$(grep bgpd=no %s)" ]; then sudo sed -i -E "s/bgpd=no/bgpd=yes/" %s; sudo systemctl restart frr; fi'
             % (fwglobals.g.FRR_DAEMONS_FILE, fwglobals.g.FRR_DAEMONS_FILE), shell=True)
 
@@ -3068,7 +3068,7 @@ def frr_setup_config():
     # Setup basics on frr.conf.
     frr_commands = [
         "password zebra",
-        f"log file {fwglobals.g.OSPF_LOG_FILE} notifications",
+        f"log file {fwglobals.g.FRR_LOG_FILE} notifications",
         "log stdout notifications",
         "log syslog notifications"
     ]

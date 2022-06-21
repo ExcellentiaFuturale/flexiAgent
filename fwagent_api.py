@@ -200,7 +200,7 @@ class FWAGENT_API(FwObject):
             'syslog': fwglobals.g.SYSLOG_FILE,
             'dhcp': fwglobals.g.DHCP_LOG_FILE,
             'vpp': fwglobals.g.VPP_LOG_FILE,
-            'ospf': fwglobals.g.OSPF_LOG_FILE,
+            'ospf': fwglobals.g.FRR_LOG_FILE,
             'hostapd': fwglobals.g.HOSTAPD_LOG_FILE,
             'agentui': fwglobals.g.AGENT_UI_LOG_FILE,
             'application': fwglobals.g.applications_api.get_log_filename(application.get('identifier')) if application else '',
