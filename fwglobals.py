@@ -255,7 +255,7 @@ class Fwglobals(FwObject):
         self.SYSLOG_FILE         = '/var/log/syslog'
         self.DHCP_LOG_FILE       = '/var/log/dhcpd.log'
         self.VPP_LOG_FILE        = '/var/log/vpp/vpp.log'
-        self.OSPF_LOG_FILE       = '/var/log/frr/ospfd.log'
+        self.FRR_LOG_FILE       = '/var/log/frr/ospfd.log'
         self.VPP_CONFIG_FILE     = '/etc/vpp/startup.conf'
         self.VPP_CONFIG_FILE_BACKUP   = '/etc/vpp/startup.conf.baseline'
         self.VPP_CONFIG_FILE_RESTORE = '/etc/vpp/startup.conf.orig'
