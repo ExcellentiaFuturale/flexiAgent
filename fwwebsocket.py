@@ -86,30 +86,42 @@ class FwWebSocketClient(FwObject):
             self.lock.acquire()
             self.log.debug(f"connecting to {remote_host}")
             self.state = self.FwWebSocketState.CONNECTING
-
-            # We create socket explicitly to be able to control the local port
-            # used by it. Fwagent might use it for NAT.
-            # In case of loadsimulator we can't use same port for multiple connections.
-            #
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            if local_port and not fwglobals.g.loadsimulator:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)  # Avoid 98:EADDRINUSE on reconnect
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Avoid 99:EADDRNOTAVAIL on reconnect
-                sock.bind(('', local_port))
-            sock.settimeout(timeout)
-
             self.ssl_context.check_hostname = True if check_certificate else False
             self.ssl_context.verify_mode    = ssl.CERT_REQUIRED if check_certificate else ssl.CERT_NONE
-            ssl_sock = self.ssl_context.wrap_socket(sock, server_hostname=remote_host)
-            ssl_sock.connect((remote_host, remote_port))
 
-            # Now upgrade TLS connection to WebSocket
-            #
-            self.ws = websocket.create_connection(
-                                    url,
-                                    socket = ssl_sock,
-                                    enable_multithread = True,
-                                    header = headers)
+            if local_port:
+                # We create socket explicitly to be able to control the local port
+                # used by it. Fwagent might use it for NAT.
+                # In case of loadsimulator we can't use same port for multiple connections.
+                #
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                if local_port and not fwglobals.g.loadsimulator:
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)  # Avoid 98:EADDRINUSE on reconnect
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Avoid 99:EADDRNOTAVAIL on reconnect
+                    sock.bind(('', local_port))
+                sock.settimeout(timeout)
+
+                ssl_sock = self.ssl_context.wrap_socket(sock, server_hostname=remote_host)
+                ssl_sock.connect((remote_host, remote_port))
+
+                # Now upgrade TLS connection to WebSocket
+                #
+                self.ws = websocket.create_connection(
+                                        url,
+                                        socket = ssl_sock,
+                                        enable_multithread = True,
+                                        header = headers)
+            else:
+                # Have create_connection do the socket creation as it also handles proxy case
+                self.ws = websocket.create_connection(
+                        url,
+                        timeout=timeout,
+                        enable_multithread = True,
+                        sslopt={
+                            "cert_reqs": self.ssl_context.verify_mode,
+                            "check_hostname": self.ssl_context.check_hostname
+                        },
+                        header = headers)
 
             self.log.debug(f"connected to {remote_host}")
             self.state = self.FwWebSocketState.CONNECTED
