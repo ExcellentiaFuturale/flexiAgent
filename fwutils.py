@@ -2969,6 +2969,10 @@ def frr_add_remove_interface_routes_if_needed(is_add, routing, dev_id):
     except Exception as e:
         return (False, f'frr_add_remove_interface_routes_if_needed({is_add}, {routing}, {dev_id}): failed. error={str(e)}')
 
+# A list of allowed outputs from vtysh that should not fail the job
+allowed_vtysh_outputs = [
+    'For this router-id change to take effect, save config and restart ospfd\n'
+]
 def frr_vtysh_run(commands, restart_frr=False, wait_after=None, on_error_commands=[]):
     '''Run vtysh command to configure router
 
@@ -2999,11 +3003,15 @@ def frr_vtysh_run(commands, restart_frr=False, wait_after=None, on_error_command
 
         p = subprocess.Popen(vtysh_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         (out, err) = p.communicate()
-        # Note, vtysh cli prints errors to STDOUT. If no errors, "out" is empty string.
+        # Note, vtysh cli prints errors/warnings to STDOUT.
+        # If no errors/warnings, "out" is empty string.
         if out:
-            fwglobals.log.error(f"frr_vtysh_run: failed to run FRR commands. vtysh_cmd={vtysh_cmd} out={out}. err={err}. reverting...")
-            _revert()
-            return (False, out)
+            if out in allowed_vtysh_outputs:
+                fwglobals.log.warning(f"frr_vtysh_run: allowed warning received when executed FRR commands. vtysh_cmd={vtysh_cmd} out={out}.. ignore")
+            else:
+                fwglobals.log.error(f"frr_vtysh_run: failed to run FRR commands. vtysh_cmd={vtysh_cmd} out={out}. err={err}. reverting...")
+                _revert()
+                return (False, out)
 
         if restart_frr:
             os.system('systemctl restart frr')
