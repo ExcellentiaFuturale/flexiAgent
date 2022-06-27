@@ -180,20 +180,11 @@ class FwMultilink(FwObject):
         link_id = dev_id if dev_id else sw_if_index
         link = self.db['links'].get(link_id)
 
-        # Resolve next_hop if not provided
-        #
-        if not next_hop:
-            tap = fwutils.vpp_if_name_to_tap(vpp_if_name)
-            next_hop, _ = fwutils.get_interface_gateway(tap)
-        if not next_hop:
-            next_hop = "0.0.0.0"
-            fwglobals.log.warning(f"vpp_update_labels: no 'next_hop' was provided, use black hole {next_hop}")
-
         # Remove link
         if remove:
             if not link:
                 self.log.error(f"no link to be removed was found: dev_id={dev_id}, sw_if_index={sw_if_index}")
-                return (False, "no link to be removed was found: dev_id={dev_id}, sw_if_index={sw_if_index}")
+                return (False, "failed to update multilink label for dev_id={dev_id}")
             err_str = self._remove_link(link)
             if err_str:
                 return (False, err_str)
@@ -203,7 +194,23 @@ class FwMultilink(FwObject):
         # It can be link modification, if link exists in database, or it can be
         # link addition, if link does not exists.
         # In the former case we have to remove existing link firstly.
+
+        # Resolve next_hop if not provided
         #
+        if link:
+            vpp_if_name = link.vpp_if_name
+        else:
+            vpp_if_name = fwutils.dev_id_to_vpp_if_name(dev_id) if dev_id else \
+                          fwutils.vpp_sw_if_index_to_name(sw_if_index)
+            if not vpp_if_name:
+                return (False, "'vpp_if_name' was not found for {link_id}")
+        if not next_hop:
+            tap = fwutils.vpp_if_name_to_tap(vpp_if_name)
+            next_hop, _ = fwutils.get_interface_gateway(tap)
+        if not next_hop:
+            next_hop = "0.0.0.0"
+            fwglobals.log.warning(f"vpp_update_labels: no 'next_hop' was provided, use black hole {next_hop}")
+
         if link:
             err_str = self._remove_link(link)
             if err_str:
@@ -214,10 +221,6 @@ class FwMultilink(FwObject):
             link.labels     = labels
             link.next_hop   = next_hop
         else:
-            vpp_if_name = fwutils.dev_id_to_vpp_if_name(dev_id) if dev_id else \
-                          fwutils.vpp_sw_if_index_to_name(sw_if_index)
-            if not vpp_if_name:
-                return (False, "'vpp_if_name' was not found for {link_id}")
             link = FwMultilinkLink(link_id, labels, next_hop, vpp_if_name)
 
         err_str = self._add_link(link)

@@ -43,6 +43,7 @@ import fwtunnel_stats
 import fwutils
 import fwwifi
 from fwcfg_request_handler import FwCfgRequestHandler
+from fwfrr import FwFrr
 from fwikev2 import FwIKEv2
 from fwmultilink import FwMultilink
 from fwpolicies import FwPolicies
@@ -103,18 +104,18 @@ class FWROUTER_API(FwCfgRequestHandler):
                 WAN interface without IP.
     :param multilink_db_file: name of file that stores persistent multilink data
     """
-    def __init__(self, cfg, pending_cfg_file, multilink_db_file):
+    def __init__(self, cfg, pending_cfg_file, multilink_db_file, frr_db_file):
         """Constructor method
         """
         self.vpp_api         = VPP_API()
         self.multilink       = FwMultilink(multilink_db_file)
+        self.frr             = FwFrr(frr_db_file)
         self.router_state    = FwRouterState.STOPPED
         self.thread_watchdog     = None
         self.thread_tunnel_stats = None
         self.thread_monitor_interfaces = None
         self.vpp_coredump_in_progress = False
         self.monitor_interfaces  = {}  # Interfaces that are monitored for IP changes
-        self.pending_dev_ids     = set()  # Set of pending interfaces dev_id-s
 
         pending_cfg_db = fwrouter_cfg.FwRouterCfg(pending_cfg_file)
         FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, pending_cfg_db, self._on_revert_failed)
@@ -177,7 +178,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         try:
             old = self.monitor_interfaces
             new = self._get_monitor_interfaces(cached=False)
-            self._sync_dhcp_address(old, new)
+            self._sync_addresses(old, new)
         except Exception as e:
             self.thread_monitor_interfaces.log_error(
                 f"_sync_interfaces: {str(e)} ({traceback.format_exc()})")
@@ -225,13 +226,13 @@ class FWROUTER_API(FwCfgRequestHandler):
                 self.log.debug(f"detected CARRIER UP for {tap_name}")
                 fwutils.os_system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
 
-    def _sync_dhcp_address(self, old_interfaces, new_interfaces):
+    def _sync_addresses(self, old_interfaces, new_interfaces):
         """Monitors VPP interfaces for IP/GW change and updates system as follows:
 
         - on IP/GW change on WAN interface:
             1. update multi-link policy DIA links with proper GW, so the link
                reachability could be detected properly
-            2. reconstruct pending tunnels and static routes if IP was acquired
+            2. update ARP entry for the LTE GW to be black hole
 
         - on IP/GW change on LAN interface:
             1. update FRR with new local network
@@ -243,8 +244,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             old = old_interfaces.get(dev_id)
             if not old:
                 continue   # escape newly added interface, take care of it on next sync
-            if old['dhcp'] != 'yes' and new['dhcp'] != 'yes':
-                continue   # escape non dhcp interfaces
+
             if old['gw'] != new['gw']:
                 if new['type'] == 'wan':
                     # Update FWABF link with new GW, it is used for multilink policies
@@ -258,15 +258,10 @@ class FWROUTER_API(FwCfgRequestHandler):
                     if new['deviceType'] == 'lte':
                         fwlte.set_arp_entry(is_add=False, dev_id=dev_id, gw=old['gw'])
                         fwlte.set_arp_entry(is_add=True,  dev_id=dev_id, gw=new['gw'])
-                    # 
-            if old['addr'] != new['addr']:
-                if new['type'] == 'wan':
-                    # Reconstruct pending tunnels and static routes
-                    _restore_pending_requests(dev_id, new)
-                elif new['type'] == 'lan':
-                    # Update OSPF configuration with new network
-                    nnoww - take bride_addr in account!!!!!!!!!!!!
 
+            if old['addr'] != new['addr']:
+                if new['type'] == 'lan':
+                    self.frr.ospf_network_update(dev_id, new['addr'])
 
     def _get_monitor_interfaces(self, cached=True):
         '''Retrieves interfaces from the configuration database, fetches their
@@ -336,6 +331,8 @@ class FWROUTER_API(FwCfgRequestHandler):
     def _restore_vpp(self):
         self.log.info("===restore vpp: started===")
         try:
+            with FwFrr(fwglobals.g.FRR_DB_FILE) as db_frr:
+                db_frr.clean()
             with FwMultilink(fwglobals.g.MULTILINK_DB_FILE) as db_multilink:
                 db_multilink.clean()
             with FwPolicies(fwglobals.g.POLICY_REC_DB_FILE) as db_policies:
@@ -355,11 +352,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             self.log.excep("restore_vpp_if_needed: %s" % str(e))
             self.state_change(FwRouterState.FAILED, "failed to restore vpp configuration")
         self.log.info("====restore vpp: finished===")
-
-    def _restore_pending_requests(dev_id, monitor_interface):
-        '''
-        '''
-        nnoww
 
     def start_router(self):
         """Execute start router command.
@@ -1206,12 +1198,15 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         self.multilink.db['links'] = {}
 
+        self.pending_dev_ids = set()
+
+
     def _sync_after_start(self):
         """Resets signature once interface got IP during router starting.
         :returns: None.
         """
         do_sync = False
-        for dev_id in fwglobals.g.router_api.pending_dev_ids:
+        for dev_id in self.pending_dev_ids:
             if_name = fwutils.dev_id_to_tap(dev_id)
             addr = fwutils.get_interface_address(if_name, log=False)
             if addr:
@@ -1244,6 +1239,13 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwglobals.g.pppoe.start()
 
         self._sync_after_start()
+
+        # Build cache of interfaces for address monitoring.
+        # Note if address was changed before we reach this point,
+        # the `_sync_after_start()` above should handle the change.
+        # It forces the flexiManage to send `sync-device` to us.
+        #
+        self._get_monitor_interfaces(cached=False)
 
         self.log.info("router was started: vpp_pid=%s" % str(fwutils.vpp_pid()))
 
@@ -1283,6 +1285,8 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwglobals.g.cache.dev_id_to_vpp_if_name.clear()
         fwutils.clear_linux_interfaces_cache()
 
+        with FwFrr(fwglobals.g.FRR_DB_FILE) as db_frr:
+            db_frr.clean()
         with FwMultilink(fwglobals.g.MULTILINK_DB_FILE) as db_multilink:
             db_multilink.clean()
         with FwPolicies(fwglobals.g.POLICY_REC_DB_FILE) as db_policies:

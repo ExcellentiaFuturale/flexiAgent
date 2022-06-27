@@ -453,33 +453,23 @@ def add_interface(params):
         ospf = params.get('ospf', {})
         area = ospf.get('area', '0.0.0.0')
 
-        # if interface is inside a bridge, we put the ip on the BVI loopback interface
-        # which always up and has ip.
-        # Unlike a standard LAN interface that can also be DHCP without IP and
-        # we need to query IP on real time.
         if bridge_addr:
-            cmd_params    = { 'commands': ["router ospf", f"network {bridge_addr} area {area}"] }
-            revert_params = { 'commands': ["router ospf", f"no network {bridge_addr} area {area}"] }
+            network = bridge_addr
+        elif iface_addr:
+            network = iface_addr
         else:
-            cmd_params = {
-                       'commands': ["router ospf", f"network DEV-NETWORK area {area}"],
-                       'substs': [ {'replace':'DEV-NETWORK', 'key': 'commands', 'val_by_func': 'get_interface_address', 'arg': [None, dev_id]} ]
-            }
-            revert_params = {
-                       'commands': ["router ospf", f"no network DEV-NETWORK area {area}"],
-                       'substs': [ {'replace':'DEV-NETWORK', 'key': 'commands', 'val_by_func': 'get_interface_address', 'arg': [None, dev_id]} ]
-            }
+            network = None   # Will be resolved by get_interface_address(dev_id) in real time
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']    = "frr_vtysh_run"
-        cmd['cmd']['module']  = "fwutils"
+        cmd['cmd']['func']    = "ospf_network_add"
+        cmd['cmd']['object']  = "fwglobals.g.router_api.frr"
         cmd['cmd']['descr']   =  f"add interface {dev_id} to OSPF"
-        cmd['cmd']['params'] = cmd_params
+        cmd['cmd']['params']  = { 'dev_id': dev_id, 'address': network, 'area': area }
         cmd['revert'] = {}
-        cmd['revert']['func']   = "frr_vtysh_run"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['params'] = revert_params
+        cmd['revert']['func']   = "ospf_network_remove"
+        cmd['revert']['object'] = "fwglobals.g.router_api.frr"
+        cmd['revert']['params'] = { 'dev_id': dev_id }
         cmd['revert']['descr']   =  f"remove interface {dev_id} from OSPF"
         cmd_list.append(cmd)
 

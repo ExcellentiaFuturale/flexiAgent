@@ -52,6 +52,7 @@ import fwwifi
 import fwtranslate_add_switch
 
 from fwapplications_api import call_applications_hook, FWAPPLICATIONS_API
+from fwfrr          import FwFrr
 from fwikev2        import FwIKEv2
 from fwmultilink    import FwMultilink
 from fwpolicies     import FwPolicies
@@ -1561,6 +1562,8 @@ def reset_device_config(pppoe=False, applications=True):
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE_RESTORE, fwglobals.g.VPP_CONFIG_FILE)
     if os.path.exists(fwglobals.g.CONN_FAILURE_FILE):
         os.remove(fwglobals.g.CONN_FAILURE_FILE)
+    with FwFrr(fwglobals.g.FRR_DB_FILE) as db_frr:
+        db_frr.clean()
     with FwMultilink(fwglobals.g.MULTILINK_DB_FILE) as db_multilink:
         db_multilink.clean()
     with FwPolicies(fwglobals.g.POLICY_REC_DB_FILE) as db_policies:
