@@ -34,7 +34,42 @@ import shutil
 
 import fwglobals
 from fwapplications_cfg import FwApplicationsCfg
+from fwrouter_api import fwrouter_translators
+from fwrouter_cfg import FwRouterCfg
 
+def _migrate_vpn_scripts():
+    application_db_path = "/etc/flexiwan/agent/.applications.sqlite"
+    if os.path.exists(application_db_path):
+        with FwApplicationsCfg(application_db_path) as application_cfg:
+            apps = application_cfg.get_applications()
+
+            for app in apps:
+                identifier = app.get('identifier')
+                if not identifier == 'com.flexiwan.remotevpn':
+                    continue
+
+                path = '/usr/share/flexiwan/agent/applications/com_flexiwan_remotevpn/scripts'
+                shutil.copyfile('{}/up.py'.format(path), '/etc/openvpn/server/up-script.py')
+                shutil.copyfile('{}/down.py'.format(path), '/etc/openvpn/server/down-script.py')
+                shutil.copyfile('{}/client-connect.py'.format(path), '/etc/openvpn/server/client-connect.py')
+                shutil.copyfile('{}/scripts_logger.py'.format(path), '/etc/openvpn/server/scripts_logger.py')
+                shutil.copyfile('{}/script_utils.py'.format(path), '/etc/openvpn/server/script_utils.py')
+
+                os.system('killall openvpn') # it will be start again by our application watchdog
+
+def _migrate_routing_field():
+    requests_db_path = "/etc/flexiwan/agent/.requests.sqlite"
+    if os.path.exists(requests_db_path):
+        with FwRouterCfg("/etc/flexiwan/agent/.requests.sqlite") as router_cfg:
+            router_cfg.set_translators(fwrouter_translators)
+            interfaces = router_cfg.get_interfaces()
+            for interface in interfaces:
+                interface['routing'] = [interface['routing']] # convert string to array
+                new_request = {
+                    'message':   'add-interface',
+                    'params':    interface
+                }
+                router_cfg.update(new_request, [], False)
 
 def migrate(prev_version=None, new_version=None, upgrade=True):
     prev_version = prev_version.split('-')[0].split('.')
@@ -47,24 +82,9 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
         try:
             print("* Migrating vpn server scripts ...")
 
-            application_db_path = "/etc/flexiwan/agent/.applications.sqlite"
-            if os.path.exists(application_db_path):
-                with FwApplicationsCfg(application_db_path) as application_cfg:
-                    apps = application_cfg.get_applications()
+            _migrate_vpn_scripts()
 
-                    for app in apps:
-                        identifier = app.get('identifier')
-                        if not identifier == 'com.flexiwan.remotevpn':
-                            continue
-
-                        path = '/usr/share/flexiwan/agent/applications/com_flexiwan_remotevpn/scripts'
-                        shutil.copyfile('{}/up.py'.format(path), '/etc/openvpn/server/up-script.py')
-                        shutil.copyfile('{}/down.py'.format(path), '/etc/openvpn/server/down-script.py')
-                        shutil.copyfile('{}/client-connect.py'.format(path), '/etc/openvpn/server/client-connect.py')
-                        shutil.copyfile('{}/scripts_logger.py'.format(path), '/etc/openvpn/server/scripts_logger.py')
-                        shutil.copyfile('{}/script_utils.py'.format(path), '/etc/openvpn/server/script_utils.py')
-
-                        os.system('killall openvpn') # it will be start again by our application watchdog
+            _migrate_routing_field()
 
         except Exception as e:
             print("Migration error: %s : %s" % (__file__, str(e)))
