@@ -114,6 +114,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         self.thread_monitor_interfaces = None
         self.vpp_coredump_in_progress = False
         self.monitor_interfaces  = {}  # Interfaces that are monitored for IP changes
+        self.pending_dev_ids     = set()  # Set of pending interfaces dev_id-s
 
         pending_cfg_db = fwrouter_cfg.FwRouterCfg(pending_cfg_file)
         FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, pending_cfg_db, self._on_revert_failed)
@@ -615,6 +616,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             interface = monitor_interfaces.get(request['params']['dev_id'])
             if not interface or not interface['addr']:
                 self.log.debug(f"pending request detected: {str(request)}")
+                self.pending_dev_ids.add(request['params']['dev_id'])
                 return True
             return False
 
@@ -640,6 +642,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 if interface:
                     if not interface['addr']:
                         self.log.debug(f"pending request detected by dev-id: {str(request)}")
+                        self.pending_dev_ids.add(request['params']['dev_id'])
                         return True
                     return False
                 # Check unassigned interfaces
@@ -1203,6 +1206,22 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         self.multilink.db['links'] = {}
 
+    def _sync_after_start(self):
+        """Resets signature once interface got IP during router starting.
+        :returns: None.
+        """
+        do_sync = False
+        for dev_id in fwglobals.g.router_api.pending_dev_ids:
+            if_name = fwutils.dev_id_to_tap(dev_id)
+            addr = fwutils.get_interface_address(if_name, log=False)
+            if addr:
+                fwglobals.log.debug(f'Pending interface {dev_id} got ip {addr}')
+                do_sync = True
+                break
+
+        if do_sync:
+            fwutils.reset_device_config_signature("pending_interfaces_got_ip", log=False)
+
     def _on_start_router_after(self):
         """Handles post start VPP activities.
         :returns: None.
@@ -1217,7 +1236,15 @@ class FWROUTER_API(FwCfgRequestHandler):
             # so the configuration file will be not needed.
             fwglobals.log.error(f"_on_start_router_after: failed to flush frr configuration into file: {str(err)}")
 
+        if fwglobals.g.is_gcp_vm:
+            # When we shutting down the interfaces on Linux before assigning them to VPP
+            # the GCP agent is stopped. Hence, we need to restart it again.
+            fwutils.restart_gcp_agent()
+
         fwglobals.g.pppoe.start()
+
+        self._sync_after_start()
+
         self.log.info("router was started: vpp_pid=%s" % str(fwutils.vpp_pid()))
 
         fwglobals.g.applications_api.call_hook('on_router_is_started')

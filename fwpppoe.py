@@ -93,8 +93,7 @@ class FwPppoeConnection(FwObject):
     def scan_and_connect_if_needed(self, connect_if_needed):
         """Check Linux interfaces if PPPoE tunnel (pppX) is created.
         """
-        addr = self.addr
-        if not self._is_open() and self.opened and connect_if_needed:
+        if self.opened and connect_if_needed:
             self.open()
 
         interfaces = psutil.net_if_addrs()
@@ -112,6 +111,9 @@ class FwPppoeConnection(FwObject):
     def open(self):
         """Open PPPoE connection.
         """
+        if self._is_open():
+            return
+
         self.opened = False
 
         sys_cmd = f'ip -4 addr flush label "{self.if_name}"'
@@ -824,20 +826,29 @@ def is_pppoe_interface(if_name = None, dev_id = None):
 def pppoe_remove():
     """Remove PPPoE configuration files and clean internal DB
     """
-    with FwPppoeClient() as pppoe_client:
-        pppoe_client.clean()
+    if fwglobals.g.pppoe:
+        fwglobals.g.pppoe.clean()
+    else:
+        with FwPppoeClient() as pppoe:
+            pppoe.clean()
 
 def is_pppoe_configured():
     """Check if PPPoE is configured
     """
-    with FwPppoeClient() as pppoe_client:
-        return pppoe_client.is_pppoe_configured()
+    if fwglobals.g.pppoe:
+        return fwglobals.g.pppoe.is_pppoe_configured()
+    else:
+        with FwPppoeClient() as pppoe:
+            return pppoe.is_pppoe_configured()
 
 def pppoe_reset():
     """Reset PPPoE configuration files
     """
-    with FwPppoeClient() as pppoe_client:
-        pppoe_client.reset_interfaces()
+    if fwglobals.g.pppoe:
+        fwglobals.g.pppoe.reset_interfaces()
+    else:
+        with FwPppoeClient() as pppoe:
+            pppoe.reset_interfaces()
 
 def build_dev_id_to_vpp_if_name_map():
     """Get PPPoE connections.

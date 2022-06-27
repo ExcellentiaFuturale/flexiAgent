@@ -754,7 +754,7 @@ def start(start_router):
     daemon_rpc('start', start_vpp=start_router) # if daemon runs, start connection loop and router if required
     fwglobals.log.info("done")
 
-def show(agent, configuration, database, status):
+def show(agent, configuration, database, status, networks):
     """Handles 'fwagent show' command.
     This commands prints various information about device and it's components,
     like router configuration, software version, etc.
@@ -764,6 +764,7 @@ def show(agent, configuration, database, status):
     :param configuration:  Configuration information.
     :param database:       Databases information.
     :param status:         Status information.
+    :param networks:       Device networks information.
 
     :returns: None.
     """
@@ -782,6 +783,12 @@ def show(agent, configuration, database, status):
             fwutils.print_router_config(basic=False, multilink=True)
         elif configuration == 'signature':
             fwutils.print_device_config_signature()
+
+    if networks:
+        type = None if networks == 'all' else networks
+        out = daemon_rpc('show', what='networks', type=type)
+        if out:
+            print(out)
 
     if agent:
         out = daemon_rpc('show', what=agent)
@@ -968,7 +975,7 @@ class FwagentDaemon(FwObject):
         self.stop()
         self.start()
 
-    def show(self, what=None):
+    def show(self, what=None, **args):
         if what == 'version':
             return fwutils.get_device_versions(fwglobals.g.VERSIONS_FILE)['components']['agent']['version']
         if what == 'cache':
@@ -978,6 +985,8 @@ class FwagentDaemon(FwObject):
             for thd in threading.enumerate():
                 thread_list.append(thd.name)
             return json.dumps(sorted(thread_list), indent=2, sort_keys=True)
+        if what == 'networks':
+            return fwutils.get_device_networks_json(**args)
 
 
     def main(self):
@@ -1221,7 +1230,8 @@ if __name__ == '__main__':
                         agent=args.agent,
                         configuration=args.configuration,
                         database=args.database,
-                        status=args.status),
+                        status=args.status,
+                        networks=args.networks),
                     'cli': lambda args: cli(
                         script_fname=args.script_fname,
                         clean_request_db=args.clean,
@@ -1267,6 +1277,9 @@ if __name__ == '__main__':
                         help="show various agent parameters")
     parser_show.add_argument('--configuration', const='all', nargs='?',
                         choices=['all', 'router', 'system', 'multilink-policy', 'signature', 'router-pending'],
+                        help="show flexiEdge configuration")
+    parser_show.add_argument('--networks', nargs='?', const='all',
+                        choices=['all', 'lan', 'wan'],
                         help="show flexiEdge configuration")
     parser_show.add_argument('--database',
                         choices=['applications', 'general', 'multilink', 'router', 'system'],
