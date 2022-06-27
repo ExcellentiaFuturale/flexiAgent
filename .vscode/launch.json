@@ -174,6 +174,40 @@
             "env": {
                 "PYTHONPATH": "${workspaceRoot}"
             }
+        },
+        {
+            "name": "Post Install",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/common/post_install.py",
+            "args": [
+                "${input:fromVersion}",
+                "${input:toVersion}",
+                "${input:operation}"
+            ],
+            "cwd": "${workspaceRoot}",
+            "env": {
+                "PYTHONPATH": "${workspaceRoot}/"
+            },
+            "sudo": true,
+        }
+    ],
+    "inputs": [
+        {
+            "id": "fromVersion",
+            "type": "promptString",
+            "description": "From which version?",
+        },
+        {
+            "id": "toVersion",
+            "type": "promptString",
+            "description": "To which version?",
+        },
+        {
+            "id": "operation",
+            "type": "promptString",
+            "description": "install or remove?",
+            "default": "install"
         }
     ]
 }

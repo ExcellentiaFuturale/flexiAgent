@@ -64,12 +64,13 @@ def _migrate_routing_field():
             router_cfg.set_translators(fwrouter_translators)
             interfaces = router_cfg.get_interfaces()
             for interface in interfaces:
-                interface['routing'] = [interface['routing']] # convert string to array
-                new_request = {
-                    'message':   'add-interface',
-                    'params':    interface
-                }
-                router_cfg.update(new_request, [], False)
+                if isinstance(interface['routing'], str):
+                    interface['routing'] = [interface['routing']] # convert string to array
+                    new_request = {
+                        'message':   'add-interface',
+                        'params':    interface
+                    }
+                    router_cfg.update(new_request, [], False)
 
 def migrate(prev_version=None, new_version=None, upgrade=True):
     prev_version = prev_version.split('-')[0].split('.')
