@@ -176,7 +176,7 @@
             }
         },
         {
-            "name": "Post Install",
+            "name": "Post Install - Migration",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/tools/common/post_install.py",
