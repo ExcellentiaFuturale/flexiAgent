@@ -33,7 +33,12 @@ link_mtu = sys.argv[3]
 ifconfig_local_ip = sys.argv[4]
 ifconfig_netmask = sys.argv[5]
 
+is_device_support_bgp = script_utils.is_device_higher_than(5, 3)
+
 script_utils.remove_tc_commands(vpn_tun_is_up=False)
 script_utils.remove_from_ospf(ifconfig_local_ip, ifconfig_netmask)
-script_utils.remove_from_bgp(ifconfig_local_ip, ifconfig_netmask)
+
+if is_device_support_bgp:
+    script_utils.remove_from_bgp(ifconfig_local_ip, ifconfig_netmask)
+
 script_utils.remove_tun_from_vpp()

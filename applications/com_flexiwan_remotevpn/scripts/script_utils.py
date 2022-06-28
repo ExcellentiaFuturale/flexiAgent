@@ -22,12 +22,15 @@
 import json
 import os
 
+import yaml
 from netaddr import IPAddress
 
 from scripts_logger import Logger
+
 logger = Logger()
 
 from application_cfg import config
+
 app_database_file = config['app_database_file']
 
 def add_to_ospf(ifconfig_local_ip, ifconfig_netmask):
@@ -173,3 +176,22 @@ def remove_tun_from_vpp():
     except Exception as e:
         logger.error(f'remove_tun_from_vpp(): {str(e)}')
         pass
+
+def get_device_versions():
+    """Get agent version.
+
+    :returns: Tuple with major and minor versions value.
+    """
+    try:
+        with open('/etc/flexiwan/agent/.versions.yaml', 'r') as stream:
+            versions = yaml.load(stream, Loader=yaml.BaseLoader)
+            agent_version = versions['components']['agent']['version']
+            major, minor, patch = agent_version.split('.')
+            return int(major), int(minor), int(patch)
+    except Exception as e:
+        logger.error(f'get_device_versions(): {str(e)}')
+        return (None, None, None)
+
+def is_device_higher_than(major, minor):
+    current_major, current_minor, _ = get_device_versions()
+    return current_major > major or (current_major == major and current_minor >= minor)

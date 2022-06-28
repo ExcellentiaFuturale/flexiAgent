@@ -83,14 +83,12 @@
             }
         },
         {
-            "name": "fwagent show --agent cache",
+            "name": "fwagent show CLI",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/fwagent.py",
             "args": [
-                "show",
-                "--database",
-                "applications",
+                "show", "${input:showCli}", "${input:showCli1}",
             ],
             "cwd": "${workspaceRoot}",
             "env": {
@@ -174,6 +172,50 @@
             "env": {
                 "PYTHONPATH": "${workspaceRoot}"
             }
+        },
+        {
+            "name": "Post Install - Migration",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/common/post_install.py",
+            "args": [
+                "${input:fromVersion}",
+                "${input:toVersion}",
+                "${input:operation}"
+            ],
+            "cwd": "${workspaceRoot}",
+            "env": {
+                "PYTHONPATH": "${workspaceRoot}/"
+            },
+            "sudo": true,
+        }
+    ],
+    "inputs": [
+        {
+            "id": "fromVersion",
+            "type": "promptString",
+            "description": "From which version?",
+        },
+        {
+            "id": "toVersion",
+            "type": "promptString",
+            "description": "To which version?",
+        },
+        {
+            "id": "operation",
+            "type": "promptString",
+            "description": "install or remove?",
+            "default": "install"
+        },
+        {
+            "id": "showCli",
+            "type": "promptString",
+            "description": "Show cli flags"
+        },
+        {
+            "id": "showCli1",
+            "type": "promptString",
+            "description": "Show cli flags"
         }
     ]
 }
