@@ -81,6 +81,8 @@ class FwWebSocketClient(FwObject):
         parsed_url  = urllib.parse.urlparse(url)
         remote_host = parsed_url.hostname
         remote_port = parsed_url.port if parsed_url.port else 443
+        sock = None
+        ssl_sock = None
 
         try:
             self.lock.acquire()
