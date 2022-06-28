@@ -57,15 +57,33 @@ def _migrate_vpn_scripts():
 
                 os.system('killall openvpn') # it will be start again by our application watchdog
 
-def _migrate_routing_field():
+def _migrate_routing_field(str_to_list=False, list_to_str = False):
     requests_db_path = "/etc/flexiwan/agent/.requests.sqlite"
     if os.path.exists(requests_db_path):
         with FwRouterCfg("/etc/flexiwan/agent/.requests.sqlite") as router_cfg:
             router_cfg.set_translators(fwrouter_translators)
             interfaces = router_cfg.get_interfaces()
             for interface in interfaces:
-                if isinstance(interface['routing'], str):
+                changed = False
+                if str_to_list and isinstance(interface['routing'], str):
                     interface['routing'] = [interface['routing']] # convert string to array
+                    changed = True
+
+                if list_to_str and isinstance(interface['routing'], list):
+                    interface_type = interface.get('type')
+
+                    if interface_type == 'WAN':
+                        interface['routing'] = 'NONE'
+                        changed = True
+
+                    elif interface_type == 'LAN':
+                        if 'OSPF' in interface['routing']:
+                            interface['routing'] = 'OSPF'
+                        else: # means that user has only 'BGP'. Here I'm assuming that server will not allow it once downgraded.
+                            interface['routing'] = 'NONE'
+                        changed = True
+
+                if changed:
                     new_request = {
                         'message':   'add-interface',
                         'params':    interface
@@ -79,14 +97,28 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
     prev_major_version = int(prev_version[0])
     prev_minor_version = int(prev_version[1])
 
-    if upgrade == 'upgrade' and prev_major_version == 5 and prev_minor_version == 2:
+    new_major_version  = int(new_version[0])
+    new_minor_version  = int(new_version[1])
+
+    # upgrade from lower (or equal) then 5.2
+    if upgrade == 'upgrade' and prev_major_version < 5 or (prev_major_version == 5 and prev_minor_version <= 2):
         try:
             print("* Migrating vpn server scripts ...")
-
             _migrate_vpn_scripts()
 
-            _migrate_routing_field()
+            print("* Migrating routing field from string to list ...")
+            _migrate_routing_field(str_to_list=True)
 
+        except Exception as e:
+            print("Migration error: %s : %s" % (__file__, str(e)))
+
+    # downgrade to lower (or equal) then 5.2
+    if upgrade == 'downgrade' and new_major_version < 5 or (new_major_version == 5 and new_minor_version <= 2):
+        try:
+            print("* Migrating routing field from list to string ...")
+            _migrate_routing_field(list_to_str=True)
+
+            # no need to migrate the vpn scripts on downgrade, the new scripts support both versions
         except Exception as e:
             print("Migration error: %s : %s" % (__file__, str(e)))
 

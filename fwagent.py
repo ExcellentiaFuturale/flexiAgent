@@ -785,8 +785,8 @@ def show(agent, configuration, database, status, networks):
             fwutils.print_device_config_signature()
 
     if networks:
-        type = None if networks == 'all' else networks
-        out = daemon_rpc('show', what='networks', type=type)
+        networks_type = None if networks == 'all' else networks
+        out = fwutils.get_device_networks_json(type=networks_type)
         if out:
             print(out)
 

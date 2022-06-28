@@ -30,12 +30,16 @@ import sys
 import traceback
 from ipaddress import IPv4Network
 
+import script_utils
 from scripts_logger import Logger
+
 logger = Logger()
 
 conf_file = sys.argv[1]
 
 try:
+    is_device_higher_than_5_3 = script_utils.is_device_higher_than_5_3()
+
     # get all frr routes
     frr_output = os.popen('vtysh -c "show ip route json"').read()
     parsed = json.loads(frr_output)
@@ -54,15 +58,21 @@ try:
             netmask = ip_network.netmask
             routes.add(f'push \"route {network} {netmask}\"')
 
-    # [root@flexiwan-router /usr/bin]# fwagent show --configuration networks
-    # [
-    #   "185.55.66.1/24"
-    # ]
-    agent_networks = os.popen('fwagent show --networks lan').read()
-    parsed_networks = json.loads(agent_networks)
+    if is_device_higher_than_5_3:
+        # this cli introduced from 5.3 version
+        # [root@flexiwan-router /usr/bin]# fwagent show --configuration networks
+        # [
+        #   "185.55.66.1/24"
+        # ]
+        agent_networks = os.popen('fwagent show --networks lan').read()
+        if agent_networks:
+            parsed_networks = json.loads(agent_networks)
 
-    for network in parsed_networks:
-        routes.add(f'push \"route {network}\"')
+            for network in parsed_networks:
+                ip_network = IPv4Network(network, False) # False to ignore host bits error. LAN IP is not the network but an host in the network.
+                network = ip_network.network_address
+                netmask = ip_network.netmask
+                routes.add(f'push \"route {network} {netmask}\"')
 
     if len(routes) > 0:
         route_str = '\n'.join(routes)

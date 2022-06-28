@@ -41,12 +41,15 @@ bgp = False
 vpp_tun = False
 tc_commands = False
 
+is_device_higher_than_5_3 = script_utils.is_device_higher_than_5_3()
+
 try:
     ospf = True
     script_utils.add_to_ospf(ifconfig_local_ip, ifconfig_netmask)
 
-    bgp = True
-    script_utils.add_to_bgp(ifconfig_local_ip, ifconfig_netmask)
+    if is_device_higher_than_5_3:
+        bgp = True
+        script_utils.add_to_bgp(ifconfig_local_ip, ifconfig_netmask)
 
     vpp_tun = True
     script_utils.create_tun_in_vpp(ifconfig_local_ip, ifconfig_netmask)
@@ -60,7 +63,7 @@ except Exception as e:
     if vpp_tun:
         script_utils.remove_tun_from_vpp()
 
-    if bgp:
+    if bgp and is_device_higher_than_5_3:
         script_utils.remove_from_bgp(ifconfig_local_ip, ifconfig_netmask)
 
     if ospf:
