@@ -717,7 +717,7 @@ def mbim_get_ip_configuration(dev_id):
     except Exception:
         return (ip, gateway)
 
-def get_ip_configuration(dev_id, key=None, cache=True, result_cache=None):
+def get_ip_configuration(dev_id, key=None, cache=True):
     response = {
         'ip'           : '',
         'gateway'      : '',
@@ -748,12 +748,6 @@ def get_ip_configuration(dev_id, key=None, cache=True, result_cache=None):
     except Exception as e:
         fwglobals.log.debug(f"get_ip_configuration({dev_id}, {key}, {cache}) failed: {str(e)}")
         pass
-
-    # Store 'gateway' in result cache if provided by translation executor.
-    #
-    if result_cache and result_cache['result_attr'] == 'gw':
-        key = result_cache['key']
-        result_cache['cache'][key] = gateway
 
     if key:
         return response[key]
@@ -1041,9 +1035,15 @@ def set_arp_entry(is_add, dev_id, gw=None):
             fwglobals.log.debug(f"set_arp_entry: no GW was found for {dev_id}")
             return
 
+    log_prefix=f"set_arp_entry({dev_id})"
+
     if is_add:
-        fwutils.os_system(f"sudo arp -s {gw} 00:00:00:00:00:00")
-        fwutils.vpp_cli_execute([f"set ip neighbor static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"])
+        cmd = f"sudo arp -s {gw} 00:00:00:00:00:00"
+        fwutils.os_system(cmd, log_prefix=log_prefix, raise_exception_on_error=True)
+        cmd = f"set ip neighbor static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"
+        fwutils.vpp_cli_execute([cmd], log_prefix=log_prefix, raise_exception_on_error=True)
     else:
-        fwutils.os_system(f"sudo arp -d {gw}")
-        fwutils.vpp_cli_execute([f"set ip neighbor del static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"])
+        cmd = f"sudo arp -d {gw}"
+        fwutils.os_system(cmd, log_prefix=log_prefix, raise_exception_on_error=True)
+        cmd = f"set ip neighbor del static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"
+        fwutils.vpp_cli_execute([cmd], log_prefix=log_prefix, raise_exception_on_error=True)

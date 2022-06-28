@@ -253,11 +253,14 @@ class FWROUTER_API(FwCfgRequestHandler):
                     if link:
                         self.multilink.vpp_update_labels(
                             remove=False, labels=link.labels, next_hop=new['gw'], dev_id=dev_id)
+
                     # Update ARP entry of LTE interface
-                    #
-                    if new['deviceType'] == 'lte':
-                        fwlte.set_arp_entry(is_add=False, dev_id=dev_id, gw=old['gw'])
-                        fwlte.set_arp_entry(is_add=True,  dev_id=dev_id, gw=new['gw'])
+                    try:
+                        if new['deviceType'] == 'lte':
+                            fwlte.set_arp_entry(is_add=False, dev_id=dev_id, gw=old['gw'])
+                            fwlte.set_arp_entry(is_add=True,  dev_id=dev_id, gw=new['gw'])
+                    except:
+                        pass
 
             if old['addr'] != new['addr']:
                 if new['type'] == 'lan':
@@ -282,7 +285,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 cached_interface = {}
                 cached_interface['if_name'] = if_name
                 cached_interface['addr']        = fwutils.get_interface_address(if_name, log=False)
-                cached_interface['gw']          = fwutils.get_interface_gateway(if_name)
+                cached_interface['gw']          = fwutils.get_interface_gateway(if_name)[0]
                 cached_interface['dhcp']        = interface['dhcp'].lower()         # yes/no
                 cached_interface['type']        = interface['type'].lower()         # LAN/WAN
                 cached_interface['deviceType']  = interface['deviceType'].lower()   # DPDK/WIFI/LTE
@@ -469,7 +472,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             #
             if restart_dhcp_service:
                 if not restart_router: # on router restart DHCP service is restarted as well
-                    fwutils.restart_service(service='isc-dhcp-server', timeout=5)
+                    cmd = 'systemctl restart isc-dhcp-server'
+                    fwutils.os_system(cmd, 'call')
 
             # Reconnect agent if needed
             #

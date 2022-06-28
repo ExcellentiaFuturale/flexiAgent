@@ -92,10 +92,9 @@ class FwFrr(FwObject):
         if not address:
             self.log.debug(f"ospf_network_add({dev_id}): device has no address, return")
             return True
-        try:
-            fwutils.frr_vtysh_run(["router ospf", f"network {address} area {area}"])
-        except Exception as e:
-            self.log.error(f"ospf_network_add({dev_id}): failed to update frr: {str(e)}")
+        ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"network {address} area {area}"], raise_exception_on_error=True)
+        if not ret:
+            self.log.error(f"ospf_network_add({dev_id}): failed to update frr: {err_str}")
             return (False, f"failed to add OSPF network for {dev_id}")
 
         if not dev_id in ospf:
@@ -119,10 +118,9 @@ class FwFrr(FwObject):
             self.log.debug(f"ospf_network_remove({dev_id}): there is no existing network for '{dev_id}'")
             return
 
-        try:
-            fwutils.frr_vtysh_run(["router ospf", f"no network {ospf_network['address']} area {ospf_network['area']}"])
-        except Exception as e:
-            self.log.excep(f"ospf_network_remove({dev_id}): failed to update frr: {str(e)}")
+        ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"no network {ospf_network['address']} area {ospf_network['area']}"])
+        if not ret:
+            self.log.excep(f"ospf_network_remove({dev_id}): failed to update frr: {err_str}")
 
         self.log.debug(f"ospf_network_remove({dev_id}): {str(ospf_network)}")
         del ospf[dev_id]['network']
@@ -153,19 +151,17 @@ class FwFrr(FwObject):
         area        = ospf_network['area']
         old_address = ospf_network['address']
         if old_address:
-            try:
-                fwutils.frr_vtysh_run(["router ospf", f"no network {old_address} area {area}"])
-            except Exception as e:
-                self.log.excep(f"ospf_network_update({dev_id}): failed to remove old network '{old_address}' from frr: {str(e)}")
+            ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"no network {old_address} area {area}"])
+            if not ret:
+                self.log.excep(f"ospf_network_update({dev_id}): failed to remove old network '{old_address}' from frr: {err_str}")
 
         # Now update new address.
         # If new address was provided, update FRR. Otherwise update database only.
         #
         if new_address:
-            try:
-                fwutils.frr_vtysh_run(["router ospf", f"network {new_address} area {area}"])
-            except Exception as e:
-                self.log.excep(f"ospf_network_update({dev_id}): failed to add new network '{new_address}' to frr: {str(e)}")
+            ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"network {new_address} area {area}"])
+            if not ret:
+                self.log.excep(f"ospf_network_update({dev_id}): failed to add new network '{new_address}' to frr: {err_str}")
                 new_network = None
 
         ospf_network['address'] = new_address

@@ -2365,7 +2365,7 @@ def vpp_cli_execute_one(cmd, debug = False):
     out = out.strip() if out else out
     return out
 
-def vpp_cli_execute(cmds, debug = False):
+def vpp_cli_execute(cmds, debug = False, log_prefix=None, raise_exception_on_error=False):
     """Execute list of VPP CLI commands.
 
     :param cmds:     List of VPP CLI commands
@@ -2381,7 +2381,12 @@ def vpp_cli_execute(cmds, debug = False):
     for cmd in cmds:
         out = vpp_cli_execute_one(cmd, debug)
         if out is None or re.search('unknown|failed|ret=-', out):
-            return (False, "failed vppctl_cmd=%s" % cmd)
+            err_str = f"failed vpp_cli_execute_one({cmd}): out={str(out)}"
+            if log_prefix:
+                err_str = log_prefix + ": " + err_str
+            if raise_exception_on_error:
+                raise Exception(err_str)
+            return (False, err_str)
 
     return (True, None)
 
@@ -2953,9 +2958,7 @@ def frr_vtysh_run(commands, restart_frr=False, wait_after=None, on_error_command
             if out in allowed_vtysh_outputs:
                 fwglobals.log.warning(f"frr_vtysh_run: allowed warning received when executed FRR commands. vtysh_cmd={vtysh_cmd} out={out}.. ignore")
             else:
-                fwglobals.log.error(f"frr_vtysh_run: failed to run FRR commands. vtysh_cmd={vtysh_cmd} out={out}. err={err}. reverting...")
-                _revert()
-                return (False, out)
+                raise Exception(f"(vtysh_cmd failed: vtysh_cmd={vtysh_cmd}, out={out}, err={err})")
 
         if restart_frr:
             os.system('systemctl restart frr')
@@ -3745,7 +3748,7 @@ def get_linux_interface_mtu(if_name):
 
     return str(net_if_stats[if_name].mtu)
 
-def os_system(cmd, log_prefix="", log=True, print_error=True):
+def os_system(cmd, log_prefix="", log=True, print_error=True, raise_exception_on_error=False):
     error = None
     if log:
         fwglobals.log.debug(cmd)
@@ -3757,6 +3760,9 @@ def os_system(cmd, log_prefix="", log=True, print_error=True):
 
         if print_error:
             fwglobals.log.error(error)
+
+        if raise_exception_on_error:
+            raise Exception(error)
 
     return (not bool(rc), error)
 

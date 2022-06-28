@@ -9,6 +9,7 @@
         "flexiwan",
         "fspath",
         "FWABF",
+        "fwagent",
         "fwapplications",
         "fwfrr",
         "fwglobals",
@@ -39,6 +40,7 @@
         "pyroute",
         "redist",
         "startupconf",
+        "VPPSB",
         "vtysh"
     ]
 }
