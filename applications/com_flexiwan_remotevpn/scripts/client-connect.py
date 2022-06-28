@@ -38,7 +38,7 @@ logger = Logger()
 conf_file = sys.argv[1]
 
 try:
-    is_device_higher_than_5_3 = script_utils.is_device_higher_than_5_3()
+    is_device_higher_than_5_3 = script_utils.is_device_higher_than(5, 3)
 
     # get all frr routes
     frr_output = os.popen('vtysh -c "show ip route json"').read()

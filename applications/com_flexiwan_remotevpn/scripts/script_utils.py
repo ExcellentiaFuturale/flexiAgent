@@ -192,6 +192,6 @@ def get_device_versions():
         logger.error(f'get_device_versions(): {str(e)}')
         return (None, None, None)
 
-def is_device_higher_than_5_3():
-    major, minor, _ = get_device_versions()
-    return major > 5 or major == 5 and minor >= 3
+def is_device_higher_than(major, minor):
+    current_major, current_minor, _ = get_device_versions()
+    return current_major > major or (current_major == major and current_minor >= minor)

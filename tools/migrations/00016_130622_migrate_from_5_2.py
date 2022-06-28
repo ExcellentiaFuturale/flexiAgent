@@ -57,7 +57,7 @@ def _migrate_vpn_scripts():
 
                 os.system('killall openvpn') # it will be start again by our application watchdog
 
-def _migrate_routing_field(str_to_list=False, list_to_str = False):
+def _migrate_routing_field(upgrade=True):
     requests_db_path = "/etc/flexiwan/agent/.requests.sqlite"
     if os.path.exists(requests_db_path):
         with FwRouterCfg("/etc/flexiwan/agent/.requests.sqlite") as router_cfg:
@@ -65,11 +65,14 @@ def _migrate_routing_field(str_to_list=False, list_to_str = False):
             interfaces = router_cfg.get_interfaces()
             for interface in interfaces:
                 changed = False
-                if str_to_list and isinstance(interface['routing'], str):
+
+                # upgrade
+                if upgrade and isinstance(interface['routing'], str):
                     interface['routing'] = [interface['routing']] # convert string to array
                     changed = True
 
-                if list_to_str and isinstance(interface['routing'], list):
+                # downgrade
+                if not upgrade and isinstance(interface['routing'], list):
                     interface_type = interface.get('type')
 
                     if interface_type == 'WAN':
@@ -110,7 +113,7 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
             _migrate_vpn_scripts()
 
             print("* Migrating routing field from string to list ...")
-            _migrate_routing_field(str_to_list=True)
+            _migrate_routing_field()
 
         except Exception as e:
             print("Migration error: %s : %s" % (__file__, str(e)))
@@ -119,7 +122,7 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
     if upgrade == 'downgrade' and new_major_version < 5 or (new_major_version == 5 and new_minor_version <= 2):
         try:
             print("* Migrating routing field from list to string ...")
-            _migrate_routing_field(list_to_str=True)
+            _migrate_routing_field(upgrade=False)
 
             # no need to migrate the vpn scripts on downgrade, the new scripts support both versions
         except Exception as e:
