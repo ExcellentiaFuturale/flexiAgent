@@ -79,8 +79,11 @@ def _migrate_routing_field(str_to_list=False, list_to_str = False):
                     elif interface_type == 'LAN':
                         if 'OSPF' in interface['routing']:
                             interface['routing'] = 'OSPF'
-                        else: # means that user has only 'BGP'. Here I'm assuming that server will not allow it once downgraded.
-                            interface['routing'] = 'NONE'
+                        else: # means that user has only 'BGP'.
+                            if len(interface['routing']) > 0:
+                                interface['routing'] = interface['routing'][0]
+                            else:
+                                interface['routing'] = 'NONE'
                         changed = True
 
                 if changed:
