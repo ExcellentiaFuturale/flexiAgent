@@ -3821,3 +3821,12 @@ def get_device_networks_json(type=None):
             networks.add(interface['addr'])
 
     return json.dumps(list(networks), indent=2, sort_keys=True)
+
+class FwJsonEncoder(json.JSONEncoder):
+    '''Customization of the JSON encoder that is able to serialize simple
+    Python objects, e.g. FwMultilinkLink. This encoder should be used within
+    json.dump/json.dumps calls.
+    '''
+    def default(self, o):
+        return o.__dict__
+

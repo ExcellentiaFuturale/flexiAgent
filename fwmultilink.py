@@ -92,9 +92,16 @@ class FwMultilink(FwObject):
     def dumps(self):
         """Prints content of database into string
         """
-        db_keys = sorted(self.db.keys())                    # The key order might be affected by dictionary content, so sort it
-        dump = [ { key: self.db[key] } for key in db_keys ] # We can't json.dumps(self.db) directly as it is SqlDict and not dict
-        return json.dumps(dump, indent=2, sort_keys=True)
+        # We can't json.dumps(self.db) directly as it is SqlDict and not dict.
+        # So we have to export it's elements before serialization by JSON.
+        # On the way, sort the keys, as alphabetical order of elements in dict
+        # is not guaranteed.
+        # Note we have to use customized JSON encoder to make json.dumps()
+        # to be able to digest Python objects, like FwMultilinkLink-s.
+        #
+        db_keys = sorted(self.db.keys())
+        dump = [ { key: self.db[key] } for key in db_keys]
+        return json.dumps(dump, indent=2, sort_keys=True, cls=fwutils.FwJsonEncoder)
 
     def get_label_ids_by_names(self, names, remove=False):
         """Maps label names into label id-s.

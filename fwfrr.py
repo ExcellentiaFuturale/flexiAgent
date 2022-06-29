@@ -89,13 +89,12 @@ class FwFrr(FwObject):
 
         if not address:
              address = fwutils.get_interface_address(None, dev_id)
-        if not address:
-            self.log.debug(f"ospf_network_add({dev_id}): device has no address, return")
-            return True
-        ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"network {address} area {area}"], raise_exception_on_error=True)
-        if not ret:
-            self.log.error(f"ospf_network_add({dev_id}): failed to update frr: {err_str}")
-            return (False, f"failed to add OSPF network for {dev_id}")
+
+        if address:     # update FRR only if interface has IP (DHCP/cable is plugged/etc)
+            ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"network {address} area {area}"])
+            if not ret:
+                self.log.error(f"ospf_network_add({dev_id}): failed to update frr: {err_str}")
+                return (False, f"failed to add OSPF network for {dev_id}")
 
         if not dev_id in ospf:
             ospf[dev_id] = {}
@@ -118,9 +117,10 @@ class FwFrr(FwObject):
             self.log.debug(f"ospf_network_remove({dev_id}): there is no existing network for '{dev_id}'")
             return
 
-        ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"no network {ospf_network['address']} area {ospf_network['area']}"])
-        if not ret:
-            self.log.excep(f"ospf_network_remove({dev_id}): failed to update frr: {err_str}")
+        if ospf_network['address']:  # update FRR only if interface has IP
+            ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"no network {ospf_network['address']} area {ospf_network['area']}"])
+            if not ret:
+                self.log.excep(f"ospf_network_remove({dev_id}): failed to update frr: {err_str}")
 
         self.log.debug(f"ospf_network_remove({dev_id}): {str(ospf_network)}")
         del ospf[dev_id]['network']

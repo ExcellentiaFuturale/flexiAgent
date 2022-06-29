@@ -139,6 +139,10 @@ class FWROUTER_API(FwCfgRequestHandler):
         if not fwutils.vpp_does_run():      # This 'if' prevents debug print by restore_vpp_if_needed() every second
             self.log.debug("watchdog: initiate restore")
 
+            self.state_change(FwRouterState.STOPPED)    # Reset state ASAP, so:
+                                                        # 1. Monitoring Threads will suspend activity
+                                                        # 2. Configuration will be applied correctly by _restore_vpp()
+
             self.vpp_api.disconnect_from_vpp()          # Reset connection to vpp to force connection renewal
             fwutils.stop_vpp()                          # Release interfaces to Linux
 
@@ -146,7 +150,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             fwutils.remove_linux_bridges()              # Release bridges for wifi.
             fwwifi.stop_hostapd()                      # Stop access point service
 
-            self.state_change(FwRouterState.STOPPED)    # Reset state so configuration will applied correctly
             self._restore_vpp()                         # Rerun VPP and apply configuration
 
             self.log.debug("watchdog: restore finished")
@@ -170,6 +173,10 @@ class FWROUTER_API(FwCfgRequestHandler):
         """
         if not self.state_is_started():
             return
+
+        if ticks % 3 != 0:  # Check interfaces every ~3 seconds
+            return
+
         try:
             self._sync_link_status()
         except Exception as e:
@@ -263,7 +270,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                         pass
 
             if old['addr'] != new['addr']:
-                if new['type'] == 'lan':
+                if new['type'] == 'lan' and 'OSPF' in new['routing']:
                     self.frr.ospf_network_update(dev_id, new['addr'])
 
     def _get_monitor_interfaces(self, cached=True):
@@ -277,7 +284,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         :return: dictionary <dev-id> -> <interface name, IP/mask, GW, LAN/WAN, DPDK/LTE/WIFI, etc>
         '''
         if not cached:
-            self.monitor_interfaces = {}
+            self._clear_monitor_interfaces()
         if not self.monitor_interfaces:
             for interface in fwglobals.g.router_cfg.get_interfaces():
                 dev_id  = interface['dev_id']
@@ -286,11 +293,15 @@ class FWROUTER_API(FwCfgRequestHandler):
                 cached_interface['if_name'] = if_name
                 cached_interface['addr']        = fwutils.get_interface_address(if_name, log=False)
                 cached_interface['gw']          = fwutils.get_interface_gateway(if_name)[0]
-                cached_interface['dhcp']        = interface['dhcp'].lower()         # yes/no
-                cached_interface['type']        = interface['type'].lower()         # LAN/WAN
-                cached_interface['deviceType']  = interface['deviceType'].lower()   # DPDK/WIFI/LTE
+                cached_interface['dhcp']        = interface.get('dhcp', 'no').lower()           # yes/no
+                cached_interface['type']        = interface.get('type', 'wan').lower()          # LAN/WAN
+                cached_interface['deviceType']  = interface.get('deviceType', 'dpdk').lower()   # DPDK/WIFI/LTE
+                cached_interface['routing']     = interface.get('routing', [])                  # ["OSPF","BGP"]
                 self.monitor_interfaces[dev_id] = cached_interface
         return self.monitor_interfaces
+
+    def _clear_monitor_interfaces(self):
+        self.monitor_interfaces = {}
 
     def restore_vpp_if_needed(self):
         """Restore VPP.
@@ -349,6 +360,12 @@ class FWROUTER_API(FwCfgRequestHandler):
             # Linux netplan files to remove any lte related information.
             #
             fwnetplan.restore_linux_netplan_files()
+
+            # Reset cache of interfaces for address monitoring.
+            # This is needed, when VPP is restored by watchdog on VPP crash.
+            # In that case the cache becomes to be stale.
+            #
+            self._clear_monitor_interfaces()
 
             fwglobals.g.handle_request({'message': 'start-router'})
         except Exception as e:
@@ -599,7 +616,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         :param request: the request to be checked.
 
-        :returns: True if request can't be fullfilled right now, becoming thus
+        :returns: True if request can't be fulfilled right now, becoming thus
                   to be pending request. False otherwise.
         """
         if request['message'] != "add-tunnel" and \
@@ -1288,6 +1305,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwglobals.g.cache.dev_id_to_vpp_tap_name.clear()
         fwglobals.g.cache.dev_id_to_vpp_if_name.clear()
         fwutils.clear_linux_interfaces_cache()
+        self._clear_monitor_interfaces()
 
         with FwFrr(fwglobals.g.FRR_DB_FILE) as db_frr:
             db_frr.clean()

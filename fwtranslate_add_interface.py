@@ -453,12 +453,12 @@ def add_interface(params):
         ospf = params.get('ospf', {})
         area = ospf.get('area', '0.0.0.0')
 
-        if bridge_addr:
-            network = bridge_addr
-        elif iface_addr:
-            network = iface_addr
-        else:
-            network = None   # Will be resolved by get_interface_address(dev_id) in real time
+        # The OSPF network for bridge interface should be provisioned with
+        # 'add-interface' address, as the bridge is loopback and can't be UP/DOWN.
+        # All the rest should be figured out in run time by get_interface_address(dev_id)
+        # in order to handle properly the cable unplugged case
+        #
+        network = bridge_addr if bridge_addr else None
 
         cmd = {}
         cmd['cmd'] = {}
