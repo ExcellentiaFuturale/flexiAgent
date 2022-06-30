@@ -776,21 +776,13 @@ class FwCfgRequestHandler(FwObject):
         self.log.info("====restore configuration: finished===")
 
     def sync_full(self, incoming_requests):
-        if len(incoming_requests) == 0:
-            self.log.info("sync_full: incoming_requests is empty, no need to full sync")
-            return True
-
-        fwglobals.g.agent_api._reset_device_soft()
-
         sync_request = {
             'message':   'aggregated',
             'params':    { 'requests': incoming_requests },
         }
-
         reply = self.call(sync_request, dont_revert_on_failure=True)
-
         if reply['ok'] == 0:
-            raise Exception(" _sync_device: router full sync failed: " + str(reply.get('message')))
+            raise Exception("sync_full failed: " + str(reply.get('message')))
 
     def sync(self, incoming_requests, full_sync=False):
         incoming_requests = list([x for x in incoming_requests if x['message'] in self.translators])

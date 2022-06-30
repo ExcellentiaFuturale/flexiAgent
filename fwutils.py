@@ -1543,54 +1543,58 @@ def stop_vpp():
         ike.clean()
     fwpppoe.pppoe_reset()
 
-def reset_device_config(pppoe=False, applications=True):
+def reset_device_config(pppoe=False):
     """Reset router config by cleaning DB and removing config files.
 
      :returns: None.
      """
+    reset_agent_cfg()
+    reset_router_cfg()
+    reset_system_cfg()
+    reset_device_config_signature("empty_cfg", log=False)
+    if pppoe:
+        fwpppoe.pppoe_remove()
+
+def reset_agent_cfg():
+    if os.path.exists(fwglobals.g.CONN_FAILURE_FILE):
+        os.remove(fwglobals.g.CONN_FAILURE_FILE)
+
+def reset_router_cfg():
     with FwRouterCfg(fwglobals.g.ROUTER_CFG_FILE) as router_cfg:
         router_cfg.clean()
     with FwRouterCfg(fwglobals.g.ROUTER_PENDING_CFG_FILE) as router_pending_cfg:
         router_pending_cfg.clean()
-    with FwSystemCfg(fwglobals.g.SYSTEM_CFG_FILE) as system_cfg:
-        system_cfg.clean()
+    with FwMultilink(fwglobals.g.MULTILINK_DB_FILE) as db_multilink:
+        db_multilink.clean()
+    with FwPolicies(fwglobals.g.POLICY_REC_DB_FILE) as db_policies:
+        db_policies.clean()
+    with FwTrafficIdentifications(fwglobals.g.TRAFFIC_ID_DB_FILE) as traffic_db:
+        traffic_db.clean()
+    fwnetplan.restore_linux_netplan_files()
+    with FwIKEv2() as ike:
+        ike.clean()
+    with FwApplicationsCfg() as applications_cfg:
+        applications_cfg.clean()
+
     if os.path.exists(fwglobals.g.ROUTER_STATE_FILE):
         os.remove(fwglobals.g.ROUTER_STATE_FILE)
     if os.path.exists(fwglobals.g.VPP_CONFIG_FILE_BACKUP):
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE_BACKUP, fwglobals.g.VPP_CONFIG_FILE)
     elif os.path.exists(fwglobals.g.VPP_CONFIG_FILE_RESTORE):
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE_RESTORE, fwglobals.g.VPP_CONFIG_FILE)
-    if os.path.exists(fwglobals.g.CONN_FAILURE_FILE):
-        os.remove(fwglobals.g.CONN_FAILURE_FILE)
-    with FwMultilink(fwglobals.g.MULTILINK_DB_FILE) as db_multilink:
-        db_multilink.clean()
-    with FwPolicies(fwglobals.g.POLICY_REC_DB_FILE) as db_policies:
-        db_policies.clean()
-
-    with FwTrafficIdentifications(fwglobals.g.TRAFFIC_ID_DB_FILE) as traffic_db:
-        traffic_db.clean()
-    fwnetplan.restore_linux_netplan_files()
-    with FwIKEv2() as ike:
-        ike.clean()
-
-    if applications:
-        with FwApplicationsCfg() as applications_cfg:
-            applications_cfg.clean()
-
-    if 'lte' in fwglobals.g.db:
-        fwglobals.g.db['lte'] = {}
-
-    if pppoe:
-        fwpppoe.pppoe_remove()
 
     frr_clean_files()
     reset_router_api_db_sa_id() # sa_id-s are used in translations of router configuration, so clean them too.
     reset_router_api_db(enforce=True)
-
-    reset_device_config_signature("empty_cfg", log=False)
-
     restore_dhcpd_files()
+    reset_device_config_signature("empty_router_cfg", log=False)
 
+def reset_system_cfg():
+    with FwSystemCfg(fwglobals.g.SYSTEM_CFG_FILE) as system_cfg:
+        system_cfg.clean()
+    if 'lte' in fwglobals.g.db:
+        fwglobals.g.db['lte'] = {}
+    reset_device_config_signature("empty_system_cfg", log=False)
 
 def reset_router_api_db_sa_id():
     router_api_db = fwglobals.g.db['router_api'] # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict

@@ -125,3 +125,16 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                             fwglobals.g.handle_request({'message':'modify-interface','params': params})
 
                         self.log.debug("%s: LTE IP was changed: %s -> %s" % (dev_id, iface_addr, modem_addr))
+
+    def sync_full(self, incoming_requests):
+        if len(incoming_requests) == 0:
+            self.log.info("sync_full: incoming_requests is empty, no need to full sync")
+            return True
+
+        self.log.debug("sync_full: start system full sync")
+
+        fwutils.reset_system_config()
+        FwCfgRequestHandler.sync_full(self, incoming_requests)
+
+        self.log.debug("sync_full: system full sync succeeded")
+

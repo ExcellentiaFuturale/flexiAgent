@@ -1274,18 +1274,19 @@ class FWROUTER_API(FwCfgRequestHandler):
             self.log.info("sync_full: incoming_requests is empty, no need to full sync")
             return True
 
-        self.log.debug("_sync_device: start router full sync")
+        self.log.debug("sync_full: start router full sync")
 
         restart_router = False
         if self.state_is_started():
-            self.log.debug("_sync_device: restart_router=True")
+            self.log.debug("sync_full: : restart_router=True")
             restart_router = True
             fwglobals.g.handle_request({'message':'stop-router'})
 
         self.pending_cfg_db.clean()
+        fwutils.reset_router_config()
         FwCfgRequestHandler.sync_full(self, incoming_requests)
 
         if restart_router:
             fwglobals.g.handle_request({'message': 'start-router'})
 
-        self.log.debug("_sync_device: router full sync succeeded")
+        self.log.debug("sync_full: router full sync succeeded")
