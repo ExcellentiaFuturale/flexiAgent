@@ -297,14 +297,20 @@ class FWAGENT_API(FwObject):
         if non_supported_messages:
             raise Exception("_sync_device: unsupported requests found: %s" % str(non_supported_messages))
 
+        err_str = ''
+
         for module_name, module in list(fwglobals.modules.items()):
             if module.get('sync', False) == True:
                 # get api module. e.g router_api, system_api
                 api_module = getattr(fwglobals.g, module.get('object'))
-                api_module.sync(params['requests'], full_sync_enforced)
+                try:
+                    api_module.sync(params['requests'], full_sync_enforced)
+                except Exception as e:
+                    err_str += f"{module_name}.sync() failed: {str(e)} ; "
 
-        # At this point the sync succeeded.
-        # In case of failure - exception is raised by sync()
+        if err_str:
+            return {'message': str(e), 'ok': 0}
+
         fwutils.reset_device_config_signature()
         self.log.info("_sync_device FINISHED")
         return {'ok': 1}
