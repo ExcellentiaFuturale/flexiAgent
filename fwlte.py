@@ -101,6 +101,8 @@ def _run_mbimcli_command(dev_id, cmd, print_error=False):
     try:
         device = dev_id_to_usb_device(dev_id) if dev_id else 'cdc-wdm0'
         mbimcli_cmd = 'mbimcli --device=/dev/%s --device-open-proxy %s' % (device, cmd)
+        if '--attach-packet-service' in mbimcli_cmd:
+            mbimcli_cmd = f'timeout 5 {mbimcli_cmd}'
         fwglobals.log.debug("_run_mbimcli_command: %s" % mbimcli_cmd)
         output = subprocess.check_output(mbimcli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
         if output:
@@ -1043,7 +1045,7 @@ def set_arp_entry(is_add, dev_id, gw=None):
         cmd = f"set ip neighbor static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"
         fwutils.vpp_cli_execute([cmd], log_prefix=log_prefix, raise_exception_on_error=True)
     else:
-        cmd = f"sudo arp -d {gw}"
+        cmd = f"sudo arp -d {gw} || true" # "|| true" to prevent throwing an error if ARP does not exist
         fwutils.os_system(cmd, log_prefix=log_prefix, raise_exception_on_error=True)
         cmd = f"set ip neighbor del static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"
         fwutils.vpp_cli_execute([cmd], log_prefix=log_prefix, raise_exception_on_error=True)

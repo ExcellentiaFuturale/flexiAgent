@@ -222,6 +222,9 @@ class FWROUTER_API(FwCfgRequestHandler):
             tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
             if fwpppoe.is_pppoe_interface(dev_id=interface['dev_id']):
                 status_vpp  = fwutils.get_interface_link_state(tap_name, interface['dev_id'])
+            elif fwlte.is_lte_interface_by_dev_id(dev_id=interface['dev_id']):
+                connected = fwlte.mbim_is_connected(interface['dev_id'])
+                status_vpp = 'up' if connected else 'down'
             else:
                 sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(interface['dev_id'], verbose=False)
                 status_vpp  = fwutils.vpp_get_interface_status(sw_if_index)['link']
