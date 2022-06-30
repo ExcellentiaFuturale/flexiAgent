@@ -54,14 +54,13 @@ class FwPppoeConnection(FwObject):
         self.tun_if_name = ''
         self.tun_vpp_if_name = ''
         self.tun_vppsb_if_name = ''
-        self.opened = False
         self.linux_if_name = fwutils.dev_id_to_linux_if(self.dev_id)
         self.ppp_if_name = f'ppp-{self.linux_if_name}'
         self.if_name = self.linux_if_name
 
     def __str__(self):
         usepeerdns = 'usepeerdns' if self.usepeerdns else ''
-        return f"{self.id}, {self.dev_id},{self.mtu},{self.mru},{self.user},{self.ppp_if_name},{self.addr},{self.gw},{usepeerdns},{self.tun_if_name},{self.opened}"
+        return f"{self.id}, {self.dev_id},{self.mtu},{self.mru},{self.user},{self.ppp_if_name},{self.addr},{self.gw},{usepeerdns},{self.tun_if_name}"
 
     def save(self):
         """Create PPPoE connection configuration file.
@@ -93,7 +92,7 @@ class FwPppoeConnection(FwObject):
     def scan_and_connect_if_needed(self, connect_if_needed):
         """Check Linux interfaces if PPPoE tunnel (pppX) is created.
         """
-        if self.opened and connect_if_needed:
+        if connect_if_needed:
             self.open()
 
         interfaces = psutil.net_if_addrs()
@@ -114,8 +113,6 @@ class FwPppoeConnection(FwObject):
         if self._is_open():
             return
 
-        self.opened = False
-
         sys_cmd = f'ip -4 addr flush label "{self.if_name}"'
         rc, _ = fwutils.os_system(sys_cmd, 'PPPoE open')
         if not rc:
@@ -130,8 +127,6 @@ class FwPppoeConnection(FwObject):
         rc, _ = fwutils.os_system(sys_cmd, 'PPPoE open')
         if not rc:
             return
-
-        self.opened = True
 
     def _is_open(self):
         """Check if connection is open.
