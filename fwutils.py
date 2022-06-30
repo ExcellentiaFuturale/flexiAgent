@@ -47,6 +47,7 @@ import base64
 
 from netaddr import IPNetwork, IPAddress
 
+import fwazure
 import fwlte
 import fwwifi
 import fwtranslate_add_switch
@@ -607,6 +608,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
             is_pppoe = fwpppoe.is_pppoe_interface(if_name=if_name)
             is_wifi = fwwifi.is_wifi_interface(if_name)
             is_lte = fwlte.is_lte_interface(if_name)
+            is_azure = fwazure.is_azure_interface(interface['driver'])
 
             if is_lte:
                 interface['deviceType'] = 'lte'
@@ -667,6 +669,8 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                     address = IPNetwork(pppoe_iface.addr)
                     interface['IPv4'] = str(address.ip)
                     interface['IPv4Mask'] = str(address.prefixlen)
+            elif is_azure:
+                interface['IPv4'],interface['IPv4Mask'] = fwazure.get_ip(interface['MAC'])
 
             # Add information specific for WAN interfaces
             #
