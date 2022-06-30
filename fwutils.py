@@ -641,15 +641,17 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                     addrs = linux_inf[tap_name]
                     interface['tap_name'] = tap_name
 
-
-            interface['gateway'], interface['metric'] = get_interface_gateway(if_name)
-
             for addr in addrs:
                 addr_af_name = af_to_name(addr.family)
                 if not interface[addr_af_name]:
                     interface[addr_af_name] = addr.address.split('%')[0]
                     if addr.netmask != None:
                         interface[addr_af_name + 'Mask'] = (str(IPAddress(addr.netmask).netmask_bits()))
+
+            if is_azure:
+                if_name, interface['IPv4'],interface['IPv4Mask'] = fwazure.get_ip(interface['MAC'])
+
+            interface['gateway'], interface['metric'] = get_interface_gateway(if_name)
 
             if is_lte:
                 interface['dhcp'] = 'yes'
@@ -669,8 +671,6 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                     address = IPNetwork(pppoe_iface.addr)
                     interface['IPv4'] = str(address.ip)
                     interface['IPv4Mask'] = str(address.prefixlen)
-            elif is_azure:
-                interface['IPv4'],interface['IPv4Mask'] = fwazure.get_ip(interface['MAC'])
 
             # Add information specific for WAN interfaces
             #

@@ -24,6 +24,8 @@ import socket
 import fwglobals
 import fwutils
 
+from netaddr import IPAddress
+
 def is_azure_interface(driver):
     if driver == 'mlx5_core':
         return True
@@ -32,14 +34,15 @@ def is_azure_interface(driver):
 
 def get_ip(mac_address):
     interfaces = psutil.net_if_addrs()
-    for addrs in interfaces.values():
+    for if_name, addrs in interfaces.items():
         ip = ''
         netmask = ''
         for addr in addrs:
             if addr.family == socket.AF_INET:
                 ip = addr.address
-                netmask = addr.netmask
+                netmask = str(IPAddress(addr.netmask).netmask_bits())
             if addr.family == socket.AF_PACKET:
                 mac = addr.address
         if mac == mac_address and ip:
-            return (ip, netmask)
+            return (if_name, ip, netmask)
+    return ('', '', '')
