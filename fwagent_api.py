@@ -78,7 +78,8 @@ class FWAGENT_API(FwObject):
 
         reply = handler_func(params)
         if reply['ok'] == 0:
-            raise Exception("fwagent_api: %s(%s) failed: %s" % (handler_func, format(params), reply['message']))
+            self.log.error(f"fwagent_api: {handler}({format(params)}) failed: {reply['message']}")
+            raise Exception(reply['message'])
         return reply
 
     def _prepare_tunnel_info(self, tunnel_ids):
@@ -306,10 +307,11 @@ class FWAGENT_API(FwObject):
                 try:
                     api_module.sync(params['requests'], full_sync_enforced)
                 except Exception as e:
+                    self.log.error(f"{module_name}.sync() failed: {str(e)}")
                     err_str += f"{module_name}.sync() failed: {str(e)} ; "
 
         if err_str:
-            return {'message': str(e), 'ok': 0}
+            return {'message': err_str, 'ok': 0}
 
         fwutils.reset_device_config_signature()
         self.log.info("_sync_device FINISHED")

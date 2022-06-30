@@ -1451,7 +1451,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             fwglobals.g.handle_request({'message':'stop-router'})
 
         self.pending_cfg_db.clean()
-        fwutils.reset_router_config()
+        fwutils.reset_router_cfg()
         FwCfgRequestHandler.sync_full(self, incoming_requests)
 
         if restart_router:

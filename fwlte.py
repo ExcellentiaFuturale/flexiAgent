@@ -1045,7 +1045,7 @@ def set_arp_entry(is_add, dev_id, gw=None):
         cmd = f"set ip neighbor static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"
         fwutils.vpp_cli_execute([cmd], log_prefix=log_prefix, raise_exception_on_error=True)
     else:
-        cmd = f"sudo arp -d {gw} || true" # "|| true" to prevent throwing an error if ARP does not exist
-        fwutils.os_system(cmd, log_prefix=log_prefix, raise_exception_on_error=True)
+        cmd = f"sudo arp -d {gw} > /dev/null 2>&1"
+        fwutils.os_system(cmd, log_prefix=log_prefix, print_error=False, raise_exception_on_error=False) # Suppress exception as arp entry might not exists if interface was taken down for some reason
         cmd = f"set ip neighbor del static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"
         fwutils.vpp_cli_execute([cmd], log_prefix=log_prefix, raise_exception_on_error=True)
