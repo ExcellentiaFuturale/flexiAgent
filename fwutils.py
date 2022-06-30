@@ -822,11 +822,15 @@ def dev_id_to_linux_if_name(dev_id):
 
     :returns: interface name in Linux.
     """
+    if not fwglobals.g.router_api.state_is_stopped():
+        tap_if_name = dev_id_to_tap(dev_id)
+        if tap_if_name:
+            return tap_if_name
+    return dev_id_to_linux_if(dev_id)
+
+def dev_id_to_linux_if_name_safe(dev_id):
     if getattr(fwglobals.g, 'router_api', False): # don't fail if agent is not running
-        if fwglobals.g.router_api.state_is_stopped():
-            tap_if_name = dev_id_to_tap(dev_id)
-            if tap_if_name:
-                return tap_if_name
+        return dev_id_to_linux_if_name(dev_id)
     return dev_id_to_linux_if(dev_id)
 
 def dev_id_is_vmxnet3(dev_id):
@@ -3864,7 +3868,7 @@ def get_device_networks_json(type=None):
     for interface in interfaces:
         if interface['dhcp'] == 'yes':
             # take from interface itself
-            linux_if_name = dev_id_to_linux_if_name(interface['dev_id'])
+            linux_if_name = dev_id_to_linux_if_name_safe(interface['dev_id'])
             network = get_interface_address(linux_if_name, log_on_failure=False)
             if network:
                 networks.add(network)
