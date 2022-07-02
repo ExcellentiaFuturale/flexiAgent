@@ -276,6 +276,7 @@ class Fwglobals(FwObject):
         self.ISC_DHCP_CONFIG_FILE_BACKUP = '/etc/default/isc-dhcp-server.fworig'
         self.PPPOE_CONFIG_PATH   = '/etc/ppp/'
         self.PPPOE_CONFIG_PROVIDER_FILE   = 'flexiwan-dsl-provider'
+        self.FRR_DB_FILE         = self.DATA_PATH + '.frr.sqlite'
         self.PPPOE_DB_FILE       = self.DATA_PATH + '.pppoe.sqlite'
         self.POLICY_REC_DB_FILE  = self.DATA_PATH + '.policy.sqlite'
         self.MULTILINK_DB_FILE   = self.DATA_PATH + '.multilink.sqlite'
@@ -374,7 +375,7 @@ class Fwglobals(FwObject):
         self.system_cfg       = FwSystemCfg(self.SYSTEM_CFG_FILE)
         self.agent_api        = FWAGENT_API()
         self.system_api       = FWSYSTEM_API(self.system_cfg)
-        self.router_api       = FWROUTER_API(self.router_cfg, self.ROUTER_PENDING_CFG_FILE, self.MULTILINK_DB_FILE)
+        self.router_api       = FWROUTER_API(self.router_cfg, self.ROUTER_PENDING_CFG_FILE, self.MULTILINK_DB_FILE, self.FRR_DB_FILE)
         self.applications_api = FWAPPLICATIONS_API(start_application_stats=True)
         self.os_api           = OS_API()
         self.policies         = FwPolicies(self.POLICY_REC_DB_FILE)

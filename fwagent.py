@@ -55,6 +55,7 @@ import fwwebsocket
 import loadsimulator
 
 from fwapplications_api import FWAPPLICATIONS_API
+from fwfrr import FwFrr
 from fwobject import FwObject
 
 from fw_nat_command_helpers import WAN_INTERFACE_SERVICES
@@ -806,6 +807,9 @@ def show(agent, configuration, database, status, networks):
             fwutils.print_general_database()
         elif database == 'applications':
             fwutils.print_applications_db(full=True)
+        elif database == 'frr':
+            with FwFrr(fwglobals.g.FRR_DB_FILE, fill_if_empty=False) as frr_db:
+                print(frr_db.dumps())
         elif database == 'multilink':
             with fwmultilink.FwMultilink(fwglobals.g.MULTILINK_DB_FILE, fill_if_empty=False) as multilink_db:
                 print(multilink_db.dumps())
@@ -1282,7 +1286,7 @@ if __name__ == '__main__':
                         choices=['all', 'lan', 'wan'],
                         help="show flexiEdge configuration")
     parser_show.add_argument('--database',
-                        choices=['applications', 'general', 'multilink', 'router', 'system'],
+                        choices=['applications', 'frr', 'general', 'multilink', 'router', 'system'],
                         help="show whole flexiEdge database")
     parser_show.add_argument('--status', choices=['daemon', 'router'],
                         help="show flexiEdge status")
