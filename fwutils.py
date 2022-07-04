@@ -273,7 +273,7 @@ def get_interface_gateway(if_name, if_dev_id=None):
     :returns: Gateway ip address.
     """
     if if_dev_id:
-        if_name = dev_id_to_tap(if_dev_id)
+        if_name = dev_id_to_linux_if_name(if_dev_id)
 
     if fwpppoe.is_pppoe_interface(if_name=if_name):
         pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
@@ -378,7 +378,7 @@ def get_interface_address(if_name, if_dev_id=None, log=True, log_on_failure=None
     :returns: IP address.
     """
     if if_dev_id:
-        if_name = dev_id_to_tap(if_dev_id)
+        if_name = dev_id_to_linux_if_name(if_dev_id)
 
     if log_on_failure == None:
         log_on_failure = log
@@ -609,7 +609,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
             is_pppoe = fwpppoe.is_pppoe_interface(if_name=if_name)
             is_wifi = fwwifi.is_wifi_interface(if_name)
             is_lte = fwlte.is_lte_interface(if_name)
-            is_azure = fwazure.is_azure_interface(interface['driver'])
+            is_azure = fwazure.dev_id_is_azure(dev_id)
 
             if is_lte:
                 interface['deviceType'] = 'lte'
@@ -838,10 +838,11 @@ def dev_id_to_linux_if_name_safe(dev_id):
         return dev_id_to_linux_if_name(dev_id)
     return dev_id_to_linux_if(dev_id)
 
-def dev_id_is_vmxnet3(dev_id):
-    """Check if device bus address is vmxnet3.
+def dev_id_is_of_type(dev_id, driver):
+    """Check if device bus address is of specified type.
 
     :param dev_id:    device bus address.
+    :param driver:    driver name.
 
     :returns: 'True' if it is vmxnet3, 'False' otherwise.
     """
@@ -867,12 +868,15 @@ def dev_id_is_vmxnet3(dev_id):
         #   0000:03:00.0 'VMXNET3 Ethernet Controller' if=ens160 drv=vfio-pci unused=vmxnet3,uio_pci_generic
         #
         #output = subprocess.check_output("sudo ls -l /sys/bus/pci/devices/%s/driver | grep vmxnet3" % pci, shell=True).decode()
-        output = subprocess.check_output("sudo dpdk-devbind -s | grep -E '%s .*vmxnet3'" % addr, shell=True).decode()
+        output = subprocess.check_output(f"sudo dpdk-devbind -s | grep -E '{addr} .*{driver}'", shell=True).decode()
     except:
         return False
     if output is None:
         return False
     return True
+
+def dev_id_is_vmxnet3(dev_id):
+    return dev_id_is_of_type(dev_id, 'vmxnet3')
 
 # 'dev_id_to_vpp_if_name' function maps interface referenced by device bus address - pci or usb - eg. '0000:00:08.00'
 # into name of interface in VPP, eg. 'GigabitEthernet0/8/0'.

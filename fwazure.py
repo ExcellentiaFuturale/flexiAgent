@@ -26,12 +26,6 @@ import fwutils
 
 from netaddr import IPAddress
 
-def is_azure_interface(driver):
-    if driver == 'mlx5_core':
-        return True
-
-    return False
-
 def get_ip(mac_address):
     interfaces = psutil.net_if_addrs()
     for if_name, addrs in interfaces.items():
@@ -46,3 +40,6 @@ def get_ip(mac_address):
         if mac == mac_address and ip:
             return (if_name, ip, netmask)
     return ('', '', '')
+
+def dev_id_is_azure(dev_id):
+    return fwutils.dev_id_is_of_type(dev_id, 'mlx5_core')
