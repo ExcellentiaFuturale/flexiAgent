@@ -602,10 +602,6 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                 'mtu':              '',
             }
 
-            interface['dhcp'] = get_interface_is_dhcp(if_name)
-
-            interface['mtu'] = get_linux_interface_mtu(if_name)
-
             is_pppoe = fwpppoe.is_pppoe_interface(if_name=if_name)
             is_wifi = fwwifi.is_wifi_interface(if_name)
             is_lte = fwlte.is_lte_interface(if_name)
@@ -654,6 +650,8 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                 interface['name'] = if_name
 
             interface['gateway'], interface['metric'] = get_interface_gateway(if_name)
+            interface['dhcp'] = get_interface_is_dhcp(if_name)
+            interface['mtu'] = get_linux_interface_mtu(if_name)
 
             if is_lte:
                 interface['dhcp'] = 'yes'
