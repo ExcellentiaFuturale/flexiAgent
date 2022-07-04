@@ -53,6 +53,7 @@ import fwwifi
 import fwtranslate_add_switch
 
 from fwapplications_api import call_applications_hook, FWAPPLICATIONS_API
+from fwfrr          import FwFrr
 from fwikev2        import FwIKEv2
 from fwmultilink    import FwMultilink
 from fwpolicies     import FwPolicies
@@ -826,11 +827,15 @@ def dev_id_to_linux_if_name(dev_id):
 
     :returns: interface name in Linux.
     """
+    if not fwglobals.g.router_api.state_is_stopped():
+        tap_if_name = dev_id_to_tap(dev_id)
+        if tap_if_name:
+            return tap_if_name
+    return dev_id_to_linux_if(dev_id)
+
+def dev_id_to_linux_if_name_safe(dev_id):
     if getattr(fwglobals.g, 'router_api', False): # don't fail if agent is not running
-        if fwglobals.g.router_api.state_is_stopped():
-            tap_if_name = dev_id_to_tap(dev_id)
-            if tap_if_name:
-                return tap_if_name
+        return dev_id_to_linux_if_name(dev_id)
     return dev_id_to_linux_if(dev_id)
 
 def dev_id_is_vmxnet3(dev_id):
@@ -1547,54 +1552,58 @@ def stop_vpp():
         ike.clean()
     fwpppoe.pppoe_reset()
 
-def reset_device_config(pppoe=False, applications=True):
+def reset_device_config(pppoe=False):
     """Reset router config by cleaning DB and removing config files.
 
      :returns: None.
      """
+    reset_agent_cfg()
+    reset_router_cfg()
+    reset_system_cfg()
+    reset_device_config_signature("empty_cfg", log=False)
+    if pppoe:
+        fwpppoe.pppoe_remove()
+
+def reset_agent_cfg():
+    if os.path.exists(fwglobals.g.CONN_FAILURE_FILE):
+        os.remove(fwglobals.g.CONN_FAILURE_FILE)
+
+def reset_router_cfg():
     with FwRouterCfg(fwglobals.g.ROUTER_CFG_FILE) as router_cfg:
         router_cfg.clean()
     with FwRouterCfg(fwglobals.g.ROUTER_PENDING_CFG_FILE) as router_pending_cfg:
         router_pending_cfg.clean()
-    with FwSystemCfg(fwglobals.g.SYSTEM_CFG_FILE) as system_cfg:
-        system_cfg.clean()
+    with FwMultilink(fwglobals.g.MULTILINK_DB_FILE) as db_multilink:
+        db_multilink.clean()
+    with FwPolicies(fwglobals.g.POLICY_REC_DB_FILE) as db_policies:
+        db_policies.clean()
+    with FwTrafficIdentifications(fwglobals.g.TRAFFIC_ID_DB_FILE) as traffic_db:
+        traffic_db.clean()
+    fwnetplan.restore_linux_netplan_files()
+    with FwIKEv2() as ike:
+        ike.clean()
+    with FwApplicationsCfg() as applications_cfg:
+        applications_cfg.clean()
+
     if os.path.exists(fwglobals.g.ROUTER_STATE_FILE):
         os.remove(fwglobals.g.ROUTER_STATE_FILE)
     if os.path.exists(fwglobals.g.VPP_CONFIG_FILE_BACKUP):
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE_BACKUP, fwglobals.g.VPP_CONFIG_FILE)
     elif os.path.exists(fwglobals.g.VPP_CONFIG_FILE_RESTORE):
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE_RESTORE, fwglobals.g.VPP_CONFIG_FILE)
-    if os.path.exists(fwglobals.g.CONN_FAILURE_FILE):
-        os.remove(fwglobals.g.CONN_FAILURE_FILE)
-    with FwMultilink(fwglobals.g.MULTILINK_DB_FILE) as db_multilink:
-        db_multilink.clean()
-    with FwPolicies(fwglobals.g.POLICY_REC_DB_FILE) as db_policies:
-        db_policies.clean()
-
-    with FwTrafficIdentifications(fwglobals.g.TRAFFIC_ID_DB_FILE) as traffic_db:
-        traffic_db.clean()
-    fwnetplan.restore_linux_netplan_files()
-    with FwIKEv2() as ike:
-        ike.clean()
-
-    if applications:
-        with FwApplicationsCfg() as applications_cfg:
-            applications_cfg.clean()
-
-    if 'lte' in fwglobals.g.db:
-        fwglobals.g.db['lte'] = {}
-
-    if pppoe:
-        fwpppoe.pppoe_remove()
 
     frr_clean_files()
     reset_router_api_db_sa_id() # sa_id-s are used in translations of router configuration, so clean them too.
     reset_router_api_db(enforce=True)
-
-    reset_device_config_signature("empty_cfg", log=False)
-
     restore_dhcpd_files()
+    reset_device_config_signature("empty_router_cfg", log=False)
 
+def reset_system_cfg():
+    with FwSystemCfg(fwglobals.g.SYSTEM_CFG_FILE) as system_cfg:
+        system_cfg.clean()
+    if 'lte' in fwglobals.g.db:
+        fwglobals.g.db['lte'] = {}
+    reset_device_config_signature("empty_system_cfg", log=False)
 
 def reset_router_api_db_sa_id():
     router_api_db = fwglobals.g.db['router_api'] # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
@@ -2259,65 +2268,6 @@ def modify_dhcpd(is_add, params):
 
     return True
 
-def vpp_multilink_update_labels(labels, remove, next_hop=None, dev_id=None, sw_if_index=None, result_cache=None):
-    """Updates VPP with flexiwan multilink labels.
-    These labels are used for Multi-Link feature: user can mark interfaces
-    or tunnels with labels and than add policy to choose interface/tunnel by
-    label where to forward packets to.
-
-        REMARK: this function is temporary solution as it uses VPP CLI to
-    configure lables. Remove it, when correspondent Python API will be added.
-    In last case the API should be called directly from translation.
-
-    :param labels:      python list of labels
-    :param is_dia:      type of labels (DIA - Direct Internet Access)
-    :param remove:      True to remove labels, False to add.
-    :param dev_id:      Interface bus address if device to apply labels to.
-    :param next_hop:    IP address of next hop.
-    :param result_cache: cache, key and variable, that this function should store in the cache:
-                            {'result_attr': 'next_hop', 'cache': <dict>, 'key': <key>}
-
-    :returns: (True, None) tuple on success, (False, <error string>) on failure.
-    """
-
-    ids_list = fwglobals.g.router_api.multilink.get_label_ids_by_names(labels, remove)
-    ids = ','.join(map(str, ids_list))
-
-    if dev_id:
-        vpp_if_name = dev_id_to_vpp_if_name(dev_id)
-    elif sw_if_index:
-        vpp_if_name = vpp_sw_if_index_to_name(sw_if_index)
-    else:
-        return (False, "Neither 'dev_id' nor 'sw_if_index' was found in params")
-
-    if not vpp_if_name:
-        return (False, "'vpp_if_name' was not found for %s" % dev_id)
-
-    if not next_hop:
-        tap = vpp_if_name_to_tap(vpp_if_name)
-        next_hop, _ = get_interface_gateway(tap)
-    if not next_hop:
-        next_hop = "0.0.0.0"
-        fwglobals.log.warning(f"vpp_multilink_update_labels: no 'next_hop' was provided, use blackhole {next_hop}")
-
-    op = 'del' if remove else 'add'
-
-    vppctl_cmd = 'fwabf link %s label %s via %s %s' % (op, ids, next_hop, vpp_if_name)
-    fwglobals.log.debug(vppctl_cmd)
-
-    out = _vppctl_read(vppctl_cmd, wait=False)
-    if out is None:
-        return (False, "failed vppctl_cmd=%s" % vppctl_cmd)
-
-    # Store 'next_hope' in cache if provided by caller.
-    #
-    if result_cache and result_cache['result_attr'] == 'next_hop':
-        key = result_cache['key']
-        result_cache['cache'][key] = next_hop
-
-    return (True, None)
-
-
 def vpp_multilink_update_policy_rule(add, links, policy_id, fallback, order,
                                      acl_id=None, priority=None, override_default_route=False,
                                      attach_to_wan=False):
@@ -2426,7 +2376,7 @@ def vpp_cli_execute_one(cmd, debug = False):
     out = out.strip() if out else out
     return out
 
-def vpp_cli_execute(cmds, debug = False):
+def vpp_cli_execute(cmds, debug = False, log_prefix=None, raise_exception_on_error=False):
     """Execute list of VPP CLI commands.
 
     :param cmds:     List of VPP CLI commands
@@ -2442,7 +2392,12 @@ def vpp_cli_execute(cmds, debug = False):
     for cmd in cmds:
         out = vpp_cli_execute_one(cmd, debug)
         if out is None or re.search('unknown|failed|ret=-', out):
-            return (False, "failed vppctl_cmd=%s" % cmd)
+            err_str = f"failed vpp_cli_execute_one({cmd}): out={str(out)}"
+            if log_prefix:
+                err_str = log_prefix + ": " + err_str
+            if raise_exception_on_error:
+                raise Exception(err_str)
+            return (False, err_str)
 
     return (True, None)
 
@@ -3014,9 +2969,7 @@ def frr_vtysh_run(commands, restart_frr=False, wait_after=None, on_error_command
             if out in allowed_vtysh_outputs:
                 fwglobals.log.warning(f"frr_vtysh_run: allowed warning received when executed FRR commands. vtysh_cmd={vtysh_cmd} out={out}.. ignore")
             else:
-                fwglobals.log.error(f"frr_vtysh_run: failed to run FRR commands. vtysh_cmd={vtysh_cmd} out={out}. err={err}. reverting...")
-                _revert()
-                return (False, out)
+                raise Exception(f"(vtysh_cmd failed: vtysh_cmd={vtysh_cmd}, out={out}, err={err})")
 
         if restart_frr:
             os.system('systemctl restart frr')
@@ -3806,7 +3759,7 @@ def get_linux_interface_mtu(if_name):
 
     return str(net_if_stats[if_name].mtu)
 
-def os_system(cmd, log_prefix="", log=True, print_error=True):
+def os_system(cmd, log_prefix="", log=True, print_error=True, raise_exception_on_error=False):
     error = None
     if log:
         fwglobals.log.debug(cmd)
@@ -3818,6 +3771,9 @@ def os_system(cmd, log_prefix="", log=True, print_error=True):
 
         if print_error:
             fwglobals.log.error(error)
+
+        if raise_exception_on_error:
+            raise Exception(error)
 
     return (not bool(rc), error)
 
@@ -3868,7 +3824,7 @@ def get_device_networks_json(type=None):
     for interface in interfaces:
         if interface['dhcp'] == 'yes':
             # take from interface itself
-            linux_if_name = dev_id_to_linux_if_name(interface['dev_id'])
+            linux_if_name = dev_id_to_linux_if_name_safe(interface['dev_id'])
             network = get_interface_address(linux_if_name, log_on_failure=False)
             if network:
                 networks.add(network)
@@ -3876,3 +3832,12 @@ def get_device_networks_json(type=None):
             networks.add(interface['addr'])
 
     return json.dumps(list(networks), indent=2, sort_keys=True)
+
+class FwJsonEncoder(json.JSONEncoder):
+    '''Customization of the JSON encoder that is able to serialize simple
+    Python objects, e.g. FwMultilinkLink. This encoder should be used within
+    json.dump/json.dumps calls.
+    '''
+    def default(self, o):
+        return o.__dict__
+

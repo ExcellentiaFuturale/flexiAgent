@@ -78,7 +78,8 @@ class FWAGENT_API(FwObject):
 
         reply = handler_func(params)
         if reply['ok'] == 0:
-            raise Exception("fwagent_api: %s(%s) failed: %s" % (handler_func, format(params), reply['message']))
+            self.log.error(f"fwagent_api: {handler}({format(params)}) failed: {reply['message']}")
+            raise Exception(reply['message'])
         return reply
 
     def _prepare_tunnel_info(self, tunnel_ids):
@@ -297,14 +298,21 @@ class FWAGENT_API(FwObject):
         if non_supported_messages:
             raise Exception("_sync_device: unsupported requests found: %s" % str(non_supported_messages))
 
+        err_str = ''
+
         for module_name, module in list(fwglobals.modules.items()):
             if module.get('sync', False) == True:
                 # get api module. e.g router_api, system_api
                 api_module = getattr(fwglobals.g, module.get('object'))
-                api_module.sync(params['requests'], full_sync_enforced)
+                try:
+                    api_module.sync(params['requests'], full_sync_enforced)
+                except Exception as e:
+                    self.log.error(f"{module_name}.sync() failed: {str(e)}")
+                    err_str += f"{module_name}.sync() failed: {str(e)} ; "
 
-        # At this point the sync succeeded.
-        # In case of failure - exception is raised by sync()
+        if err_str:
+            return {'message': err_str, 'ok': 0}
+
         fwutils.reset_device_config_signature()
         self.log.info("_sync_device FINISHED")
         return {'ok': 1}

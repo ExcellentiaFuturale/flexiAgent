@@ -101,6 +101,8 @@ def _run_mbimcli_command(dev_id, cmd, print_error=False):
     try:
         device = dev_id_to_usb_device(dev_id) if dev_id else 'cdc-wdm0'
         mbimcli_cmd = 'mbimcli --device=/dev/%s --device-open-proxy %s' % (device, cmd)
+        if '--attach-packet-service' in mbimcli_cmd:
+            mbimcli_cmd = f'timeout 5 {mbimcli_cmd}'
         fwglobals.log.debug("_run_mbimcli_command: %s" % mbimcli_cmd)
         output = subprocess.check_output(mbimcli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
         if output:
@@ -751,6 +753,7 @@ def get_ip_configuration(dev_id, key=None, cache=True):
 
     if key:
         return response[key]
+
     return response
 
 def dev_id_to_usb_device(dev_id):
@@ -1015,14 +1018,34 @@ def get_stats():
 
     return out
 
-def on_add_interface(dev_id):
-    gw = get_ip_configuration(dev_id,'gateway')
-    if gw:
-        ret, _ = fwutils.os_system(f"sudo arp -s {gw} 00:00:00:00:00:00")
-        return ret
+def set_arp_entry(is_add, dev_id, gw=None):
+    '''
+    :param is_add:      if True the static ARP entry is added, o/w it is removed.
+    :param dev_id:      the dev-id of the interface, the GW of which should be
+                        used for the ARP entry. We used it to find the vpp_if_name,
+                        which is needed to update VPP with the ARP entry.
+                        As well it is needed to find the GW, of the last was not provided.
+    :param gw:          the IP of GW for which the ARP entry should be added/removed.
+    '''
+    vpp_if_name = fwutils.dev_id_to_vpp_if_name(dev_id)
+    if not vpp_if_name:
+        raise Exception(f"set_arp_entry: failed to resolve {dev_id} to vpp_if_name")
 
-def on_remove_interface(dev_id):
-    gw = get_ip_configuration(dev_id,'gateway')
-    if gw:
-        fwutils.os_system(f"sudo arp -d {gw}")
+    if not gw:
+        gw = get_ip_configuration(dev_id, 'gateway', cache=False)
+        if not gw:
+            fwglobals.log.debug(f"set_arp_entry: no GW was found for {dev_id}")
+            return
 
+    log_prefix=f"set_arp_entry({dev_id})"
+
+    if is_add:
+        cmd = f"sudo arp -s {gw} 00:00:00:00:00:00"
+        fwutils.os_system(cmd, log_prefix=log_prefix, raise_exception_on_error=True)
+        cmd = f"set ip neighbor static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"
+        fwutils.vpp_cli_execute([cmd], log_prefix=log_prefix, raise_exception_on_error=True)
+    else:
+        cmd = f"sudo arp -d {gw} > /dev/null 2>&1"
+        fwutils.os_system(cmd, log_prefix=log_prefix, print_error=False, raise_exception_on_error=False) # Suppress exception as arp entry might not exists if interface was taken down for some reason
+        cmd = f"set ip neighbor del static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"
+        fwutils.vpp_cli_execute([cmd], log_prefix=log_prefix, raise_exception_on_error=True)

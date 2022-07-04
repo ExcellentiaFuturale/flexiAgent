@@ -89,6 +89,9 @@ class FwThread(threading.Thread):
             self.join()
         self.ticks = 0
 
+    def log_error(self, log_str):
+        self.log.error(f"tid={self.tid}: {self.name}: {log_str}")
+
 class FwRouterThread(FwThread):
     """Implements variation of monitoring thread, which does not run,
     if there is undergoing re-configuration of router. The reconfiguration
