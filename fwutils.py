@@ -651,6 +651,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
 
             if is_azure:
                 if_name, interface['IPv4'],interface['IPv4Mask'] = fwazure.get_ip(interface['MAC'])
+                interface['name'] = if_name
 
             interface['gateway'], interface['metric'] = get_interface_gateway(if_name)
 
