@@ -104,7 +104,7 @@ def get_device_packet_traces(num_of_packets, timeout):
         subprocess.check_call(cmd, shell=True)
         cmd = 'sudo vppctl show vmxnet3'
         shif_vmxnet3 = subprocess.check_output(cmd, shell=True).decode()
-        if shif_vmxnet3 is '':
+        if shif_vmxnet3 == '':
             cmd = 'sudo vppctl trace add dpdk-input %s && sudo vppctl trace add virtio-input %s' % (num_of_packets, num_of_packets)
         else:
             cmd = 'sudo vppctl trace add vmxnet3-input %s && sudo vppctl trace add virtio-input %s' % (num_of_packets, num_of_packets)
