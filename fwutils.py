@@ -273,7 +273,7 @@ def get_interface_gateway(if_name, if_dev_id=None):
     :returns: Gateway ip address.
     """
     if if_dev_id:
-        if_name = dev_id_to_linux_if_name(if_dev_id)
+        if_name = dev_id_to_linux_if(if_dev_id)
 
     if fwpppoe.is_pppoe_interface(if_name=if_name):
         pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
@@ -378,7 +378,7 @@ def get_interface_address(if_name, if_dev_id=None, log=True, log_on_failure=None
     :returns: IP address.
     """
     if if_dev_id:
-        if_name = dev_id_to_linux_if_name(if_dev_id)
+        if_name = dev_id_to_linux_if(if_dev_id)
 
     if log_on_failure == None:
         log_on_failure = log
@@ -404,6 +404,46 @@ def get_interface_address(if_name, if_dev_id=None, log=True, log_on_failure=None
 
     if log_on_failure:
         fwglobals.log.debug("get_interface_address(%s): %s" % (if_name, str(addresses)))
+    return None
+
+def get_interface_mac_address(if_name, if_dev_id=None, log=True, log_on_failure=True):
+    """Gets MAC address of interface by name found in OS.
+
+    :param if_name:     Interface name.
+    :param if_dev_id:   Bus address of the interface, address for which is returned.
+                        If provided, the 'if_name' is ignored. The name is fetched
+                        from system by a Bus address.
+    :param log:         If True the found/not found address will be logged.
+                        Errors or debug info is printed in any case.
+    :param log_on_failure: If provided, overrides the 'log' in case of not found address.
+
+    :returns: MAC address.
+    """
+    if if_dev_id:
+        if_name = dev_id_to_linux_if(if_dev_id)
+
+    if log_on_failure == None:
+        log_on_failure = log
+
+    if fwpppoe.is_pppoe_interface(if_name=if_name):
+        ppp_if_name = fwpppoe.pppoe_get_ppp_if_name(if_name)
+        if ppp_if_name:
+            if_name = ppp_if_name
+
+    interfaces = psutil.net_if_addrs()
+    if if_name not in interfaces:
+        fwglobals.log.debug("get_interface_address(%s): interfaces: %s" % (if_name, str(interfaces)))
+        return None
+
+    addresses = interfaces[if_name]
+    for addr in addresses:
+        if addr.family == socket.AF_PACKET:
+            if log:
+                fwglobals.log.debug("get_interface_mac_address(%s): %s" % (if_name, str(addr)))
+            return str(addr.address)
+
+    if log_on_failure:
+        fwglobals.log.debug("get_interface_mac_address(%s): %s" % (if_name, str(addresses)))
     return None
 
 def get_interface_name(ip_no_mask, by_subnet=False):
@@ -2052,6 +2092,14 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
             if p.get_element(config['dpdk'],new_config_param) == None:
                 tup = p.create_element(new_config_param)
                 config['dpdk'].append(tup)
+            if fwazure.dev_id_is_azure(dev_full):
+                mac = get_interface_mac_address(None, if_dev_id=dev_full)
+                if_name, _, _ = fwazure.get_ip(mac)
+                param = f'vdev net_vdev_netvsc0,iface={if_name}'
+                if p.get_element(config['dpdk'],param) != None:
+                    p.remove_element(config['dpdk'], param)
+                tup = p.create_element(param)
+                config['dpdk'].append(tup)
 
     p.dump(config, vpp_config_filename)
     return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
@@ -2069,6 +2117,7 @@ def vpp_startup_conf_remove_devices(vpp_config_filename, devices):
         key = p.get_element(config['dpdk'],config_param)
         if key:
             p.remove_element(config['dpdk'], key)
+        p.del_simple_param('dpdk.vdev')
 
     p.dump(config, vpp_config_filename)
     return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
