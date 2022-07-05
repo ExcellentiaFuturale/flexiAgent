@@ -31,6 +31,7 @@
         "fwwan",
         "fwwifi",
         "libc",
+        "libvppapiclient",
         "multilink",
         "netaddr",
         "nicname",
