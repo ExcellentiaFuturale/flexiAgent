@@ -42,4 +42,7 @@ def get_ip(mac_address):
     return ('', '', '')
 
 def dev_id_is_azure(dev_id):
-    return fwutils.dev_id_is_of_type(dev_id, 'mlx5_core')
+    if (fwutils.dev_id_is_of_type(dev_id, 'mlx5_core') or
+        fwutils.dev_id_is_of_type(dev_id, 'mlx4_core')):
+        return True
+    return False
