@@ -2095,7 +2095,9 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
             if fwazure.dev_id_is_azure(dev_full):
                 mac = get_interface_mac_address(None, if_dev_id=dev_full)
                 if_name, _, _ = fwazure.get_ip(mac)
-                param = f'vdev net_vdev_netvsc0,iface={if_name}'
+                r = re.search(r"eth(\d+)", if_name)
+                id = r.group(1)
+                param = f'vdev net_vdev_netvsc{id},iface={if_name}'
                 if p.get_element(config['dpdk'],param) != None:
                     p.remove_element(config['dpdk'], param)
                 tup = p.create_element(param)
