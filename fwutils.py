@@ -273,7 +273,7 @@ def get_interface_gateway(if_name, if_dev_id=None):
     :returns: Gateway ip address.
     """
     if if_dev_id:
-        if_name = dev_id_to_linux_if(if_dev_id)
+        if_name = dev_id_to_tap(if_dev_id)
 
     if fwpppoe.is_pppoe_interface(if_name=if_name):
         pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
@@ -378,7 +378,7 @@ def get_interface_address(if_name, if_dev_id=None, log=True, log_on_failure=None
     :returns: IP address.
     """
     if if_dev_id:
-        if_name = dev_id_to_linux_if(if_dev_id)
+        if_name = dev_id_to_tap(if_dev_id)
 
     if log_on_failure == None:
         log_on_failure = log
