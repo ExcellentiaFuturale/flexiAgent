@@ -577,7 +577,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 self.pending_cfg_db.remove(request)
                 if re.match('remove-',  req):
                     return {'ok':1}     # No further processing is needed for 'remove-X'.
-            if router_was_started:
+            if router_was_started and self.state_is_starting_stopping(): # For now enable pending requests on start-router only
                 if re.match('add-',  req) and self._is_pending_request(request):
                     self.pending_cfg_db.update(request)
                     self.cfg_db.remove(request)
