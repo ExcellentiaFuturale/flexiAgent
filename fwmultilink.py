@@ -46,6 +46,9 @@ class FwMultilinkLink():
         self.next_hop    = next_hop
         self.vpp_if_name = vpp_if_name
 
+    def __str__(self):
+        return f"FwMultilinkLink(link_id={self.link_id}, next_hop={self.next_hop}, vpp_if_name={self.vpp_if_name}, labels={self.labels})"
+
 class FwMultilink(FwObject):
     """This is object that encapsulates data used by multi-link feature.
     """
@@ -184,7 +187,7 @@ class FwMultilink(FwObject):
         #
         if not dev_id and not sw_if_index:
             return (False, "neither 'dev_id' nor 'sw_if_index' was provided")
-        link_id = dev_id if dev_id else sw_if_index
+        link_id = dev_id if dev_id else str(sw_if_index)
         link = self.db['links'].get(link_id)
 
         # Remove link
