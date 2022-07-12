@@ -95,6 +95,8 @@ g_dumpers = {
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_syslog.1':               { 'shell_cmd': 'cp /var/log/syslog.1 <temp_folder>/linux_syslog_1.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'linux_uuid':                   { 'shell_cmd': 'cp /sys/class/dmi/id/product_uuid <temp_folder>/linux_uuid.log 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     ############################################################################
     # VPP related stuff in Linux - !!! PLEASE KEEP ALPHABET ORDER !!!
