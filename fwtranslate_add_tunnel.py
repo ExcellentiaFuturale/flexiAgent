@@ -403,24 +403,13 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
         }
         cmd_list.append(cmd)
 
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']      = "exec"
-        cmd['cmd']['module']    = "fwutils"
-        cmd['cmd']['descr']     = "set %s to loopback interface in Linux" % addr
-        cmd['cmd']['params']    = {
-                        'cmd':    f"sudo ip addr add {addr} dev DEV-STUB",
-                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
-        }
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "exec"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['descr']  = "unset %s from loopback interface in Linux" % addr
-        cmd['revert']['params'] = {
-                        'cmd':    f"sudo ip addr del {addr} dev DEV-STUB",
-                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
-        }
-        cmd_list.append(cmd)
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!! IMPORTANT !!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        # We should firstly bring interface UP and then assign IP address!
+        # This is needed to ensure opposite order on remove-interface/revert:
+        # firstly delete address, then take interface DOWN.
+        # This is because VPPSB needs to receive explicit route remove messages.
+        # Otherwise, routes associated with this interface will be removed from
+        # Linux routing table but will stuck inside VPP fib.
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']      = "exec"
@@ -439,6 +428,26 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
                         'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
         }
         cmd_list.append(cmd)
+
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']      = "exec"
+        cmd['cmd']['module']    = "fwutils"
+        cmd['cmd']['descr']     = "set %s to loopback interface in Linux" % addr
+        cmd['cmd']['params']    = {
+                        'cmd':    f"sudo ip addr add {addr} dev DEV-STUB",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
+        }
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "exec"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['descr']  = "unset %s from loopback interface in Linux" % addr
+        cmd['revert']['params'] = {
+                        'cmd':    f"sudo ip addr del {addr} dev DEV-STUB; sleep 1",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
+        }
+        cmd_list.append(cmd)
+
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']    = "exec"
