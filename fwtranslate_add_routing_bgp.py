@@ -101,11 +101,6 @@ def add_routing_bgp(params):
     vty_commands = [
         f'router bgp {local_asn}',
 
-        # used to disable the connection verification process for EBGP peering sessions
-        # that are reachable by a single hop but are configured on a loopback interface
-        # or otherwise configured with a non-directly connected IP address.
-        'bgp disable-ebgp-connected-route-check',
-
         # This command eliminates the need to apply incoming and outgoing filters for eBGP sessions
         # Without the cancellation of this option, Without the incoming filter,
         # no routes will be accepted. Without the outgoing filter, no routes will be announced.
