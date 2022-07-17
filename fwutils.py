@@ -3833,11 +3833,17 @@ def shutdown_activate_bgp_peer_if_exists(neighbor_ip, shutdown):
     try:
         bgp_requests = fwglobals.g.router_cfg.get_bgp()
         if not bgp_requests:
-            return True
+            return (True, None)
 
         bgp_config = bgp_requests[0]
         neighbors = bgp_config.get('neighbors', [])
-        exists = next((neighbor for neighbor in neighbors if neighbor['ip'] == neighbor_ip), None)
+
+        exists = False
+        for neighbor in neighbors:
+            ip = neighbor.get('ip')
+            if ip and ip == neighbor_ip:
+                exists = True
+                break
 
         if not exists:
             return (True, None)
