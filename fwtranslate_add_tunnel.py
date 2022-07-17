@@ -1797,6 +1797,19 @@ def add_tunnel(params):
         cmd['revert']['descr']   = "remove loopback interface %s from ospf" % loop0_ip
         cmd_list.append(cmd)
 
+    if routing == 'bgp':
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "frr_vtysh_run"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['params'] = {
+                    'commands': ["clear bgp %s" % remote_loop0_ip],
+                    'use_configure_flag': False
+        }
+        cmd['revert']['descr']   = "clear bgp routes neighbor %s from bgp" % remote_loop0_ip
+        cmd_list.append(cmd)
+
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['func']    = "tunnel_stats_add"

@@ -2929,7 +2929,7 @@ def frr_add_remove_interface_routes_if_needed(is_add, routing, dev_id):
 allowed_vtysh_outputs = [
     'For this router-id change to take effect, save config and restart ospfd\n'
 ]
-def frr_vtysh_run(commands, restart_frr=False, wait_after=None, on_error_commands=[]):
+def frr_vtysh_run(commands, restart_frr=False, wait_after=None, on_error_commands=[], use_configure_flag=True):
     '''Run vtysh command to configure router
 
     :param commands:          array of frr commands
@@ -2946,7 +2946,10 @@ def frr_vtysh_run(commands, restart_frr=False, wait_after=None, on_error_command
             fwglobals.log.debug(f"frr_vtysh_run: revert finished")
     try:
         shell_commands = ' -c '.join(map(lambda x: '"%s"' % x, commands))
-        vtysh_cmd = f'sudo /usr/bin/vtysh -c "configure" -c {shell_commands}'
+        if use_configure_flag:
+            vtysh_cmd = f'sudo /usr/bin/vtysh -c "configure" -c {shell_commands}'
+        else:
+            vtysh_cmd = f'sudo /usr/bin/vtysh -c {shell_commands}'
 
         # If frr restart is needed or if router was already started, flush down
         # the frr configuration into file, next frr restart will load it from the file.

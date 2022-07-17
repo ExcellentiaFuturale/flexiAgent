@@ -242,40 +242,41 @@ class FwCfgRequestHandler(FwObject):
         self.log.debug("=== start execution of %s ===" % (req))
 
         for idx, t in enumerate(cmd_list):      # 't' stands for command Tuple, though it is Python Dictionary :)
-            cmd = t['cmd']
+            cmd = t.get('cmd')
 
-            # If filter was provided, execute only commands that have the provided filter
-            if filter:
-                if not 'filter' in cmd or cmd['filter'] != filter:
-                    self.log.debug("_execute: filter out command by filter=%s (req=%s, cmd=%s, cmd['filter']=%s, params=%s)" %
-                                        (filter, req, cmd['func'], str(cmd.get('filter')), str(cmd.get('params'))))
-                    continue
+            if cmd: # allow translate command to include only "revert"
+                # If filter was provided, execute only commands that have the provided filter
+                if filter:
+                    if not 'filter' in cmd or cmd['filter'] != filter:
+                        self.log.debug("_execute: filter out command by filter=%s (req=%s, cmd=%s, cmd['filter']=%s, params=%s)" %
+                                            (filter, req, cmd['func'], str(cmd.get('filter')), str(cmd.get('params'))))
+                        continue
 
-            try:
-                # Firstly perform substitutions if needed.
-                # The params might include 'substs' key with list of substitutions.
-                self.substitute(cmd_cache, cmd.get('params'))
+                try:
+                    # Firstly perform substitutions if needed.
+                    # The params might include 'substs' key with list of substitutions.
+                    self.substitute(cmd_cache, cmd.get('params'))
 
-                self.log.debug(f"_execute: {self._dump_translation_cmd_params(cmd)}")
+                    self.log.debug(f"_execute: {self._dump_translation_cmd_params(cmd)}")
 
-                # Now execute command
-                execute_result = None if not 'cache_ret_val' in cmd else \
-                    { 'result_attr' : cmd['cache_ret_val'][0] , 'cache' : cmd_cache , 'key' :  cmd['cache_ret_val'][1] }
-                err_str = self._execute_translation_command(cmd, execute_result)
-                if err_str:   # On failure go back revert already executed commands
-                    self.log.debug(f"_execute_translation_command('{cmd['func']}') failed")
-                    raise Exception("API failed: %s" % cmd['func'])
+                    # Now execute command
+                    execute_result = None if not 'cache_ret_val' in cmd else \
+                        { 'result_attr' : cmd['cache_ret_val'][0] , 'cache' : cmd_cache , 'key' :  cmd['cache_ret_val'][1] }
+                    err_str = self._execute_translation_command(cmd, execute_result)
+                    if err_str:   # On failure go back revert already executed commands
+                        self.log.debug(f"_execute_translation_command('{cmd['func']}') failed")
+                        raise Exception("API failed: %s" % cmd['func'])
 
-            except Exception as e:
-                err_str = "_execute: %s(%s) failed: %s, %s" % (cmd['func'], format(cmd.get('params')), str(e), str(traceback.format_exc()))
-                self.log.error(err_str)
-                self.log.debug("=== failed execution of %s ===" % (req))
-                if fwglobals.g.router_api.state_is_starting_stopping():
-                    fwutils.dump()
-                # On failure go back to the begining of list and revert executed commands.
-                self._revert(cmd_list, idx)
-                self.log.debug("=== finished revert of %s ===" % (req))
-                raise Exception('failed to %s. (error: %s)' % (cmd['descr'], str(e)))
+                except Exception as e:
+                    err_str = "_execute: %s(%s) failed: %s, %s" % (cmd['func'], format(cmd.get('params')), str(e), str(traceback.format_exc()))
+                    self.log.error(err_str)
+                    self.log.debug("=== failed execution of %s ===" % (req))
+                    if fwglobals.g.router_api.state_is_starting_stopping():
+                        fwutils.dump()
+                    # On failure go back to the begining of list and revert executed commands.
+                    self._revert(cmd_list, idx)
+                    self.log.debug("=== finished revert of %s ===" % (req))
+                    raise Exception('failed to %s. (error: %s)' % (cmd['descr'], str(e)))
 
             # At this point the execution succeeded.
             # Now substitute the revert command, as it will be needed for complement request, e.g. for remove-tunnel.
