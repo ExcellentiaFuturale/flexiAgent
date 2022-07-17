@@ -1800,14 +1800,19 @@ def add_tunnel(params):
     if routing == 'bgp':
         cmd = {}
         cmd['cmd'] = {}
+        cmd['cmd']['func']      = "frr_vtysh_run"
+        cmd['cmd']['module']    = "fwutils"
+        cmd['cmd']['descr']     = "activate bgp neighbor %s from bgp" % remote_loop0_ip
+        cmd['cmd']['params']    = {
+            'commands': ["router bgp", "no neighbor %s shutdown" % remote_loop0_ip],
+        }
         cmd['revert'] = {}
         cmd['revert']['func']   = "frr_vtysh_run"
         cmd['revert']['module'] = "fwutils"
         cmd['revert']['params'] = {
-                    'commands': ["clear bgp %s" % remote_loop0_ip],
-                    'use_configure_flag': False
+                    'commands': ["router bgp", "neighbor %s shutdown" % remote_loop0_ip],
         }
-        cmd['revert']['descr']   = "clear bgp routes neighbor %s from bgp" % remote_loop0_ip
+        cmd['revert']['descr']   = "close bgp neighbor %s from bgp" % remote_loop0_ip
         cmd_list.append(cmd)
 
     cmd = {}

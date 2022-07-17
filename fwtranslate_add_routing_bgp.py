@@ -263,18 +263,7 @@ def _modify_neighbors(cmd_list, new_params, old_params):
     local_asn = new_params.get('localAsn')
 
     def _remove_cmd_func(neighbor):
-        _cmd_list = []
         ip = neighbor.get('ip')
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']    = "frr_vtysh_run"
-        cmd['cmd']['module']  = "fwutils"
-        cmd['cmd']['descr']   =  f"clear bgp neighbor {ip}"
-        cmd['cmd']['params'] = {
-                        'commands': [f'clear bgp {ip}'],
-                        'use_configure_flag': False
-        }
-        _cmd_list.append(cmd)
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']    = "frr_vtysh_run"
@@ -283,8 +272,7 @@ def _modify_neighbors(cmd_list, new_params, old_params):
         cmd['cmd']['params'] = {
                         'commands': [f'router bgp {local_asn}', f'no neighbor {ip}'],
         }
-        _cmd_list.append(cmd)
-        return _cmd_list
+        return [cmd]
 
     def _add_cmd_func(neighbor):
         ip = neighbor.get('ip')
