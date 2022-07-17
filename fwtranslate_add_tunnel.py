@@ -403,13 +403,24 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
         }
         cmd_list.append(cmd)
 
-        # !!!!!!!!!!!!!!!!!!!!!!!!!!! IMPORTANT !!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        # We should firstly bring interface UP and then assign IP address!
-        # This is needed to ensure opposite order on remove-interface/revert:
-        # firstly delete address, then take interface DOWN.
-        # This is because VPPSB needs to receive explicit route remove messages.
-        # Otherwise, routes associated with this interface will be removed from
-        # Linux routing table but will stuck inside VPP fib.
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']      = "exec"
+        cmd['cmd']['module']    = "fwutils"
+        cmd['cmd']['descr']     = "set %s to loopback interface in Linux" % addr
+        cmd['cmd']['params']    = {
+                        'cmd':    f"sudo ip addr add {addr} dev DEV-STUB",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
+        }
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "exec"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['descr']  = "unset %s from loopback interface in Linux" % addr
+        cmd['revert']['params'] = {
+                        'cmd':    f"sudo ip addr del {addr} dev DEV-STUB",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
+        }
+        cmd_list.append(cmd)
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']      = "exec"
@@ -425,25 +436,6 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
         cmd['revert']['descr']  = "DOWN loopback interface %s in Linux" % addr
         cmd['revert']['params'] = {
                         'cmd':    "sudo ip link set dev DEV-STUB down",
-                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
-        }
-        cmd_list.append(cmd)
-
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']      = "exec"
-        cmd['cmd']['module']    = "fwutils"
-        cmd['cmd']['descr']     = "set %s to loopback interface in Linux" % addr
-        cmd['cmd']['params']    = {
-                        'cmd':    f"sudo ip addr add {addr} dev DEV-STUB",
-                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
-        }
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "exec"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['descr']  = "unset %s from loopback interface in Linux" % addr
-        cmd['revert']['params'] = {
-                        'cmd':    f"sudo ip addr del {addr} dev DEV-STUB; sleep 1",
                         'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
         }
         cmd_list.append(cmd)
@@ -1797,22 +1789,36 @@ def add_tunnel(params):
         cmd['revert']['descr']   = "remove loopback interface %s from ospf" % loop0_ip
         cmd_list.append(cmd)
 
-    if routing == 'bgp':
+    # --------------------------------------------------------------------------
+    # To remove BGP routes properly from Linux and VPP,
+    # we need to clean up BGP routes before removing the tunnel loopback.
+    # Otherwise, the routes get stuck in vpp with an unresolved state.
+    #
+    # Shutting down a BGP neighborship causes routes to be cleaned from Linux and VPP.
+    #
+    # Hence, in the remove-tunnel process (revert of add-tunnel), we shut down the BGP peer
+    # with the remote side of the tunnel before we removing the loopback.
+    #
+    # In the add-tunnel process we make sure that BGP neighbor is active.
+    # --------------------------------------------------------------------------
+    if routing == 'bgp' and not 'peer' in params:
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']      = "frr_vtysh_run"
+        cmd['cmd']['func']      = "shutdown_activate_bgp_peer_if_exists"
         cmd['cmd']['module']    = "fwutils"
-        cmd['cmd']['descr']     = "activate bgp neighbor %s from bgp" % remote_loop0_ip
+        cmd['cmd']['descr']     = "activate bgp neighbor %s" % remote_loop0_ip
         cmd['cmd']['params']    = {
-            'commands': ["router bgp", "no neighbor %s shutdown" % remote_loop0_ip],
+            'neighbor_ip': remote_loop0_ip,
+            'shutdown': False
         }
         cmd['revert'] = {}
-        cmd['revert']['func']   = "frr_vtysh_run"
+        cmd['revert']['func']   = "shutdown_activate_bgp_peer_if_exists"
         cmd['revert']['module'] = "fwutils"
         cmd['revert']['params'] = {
-                    'commands': ["router bgp", "neighbor %s shutdown" % remote_loop0_ip],
+            'neighbor_ip': remote_loop0_ip,
+            'shutdown': True
         }
-        cmd['revert']['descr']   = "close bgp neighbor %s from bgp" % remote_loop0_ip
+        cmd['revert']['descr']   = "shutdown bgp neighbor %s" % remote_loop0_ip
         cmd_list.append(cmd)
 
     cmd = {}
