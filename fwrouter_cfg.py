@@ -129,6 +129,9 @@ class FwRouterCfg(FwCfgDatabase):
     def get_tunnels(self):
         return self.get_requests('add-tunnel')
 
+    def get_bgp(self):
+        return self.get_requests('add-routing-bgp')
+
     def get_tunnel(self, tunnel_id):
         key = 'add-tunnel:%d' % (tunnel_id)
         return self.get_params(key)
