@@ -95,6 +95,8 @@ g_dumpers = {
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_syslog.1':               { 'shell_cmd': 'cp /var/log/syslog.1 <temp_folder>/linux_syslog_1.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'linux_uuid':                   { 'shell_cmd': 'cp /sys/class/dmi/id/product_uuid <temp_folder>/linux_uuid.log 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     ############################################################################
     # VPP related stuff in Linux - !!! PLEASE KEEP ALPHABET ORDER !!!
@@ -108,7 +110,13 @@ g_dumpers = {
     # FRR stuff - !!! PLEASE KEEP ALPHABET ORDER !!!
     #
     'frr_conf':                     { 'shell_cmd': 'mkdir -p <temp_folder>/frr && cp /etc/frr/* <temp_folder>/frr/ 2>/dev/null' },
+    'frr_bgp_summary':              { 'shell_cmd': f'vtysh -c "show bgp summary" > <temp_folder>/frr_bgp_summary.json 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'frr_ip_route':                 { 'shell_cmd': f'vtysh -c "show ip route json" > <temp_folder>/frr_ip_route.json 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'frr_log':                      { 'shell_cmd': f'cp {g.FRR_LOG_FILE} <temp_folder>/frr.log 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'frr_ospf_neighbors':           { 'shell_cmd': f'vtysh -c "show ip ospf neighbor all json" > <temp_folder>/frr_ip_ospf_neighbors.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     ############################################################################

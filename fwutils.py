@@ -105,7 +105,7 @@ def get_device_packet_traces(num_of_packets, timeout):
         subprocess.check_call(cmd, shell=True)
         cmd = 'sudo vppctl show vmxnet3'
         shif_vmxnet3 = subprocess.check_output(cmd, shell=True).decode()
-        if shif_vmxnet3 is '':
+        if shif_vmxnet3 == '':
             cmd = 'sudo vppctl trace add dpdk-input %s && sudo vppctl trace add virtio-input %s' % (num_of_packets, num_of_packets)
         else:
             cmd = 'sudo vppctl trace add vmxnet3-input %s && sudo vppctl trace add virtio-input %s' % (num_of_packets, num_of_packets)
@@ -3890,6 +3890,35 @@ def get_device_networks_json(type=None):
             networks.add(interface['addr'])
 
     return json.dumps(list(networks), indent=2, sort_keys=True)
+
+def shutdown_activate_bgp_peer_if_exists(neighbor_ip, shutdown):
+    try:
+        bgp_requests = fwglobals.g.router_cfg.get_bgp()
+        if not bgp_requests:
+            return (True, None)
+
+        bgp_config = bgp_requests[0]
+        neighbors = bgp_config.get('neighbors', [])
+
+        exists = False
+        for neighbor in neighbors:
+            ip = neighbor.get('ip')
+            if ip and ip == neighbor_ip:
+                exists = True
+                break
+
+        if not exists:
+            return (True, None)
+
+        vtysh_cmd = ['router bgp']
+        if shutdown:
+            vtysh_cmd.append(f'neighbor {neighbor_ip} shutdown')
+        else:
+            vtysh_cmd.append(f'no neighbor {neighbor_ip} shutdown')
+
+        return frr_vtysh_run(vtysh_cmd)
+    except Exception as e:
+        return (False, str(e))
 
 class FwJsonEncoder(json.JSONEncoder):
     '''Customization of the JSON encoder that is able to serialize simple

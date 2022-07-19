@@ -439,6 +439,7 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
                         'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
         }
         cmd_list.append(cmd)
+
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']    = "exec"
@@ -1786,6 +1787,38 @@ def add_tunnel(params):
                     'wait_after': 2
         }
         cmd['revert']['descr']   = "remove loopback interface %s from ospf" % loop0_ip
+        cmd_list.append(cmd)
+
+    # --------------------------------------------------------------------------
+    # To remove BGP routes properly from Linux and VPP,
+    # we need to clean up BGP routes before removing the tunnel loopback.
+    # Otherwise, the routes get stuck in vpp with an unresolved state.
+    #
+    # Shutting down a BGP neighborship causes routes to be cleaned from Linux and VPP.
+    #
+    # Hence, in the remove-tunnel process (revert of add-tunnel), we shut down the BGP peer
+    # with the remote side of the tunnel before we removing the loopback.
+    #
+    # In the add-tunnel process we make sure that BGP neighbor is active.
+    # --------------------------------------------------------------------------
+    if routing == 'bgp' and not 'peer' in params:
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']      = "shutdown_activate_bgp_peer_if_exists"
+        cmd['cmd']['module']    = "fwutils"
+        cmd['cmd']['descr']     = "activate bgp neighbor %s" % remote_loop0_ip
+        cmd['cmd']['params']    = {
+            'neighbor_ip': remote_loop0_ip,
+            'shutdown': False
+        }
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "shutdown_activate_bgp_peer_if_exists"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['params'] = {
+            'neighbor_ip': remote_loop0_ip,
+            'shutdown': True
+        }
+        cmd['revert']['descr']   = "shutdown bgp neighbor %s" % remote_loop0_ip
         cmd_list.append(cmd)
 
     cmd = {}

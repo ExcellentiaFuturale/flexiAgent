@@ -577,7 +577,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 self.pending_cfg_db.remove(request)
                 if re.match('remove-',  req):
                     return {'ok':1}     # No further processing is needed for 'remove-X'.
-            if router_was_started:
+            if router_was_started and self.state_is_starting_stopping(): # For now enable pending requests on start-router only
                 if re.match('add-',  req) and self._is_pending_request(request):
                     self.pending_cfg_db.update(request)
                     self.cfg_db.remove(request)
@@ -786,17 +786,32 @@ class FWROUTER_API(FwCfgRequestHandler):
                         if gw:
                             gateways.append(gw)
 
-                        # Find out if IP/metric/GW of WAN interface was modified.
-                        # If it was, the agent should be reconnected.
+                        # If the interface to be modified is used by the WebSocket
+                        # connection, we have to reconnect the agent.
+                        # We use following heuristic to determine, if the interface
+                        # is used for the WebSocket connection: we assume that
+                        # there is no static route for the flexiManage address,
+                        # so the connection uses the default route.
+                        # Hence, if the default route with the lowest metric
+                        # uses the interface, we should reconnect.
+                        if not reconnect_agent:
+                            (_, _, default_route_dev_id, _) = fwutils.get_default_route()
+                            if dev_id == default_route_dev_id:
+                                reconnect_agent = True
+
+                        # If the interface to be modified might become the interface
+                        # for default route due to IP/metric/GW modification,
+                        # we have to reconnect agent too.
                         #
-                        if (_request['message'] == 'add-interface'):
-                            new_params = _request['params']
-                            old_params = add_remove_requests[dev_id]['params']
-                        else:
-                            old_params = _request['params']
-                            new_params = add_remove_requests[dev_id]['params']
-                        if _should_reconnect_agent_on_modify_interface(old_params, new_params):
-                            reconnect_agent = True
+                        if not reconnect_agent:
+                            if (_request['message'] == 'add-interface'):
+                                new_params = _request['params']
+                                old_params = add_remove_requests[dev_id]['params']
+                            else:
+                                old_params = _request['params']
+                                new_params = add_remove_requests[dev_id]['params']
+                            if _should_reconnect_agent_on_modify_interface(old_params, new_params):
+                                reconnect_agent = True
 
                         # Move the request to the set of modify-interface-s
                         #
@@ -805,6 +820,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
             if add_remove_requests and self.state_is_started():
                 restart_router = True
+                reconnect_agent = True
             if modify_requests and self.state_is_started():
                 restart_dhcp_service = True
             return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
