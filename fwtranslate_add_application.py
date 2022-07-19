@@ -57,29 +57,19 @@ def _add_traffic_identification(params, cmd_list):
     cmd = {}
 
     cmd['cmd'] = {}
-    cmd['cmd']['name'] = "python"
+    cmd['cmd']['func']   = "add_traffic_identification"
+    cmd['cmd']['object'] = "fwglobals.g.traffic_identifications"
     cmd['cmd']['descr'] = "Add Traffic Identification %s" % (params['id'])
-    cmd['cmd']['params'] = {
-                'object': 'fwglobals.g.traffic_identifications',
-                'func':   'add_traffic_identification',
-                'args': {
-                    'traffic':      params
-                }
-    }
+    cmd['cmd']['params'] = { 'traffic': params }
 
     cmd['revert'] = {}
-    cmd['revert']['name'] = "python"
+    cmd['revert']['func']   = "add_traffic_identification"
+    cmd['revert']['object'] = "fwglobals.g.traffic_identifications"
     cmd['revert']['descr'] = "Delete Traffic Identification %s" % (params['id'])
-    cmd['revert']['params'] = {
-                'object': 'fwglobals.g.traffic_identifications',
-                'func':   'remove_traffic_identification',
-                'args': {
-                    'traffic':      params
-                }
-    }
+    cmd['revert']['params'] = { 'traffic': params }
     cmd_list.append(cmd)
 
-def add_app(params):
+def add_application(params):
     """Generate App commands.
 
      :param params:        Parameters from flexiManage.

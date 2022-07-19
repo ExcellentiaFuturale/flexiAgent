@@ -31,6 +31,8 @@ import yaml
 import fwglobals
 import fwlte
 import fwutils
+import fwpppoe
+import fwroutes
 
 from fwwan_monitor import get_wan_failover_metric
 
@@ -145,14 +147,10 @@ def load_netplan_filenames(read_from_disk=False, get_only=False):
             fwglobals.g.NETPLAN_FILES = dict(netplan_filenames)
             return fwglobals.g.NETPLAN_FILES
 
-    output = subprocess.check_output('ip route show default', shell=True).decode().strip()
-    routes = output.splitlines()
-
     devices = {}
-    for route in routes:
-        rip = route.split('via ')[1].split(' ')[0]
-        dev = route.split('dev ')[1].split(' ')[0]
-        devices[dev] = rip
+    routes_linux = fwroutes.FwLinuxRoutes(prefix='0.0.0.0/0')
+    for route in routes_linux.values():
+        devices[route.dev] = route.via
 
     files = glob.glob("/etc/netplan/*.fw_run_orig") + \
             glob.glob("/lib/netplan/*.fw_run_orig") + \
@@ -210,6 +208,11 @@ def load_netplan_filenames(read_from_disk=False, get_only=False):
     netplan_db['filenames'] = fwglobals.g.NETPLAN_FILES
     fwglobals.g.db['netplan'] = netplan_db
 
+def _write_to_netplan_file(fname, config, **args):
+    with open(fname, 'w') as stream:
+        yaml.safe_dump(config, stream, **args)
+        stream.flush()
+        os.fsync(stream.fileno())
 
 def _add_netplan_file(fname):
     if os.path.exists(fname):
@@ -217,10 +220,7 @@ def _add_netplan_file(fname):
 
     config = dict()
     config['network'] = {'version': 2, 'renderer': 'networkd'}
-    with open(fname, 'w+') as stream:
-        yaml.safe_dump(config, stream, default_flow_style=False)
-        stream.flush()
-        os.fsync(stream.fileno())
+    _write_to_netplan_file(fname, config, default_flow_style=False)
 
 def _dump_netplan_file(fname):
     if fname:
@@ -307,17 +307,22 @@ def _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw, dnsSer
 
     return config_section
 
-def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dnsServers, dnsDomains, mtu=None, if_name=None, validate_ip=True):
+def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dnsServers, dnsDomains, mtu=None, if_name=None, netplan_apply=True):
     '''
     :param metric:  integer (whole number)
     '''
 
     old_ethernets = {}
 
+    if fwpppoe.is_pppoe_interface(dev_id=dev_id):
+        err_str = "add_remove_netplan_interface: PPPoE interface %s is not supported" % dev_id
+        fwglobals.log.error(err_str)
+        return (False, err_str)
+
     fwglobals.log.debug(
         "add_remove_netplan_interface: is_add=%d, dev_id=%s, ip=%s, gw=%s, metric=%d, dhcp=%s, type=%s, \
-         dnsServers=%s, dnsDomains=%s, mtu=%s, if_name=%s, validate_ip=%s" %
-        (is_add, dev_id, ip, gw, metric, dhcp, type, dnsServers, dnsDomains, str(mtu), if_name, str(validate_ip)))
+         dnsServers=%s, dnsDomains=%s, mtu=%s, if_name=%s" %
+        (is_add, dev_id, ip, gw, metric, dhcp, type, dnsServers, dnsDomains, str(mtu), if_name))
 
     fo_metric = get_wan_failover_metric(dev_id, metric)
     if fo_metric != metric:
@@ -452,19 +457,89 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
                 # }
                 # So we need to clear the ip configuration for vpp1, and keep the the set-name on the wwan0
 
-        with open(fname_run, 'w') as stream:
-            yaml.safe_dump(config, stream)
-            stream.flush()
-            os.fsync(stream.fileno())
+        _write_to_netplan_file(fname_run, config)
 
         # Remove default route from ip table because Netplan is not doing it.
         if not is_add and type == 'WAN':
             fwutils.remove_linux_default_route(ifname)
 
-        fwutils.netplan_apply('add_remove_netplan_interface')
+        if netplan_apply:
+            fwutils.netplan_apply('add_remove_netplan_interface')
 
-        if is_add and set_name and not is_lte:
+        if is_add and set_name and set_name is not ifname and not is_lte:
+            # To understand the following code, it is necessary to understand the following two principles:
+            #
+            # 1. To apply the set-name,
+            #   the interface name in netplan must be the *current* interface name in Linux.
+            #   The "match" section is not enough for changing the interface name.
+            #
+            #   Assuming we have vpp0 in Linux and we want to change it to eth2 -
+            #     The following netplan config will work:
+            #       vpp0:
+            #         addresses: [172.16.55.1/24]
+            #         dhcp4: false
+            #         match: {macaddress: '00:e0:ed:8f:73:94'}
+            #         mtu: 1400
+            #         set-name: eth2
+            #
+            #     The following netplan config will not work:
+            #       eth2:
+            #         addresses: [172.16.55.1/24]
+            #         dhcp4: false
+            #         match: {macaddress: '00:e0:ed:8f:73:94'}
+            #         mtu: 1400
+            #         set-name: eth2
+            #
+            # 2. When the agent enables tap-inject in the start-router process, the vppsb creates the interface with the vppX name.
+            #   The vppsb doesn't know at this point about the set-name.
+            #
+            # Following the example above, when the router starts -
+            #   the "ifname" (taken from fwutils.dev_id_to_tap(dev_id)) is vpp0 and the set-name is eth2.
+            #
+            # The following netplan file is created:
+            #   vpp0:
+            #     addresses: [172.16.55.1/24]
+            #     dhcp4: false
+            #     match: {macaddress: '00:e0:ed:8f:73:94'}
+            #     mtu: 1400
+            #     set-name: eth2
+            #
+            # At this point, after "netplan apply", the interface name is changed to eth2, and vpp0 is no longer exists.
+            # So, the generated netplan config for this interface is under non-exists interface name.
+            #
+            # This situation causes a future problem:
+            # Once `modify-interface` arrives, the `dev_id_to_tap()` will return `eth2` and not `vpp0`.
+            # This function will add the config under `eth2` interface, without removing the `vpp0` which no longer exists.
+            # As a result, the netplan file contains the same interface twice:
+            #   vpp0:
+            #     addresses: [172.16.55.1/24]
+            #     dhcp4: false
+            #     match: {macaddress: '00:e0:ed:8f:73:94'}
+            #     mtu: 1400
+            #     set-name: eth2
+            #   eth2:
+            #     addresses: [172.16.55.1/24]
+            #     dhcp4: false
+            #     match: {macaddress: '00:e0:ed:8f:73:94'}
+            #     mtu: 1400
+            #     set-name: eth2
+            #
+            # Hence, immediately after the set-name applied,
+            # we are changing the default vppsb name (vpp0) with the applied set-name interface (eth2) name.
+            # No need to call netplan apply now.
+            #
+            config['network']['ethernets'][set_name] = config['network']['ethernets'].pop(ifname)
+            _write_to_netplan_file(fname_run, config)
+
             ifname = set_name
+
+        # For DHCP interfaces wait a bit - give a chance to system get IP
+        #
+        if dhcp == 'yes' and is_add:
+            for _ in range(10):
+                time.sleep(1)
+                if fwutils.get_interface_address(ifname, log=False):
+                    break
 
         # On interface adding or removal update caches interface related caches.
         #
@@ -487,10 +562,6 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
             #
             fwutils.set_dev_id_to_tap(dev_id, ifname)
             fwglobals.log.debug("Interface name in cache is %s, dev_id %s" % (ifname, dev_id_full))
-
-        if validate_ip: # Failover might be easily caused by interface down so no need to validate IP
-            if is_add and not _has_ip(ifname, (dhcp=='yes')):
-                raise Exception("ip was not assigned")
 
     except Exception as e:
         err_str = "add_remove_netplan_interface failed: dev_id: %s, file: %s, error: %s"\
@@ -526,33 +597,61 @@ def get_dhcp_netplan_interface(if_name):
                             return 'yes'
     return 'no'
 
-def _has_ip(if_name, dhcp):
+def check_interface_exist(if_name):
+    files = netplan_get_filepaths()
 
-    for _ in range(2):          # Check IP and retry "netplan apply" in loop
-        for i in range(30):     # Wait for IP to appear for X seconds
-            log = (i == 29)     # Log only the last trial to avoid log spamming
-            if fwutils.get_interface_address(if_name, log_on_failure=log):
-                return True
-            time.sleep(1)
-        fwutils.netplan_apply('_has_ip')
+    for fname in files:
+        config = None
+        with open(fname, 'r') as stream:
+            config = yaml.safe_load(stream)
+            if not config:
+                continue
+            interface = config.get('network',{}).get('ethernets',{}).get(if_name)
+            if interface:
+                return fname
 
-    # At this point no IP was found on the interface.
-    # If IP was not assigned to the interface, we still return OK if:
-    # - DHCP was configured on secondary interface (not default route),
-    #   hopefully it will get IP at some time later. Right now we don't
-    #   want to fail router-start or router restore on reboot/watchdog.
-    #   The fwagent will take care of dhcp interfaces with no IP, while
-    #   handling tunnels, static routes, etc.
-    #
-    # We return error if:
-    # - IP was configured statically
-    # - DHCP was configured on primary (default route) interface,
-    #   as connection to flexiManage will be lost, so we prefer to revert
-    #   to the previous configuration
-    #
-    if dhcp:
-        (_, dev, _, _) = fwutils.get_default_route()
-        if if_name != dev:
-            return True
+    return None
 
-    return False
+def remove_interface(if_name):
+    files = netplan_get_filepaths()
+
+    for fname in files:
+        config = None
+        with open(fname, 'r') as stream:
+            config = yaml.safe_load(stream)
+            if config is None:
+                continue
+            if 'network' in config:
+                network = config['network']
+                if 'ethernets' in network:
+                    ethernets = network['ethernets']
+                    if if_name in ethernets:
+                        removed_section = copy.deepcopy(ethernets[if_name])
+                        del ethernets[if_name]
+                        with open(fname, 'w') as file_stream:
+                            yaml.dump(config, file_stream)
+                        fwutils.netplan_apply('remove_interface_netplan')
+                        return (fname, removed_section)
+    return ('', '')
+
+def add_interface(if_name, fname, netplan_section):
+    config = None
+    with open(fname, 'r') as stream:
+        config = yaml.safe_load(stream)
+        if 'network' in config:
+            network = config['network']
+            if 'ethernets' in network:
+                ethernets = network['ethernets']
+                ethernets[if_name] = netplan_section
+                with open(fname, 'w') as file_stream:
+                    yaml.dump(config, file_stream)
+                fwutils.netplan_apply('add_interface_netplan')
+
+def create_baseline_if_not_exist(fname):
+    if 'baseline' in fname:
+        return fname
+
+    fname_baseline = fname.replace('yaml', 'baseline.yaml')
+    os.system('cp %s %s.fworig' % (fname, fname))
+    os.system('mv %s %s' % (fname, fname_baseline))
+    return fname_baseline

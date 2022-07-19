@@ -89,92 +89,122 @@ def add_switch(params):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "python"
+    cmd['cmd']['func']      = "allocate_bridge_id"
+    cmd['cmd']['module']    = "fwtranslate_add_switch"
     cmd['cmd']['descr']     = "get bridge id for address %s" % addr
     cmd['cmd']['cache_ret_val'] = (bridge_ret_attr, bridge_cache_key)
-    cmd['cmd']['params']    = {
-        'module': 'fwtranslate_add_switch',
-        'func':   'allocate_bridge_id',
-        'args':   {
-            'addr': addr,
-        }
-    }
+    cmd['cmd']['params']    = { 'addr': addr }
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
+    cmd['revert']['func']   = "release_bridge_id"
+    cmd['revert']['module'] = "fwtranslate_add_switch"
     cmd['revert']['descr']  = "remove bridge id for address %s" % addr
-    cmd['revert']['params'] = {
-        'module': 'fwtranslate_add_switch',
-        'func':   'release_bridge_id',
-        'args':   {
-            'addr': addr,
-        }
-    }
+    cmd['revert']['params'] = { 'addr': addr }
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "bridge_domain_add_del"
-    cmd['cmd']['params']    = { 'substs': [ { 'add_param':'bd_id', 'val_by_key':bridge_cache_key} ],
-                                'is_add':1, 'learn':1, 'forward':1, 'uu_flood':1, 'flood':1, 'arp_term':0}
+    cmd['cmd']['func']      = "call_vpp_api"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params']    = {
+                    'api': "bridge_domain_add_del",
+                    'args': {
+                        'is_add':   1,
+                        'learn':    1,
+                        'forward':  1,
+                        'uu_flood': 1,
+                        'flood':    1,
+                        'arp_term': 0,
+                        'substs': [ { 'add_param':'bd_id', 'val_by_key':bridge_cache_key} ]
+                    },
+    }
     cmd['cmd']['descr']     = "create bridge for %s" % addr
     cmd['revert'] = {}
-    cmd['revert']['name']   = 'bridge_domain_add_del'
-    cmd['revert']['params'] = { 'substs': [ { 'add_param':'bd_id', 'val_by_key':bridge_cache_key} ],
-                                'is_add':0 }
+    cmd['revert']['func']   = "call_vpp_api"
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['params'] = {
+                    'api':    "bridge_domain_add_del",
+                    'args':   {
+                        'is_add': 0,
+                        'substs': [ { 'add_param':'bd_id', 'val_by_key':bridge_cache_key} ]
+                    },
+    }
     cmd['revert']['descr']  = "delete bridge for %s" % addr
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']          = "create_loopback_instance"
-    cmd['cmd']['params']        = { 'substs': [ { 'add_param':'user_instance', 'val_by_key':bridge_cache_key} ],
-                                    'is_specified': 1 }
+    cmd['cmd']['func']          = "call_vpp_api"
+    cmd['cmd']['object']        = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params']        = {
+                    'api':  "create_loopback_instance",
+                    'args': {
+                        'is_specified': 1,
+                        'substs': [ { 'add_param':'user_instance', 'val_by_key':bridge_cache_key} ]
+                    },
+    }
     cmd['cmd']['cache_ret_val'] = (loopback_ret_attr, loopback_cache_key)
     cmd['cmd']['descr']         = "create loopback interface for bridge %s" % addr
     cmd['revert'] = {}
-    cmd['revert']['name']       = 'delete_loopback'
-    cmd['revert']['params']     = { 'substs': [ { 'add_param':'sw_if_index', 'val_by_key':loopback_cache_key} ] }
+    cmd['revert']['func']       = "call_vpp_api"
+    cmd['revert']['object']     = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['params']     = {
+                    'api':  "delete_loopback",
+                    'args': {
+                        'substs': [ { 'add_param':'sw_if_index', 'val_by_key':loopback_cache_key} ]
+                    },
+    }
     cmd['revert']['descr']      = "delete loopback interface for bridge %s" % addr
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "sw_interface_set_l2_bridge"
+    cmd['cmd']['func']    = "call_vpp_api"
+    cmd['cmd']['object']  = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['descr']   = "add loop interface to bridge %s" % addr
-    cmd['cmd']['params']  = {   'substs': [
-                                    { 'add_param':'rx_sw_if_index', 'val_by_key':loopback_cache_key},
-                                    { 'add_param':'bd_id', 'val_by_key':bridge_cache_key}
-                                ],
-                                'enable':1, 'port_type':1 # port_type 1 stands for BVI (see test\vpp_l2.py)
-                            }
+    cmd['cmd']['params']  = {
+                    'api':    "sw_interface_set_l2_bridge",
+                    'args': {
+                        'enable':    1,
+                        'port_type': 1, # port_type 1 stands for BVI (see test\vpp_l2.py)
+                        'substs': [
+                            { 'add_param':'rx_sw_if_index', 'val_by_key':loopback_cache_key},
+                            { 'add_param':'bd_id', 'val_by_key':bridge_cache_key}
+                        ]
+                    },
+    }
     cmd['revert'] = {}
-    cmd['revert']['name']   = "sw_interface_set_l2_bridge"
+    cmd['revert']['func']   = "call_vpp_api"
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['revert']['descr']  = "remove loop interface from bridge %s" % addr
-    cmd['revert']['params'] = { 'substs': [
+    cmd['revert']['params'] = {
+                    'api':    "sw_interface_set_l2_bridge",
+                    'args':   {
+                        'enable':0,
+                        'substs': [
                                     { 'add_param':'rx_sw_if_index', 'val_by_key':loopback_cache_key},
                                     { 'add_param':'bd_id', 'val_by_key':bridge_cache_key}
-                                ],
-                                'enable':0
-                            }
+                        ]
+                    },
+    }
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']    = "python"
+    cmd['cmd']['func']    = "_update_cache_sw_if_index"
+    cmd['cmd']['object']  = "fwglobals.g.router_api"
     cmd['cmd']['descr']   = "add BVI sw_if_index to router_api cache"
     cmd['cmd']['params']  = {
-                    'object': 'fwglobals.g.router_api',
-                    'func'  : '_update_cache_sw_if_index',
-                    'args'  : {'type': 'switch', 'add': True },
+                    'type':   'switch',
+                    'add':    True,
                     'substs': [ { 'add_param':'sw_if_index', 'val_by_key':loopback_cache_key} ]
     }
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
+    cmd['revert']['func']   = "_update_cache_sw_if_index"
+    cmd['revert']['object'] = "fwglobals.g.router_api"
     cmd['revert']['descr']  = "remove BVI sw_if_index from router_api cache"
     cmd['revert']['params'] = {
-                    'object': 'fwglobals.g.router_api',
-                    'func'  : '_update_cache_sw_if_index',
-                    'args'  : {'type': 'switch', 'add': False },
+                    'type':   'switch',
+                    'add':    False,
                     'substs': [ { 'add_param':'sw_if_index', 'val_by_key':loopback_cache_key} ]
     }
     cmd_list.append(cmd)
@@ -182,7 +212,7 @@ def add_switch(params):
     return cmd_list
 
 def get_request_key(params):
-    """Get add-lte key.
+    """Get add-switch key.
 
     :param params:        Parameters from flexiManage.
 

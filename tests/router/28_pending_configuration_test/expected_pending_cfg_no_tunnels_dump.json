@@ -1,0 +1,29 @@
+{
+  "========= ROUTES =========": [
+    {
+      "Key": "add-route:2.2.2.2/32:66.66.66.66",
+      "Params": {
+        "addr": "2.2.2.2/32",
+        "redistributeViaOSPF": "false",
+        "via": "66.66.66.66"
+      }
+    },
+    {
+      "Key": "add-route:3.3.3.3/32:10.72.100.254:pci:0000:00:09.0",
+      "Params": {
+        "addr": "3.3.3.3/32",
+        "dev_id": "pci:0000:00:09.0",
+        "redistributeViaOSPF": "false",
+        "via": "10.72.100.254"
+      }
+    },
+    {
+      "Key": "add-route:4.4.4.4/32:10.100.0.4",
+      "Params": {
+        "addr": "4.4.4.4/32",
+        "redistributeViaOSPF": "false",
+        "via": "10.100.0.4"
+      }
+    }
+  ]
+}

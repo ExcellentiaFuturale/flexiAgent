@@ -20,6 +20,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import os
 import re
 import subprocess
 import sys
@@ -30,7 +31,9 @@ import traceback
 import fwglobals
 import fwlte
 import fwnetplan
+import fwpppoe
 import fwroutes
+import fwthread
 import fwutils
 
 from fwobject import FwObject
@@ -62,10 +65,13 @@ class FwWanMonitor(FwObject):
 
         # Make few shortcuts to get more readable code
         #
-        self.SERVERS         = fwglobals.g.WAN_FAILOVER_SERVERS
-        self.WND_SIZE        = fwglobals.g.WAN_FAILOVER_WND_SIZE
+        self.SERVERS         = fwglobals.g.cfg.WAN_MONITOR_SERVERS
         self.THRESHOLD       = fwglobals.g.WAN_FAILOVER_THRESHOLD
         self.WATERMARK       = fwglobals.g.WAN_FAILOVER_METRIC_WATERMARK
+
+        self.APPROX_FACTOR = 16
+        self.HYSTERESIS_LOSS = 1
+        self.HYSTERESIS_DELAY = 30
 
         self.num_servers     = len(self.SERVERS)
         self.current_server  = self.num_servers - 1  # The first selection will take #0
@@ -86,7 +92,7 @@ class FwWanMonitor(FwObject):
     def initialize(self):
         if self.standalone:
             return
-        self.thread_wan_monitor = threading.Thread(target=self.main_loop, name="FwWanMonitor")
+        self.thread_wan_monitor = fwthread.FwRouterThread(target=self.wan_monitor_thread_func, name="WAN Monitor", log=self.log)
         self.thread_wan_monitor.start()
 
     def finalize(self):
@@ -98,47 +104,18 @@ class FwWanMonitor(FwObject):
             self.thread_wan_monitor.join()
             self.thread_wan_monitor = None
 
-
-    def main_loop(self):
-        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
-
-        self.log.debug("loop started")
-
-        prev_time = time.time()
-
-        while not fwglobals.g.teardown:
-
-            try: # Ensure thread doesn't exit on exception
-
-                while fwglobals.g.router_api.state_is_starting_stopping():
-                    self.log.debug("vpp is being started/stopped")
-                    time.sleep(5)
-
-                server = self._get_server()
-                routes = self._get_routes()
-                for r in routes:
-                    if fwlte.get_cache_val(r.dev_id, 'state') == 'resetting':
-                        continue
-                    self._check_connectivity(r, server)
-
-            except Exception as e:
-                self.log.error("%s: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
-
-            # Wait a second before next round, if the current round had no timeouts.
-            #
-            current_time = time.time()
-            if (current_time - prev_time) < 1:
-                time.sleep(1)
-                prev_time = current_time + 1
-            else:
-                prev_time = current_time
-
-        self.log.debug("loop stopped")
-
+    def wan_monitor_thread_func(self, ticks):
+        server = self._get_server()
+        if server:
+            routes = self._get_routes()
+            for r in routes:
+                if fwlte.get_cache_val(r.dev_id, 'state') == 'resetting':
+                    continue
+                self._check_connectivity(r, server)
 
     def _get_server(self):
+        if self.num_servers <= 0:
+            return None
         self.current_server = (self.current_server + 1) % self.num_servers
         return self.SERVERS[self.current_server]
 
@@ -146,14 +123,11 @@ class FwWanMonitor(FwObject):
         '''Fetches routes from Linux and parses them into FwWanRoute objects.
         '''
         os_routes  = {}
-        min_metric = sys.maxsize
 
         routes_linux = fwroutes.FwLinuxRoutes(prefix='0.0.0.0/0')
+        self._fix_routes(routes_linux)
 
         for key, route in routes_linux.items():
-            if (route.metric % self.WATERMARK) < min_metric:
-                route.default = True
-                min_metric    = (route.metric % self.WATERMARK)
 
             # Filter out routes on tunnel interfaces.
             # Tunnels use loopback interfaces that has no physical device, so dev_id should be None.
@@ -178,7 +152,7 @@ class FwWanMonitor(FwObject):
 
             # Filter out unassigned interfaces, if fwagent_conf.yaml orders that.
             #
-            if not interfaces and not fwglobals.g.cfg.MONITOR_UNASSIGNED_INTERFACES:
+            if not interfaces and not fwglobals.g.cfg.WAN_MONITOR_UNASSIGNED_INTERFACES:
                 if not route.dev_id in self.disabled_routes:
                     self.log.debug("disabled on unassigned %s(%s)" % (route.dev, route.dev_id))
                     self.disabled_routes[route.dev_id] = route
@@ -194,7 +168,7 @@ class FwWanMonitor(FwObject):
                 cached = self.routes[route.dev_id]
                 route.probes    = cached.probes
                 route.ok        = cached.ok
-                route.default   = cached.default
+                route.stats     = cached.stats
             else:
                 self.log.debug("Start WAN Monitoring on '%s'" % (str(route)))
 
@@ -216,29 +190,124 @@ class FwWanMonitor(FwObject):
 
         return list(self.routes.values())
 
+    def _fix_routes(self, routes):
+        '''In DHCP case, when VPP does not run, the WAN failover mechanism might
+        end up with duplicated entries in kernel:
 
-    def _check_connectivity(self, route, server):
+                default via 192.168.1.1 dev enp0s3 proto dhcp src 192.168.1.171 metric 100
+                default via 10.72.100.1 dev enp0s9 proto dhcp src 10.72.100.179 metric 300
+                default via 10.72.100.1 dev enp0s9 proto dhcp metric 2000000300
+                10.72.100.0/24 dev enp0s9 proto kernel scope link src 10.72.100.179
+                10.72.100.1 dev enp0s9 proto dhcp scope link src 10.72.100.179 metric 300
 
-        cmd = "fping %s -C 1 -q -R -I %s > /dev/null 2>&1" % (server, route.dev)
-        ok = not subprocess.call(cmd, shell=True)
+        Note two "default via 10.72.100.1 dev enp0s9" rules.
+        This might happen because FwWanMonitor does not update netplan files,
+        when VPP does not run. It just updates kernel table on-the-fly by call
+        to the bash command "ip route add/del/replace ...". So if FwWanMonitor
+        detects no internet connectivity and replace rule with X metric with rule
+        with 2,000,000,000 + X metric, and then networkd / netplan is restarted
+        or the DHCP lease renewed, Linux will restore the original rule with
+        metric X. And nobody will remove the FwWanMonitor rule
+        with 2,000,000,000 + X metric.
+            Therefore we have to check that condition and to fix it manually.
+        The algorithm just removes the duplicated entry with X metric,
+        if the entry with 2,000,000,000 + X metric exists. When internet
+        connectivity is restored, the FwWanMonitor will replace
+        the 2,000,000,000 + X entry with X.
 
-        route.probes.append(ok)
-        del route.probes[0]             # Keep WINDOWS SIZE
+        :param routes: the fwroutes.FwLinuxRoutes object that includes kernel
+                       routing table. The _fix_routes() function removes
+                       duplicated routes from both this object and from kernel.
+        '''
+        routes_by_dev = {}
+        routes_to_remove = {}
 
-        # At this point we reached WINDOW SIZE, so update WAN connectivity.
-        # We use hysteresis to track connectivity state:
+        # Go over routes and find duplications
+        #
+        for route in routes.values():
+            existing_route = routes_by_dev.get(route.dev)
+            if not existing_route:
+                routes_by_dev[route.dev] = route
+            else:
+                # Duplication was found.
+                # Spot the route with X metric and store it aside to be removed
+                # later from kernel.
+                #
+                if existing_route.metric < self.WATERMARK and route.metric >= self.WATERMARK:
+                    routes_to_remove[existing_route.key] = existing_route
+                    self.log.debug(f"_fix_routes: going to remove duplicate '{str(existing_route)}' of '{str(route)}'")
+                elif existing_route.metric >= self.WATERMARK and route.metric < self.WATERMARK:
+                    self.log.debug(f"_fix_routes: going to remove duplicate '{str(route)}' of '{str(existing_route)}'")
+                    routes_to_remove[route.key] = route
+
+        # Remove duplications from the 'routes' object and from kernel
+        #
+        for key, route in routes_to_remove.items():
+            fwroutes.remove_route(route)
+            del routes[key]
+
+
+    def _check_connectivity(self, route, server_address):
+
+        cmd = "fping %s -C 1 -q -R -I %s 2>&1" % (server_address, route.dev)
+        (ok, output) = fwutils.exec(cmd)
+
+        new_rtt = 0.0
+        rows = output.strip().splitlines()
+        if rows:
+            rtts = []
+            for row in rows:
+                host_rtt = [x.strip() for x in row.strip().split(':')]
+                try:
+                    float_rtt = float(host_rtt[1])
+                except ValueError:
+                    float_rtt = 0.0
+                rtts.append(float_rtt)
+            new_rtt = sum(rtts) / len(rtts) if len(rtts) > 0 else 0
+
+        ok = (new_rtt > 0)
+
+        server = route.probes.get(server_address)
+        if not server:
+            # Be optimistic and assume connectivity to new server is OK
+            route.probes[server_address] = {
+                'probes': [True] * fwglobals.g.WAN_FAILOVER_WND_SIZE,
+                'ok': True
+            }
+            server = route.probes[server_address]
+
+        server['probes'].append(ok)
+        del server['probes'][0]   # Keep WINDOWS SIZE
+
+        # Deduce connectivity status to specific server.
+        # We use following hysteresis:
         # if connected (metric < watermark), THRESHOLD failures is needed to deduce "no connectivity";
         # if not connected (metric >= watermark), THRESHOLD successes is needed to deduce "connectivity is back"
         #
-        successes = route.probes.count(True)
-        failures  = self.WND_SIZE - successes
+        successes = server['probes'].count(True)
+        failures  = fwglobals.g.WAN_FAILOVER_WND_SIZE - successes
+        if server['ok'] and failures >= self.THRESHOLD:
+            server['ok'] = False
+        elif not server['ok'] and successes >= self.THRESHOLD:
+            server['ok'] = True
 
+        # Deduce connectivity status for route based on statuses of all servers:
+        # At least one responding server is enough to report positive connectivity.
+        #
+        connected = False
+        for server in route.probes.values():
+            if server['ok']:
+                connected = True
+                break
+
+        # Now go and update metric of route, if connectivity was changed
+        #
         new_metric = None
-        if route.metric < self.WATERMARK and failures >= self.THRESHOLD:
+        if route.metric < self.WATERMARK and not connected:
             new_metric = route.metric + self.WATERMARK
             self.log.debug("WAN Monitor: Link down Metric Update - From: %d To: %d" %
                 (route.metric, new_metric))
-        elif route.metric >= self.WATERMARK and successes >= self.THRESHOLD:
+        elif route.metric >= self.WATERMARK and connected:
             new_metric = route.metric - self.WATERMARK
             self.log.debug("WAN Monitor: Link up Metric Update - From: %d To: %d" %
                 (route.metric, new_metric))
@@ -247,6 +316,41 @@ class FwWanMonitor(FwObject):
             state = 'lost' if new_metric >= self.WATERMARK else 'restored'
             self.log.debug("connectivity %s on %s" % (state, route.dev))
             self._update_metric(route, new_metric)
+
+        # update statistics for QBR on DIA links if VPP is started and interface is assigned
+        if not fwglobals.g.router_api.state_is_started() or not fwutils.is_interface_assigned_to_vpp(route.dev_id):
+            return
+
+        ifname = route.stats.get('ifname')
+        if not ifname:
+            ifname = fwutils.dev_id_to_vpp_if_name(route.dev_id)
+            if not ifname:
+                self.log.debug(f"WAN Monitor: Cannot get VPP interface name for {route.dev_id}")
+                return
+            route.stats['ifname'] = ifname
+
+        old_rtt = route.stats.get('rtt', 0.0)
+        if old_rtt > 0:
+            rtt = old_rtt + (new_rtt - old_rtt) / self.APPROX_FACTOR
+        else:
+            rtt = new_rtt
+
+        old_drop_rate = route.stats.get('drop_rate', 0)
+        new_drop_rate = 100.0 * float(failures) / float(fwglobals.g.WAN_FAILOVER_WND_SIZE)
+        drop_rate = float(old_drop_rate + new_drop_rate) / 2
+
+        route.stats['drop_rate'] = drop_rate
+        route.stats['rtt'] = rtt
+
+        update = False
+        if abs(round(drop_rate) - round(old_drop_rate)) >= self.HYSTERESIS_LOSS:
+            update = True
+        elif abs(round(rtt) - round(old_rtt)) >= self.HYSTERESIS_DELAY:
+            update = True
+
+        if update:
+            vppctl_cmd = 'fwabf quality %s loss %s delay %s jitter %s' % (ifname, round(drop_rate), round(rtt), 0)
+            fwutils.vpp_cli_execute([vppctl_cmd])
 
 
     def _update_metric(self, route, new_metric):
@@ -286,7 +390,8 @@ class FwWanMonitor(FwObject):
         #
         db_if = fwglobals.g.router_cfg.get_interfaces(dev_id=route.dev_id) if route.dev_id else []
         assigned = (not route.dev_id) or (db_if)
-        if fwglobals.g.router_api.state_is_started() and assigned:
+        is_pppoe = fwpppoe.is_pppoe_interface(dev_id=route.dev_id)
+        if fwglobals.g.router_api.state_is_started() and assigned and not is_pppoe:
 
             # Update netplan yaml-s in order to:
             # 1. Ensure that if 'netplan apply' is called due to some reason
@@ -317,7 +422,7 @@ class FwWanMonitor(FwObject):
 
                 (success, err_str) = fwnetplan.add_remove_netplan_interface(\
                                         True, route.dev_id, ip, via, new_metric, dhcp, 'WAN', dnsServers, dnsDomains,
-                                        mtu, if_name=route.dev, validate_ip=False)
+                                        mtu, if_name=route.dev, netplan_apply=False)
                 if not success:
                     route.ok = prev_ok
                     self.log.error("failed to update metric in netplan: %s" % err_str)
@@ -325,15 +430,8 @@ class FwWanMonitor(FwObject):
             except Exception as e:
                 self.log.error("_update_metric failed: %s" % str(e))
 
-        # If defult route was changes as a result of metric update,
-        # reconnect agent to flexiManage.
-        #
-        if route.default:
-            fwglobals.g.fwagent.reconnect()
-
         self.log.debug("'%s' update metric: %d -> %d - done" % \
             (str(route), route.metric, new_metric))
-
 
 def get_wan_failover_metric(dev_id, metric):
     '''Fetches the metric of the default route on the device with specified dev_id.

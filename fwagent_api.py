@@ -29,10 +29,9 @@ import fwstats
 import fwutils
 import fwlte
 import fwwifi
+import fwroutes
 
 from fwobject import FwObject
-
-from pyroute2 import IPDB
 
 fwagent_api = {
     'get-device-certificate':        '_get_device_certificate',
@@ -49,31 +48,6 @@ fwagent_api = {
     'reset-device':                  '_reset_device_soft',
     'sync-device':                   '_sync_device',
     'upgrade-device-sw':             '_upgrade_device_sw',
-}
-
-routes_protocol_map = {
-    -1: '',
-    0: 'unspec',
-    1: 'redirect',
-    2: 'kernel',
-    3: 'boot',
-    4: 'static',
-    8: 'gated',
-    9: 'ra',
-    10: 'mrt',
-    11: 'zebra',
-    12: 'bird',
-    13: 'dnrouted',
-    14: 'xorp',
-    15: 'ntk',
-    16: 'dhcp',
-    18: 'keepalived',
-    42: 'babel',
-    186: 'bgp',
-    187: 'isis',
-    188: 'ospf',
-    189: 'rip',
-    192: 'eigrp',
 }
 
 class FWAGENT_API(FwObject):
@@ -104,7 +78,8 @@ class FWAGENT_API(FwObject):
 
         reply = handler_func(params)
         if reply['ok'] == 0:
-            raise Exception("fwagent_api: %s(%s) failed: %s" % (handler_func, format(params), reply['message']))
+            self.log.error(f"fwagent_api: {handler}({format(params)}) failed: {reply['message']}")
+            raise Exception(reply['message'])
         return reply
 
     def _prepare_tunnel_info(self, tunnel_ids):
@@ -204,19 +179,33 @@ class FWAGENT_API(FwObject):
         """Get device logs.
 
         :param params: Parameters from flexiManage.
+            examples of possible parameters:
+                {
+                    'lines': 100,
+                    'filter': 'fwagent',
+                },
+                {
+                    'lines': 100,
+                    'filter': 'application',
+                    'application': {
+                        identifier: 'com.flexiwan.remotevpn'
+                    }
+                }
 
         :returns: Dictionary with logs and status code.
         """
+        application = params.get('application')
         dl_map = {
-    	    'fwagent': fwglobals.g.ROUTER_LOG_FILE,
-    	    'application_ids': fwglobals.g.APPLICATION_IDS_LOG_FILE,
-    	    'syslog': fwglobals.g.SYSLOG_FILE,
+            'fwagent': fwglobals.g.ROUTER_LOG_FILE,
+            'application_ids': fwglobals.g.APPLICATION_IDS_LOG_FILE,
+            'syslog': fwglobals.g.SYSLOG_FILE,
             'dhcp': fwglobals.g.DHCP_LOG_FILE,
             'vpp': fwglobals.g.VPP_LOG_FILE,
-            'ospf': fwglobals.g.OSPF_LOG_FILE,
+            'ospf': fwglobals.g.FRR_LOG_FILE,
             'hostapd': fwglobals.g.HOSTAPD_LOG_FILE,
-            'agentui': fwglobals.g.AGENT_UI_LOG_FILE
-	    }
+            'agentui': fwglobals.g.AGENT_UI_LOG_FILE,
+            'application': fwglobals.g.applications_api.get_log_filename(application.get('identifier')) if application else '',
+        }
         file = dl_map.get(params['filter'], '')
         try:
             logs = fwutils.get_device_logs(file, params['lines'])
@@ -246,44 +235,15 @@ class FWAGENT_API(FwObject):
         """
 
         route_entries = []
-
-        with IPDB() as ipdb:
-            for route in ipdb.routes:
-                try:
-                    dst = route.dst
-                    if dst == 'default':
-                        dst = '0.0.0.0/0'
-
-                    metric = route.priority
-                    protocol = routes_protocol_map[route.get('proto', -1)]
-
-                    if not route.multipath:
-                        gateway = route.gateway
-                        interface = ipdb.interfaces[route.oif].ifname
-
-                        route_entries.append({
-                            'destination': dst,
-                            'gateway': gateway,
-                            'metric': metric,
-                            'interface': interface,
-                            'protocol': protocol
-                        })
-                    else:
-                        for path in route.multipath:
-                            gateway = path.gateway
-                            interface = ipdb.interfaces[path.oif].ifname
-
-                            route_entries.append({
-                                'destination': dst,
-                                'gateway': gateway,
-                                'metric': metric,
-                                'interface': interface,
-                                'protocol': protocol
-                            })
-                except Exception as e:
-                    self.log.error("_get_device_os_routes: failed to parse route %s.\nroutes=%s." % \
-                        (str(route), str(ipdb.routes)))
-                    pass
+        routes_linux = fwroutes.FwLinuxRoutes().values()
+        for route in routes_linux:
+            route_entries.append({
+                'destination': route.prefix,
+                'gateway': route.via,
+                'metric': route.metric,
+                'interface': route.dev,
+                'protocol': route.proto
+            })
 
         return {'message': route_entries, 'ok': 1}
 
@@ -296,7 +256,8 @@ class FWAGENT_API(FwObject):
         """
         router_config = fwutils.dump_router_config()
         system_config = fwutils.dump_system_config()
-        config = router_config + system_config
+        applications_config = fwutils.dump_applications_config()
+        config = router_config + system_config + applications_config
         reply = {'ok': 1, 'message': config if config else []}
         return reply
 
@@ -337,14 +298,21 @@ class FWAGENT_API(FwObject):
         if non_supported_messages:
             raise Exception("_sync_device: unsupported requests found: %s" % str(non_supported_messages))
 
+        err_str = ''
+
         for module_name, module in list(fwglobals.modules.items()):
             if module.get('sync', False) == True:
                 # get api module. e.g router_api, system_api
                 api_module = getattr(fwglobals.g, module.get('object'))
-                api_module.sync(params['requests'], full_sync_enforced)
+                try:
+                    api_module.sync(params['requests'], full_sync_enforced)
+                except Exception as e:
+                    self.log.error(f"{module_name}.sync() failed: {str(e)}")
+                    err_str += f"{module_name}.sync() failed: {str(e)} ; "
 
-        # At this point the sync succeeded.
-        # In case of failure - exception is raised by sync()
+        if err_str:
+            return {'message': err_str, 'ok': 0}
+
         fwutils.reset_device_config_signature()
         self.log.info("_sync_device FINISHED")
         return {'ok': 1}

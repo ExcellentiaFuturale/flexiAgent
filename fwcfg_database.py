@@ -86,19 +86,13 @@ class FwCfgDatabase(FwObject):
     def close(self):
         self.db.close()
 
-    def clean(self):
+    def clean(self, reset_signature=True):
         """Clean DB
 
         :returns: None.
         """
         for req_key in self.db:
             del self.db[req_key]
-
-        # Reset configuration to the value, that differs from one calculated
-        # by the flexiManage. This is to enforce flexiManage to issue 'sync-device'
-        # in order to fill the configuration database again with most updated
-        # configuration.
-        fwutils.reset_device_config_signature("empty_cfg", log=False)
 
     def set_translators(self, translators):
        self.translators = translators
@@ -129,7 +123,7 @@ class FwCfgDatabase(FwObject):
         key_func = getattr(self.translators[src_req]['module'], 'get_request_key')
         return key_func(params)
 
-    def update(self, request, cmd_list=None, executed=False, whitelist=None):
+    def update(self, request, cmd_list=None, executed=False):
         """Save configuration request into DB.
         The 'add-X' configuration requests are stored in DB, the 'remove-X'
         requests are not stored but remove the correspondent 'add-X' requests.
@@ -142,7 +136,6 @@ class FwCfgDatabase(FwObject):
         :param executed:    The 'executed' flag - True if the configuration
                             request was translated and executed, False if it was
                             translated but was not executed.
-        :param whitelist:   White list of parameters allowed to be modified.
         :returns: None.
         """
         req     = request['message']
@@ -152,18 +145,12 @@ class FwCfgDatabase(FwObject):
         try:
             if re.match('add-', req):
                 self.db[req_key] = { 'request' : req , 'params' : params , 'cmd_list' : cmd_list , 'executed' : executed }
-            elif re.match('modify-interface', req):
-                entry = self.db[req_key]
-                entry.update({'params' : params})
-                self.db[req_key] = entry
             elif re.match('modify-', req):
-                if whitelist:
                     entry = self.db[req_key]
-                    for key, value in params.items():
-                        if isinstance(value, dict):
-                            for key2, value2 in value.items():
-                                if key2 in whitelist:
-                                    entry['params'][key][key2] = value2
+                    fwutils.dict_deep_update(entry['params'], params)
+                    if cmd_list:
+                        updated_cmd_list = entry.get('cmd_list', []) + cmd_list
+                        entry.update({'cmd_list' : updated_cmd_list})
                     self.db[req_key] = entry  # Can't update self.db[req_key] directly, sqldict will ignore such modification
             else:
                 del self.db[req_key]
@@ -174,6 +161,23 @@ class FwCfgDatabase(FwObject):
             self.log.error("update(%s) failed: %s, %s" % \
                         (req_key, str(e), str(traceback.format_exc())))
             raise Exception('failed to update request database')
+
+    def remove(self, request):
+        """Removes configuration request from DB.
+        The request can be in either form of 'add-X', 'remove-X' or 'modify-X'.
+
+        :param request:     The request as it would be received from flexiManage.
+        :returns: None.
+        """
+        try:
+            req_key = self._get_request_key(request)
+            del self.db[req_key]
+        except KeyError:
+            pass
+        except Exception as e:
+            self.log.error("remove(%s) failed: %s, %s" % \
+                        (req_key, str(e), str(traceback.format_exc())))
+            raise Exception('failed to remove request from database')
 
     def get_request_params(self, request):
         req_key = self._get_request_key(request)

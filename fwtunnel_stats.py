@@ -172,7 +172,7 @@ def tunnel_stats_test():
         vpp_peer_tunnel_name = stats.get('vpp_peer_tunnel_name')
         if vpp_peer_tunnel_name:
             sw_if_index = fwutils.vpp_if_name_to_sw_if_index(vpp_peer_tunnel_name, 'peer-tunnel')
-            status = fwutils.vpp_get_interface_status(sw_if_index)
+            status = fwutils.vpp_get_interface_status(sw_if_index)['admin']
             if 'status' not in stats or ('status' in stats and stats['status'] != status):
                 stats['status'] = status
                 loss = 100 if status == 'down' else 0
@@ -308,8 +308,8 @@ def tunnel_stats_add(params):
         stats_entry['vpp_if_name'] = fwutils.tunnel_to_vpp_if_name(params)
 
     if 'peer' in params:
-        hosts_to_ping = params['peer']['ips']
-        hosts_to_ping += params['peer']['urls']
+        hosts_to_ping =  copy.deepcopy(params['peer']['ips'])
+        hosts_to_ping += copy.deepcopy(params['peer']['urls'])
     else:
         hosts_to_ping = [fwutils.build_tunnel_remote_loopback_ip(params['loopback-iface']['addr'])]
     stats_entry['hosts_to_ping'] = hosts_to_ping

@@ -38,7 +38,7 @@ class FwRouterCfg(FwCfgDatabase):
     :param db_file: SQLite DB file name.
     """
 
-    def update(self, request, cmd_list=None, executed=False, whitelist=None):
+    def update(self, request, cmd_list=None, executed=False):
         # The `start-router` does not conform `add-X`, `remove-X`, `modify-X` format
         # handled by the superclass update(), so we handle it here.
         # All the rest are handled by FwCfgDatabase.update().
@@ -52,7 +52,7 @@ class FwRouterCfg(FwCfgDatabase):
                 req_key = self._get_request_key(request)
                 self.db[req_key] = { 'request' : req , 'params' : params , 'cmd_list' : cmd_list , 'executed' : executed }
             else:
-                FwCfgDatabase.update(self, request, cmd_list, executed, whitelist)
+                FwCfgDatabase.update(self, request, cmd_list, executed)
         except KeyError:
             pass
         except Exception as e:
@@ -66,10 +66,12 @@ class FwRouterCfg(FwCfgDatabase):
         if not types:
             types = [
                 'start-router',
+                'add-routing-filter',
+                'add-routing-bgp',           # BGP should come after frr routing filter, as it might use them!
                 'add-interface',
                 'add-switch',
                 'add-tunnel',
-                'add-route',		# routes should come after tunnels, as they might use them
+                'add-route',		 # routes should come after tunnels, as they might use them
                 'add-dhcp-config',
                 'add-application',
                 'add-multilink-policy',
@@ -99,6 +101,8 @@ class FwRouterCfg(FwCfgDatabase):
             'add-multilink-policy': "============= POLICIES =============",
             'add-firewall-policy':  "============= FIREWALL POLICY =============",
             'add-ospf':             "============= OSPF =============",
+            'add-routing-bgp':      "============= ROUTING BGP =============",
+            'add-routing-filter':   "============= ROUTING FILTERS =============",
         }
 
         cfg = self.dump(types=types, escape=escape, full=full, keys=True)
@@ -125,6 +129,9 @@ class FwRouterCfg(FwCfgDatabase):
     def get_tunnels(self):
         return self.get_requests('add-tunnel')
 
+    def get_bgp(self):
+        return self.get_requests('add-routing-bgp')
+
     def get_tunnel(self, tunnel_id):
         key = 'add-tunnel:%d' % (tunnel_id)
         return self.get_params(key)
@@ -139,22 +146,6 @@ class FwRouterCfg(FwCfgDatabase):
         if 'add-firewall-policy' in self.db:
             return self.db['add-firewall-policy']['params']
         return None
-
-    def get_wan_interface_gw(self, ip):
-        import fwutils
-        interfaces = self.get_interfaces(type='wan', ip=ip)
-        if not interfaces:
-            return (None, None)
-        dev_id = interfaces[0]['dev_id']
-        gw  = interfaces[0].get('gateway')
-        # If gateway not exist in interface configuration, use default
-        # This is needed when upgrading from version 1.1.52 to 1.2.X
-        if not gw:
-            tap = fwutils.dev_id_to_tap(dev_id)
-            rip, _ = fwutils.get_interface_gateway(tap)
-            return dev_id, rip
-        else:
-            return dev_id, gw
 
     def get_sync_list(self, requests):
         """Intersects requests provided within 'requests' argument against
@@ -210,17 +201,8 @@ class FwRouterCfg(FwCfgDatabase):
                     # The configuration item should be modified.
                     # Rename requests in input list with 'modify-X'.
                     #
-                    # At this stage only 'modify-interface' is supported,
-                    # so for the rest types of configuration items we add
-                    # the correspondent 'remove-X' request with current
-                    # parameters to the output list and later in this function
-                    # we will add the 'add-X' request from the input list.
-                    #
-                    if dumped_request['message'] == 'add-interface':
-                        input_requests[dumped_key]['message'] = 'modify-interface'
-                    else:
-                        dumped_request['message'] = dumped_request['message'].replace('add-', 'remove-')
-                        output_requests.append(dumped_request)
+                    request = input_requests[dumped_key]
+                    request['message'] = request['message'].replace('add-', 'modify-')
             else:
                 # The configuration item does not present in the input list.
                 # So it stands for item to be removed. Add correspondent request

@@ -1,0 +1,13 @@
+#!/bin/sh -e
+
+# this variable is only set if the usepeerdns pppd option is being used
+[ "$USEPEERDNS" ] || exit 0
+
+# exit if the resolvconf package is installed
+[ -x /sbin/resolvconf ] && exit 0
+
+# create file with DNS servers
+cat /etc/ppp/resolv.conf > "/etc/ppp/resolv/${PPP_IFACE}"
+
+exit 0
+

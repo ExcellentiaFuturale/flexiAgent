@@ -212,10 +212,12 @@ class Checker:
         ]
         succeeded = True
         for mod in modules:
-            ret = os.system('modinfo %s > /dev/null 2>&1' %  mod)
+            ret = os.system(f'modinfo {mod} > /dev/null 2>&1')
             if ret:
-                self.log.error(mod + ' not found')
-                succeeded = False
+                out = subprocess.check_output(f'find /lib/modules -name modules.builtin -exec grep {mod} {{}} \;', shell=True)
+                if not out:
+                    self.log.error(mod + ' not found')
+                    succeeded = False
         return succeeded
 
     def hard_check_nic_drivers(self, supported):
@@ -473,9 +475,7 @@ class Checker:
         files = fwnetplan.load_netplan_filenames(get_only=True)
         metric = 100
         for fname, devices in list(files.items()):
-            os.system('cp %s %s.fworig' % (fname, fname))
-            fname_baseline = fname.replace('yaml', 'baseline.yaml')
-            os.system('mv %s %s' % (fname, fname_baseline))
+            fname = fwnetplan.create_baseline_if_not_exist(fname)
 
             for dev in devices:
                 ifname = dev.get('ifname')
@@ -483,9 +483,9 @@ class Checker:
                 if gateway is None:
                     continue
                 if primary_gw is not None and gateway == primary_gw:
-                    self._add_netplan_interface(fname_baseline, ifname, 0)
+                    self._add_netplan_interface(fname, ifname, 0)
                 else:
-                    self._add_netplan_interface(fname_baseline, ifname, metric)
+                    self._add_netplan_interface(fname, ifname, metric)
                     metric += 100
 
         subprocess.check_call('sudo netplan apply', shell=True)

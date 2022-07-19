@@ -68,10 +68,8 @@ def test():
             assert ok, err_str
 
 
-        # Ensure smart and full sync are noted in log
+        # Ensure full sync is noted in log
         #
-        lines = agent.grep_log('smart sync', print_findings=False)
-        assert len(lines) > 0, "log has no mention of smart sync: %s" % '\n'.join(lines)
         lines = agent.grep_log('full sync', print_findings=False)
         assert len(lines) > 0, "log has no mention of full sync: %s" % '\n'.join(lines)
 
@@ -79,11 +77,10 @@ def test():
         # In this case the log should have three following lines:
         #     Aug  2 06:13:03 localhost fwagent: router was started: vpp_pid=...
         # The 1st - for start with initial configuration
-        # The 2nd - for start after smart sync
-        # The 3rd - for start after full sync
+        # The 2rd - for start after full sync
         #
         lines = agent.grep_log('router was started: vpp_pid=', print_findings=False)
-        assert len(lines) == 3, "log has not expected number of VPP starts (expected 3): %d:%s" % \
+        assert len(lines) == 2, "log has not expected number of VPP starts (expected 3): %d:%s" % \
                                 (len(lines), '\n'.join(lines))
 
         # Ensure that the configuration database signature was reset as a result of 'sync-device'

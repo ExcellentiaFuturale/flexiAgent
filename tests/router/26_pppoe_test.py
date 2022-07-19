@@ -31,12 +31,13 @@ sys.path.append(test_root)
 
 def test(fixture_globals):
     fwglobals.initialize()
-    client = FwPppoeClient(fwglobals.g.PPPOE_DB_FILE, fwglobals.g.PPPOE_CONFIG_PATH, fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE)
+    client = FwPppoeClient()
     client.clean()
     if_name = 'enp0s9'
     dev_id = 'pci:0000:00:09.00'
+    nameservers = ['1.1.1.1', '9.9.9.9']
 
-    pppoe_iface = FwPppoeInterface('denis-2', 'password', 1412, 1412, False, 20, False)
+    pppoe_iface = FwPppoeInterface('denis-2', 'password', 1412, 1412, False, 20, False, nameservers)
     client.remove_interface(if_name=if_name, dev_id=dev_id)
     client.add_interface(pppoe_iface, if_name=if_name, dev_id=dev_id)
 
@@ -46,7 +47,8 @@ def test(fixture_globals):
     client.scan()
     fwglobals.log.debug("PPPoE: %s" % str(client.get_interface(if_name=if_name, dev_id=dev_id)))
 
-    pppoe_iface = FwPppoeInterface('denis-2', 'password', 1492, 1492, True, 50, True)
+    pppoe_iface = client.get_interface(if_name=if_name, dev_id=dev_id)
+    pppoe_iface.is_enabled = True
     client.add_interface(pppoe_iface, if_name=if_name, dev_id=dev_id)
 
     time.sleep(10)

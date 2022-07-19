@@ -9,7 +9,8 @@
     {
       "Key": "add-interface:__INTERFACE_1__dev_id",
       "Params": {
-        "PublicPort": 19001,
+        "PublicIP": "66.66.66.66",
+        "PublicPort": 6666,
         "addr": "__INTERFACE_1__addr",
         "dev_id": "__INTERFACE_1__dev_id",
         "gateway": "__INTERFACE_1__gateway",
@@ -110,4 +111,3 @@
     }
   ]
 }
-

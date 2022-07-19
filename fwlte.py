@@ -18,6 +18,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+from datetime import datetime, timedelta
 import os
 import psutil
 import re
@@ -40,7 +41,45 @@ class LTE_ERROR_MESSAGES():
     PUK_IS_WRONG = 'PUK_IS_WRONG'
     PUK_IS_REQUIRED = 'PUK_IS_REQUIRED'
 
-def _run_qmicli_command(dev_id, flag, print_error=False):
+def reset_modem_if_needed(err_str, dev_id):
+    '''The qmi and mbim commands can sometimes get stuck and return errors.
+    It is not clear if this is the modem that get stuck or the way commands are run to it.
+    The solution we found is to do a modem reset.
+    But, to avoid a loop of error -> reset -> error -> reset,
+    we will only perform it if a period of time has passed since the last reset.
+
+    :param err_str: the error string returned from the mbim/qmi clients
+    :param dev_id: lte dev id
+
+    :return: boolean indicates if reset is performed or not.
+
+    '''
+    reset_modem_error_triggers = [
+        "couldn't create client for the",
+        "operation failed: Failure",
+        "operation failed: Busy",
+        "operation failed: RadioPowerOff"
+    ]
+
+    if not any(x in err_str for x in reset_modem_error_triggers):
+        return False
+
+    last_reset_time = get_db_entry(dev_id, 'healing_reset_last_time')
+
+    now = datetime.now()
+    if last_reset_time:
+        last_reset_time = datetime.fromtimestamp(last_reset_time)
+        if last_reset_time > (now - timedelta(hours=1)):
+            return False
+
+    # do reset
+    fwglobals.log.debug(f"reset_modem_if_needed: resetting modem while error. err: {err_str}")
+
+    set_db_entry(dev_id, 'healing_reset_last_time', datetime.timestamp(now))
+    reset_modem(dev_id)
+    return True
+
+def _run_qmicli_command(dev_id, flag):
     try:
         device = dev_id_to_usb_device(dev_id) if dev_id else 'cdc-wdm0'
         qmicli_cmd = 'qmicli --device=/dev/%s --device-open-proxy --%s' % (device, flag)
@@ -52,14 +91,18 @@ def _run_qmicli_command(dev_id, flag, print_error=False):
             fwglobals.log.debug('_run_qmicli_command: no output from command (%s)' % qmicli_cmd)
             return ([], None)
     except subprocess.CalledProcessError as err:
-        if print_error:
-            fwglobals.log.debug('_run_qmicli_command: flag: %s. err: %s' % (flag, err.output.strip()))
-        return ([], err.output.strip())
+        err_str = str(err.output.strip())
+        modem_resetted = reset_modem_if_needed(err_str, dev_id)
+        if modem_resetted:
+            return _run_qmicli_command(dev_id, flag)
+        return ([], err_str)
 
 def _run_mbimcli_command(dev_id, cmd, print_error=False):
     try:
         device = dev_id_to_usb_device(dev_id) if dev_id else 'cdc-wdm0'
         mbimcli_cmd = 'mbimcli --device=/dev/%s --device-open-proxy %s' % (device, cmd)
+        if '--attach-packet-service' in mbimcli_cmd:
+            mbimcli_cmd = f'timeout 5 {mbimcli_cmd}'
         fwglobals.log.debug("_run_mbimcli_command: %s" % mbimcli_cmd)
         output = subprocess.check_output(mbimcli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
         if output:
@@ -68,10 +111,14 @@ def _run_mbimcli_command(dev_id, cmd, print_error=False):
             fwglobals.log.debug('_run_mbimcli_command: no output from command (%s)' % mbimcli_cmd)
             return ([], None)
     except subprocess.CalledProcessError as err:
+        err_str = str(err.output.strip())
         if print_error:
-            fwglobals.log.debug('_run_mbimcli_command: cmd: %s. err: %s' % (cmd, err.output.strip()))
-        return ([], err.output.strip())
+            fwglobals.log.debug('_run_mbimcli_command: cmd: %s. err: %s' % (cmd, err_str))
 
+        modem_resetted = reset_modem_if_needed(err_str, dev_id)
+        if modem_resetted:
+            return _run_mbimcli_command(dev_id, cmd, print_error)
+        return ([], err_str)
 
 def qmi_get_simcard_status(dev_id):
     return _run_qmicli_command(dev_id, 'uim-get-card-status')
@@ -80,11 +127,8 @@ def qmi_get_signals_state(dev_id):
     return _run_qmicli_command(dev_id, 'nas-get-signal-strength')
 
 def qmi_get_ip_configuration(dev_id):
+    ip, gateway, primary_dns, secondary_dns  = '', '', '', ''
     try:
-        ip = None
-        gateway = None
-        primary_dns = None
-        secondary_dns = None
         cmd = 'wds-get-current-settings | grep "IPv4 address\\|IPv4 subnet mask\\|IPv4 gateway address\\|IPv4 primary DNS\\|IPv4 secondary DNS"'
         lines, _ = _run_qmicli_command(dev_id, cmd)
         for idx, line in enumerate(lines):
@@ -103,8 +147,10 @@ def qmi_get_ip_configuration(dev_id):
                 secondary_dns = line.split(':')[-1].strip().replace("'", '')
                 break
         return (ip, gateway, primary_dns, secondary_dns)
-    except Exception:
-        return (None, None, None, None)
+    except Exception as e:
+        fwglobals.log.debug(f'qmi_get_ip_configuration({dev_id}) failed: ip={ip}, \
+            gateway={gateway}, primary_dns={primary_dns}, secondary_dns={secondary_dns}: {str(e)}')
+        return (ip, gateway, primary_dns, secondary_dns)
 
 def qmi_get_operator_name(dev_id):
     return _run_qmicli_command(dev_id, 'nas-get-operator-name')
@@ -145,16 +191,16 @@ def qmi_get_phone_number(dev_id):
 
 def get_phone_number(dev_id, cached=True):
     cached_values = get_cache_val(dev_id, 'phone_number')
-    if cached_values and cached:
+    if cached_values is not None and cached: # phone number is not always provisioned and can be empty string
         return cached_values
 
+    phone_number = ''
     lines, _ = qmi_get_phone_number(dev_id)
     for line in lines:
         if 'MSISDN:' in line:
             phone_number = line.split(':')[-1].strip().replace("'", '')
-            set_cache_val(dev_id, 'phone_number', phone_number)
-            return phone_number
-    return ''
+    set_cache_val(dev_id, 'phone_number', phone_number)
+    return phone_number
 
 def get_at_port(dev_id):
     at_ports = []
@@ -260,10 +306,10 @@ def set_db_entry(dev_id, key, value):
     lte_db[dev_id] = dev_id_entry
     fwglobals.g.db['lte'] = lte_db # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
 
-def get_cache_val(dev_id, key):
+def get_cache_val(dev_id, key, default=None):
     cache = fwglobals.g.cache.lte
     lte_interface = cache.get(dev_id, {})
-    return lte_interface.get(key)
+    return lte_interface.get(key, default)
 
 def set_cache_val(dev_id, key, value):
     cache = fwglobals.g.cache.lte
@@ -481,7 +527,7 @@ def connect(params):
             r'--connect=%s | grep "Session ID\|IP\|Gateway\|DNS"' % connection_params
         ]
         for cmd in mbim_commands:
-            lines, err = _run_mbimcli_command(dev_id, cmd, True)
+            lines, err = _run_mbimcli_command(dev_id, cmd, print_error=True)
             if err:
                 raise Exception(err)
 
@@ -507,7 +553,7 @@ def connect(params):
         set_cache_val(dev_id, 'state', '')
         return (True, None)
     except Exception as e:
-        fwglobals.log.debug('connect: faild to connect lte. %s' % str(e))
+        fwglobals.log.debug('connect: failed to connect lte. %s' % str(e))
         set_cache_val(dev_id, 'state', '')
         return (False, str(e))
 
@@ -681,9 +727,9 @@ def get_ip_configuration(dev_id, key=None, cache=True):
     }
     try:
         # try to get it from cache
-        ip = get_cache_val(dev_id, 'ip')
-        gateway =  get_cache_val(dev_id, 'gateway')
-        dns_servers =  get_cache_val(dev_id, 'dns_servers')
+        ip = get_cache_val(dev_id, 'ip', '')
+        gateway = get_cache_val(dev_id, 'gateway', '')
+        dns_servers = get_cache_val(dev_id, 'dns_servers', '')
 
         # if not exists in cache, take from modem and update cache
         if not ip or not gateway or not dns_servers or cache == False:
@@ -701,10 +747,13 @@ def get_ip_configuration(dev_id, key=None, cache=True):
         response['gateway'] = gateway
         response['dns_servers'] = dns_servers
 
-        if key:
-            return response[key]
-    except Exception:
+    except Exception as e:
+        fwglobals.log.debug(f"get_ip_configuration({dev_id}, {key}, {cache}) failed: {str(e)}")
         pass
+
+    if key:
+        return response[key]
+
     return response
 
 def dev_id_to_usb_device(dev_id):
@@ -734,7 +783,7 @@ def configure_interface(params):
         if fwutils.vpp_does_run() and fwutils.is_interface_assigned_to_vpp(dev_id):
             # Make sure interface is up. It might be down due to suddenly disconnected
             nic_name = fwutils.dev_id_to_linux_if(dev_id)
-            os.system('ifconfig %s up' % nic_name)
+            fwutils.os_system(f"ifconfig {nic_name} up")
             return (True, None)
 
         if not is_lte_interface_by_dev_id(dev_id):
@@ -748,22 +797,22 @@ def configure_interface(params):
             metric = '0'
 
         nic_name = fwutils.dev_id_to_linux_if(dev_id)
-        os.system('ifconfig %s %s up' % (nic_name, ip))
+        fwutils.os_system(f"ifconfig {nic_name} {ip} up")
 
         # remove old default router
         output = os.popen('ip route list match default | grep %s' % nic_name).read()
         if output:
             routes = output.splitlines()
             for r in routes:
-                os.system('ip route del %s' % r)
+                fwutils.os_system(f"ip route del {r}")
         # set updated default route
-        os.system(f"ip route add default via {gateway} proto static metric {metric}")
+        fwutils.os_system(f"ip route add default via {gateway} proto static metric {metric}")
 
         # configure dns servers for the interface.
         # If the LTE interface is configured in netplan, the user must set the dns servers manually in netplan.
         set_dns_str = ' '.join(map(lambda server: '--set-dns=' + server, ip_config['dns_servers']))
         if set_dns_str:
-            os.system('systemd-resolve %s --interface %s' % (set_dns_str, nic_name))
+            fwutils.os_system(f"systemd-resolve {set_dns_str} --interface {nic_name}")
 
         fwutils.clear_linux_interfaces_cache() # remove this code when move ip configuration to netplan
         return (True , None)
@@ -814,9 +863,14 @@ def collect_lte_info(dev_id):
     connection_state = mbim_connection_state(dev_id)
     registration_network = mbim_registration_state(dev_id)
 
-    tap_name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True)
-    if tap_name:
-        interface_name = tap_name
+    # There is no need to check the tap name if the router is not entirely run.
+    # When the router is in the start process, and the LTE is not yet fully configured,
+    # the "dev_id_to_tap()" causes a chain of unnecessary functions to be called,
+    # and eventually, the result is empty.
+    if fwglobals.g.router_api.state_is_started():
+        tap_name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True)
+        if tap_name:
+            interface_name = tap_name
 
     addr = fwutils.get_interface_address(interface_name)
     connectivity = os.system("ping -c 1 -W 1 -I %s 8.8.8.8 > /dev/null 2>&1" % interface_name) == 0
@@ -953,9 +1007,45 @@ def get_stats():
     lte_dev_ids = get_lte_interfaces_dev_ids()
     for lte_dev_id in lte_dev_ids:
         modem_mode = get_cache_val(lte_dev_id, 'state')
-        if modem_mode == 'resetting' and modem_mode == 'connecting':
+        if modem_mode == 'resetting' or modem_mode == 'connecting':
             continue
 
-        info = collect_lte_info(lte_dev_id)
-        out[lte_dev_id] = info
+        try:
+            info = collect_lte_info(lte_dev_id)
+            out[lte_dev_id] = info
+        except:
+            pass
+
     return out
+
+def set_arp_entry(is_add, dev_id, gw=None):
+    '''
+    :param is_add:      if True the static ARP entry is added, o/w it is removed.
+    :param dev_id:      the dev-id of the interface, the GW of which should be
+                        used for the ARP entry. We used it to find the vpp_if_name,
+                        which is needed to update VPP with the ARP entry.
+                        As well it is needed to find the GW, of the last was not provided.
+    :param gw:          the IP of GW for which the ARP entry should be added/removed.
+    '''
+    vpp_if_name = fwutils.dev_id_to_vpp_if_name(dev_id)
+    if not vpp_if_name:
+        raise Exception(f"set_arp_entry: failed to resolve {dev_id} to vpp_if_name")
+
+    if not gw:
+        gw = get_ip_configuration(dev_id, 'gateway', cache=False)
+        if not gw:
+            fwglobals.log.debug(f"set_arp_entry: no GW was found for {dev_id}")
+            return
+
+    log_prefix=f"set_arp_entry({dev_id})"
+
+    if is_add:
+        cmd = f"sudo arp -s {gw} 00:00:00:00:00:00"
+        fwutils.os_system(cmd, log_prefix=log_prefix, raise_exception_on_error=True)
+        cmd = f"set ip neighbor static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"
+        fwutils.vpp_cli_execute([cmd], log_prefix=log_prefix, raise_exception_on_error=True)
+    else:
+        cmd = f"sudo arp -d {gw} > /dev/null 2>&1"
+        fwutils.os_system(cmd, log_prefix=log_prefix, print_error=False, raise_exception_on_error=False) # Suppress exception as arp entry might not exists if interface was taken down for some reason
+        cmd = f"set ip neighbor del static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"
+        fwutils.vpp_cli_execute([cmd], log_prefix=log_prefix, raise_exception_on_error=True)

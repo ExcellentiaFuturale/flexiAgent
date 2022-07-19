@@ -22,6 +22,8 @@
 
 import fwglobals
 import fwutils
+
+import copy
 import traceback
 import json
 import re
@@ -48,16 +50,20 @@ class FwCfgRequestHandler(FwObject):
     2. Implement sync and full sync logic
     """
 
-    def __init__(self, translators, cfg_db, revert_failure_callback = None):
+    def __init__(self, translators, cfg_db, pending_cfg_db=None, revert_failure_callback = None):
         """Constructor method.
         """
         FwObject.__init__(self)
 
         self.translators = translators
         self.cfg_db = cfg_db
+        self.pending_cfg_db = pending_cfg_db
         self.revert_failure_callback = revert_failure_callback
+        self.cache_func_by_name = {}
 
         self.cfg_db.set_translators(translators)
+        if self.pending_cfg_db:
+            self.pending_cfg_db.set_translators(translators)
 
     def __enter__(self):
         return self
@@ -101,14 +107,10 @@ class FwCfgRequestHandler(FwObject):
 
         :returns: dictionary with status code and optional error message.
         """
-        whitelist = None
         prev_logger = self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
         try:
             # Translate request to list of commands to be executed
-            if re.match('modify-', request['message']):
-                cmd_list, whitelist = self._translate_modify(request)
-            else:
-                cmd_list = self._translate(request)
+            cmd_list = self._translate(request)
 
             # Execute list of commands. Do it only if vpp runs.
             # Some 'remove-XXX' requests must be executed
@@ -125,7 +127,7 @@ class FwCfgRequestHandler(FwObject):
             # needed to restore VPP configuration on device reboot or start of
             # crashed VPP by watchdog.
             try:
-                self.cfg_db.update(request, cmd_list, execute, whitelist)
+                self.cfg_db.update(request, cmd_list, execute)
             except Exception as e:
                 self._revert(cmd_list)
                 self.set_logger(prev_logger)
@@ -180,7 +182,7 @@ class FwCfgRequestHandler(FwObject):
                         err_str = "_call_aggregated: failed to revert request %s while running rollback on aggregated request" % op
                         self.log.excep("%s: %s" % (err_str, format(e)))
                         if self.revert_failure_callback:
-                            self.revert_failure_callback(t)
+                            self.revert_failure_callback(str(e))
                         pass
                 raise e
 
@@ -213,7 +215,13 @@ class FwCfgRequestHandler(FwObject):
             cmd_list = func(request, self.cfg_db)
             return cmd_list
 
-        cmd_list = func(params) if params else func()
+        if re.match('modify-', req):
+            old_params = self.cfg_db.get_request_params(request)
+            cmd_list = func(params, old_params)
+        elif params:
+            cmd_list = func(params)
+        else:
+            cmd_list = func()
         return cmd_list
 
     def _execute(self, request, cmd_list, filter=None):
@@ -240,7 +248,7 @@ class FwCfgRequestHandler(FwObject):
             if filter:
                 if not 'filter' in cmd or cmd['filter'] != filter:
                     self.log.debug("_execute: filter out command by filter=%s (req=%s, cmd=%s, cmd['filter']=%s, params=%s)" %
-                                        (filter, req, cmd['name'], str(cmd.get('filter')), str(cmd.get('params'))))
+                                        (filter, req, cmd['func'], str(cmd.get('filter')), str(cmd.get('params'))))
                     continue
 
             try:
@@ -251,15 +259,15 @@ class FwCfgRequestHandler(FwObject):
                 self.log.debug(f"_execute: {self._dump_translation_cmd_params(cmd)}")
 
                 # Now execute command
-                result = None if not 'cache_ret_val' in cmd else \
+                execute_result = None if not 'cache_ret_val' in cmd else \
                     { 'result_attr' : cmd['cache_ret_val'][0] , 'cache' : cmd_cache , 'key' :  cmd['cache_ret_val'][1] }
-                reply = fwglobals.g.handle_request({ 'message': cmd['name'], 'params':  cmd.get('params')}, result)
-                if reply['ok'] == 0:        # On failure go back revert already executed commands
-                    self.log.debug("%s failed ('ok' is 0)" % cmd['name'])
-                    raise Exception("API failed: %s" % cmd['name'])
+                err_str = self._execute_translation_command(cmd, execute_result)
+                if err_str:   # On failure go back revert already executed commands
+                    self.log.debug(f"_execute_translation_command('{cmd['func']}') failed")
+                    raise Exception("API failed: %s" % cmd['func'])
 
             except Exception as e:
-                err_str = "_execute: %s(%s) failed: %s, %s" % (cmd['name'], format(cmd.get('params')), str(e), str(traceback.format_exc()))
+                err_str = "_execute: %s(%s) failed: %s, %s" % (cmd['func'], format(cmd.get('params')), str(e), str(traceback.format_exc()))
                 self.log.error(err_str)
                 self.log.debug("=== failed execution of %s ===" % (req))
                 if fwglobals.g.router_api.state_is_starting_stopping():
@@ -283,6 +291,112 @@ class FwCfgRequestHandler(FwObject):
 
         self.log.debug("=== end execution of %s ===" % (req))
 
+
+    def _execute_translation_command(self, cmd, result=None):
+        """Execute single command out of the list of commands created by
+        translation of flexiManage request into list of commands, e.g.
+
+            cmd['func']   = "load_linux_modules"
+            cmd['module'] = "fwutils"
+            cmd['descr']  = "load vhost-net modules"
+            cmd['params'] = { 'modules': ['tap', 'vhost', 'vhost-net'] }
+
+        :param cmd:          The translation command.
+        :param result:       Place to store result of the command execution.
+                             It is dict of {<attr> , <cache>, <cache key>}.
+                             On success we fetch value of attribute <attr>
+                             of the object returned by command function and
+                             store it in the <cache> by key <cache key>.
+                             Note <attr> may be used for any semantic,
+                             depeneding on the command. For example, it might
+                             contain pattern for grep to be run on command output.
+
+        :returns: Dictionary with error string and status code.
+        """
+        def _get_func(cmd):
+            func_name = cmd['func']
+            func_path = cmd.get('module', cmd.get('object', ''))
+            full_name = func_path + '.' + func_name
+            func = self.cache_func_by_name.get(full_name)
+            if func:
+                return func
+
+            module_name = cmd.get('module')
+            if module_name:
+                func  = getattr(__import__(module_name), func_name)
+                self.cache_func_by_name[full_name] = func
+                return func
+
+            # I am a bit lazy to implement proper parsing of the 'object', so just
+            # go with explicit strings :) Next time someone get strange exception
+            # due to missing string in the switch below - let him to implement
+            # the proper parser :)
+            #
+            object_name = cmd.get('object')
+            if object_name:
+                if object_name == 'fwglobals.g':
+                    func = getattr(self, func_name)
+                elif object_name == 'fwglobals.g.router_api':
+                    func = getattr(fwglobals.g.router_api, func_name)
+                elif object_name == 'fwglobals.g.router_api.vpp_api':
+                    func = getattr(fwglobals.g.router_api.vpp_api, func_name)
+                elif object_name == 'fwglobals.g.router_api.frr':
+                    func = getattr(fwglobals.g.router_api.frr, func_name)
+                elif object_name == 'fwglobals.g.router_api.multilink':
+                    func = getattr(fwglobals.g.router_api.multilink, func_name)
+                elif object_name == 'fwglobals.g.ikev2':
+                    func = getattr(fwglobals.g.ikev2, func_name)
+                elif object_name == 'fwglobals.g.traffic_identifications':
+                    func = getattr(fwglobals.g.traffic_identifications, func_name)
+                elif object_name == 'fwglobals.g.pppoe':
+                    func = getattr(fwglobals.g.pppoe, func_name)
+                elif object_name == 'fwglobals.g.applications_api':
+                    func = getattr(fwglobals.g.applications_api, func_name)
+                else:
+                    return None
+                self.cache_func_by_name[full_name] = func
+                return func
+
+        def _parse_result(res):
+            ok, err_str = True, None
+            if res is None:
+                ok = True
+            elif type(res) == bool:
+                ok = res
+            elif type(res) == tuple:
+                ok      = res[0]
+                err_str = res[1]
+            elif type(res) == dict:
+                ok      = res.get('ok', False)
+                err_str = res.get('ret')
+            else:
+                err_str = f'_call_python_api_parse_result: unsupported type of return: {type(res)}'
+
+            if not ok and not err_str:
+                err_str = "unspecified error"
+            elif ok:
+                err_str = None
+            return err_str
+
+        try:
+            func = _get_func(cmd)
+            args = cmd.get('params', {})
+            if result:
+                args = copy.deepcopy(args) if args else {}
+                args.update({ 'result_cache': result })
+
+            err_str = _parse_result(func(**args))
+            if err_str:
+                args_str = '' if not args else ', '.join([ "%s=%s" % (arg_name, args[arg_name]) for arg_name in args ])
+                self.log.error('%s(%s) failed: %s' % (cmd['func'], args_str, err_str))
+            return err_str
+
+        except Exception as e:
+            err_str = "%s(%s): %s" % (cmd['func'], format(cmd.get('params', "")), str(e))
+            self.log.error(err_str + ': %s' % str(traceback.format_exc()))
+            return err_str
+
+
     def _revert(self, cmd_list, idx_failed_cmd=-1):
         """Revert list commands that are previous to the failed command with
         index 'idx_failed_cmd'.
@@ -299,15 +413,13 @@ class FwCfgRequestHandler(FwObject):
                 rev_cmd = t['revert']
                 self.log.debug(f"_revert: {self._dump_translation_cmd_params(rev_cmd)}")
                 try:
-                    reply = fwglobals.g.handle_request(
-                        { 'message': rev_cmd['name'], 'params': rev_cmd.get('params')})
-                    if reply['ok'] == 0:
-                        err_str = "handle_request(%s) failed" % rev_cmd['name']
-                        self.log.error(err_str)
+                    err_str = self._execute_translation_command(rev_cmd)
+                    if err_str:
+                        self.log.error(f"_revert('{rev_cmd['func']}') failed")
                         raise Exception(err_str)
                 except Exception as e:
                     err_str = "_revert: exception while '%s': %s(%s): %s" % \
-                                (t['cmd']['descr'], rev_cmd['name'], format(rev_cmd['params']), str(e))
+                                (t['cmd']['descr'], rev_cmd['func'], format(rev_cmd['params']), str(e))
                     self.log.excep(err_str)
 
                     if self.revert_failure_callback:
@@ -438,31 +550,34 @@ class FwCfgRequestHandler(FwObject):
             # Add new param/replace old value with new one
             if 'add_param' in s:
                 if type(params) is dict:
-                    if 'args' in params:        # Take care of cmd['cmd']['name'] = "python" commands
-                        params['args'][s['add_param']] = new
-                    else:                       # Take care of rest commands
-                        params[s['add_param']] = new
+                    params[s['add_param']] = new
                 else:  # list
                     params.insert({s['add_param'], new})
             elif 'replace' in s:
                 old = s['replace']
                 if type(params) is dict:
-                    if not 'args' in params:
-                        raise Exception("fwutils.py:substitute: 'replace' is not supported for the given dictionary in '%s'" % format(params))
-                    if not 'key' in s: # need to specify the key in params['args'] that it's value needs to be replaced
-                        raise Exception("fwutils.py:substitute: key to replace doesn't specified in substitute '%s'" % format(s))
 
-                    arg_key = s['key']
-                    if not params['args'][arg_key]: # make sure specified key is exists in args
-                        raise Exception("fwutils.py:substitute: '%s' key doesn't exist in params '%s'" % (arg_key, format(s)))
+                    # Find element of dict that is referenced by the 'subst'
+                    #
+                    arg_key = s.get('key')
+                    if not arg_key:
+                        raise Exception(f"fwutils.py:substitute: 'key' was not found in 'subst' element of 'replace' type: '{format(s)}'")
+                    arg_val = params.get(arg_key)
+                    if not arg_val:
+                        raise Exception("fwutils.py:substitute: key '%s' doesn't exist in params '%s'" % (str(arg_key), format(s)))
 
-                    val = params['args'][arg_key]
-                    if type(val) == list:  # if value is list, go over the list and check
-                        for (idx, p) in list(enumerate(val)):
-                            if type(p) == str and old in p:
-                                params['args'][arg_key][idx] = params['args'][arg_key][idx].replace(old, str(new))
+                    # Modify it's value according the replacement.
+                    #
+                    if type(arg_val) == str:
+                        if old in arg_val:
+                            params[arg_key] = params[arg_key].replace(old, str(new))
+                    elif type(arg_val) == list:
+                        for (idx, a) in list(enumerate(arg_val)):
+                            if type(a) == str and old in a:
+                                params[arg_key][idx] = params[arg_key][idx].replace(old, str(new))
                     else:
-                        raise Exception("fwutils.py:substitute: 'replace' is not supported for the given dictionary in '%s'" % format(params))
+                        raise Exception(f"fwutils.py:substitute: 'replace' is not supported for the given dictionary: '{format(params)}'")
+
                 else:  # list
                     for (idx, p) in list(enumerate(params)):
                         if type(p) == str:
@@ -477,49 +592,6 @@ class FwCfgRequestHandler(FwObject):
         else:  # list
             params.remove(substs_element)
 
-    def _translate_modify(self, request):
-        """Translate modify request in a series of commands.
-
-        :param request: The request received from flexiManage.
-
-        :returns: list of commands.
-        """
-        whitelist = None
-        req    = request['message']
-        params = request.get('params')
-        old_params  = self.cfg_db.get_request_params(request)
-
-        # First of all check if the received parameters differs from the existing ones
-        same = fwutils.compare_request_params(params, old_params)
-        if same:
-            return ([], None)
-
-        api_defs = self.translators.get(req)
-        if not api_defs:
-            # This 'modify-X' is not supported (yet?)
-            return ([], None)
-
-        module = api_defs.get('module')
-        assert module, 'there is no module for request "%s"' % req
-
-        api = api_defs.get('api')
-        assert api, 'there is no api for request "%s"' % req
-
-        func = getattr(module, api)
-        assert func, 'there is no api function for request "%s"' % req
-
-        cmd_list = func(params, old_params)
-
-        if isinstance(cmd_list, list):
-            new_cmd_list = []
-            for cmd in cmd_list:
-                if 'modify' in cmd:
-                    whitelist = cmd['whitelist']
-                else:
-                    new_cmd_list.append(cmd)
-            return (new_cmd_list, whitelist)
-        else:
-            return (cmd_list, None)
 
     def _strip_noop_request(self, request):
         """Checks if the request has no impact on configuration.
@@ -539,9 +611,11 @@ class FwCfgRequestHandler(FwObject):
                 if aggregated_requests:
                     complement_req     = re.sub('(modify-|remove-)','add-', req)
                     complement_request = { 'message': complement_req, 'params': params }
-                    if _exist(complement_request, aggregated_requests):
+                    if _exist_in_list(complement_request, aggregated_requests):
                         noop = False
                 if noop:
+                    if re.match('remove-',  req) and self.pending_cfg_db.exists(__request):
+                        self.pending_cfg_db.update(request)
                     return True
             elif re.match('add-', req) and self.cfg_db.exists(__request):
                 # Ensure this is actually not modification request :)
@@ -552,35 +626,40 @@ class FwCfgRequestHandler(FwObject):
                     if aggregated_requests:
                         complement_req     = re.sub('add-','remove-', req)
                         complement_request = { 'message': complement_req, 'params': params }
-                        if _exist(complement_request, aggregated_requests):
+                        if _exist_in_list(complement_request, aggregated_requests):
                             noop = False
                     if noop:
                         return True
             elif re.match('start-router', req) and fwutils.vpp_does_run():
                 # start-router & stop-router break add-/remove-/modify- convention.
                 return True
-            elif re.match('modify-interface', req):
-                # For modification request ensure that it goes to modify indeed:
-                # translate request into commands to execute in order to modify
-                # configuration item in Linux/VPP. If this list is empty,
-                # the request can be stripped out.
+            elif re.match('modify-', req):
+                # For modification request check if it goes to modify indeed.
+                # Firstly ensure that it brings changed set of parameters.
+                # If it does not, there is nothing to modify, so return True.
+                # Than check if it goes to modify only parameters that has
+                # no impact on configuration item, like 'publicPort' in
+                # 'modify-interface', just save the modified item into
+                # configuration database and strip this modify-X out. There is
+                # no need to execute it.
                 #
-                cmd_list, _ = self._translate_modify(__request)
-                if not cmd_list:
-                    # Save modify request into database, as it might contain parameters
-                    # that don't impact on interface configuration in Linux or in VPP,
-                    # like PublicPort, PublicIP, useStun, etc.
-                    #
-                    # !!!!!!!!!!!!!!!!!!!!!!! IMPORTANT !!!!!!!!!!!!!!!!!!!!!!!!
-                    # We assume the 'modify-interface' request includes full set of
-                    # parameters and not only modified ones!
-                    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                    #
-                    self.cfg_db.update(__request)
-                    return True
+                existing_params = self.cfg_db.get_request_params(__request)
+                if fwutils.compare_request_params(existing_params, __request.get('params')):
+                    return True   # Nothing to modify
+
+                api_defs = self.translators.get(req)
+                if api_defs:
+                    module   = api_defs.get('module')
+                    var_name = api_defs.get('ignored_params')
+                    if var_name:
+                        ignored_params = getattr(module, var_name)
+                        if ignored_params and self.compare_modify_params(__request, ignored_params):
+                            self.log.debug(f"'{req}' has not impacting modifications only -> save it without execution")
+                            self.cfg_db.update(__request)
+                            return True
             return False
 
-        def _exist(__request, requests):
+        def _exist_in_list(__request, requests):
             """Checks if the list of requests has request for the same
             configuration item as the one denoted by the provided __request.
             """
@@ -590,13 +669,68 @@ class FwCfgRequestHandler(FwObject):
                     return True
             return False
 
+        def _replace_modify(modify_request):
+            """The 'modify-X' requests are supposed to modify any parameter
+            of the configuration item, like IP address of the interface that was
+            added using the 'add-interface' request. But! At this stage we don't
+            support such pinpoint modifications. Instead we just replace
+            the 'modify-X' request with pair of the correspondent 'remove-X' and
+            'add-X' requests, thus recreating the configuration item from scratch.
+            The substituted 'remove-X' request uses parameters stored
+            in the configuration database, and the substituted 'add-X' request uses
+            modified parameters from the 'modify-X' request and all the rest of
+            parameters it takes from the configuration database. That makes it possible
+            the 'modify-X' request to hold only modified parameters. In addition it
+            should include the key parameters needed to identify the configuration item,
+            e.g. 'modify-tunnel' might include modified remote address 'dst' and it
+            should include the 'tunnel-id' key parameter.
+                Note some 'modify-X' requests are supported partially and don't
+            require recreation by remove & add. The related info is stored
+            in the translator modules.
 
+            :param modify_request: The original request with modified parameters
+                                    received from flexiManage.
+
+            :returns: The pair of pair of 'remove-X' and 'add-X' requests,
+                      if modification is not supported for this configuration
+                      item. Otherwise the original 'modify_request' is returned.
+            """
+            _req    = modify_request['message']
+            _params = modify_request['params']
+
+            api_defs = self.translators.get(_req)
+            if api_defs and api_defs.get('supported_params'):
+                # 'modify-X' is supported and list of parameters that can be modified is defined
+                module   = api_defs.get('module')
+                var_name = api_defs.get('supported_params')
+                if var_name:
+                    supported_params = getattr(module, var_name)
+                    if supported_params and self.compare_modify_params(modify_request, supported_params):
+                        # request contains only modifiable parameters -> no need to replace
+                        return [modify_request]
+
+            # At this point the 'modify-X' either is not supported at all,
+            # or set of supported for modification parameters was not defined for it.
+            # Go and replace it with pair of 'remove-X' and 'add-X'.
+            #
+            remove_req = _req.replace("modify-", "remove-")
+            old_params = self.cfg_db.get_request_params(modify_request)
+            add_req    = _req.replace("modify-", "add-")
+            new_params = copy.deepcopy(old_params)
+            fwutils.dict_deep_update(new_params, _params)
+            return [
+                { 'message': remove_req, 'params' : old_params },
+                { 'message': add_req,    'params' : new_params }
+            ]
+
+
+        out_requests = []
         if request['message'] != 'aggregated':
             if _should_be_stripped(request):
                 self.log.debug("_strip_noop_request: request has no impact: %s" % json.dumps(request))
                 return None
+            out_requests = [request]
         else:  # aggregated request
-            out_requests = []
             inp_requests = request['params']['requests']
             for _request in inp_requests:
                 if _should_be_stripped(_request, inp_requests):
@@ -608,8 +742,26 @@ class FwCfgRequestHandler(FwObject):
                 return None
             if len(out_requests) < len(inp_requests):
                 self.log.debug("_strip_noop_request: aggregation after strip: %s" % json.dumps(out_requests))
-            request['params']['requests'] = out_requests
-        return request
+
+        # At this point we have all no-op requests stripped out.
+        # Now handle modify-X requests. The native modification can be not supported
+        # for some requests. In this case we have to replace the modify-X with
+        # pair of remove-X and add-X to recreate the configuration item from scratch.
+        #
+        final_requests = []
+        for _request in out_requests:
+            if re.match('modify-', _request['message']):
+                final_requests += _replace_modify(_request)
+            else:
+                final_requests.append(_request)
+        if len(final_requests) > len(out_requests):
+            self.log.debug("_strip_noop_request: aggregation after modify-X replacement: %s" % json.dumps(final_requests))
+
+        if len(final_requests) == 1:
+            return final_requests[0]
+        return {'message': 'aggregated', 'params': {'requests': final_requests}}
+
+
 
     def restore_configuration(self, types=None):
         """Restore configuration.
@@ -628,22 +780,20 @@ class FwCfgRequestHandler(FwObject):
         self.log.info("====restore configuration: finished===")
 
     def sync_full(self, incoming_requests):
-        fwglobals.g.agent_api._reset_device_soft()
-
         sync_request = {
             'message':   'aggregated',
             'params':    { 'requests': incoming_requests },
         }
-
         reply = self.call(sync_request, dont_revert_on_failure=True)
-
         if reply['ok'] == 0:
-            raise Exception(" _sync_device: router full sync failed: " + str(reply.get('message')))
+            raise Exception("sync_full failed: " + str(reply.get('message')))
 
     def sync(self, incoming_requests, full_sync=False):
         incoming_requests = list([x for x in incoming_requests if x['message'] in self.translators])
+        sync_list         = self.cfg_db.get_sync_list(incoming_requests)
 
-        if len(incoming_requests) == 0:
+        if len(sync_list) == 0 and not full_sync:
+            self.log.info("_sync_device: sync_list is empty, no need to sync")
             return True
 
         if full_sync:
@@ -655,12 +805,6 @@ class FwCfgRequestHandler(FwObject):
         # out of sync and try to modify them.
         # If that fails, we will try the full sync.
         #
-        sync_list = self.cfg_db.get_sync_list(incoming_requests)
-
-        if len(sync_list) == 0 and not full_sync:
-            self.log.info("_sync_device: sync_list is empty, no need to sync")
-            return True
-
         self.log.debug("_sync_device: start smart sync")
 
         sync_request = {
@@ -682,10 +826,51 @@ class FwCfgRequestHandler(FwObject):
 
     def _dump_translation_cmd_params(self, cmd):
         if 'params' in cmd and type(cmd['params'])==dict:
-            return "%s(%s)" % (cmd['name'], fwutils.yaml_dump(cmd['params']))
-        elif 'params' in cmd:
-            return "%s(%s)" % (cmd['name'], format(cmd['params']))
+            return "%s(%s)" % (cmd['func'], fwutils.yaml_dump(cmd['params']))
         else:
-            return "%s()" % (cmd['name'])
+            return "%s(%s)" % (cmd['func'], format(cmd.get('params','')))
 
+    def compare_modify_params(self, request, ignore_params):
+        """Helper function that detects if 'modify-X' request received from
+        flexiManage brings same parameters that already stored in configuration
+        database, except the ones specified by the 'ignore_params' argument.
+        In other words, it checks if the modify-X assumes real changes.
+        We use this function in two cases:
+            1. To spot if modify-X contains changes of modifable parameters only.
+        In this case it will be translated into list of commands and will be
+        executed. Otherwise it will be replaced with remove-X & add-X pair
+        to recreate the configuration item from scratch.
+            2. To spot if modify-X contains changes of not impacting parameters
+        only. In this case there is no need to execute it at all, just save
+        the update into configuration database. Example of not impacting
+        parameters can be 'PublicPort' and 'PublicIp' for 'modify-interface'.
+        They are no provisioned into VPP, just saved for FwStunWrapper needs.
 
+        :param request: the modify-X request received from flexiManage.
+                        Can include partial set of parameters of configuration item.
+                        Must include key parameters to identify the item.
+        :param ignore_params: the parameters that should be ignored while comparing
+                        modify-X parameters to stored parameters.
+
+        :return: True if all received parameters have same values as stored ones,
+                except the parameters specified by 'ignore_params'.
+        """
+
+        def _compare_modify_params(_modify_params, _existing_params, _ignore_params):
+            """Recursive function for dict deep comparison.
+            """
+            for key, value in _modify_params.items():
+                if isinstance(value, dict):
+                    if not _compare_modify_params(value,
+                                _existing_params.get(key,{}), _ignore_params.get(key,{})):
+                        return False
+                else:
+                    if key in _ignore_params:
+                        continue
+                    if value != _existing_params.get(key):
+                        self.log.debug(f"compare_modify_params: _modify_params['{key}']={value} != {_existing_params.get(key)}")
+                        return False
+            return True
+
+        existing_params = self.cfg_db.get_request_params(request)
+        return _compare_modify_params(request['params'], existing_params, ignore_params)

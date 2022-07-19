@@ -19,6 +19,8 @@
             "args": [
                 "daemon"
             ],
+            "subProcess": true,
+            "sudo": true,
             "cwd": "${workspaceRoot}",
             "env": {
                 "PYTHONPATH": "${workspaceRoot}/flexiagent"
@@ -81,14 +83,12 @@
             }
         },
         {
-            "name": "fwagent show --agent cache",
+            "name": "fwagent show CLI",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/fwagent.py",
             "args": [
-                "show",
-                "--agent",
-                "cache",
+                "show", "${input:showCli}", "${input:showCli1}",
             ],
             "cwd": "${workspaceRoot}",
             "env": {
@@ -137,7 +137,7 @@
             "args": [
                 "cli",
                 "-f",
-                "${workspaceFolder}/tests/router/16_lte_watchdog_test/add-lte.cli",
+                "${workspaceFolder}/tests/router/27_applications_basic_test/04_start-router_install_configure_uninstall_stop-router.cli",
                 "-t",
                 "${workspaceFolder}/tests/fwtemplates.yaml"
             ],
@@ -166,12 +166,56 @@
             "request": "launch",
             "module": "pytest",
             "args": [
-                "-rs"
+                "-rs", "-k", "27"
             ],
             "cwd": "${workspaceRoot}/tests",
             "env": {
                 "PYTHONPATH": "${workspaceRoot}"
             }
+        },
+        {
+            "name": "Post Install - Migration",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/common/post_install.py",
+            "args": [
+                "${input:fromVersion}",
+                "${input:toVersion}",
+                "${input:operation}"
+            ],
+            "cwd": "${workspaceRoot}",
+            "env": {
+                "PYTHONPATH": "${workspaceRoot}/"
+            },
+            "sudo": true,
+        }
+    ],
+    "inputs": [
+        {
+            "id": "fromVersion",
+            "type": "promptString",
+            "description": "From which version?",
+        },
+        {
+            "id": "toVersion",
+            "type": "promptString",
+            "description": "To which version?",
+        },
+        {
+            "id": "operation",
+            "type": "promptString",
+            "description": "install or remove?",
+            "default": "install"
+        },
+        {
+            "id": "showCli",
+            "type": "promptString",
+            "description": "Show cli flags"
+        },
+        {
+            "id": "showCli1",
+            "type": "promptString",
+            "description": "Show cli flags"
         }
     ]
 }

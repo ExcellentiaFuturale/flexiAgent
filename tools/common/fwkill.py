@@ -42,6 +42,7 @@ import fwglobals
 import fwutils
 import fwnetplan
 import fwlte
+import fwpppoe
 import fwwifi
 
 def parse_argv(argv):
@@ -76,6 +77,9 @@ def main():
     fwwifi.stop_hostapd()
     fwnetplan.restore_linux_netplan_files()
 
+    if fwglobals.g.is_gcp_vm: # Take care of Google Cloud Provider VM
+        fwutils.restart_gcp_agent()
+
     lte_interfaces = fwlte.get_lte_interfaces_dev_ids()
     for dev_id in lte_interfaces:
         fwlte.disconnect(dev_id, False)
@@ -84,7 +88,7 @@ def main():
     if os.path.exists(fwglobals.g.VPP_CONFIG_FILE_BACKUP):
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE_BACKUP, fwglobals.g.VPP_CONFIG_FILE)
     if arg_clean_cfg:
-        fwutils.reset_device_config()
+        fwutils.reset_device_config(pppoe=True)
 
     if not arg_quiet:
         print ("Done")

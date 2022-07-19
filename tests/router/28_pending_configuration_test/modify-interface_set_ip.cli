@@ -1,0 +1,12 @@
+[
+{
+  "entity":  "agent",
+  "message": "modify-interface",
+  "params": {
+    "dev_id":"__INTERFACE_2__dev_id",
+    "addr":"10.72.100.1/24",
+    "gateway": "10.72.100.254",
+	"dhcp": "no"
+  }
+}
+]

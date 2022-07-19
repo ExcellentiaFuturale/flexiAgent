@@ -20,44 +20,49 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import copy
 import enum
+import json
 import os
 import re
-import time
-import threading
-import traceback
-import json
 import subprocess
+import threading
+import time
+import traceback
+
+from netaddr import IPAddress, IPNetwork
+
+import fw_vpp_coredump_utils
 import fwglobals
-import fwutils
+import fwlte
 import fwnetplan
+import fwpppoe
+import fwrouter_cfg
 import fwroutes
+import fwthread
+import fwtunnel_stats
+import fwutils
 import fwwifi
+from fwcfg_request_handler import FwCfgRequestHandler
+from fwfrr import FwFrr
+from fwikev2 import FwIKEv2
 from fwmultilink import FwMultilink
 from fwpolicies import FwPolicies
 from vpp_api import VPP_API
-from fwcfg_request_handler import FwCfgRequestHandler
-from fwikev2 import FwIKEv2
-from netaddr import IPNetwork, IPAddress
-
-import fwtunnel_stats
-import fw_vpp_coredump_utils
 
 fwrouter_translators = {
     'start-router':             {'module': __import__('fwtranslate_start_router'),    'api':'start_router'},
     'stop-router':              {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
     'add-interface':            {'module': __import__('fwtranslate_add_interface'),   'api':'add_interface'},
     'remove-interface':         {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
-    'modify-interface':         {'module': __import__('fwtranslate_add_interface'),   'api':'modify_interface'},
+    'modify-interface':         {'module': __import__('fwtranslate_add_interface'),   'api':None,                'ignored_params': 'modify_interface_ignored_params'},
     'add-route':                {'module': __import__('fwtranslate_add_route'),       'api':'add_route'},
     'remove-route':             {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
     'add-tunnel':               {'module': __import__('fwtranslate_add_tunnel'),      'api':'add_tunnel'},
     'remove-tunnel':            {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
-    'modify-tunnel':            {'module': __import__('fwtranslate_add_tunnel'),      'api':'modify_tunnel'},
+    'modify-tunnel':            {'module': __import__('fwtranslate_add_tunnel'),      'api':'modify_tunnel',     'supported_params':'modify_tunnel_supported_params'},
     'add-dhcp-config':          {'module': __import__('fwtranslate_add_dhcp_config'), 'api':'add_dhcp_config'},
     'remove-dhcp-config':       {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
-    'add-application':          {'module': __import__('fwtranslate_add_app'),         'api':'add_app'},
+    'add-application':          {'module': __import__('fwtranslate_add_application'), 'api':'add_application'},
     'remove-application':       {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
     'add-multilink-policy':     {'module': __import__('fwtranslate_add_multilink_policy'), 'api':'add_multilink_policy'},
     'remove-multilink-policy':  {'module': __import__('fwtranslate_revert'),          'api':'revert'},
@@ -67,6 +72,11 @@ fwrouter_translators = {
     'remove-firewall-policy':   {'module': __import__('fwtranslate_revert'),          'api':'revert'},
     'add-ospf':                 {'module': __import__('fwtranslate_add_ospf'),        'api':'add_ospf'},
     'remove-ospf':              {'module': __import__('fwtranslate_revert'),          'api':'revert'},
+    'add-routing-bgp':          {'module': __import__('fwtranslate_add_routing_bgp'),  'api':'add_routing_bgp'},
+    'remove-routing-bgp':       {'module': __import__('fwtranslate_revert'),          'api':'revert'},
+    'modify-routing-bgp':       {'module': __import__('fwtranslate_add_routing_bgp'),  'api':'modify_routing_bgp',     'supported_params':'modify_routing_bgp_supported_params'},
+    'add-routing-filter':       {'module': __import__('fwtranslate_add_routing_filter'), 'api':'add_routing_filter'},
+    'remove-routing-filter':    {'module': __import__('fwtranslate_revert'),           'api':'revert'},
 }
 
 class FwRouterState(enum.Enum):
@@ -86,22 +96,32 @@ class FWROUTER_API(FwCfgRequestHandler):
     - monitoring vpp and restart it on exceptions
     - restoring vpp configuration on vpp restart or on device reboot
 
+    :param cfg: instance of the FwRouterCfg object that hold router configuration items,
+                like interfaces, tunnels, routes, etc.
+    :param pending_cfg_file:  name of file that stores pending configuration items.
+                Pending items are configuration items, that were requested by user,
+                and that can't be configured at the moment. E.g., tunnel that uses
+                WAN interface without IP.
     :param multilink_db_file: name of file that stores persistent multilink data
     """
-    def __init__(self, cfg, multilink_db_file):
+    def __init__(self, cfg, pending_cfg_file, multilink_db_file, frr_db_file):
         """Constructor method
         """
         self.vpp_api         = VPP_API()
         self.multilink       = FwMultilink(multilink_db_file)
+        self.frr             = FwFrr(frr_db_file)
         self.router_state    = FwRouterState.STOPPED
         self.thread_watchdog     = None
         self.thread_tunnel_stats = None
-        self.thread_dhcpc        = None
-        self.thread_static_route = None
+        self.thread_monitor_interfaces = None
+        self.vpp_coredump_in_progress = False
+        self.monitor_interfaces  = {}  # Interfaces that are monitored for IP changes
 
-        FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, self._on_revert_failed)
+        pending_cfg_db = fwrouter_cfg.FwRouterCfg(pending_cfg_file)
+        FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, pending_cfg_db, self._on_revert_failed)
 
         fwutils.reset_router_api_db() # Initialize cache that persists device reboot / daemon restart
+
 
     def finalize(self):
         """Destructor method
@@ -109,111 +129,182 @@ class FWROUTER_API(FwCfgRequestHandler):
         self._stop_threads()  # IMPORTANT! Do that before rest of finalizations!
         self.vpp_api.finalize()
 
-    def watchdog(self):
-        """Watchdog thread.
+    def vpp_watchdog_thread_func(self, ticks):
+        """Watchdog thread function.
         Its function is to monitor if VPP process is alive.
         Otherwise it will start VPP and restore configuration from DB.
         """
-        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
-        pending_coredump_processing = True
-        while self.state_is_started() and not fwglobals.g.teardown:
-            time.sleep(1)  # 1 sec
-            try:           # Ensure thread doesn't exit on exception
-                if not fwutils.vpp_does_run():      # This 'if' prevents debug print by restore_vpp_if_needed() every second
-                    self.log.debug("watchdog: initiate restore")
+        if not self.state_is_started():
+            return
+        if not fwutils.vpp_does_run():      # This 'if' prevents debug print by restore_vpp_if_needed() every second
+            self.log.debug("watchdog: initiate restore")
 
-                    self.vpp_api.disconnect_from_vpp()          # Reset connection to vpp to force connection renewal
-                    fwutils.stop_vpp()                          # Release interfaces to Linux
+            self.state_change(FwRouterState.STOPPED)    # Reset state ASAP, so:
+                                                        # 1. Monitoring Threads will suspend activity
+                                                        # 2. Configuration will be applied correctly by _restore_vpp()
 
-                    fwutils.reset_traffic_control()             # Release LTE operations.
-                    fwutils.remove_linux_bridges()              # Release bridges for wifi.
-                    fwwifi.stop_hostapd()                      # Stop access point service
+            self.vpp_api.disconnect_from_vpp()          # Reset connection to vpp to force connection renewal
+            fwutils.stop_vpp()                          # Release interfaces to Linux
 
-                    self.state_change(FwRouterState.STOPPED)    # Reset state so configuration will applied correctly
-                    self._restore_vpp()                         # Rerun VPP and apply configuration
+            fwutils.reset_traffic_control()             # Release LTE operations.
+            fwutils.remove_linux_bridges()              # Release bridges for wifi.
+            fwwifi.stop_hostapd()                      # Stop access point service
 
-                    self.log.debug("watchdog: restore finished")
-                    # Process if any VPP coredump
-                    pending_coredump_processing = fw_vpp_coredump_utils.vpp_coredump_process()
-                elif pending_coredump_processing:
-                    pending_coredump_processing = fw_vpp_coredump_utils.vpp_coredump_process()
+            self._restore_vpp()                         # Rerun VPP and apply configuration
 
-            except Exception as e:
-                self.log.error("%s: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
+            self.log.debug("watchdog: restore finished")
+            # Process if any VPP coredump
+            self.vpp_coredump_in_progress = fw_vpp_coredump_utils.vpp_coredump_process()
+        elif self.vpp_coredump_in_progress:
+            self.vpp_coredump_in_progress = fw_vpp_coredump_utils.vpp_coredump_process()
 
-    def tunnel_stats_thread(self):
-        """Tunnel statistics thread.
+    def tunnel_stats_thread_func(self, ticks):
+        """Tunnel statistics thread function.
         Its function is to monitor tunnel state and RTT.
         It is implemented by pinging the other end of the tunnel.
         """
-        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
-        fwtunnel_stats.fill_tunnel_stats_dict()
-        while self.state_is_started() and not fwglobals.g.teardown:
-            time.sleep(1)  # 1 sec
-            try:           # Ensure thread doesn't exit on exception
-                fwtunnel_stats.tunnel_stats_test()
-            except Exception as e:
-                self.log.error("%s: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
+        if self.state_is_started():
+            fwtunnel_stats.tunnel_stats_test()
 
-    def dhcpc_thread(self):
-        """DHCP client thread.
-        Its function is to monitor state of WAN interfaces with DHCP.
+    def monitor_interfaces_thread_func(self, ticks):
+        """Monitors VPP interfaces for various dynamic data like DHCP IP addresses,
+        link status (carrier-on/no-carrier) and other and adjust system with
+        the change. See more details in the specific _sync_X() function.
         """
-        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+        if not self.state_is_started():
+            return
 
-        while self.state_is_started() and not fwglobals.g.teardown:
-            time.sleep(1)  # 1 sec
+        if ticks % 3 != 0:  # Check interfaces every ~3 seconds
+            return
 
-            try:  # Ensure thread doesn't exit on exception
-                apply_netplan = False
-                wan_list = self.cfg_db.get_interfaces(type='wan')
+        try:
+            self._sync_link_status()
+        except Exception as e:
+            self.thread_monitor_interfaces.log_error(
+                f"_sync_link_status: {str(e)} ({traceback.format_exc()})")
+        try:
+            old = self.monitor_interfaces
+            new = self._get_monitor_interfaces(cached=False)
+            self._sync_addresses(old, new)
+        except Exception as e:
+            self.thread_monitor_interfaces.log_error(
+                f"_sync_interfaces: {str(e)} ({traceback.format_exc()})")
 
-                for wan in wan_list:
-                    dhcp = wan.get('dhcp', 'no')
-                    device_type = wan.get('deviceType')
-                    is_pppoe = fwglobals.g.pppoe.is_pppoe_interface(dev_id=wan.get('dev_id'))
 
-                    if dhcp == 'no' or device_type == 'lte' or is_pppoe:
-                        continue
+    def _sync_link_status(self):
+        '''Monitors link status (CARRIER-UP / NO-CARRIER or CABLE PLUGGED / CABLE UNPLUGGED)
+        of the VPP physical interfaces and updates the correspondent tap inject
+        interfaces in Linux using the "echo 0/1 > /sys/class/net/vppX/carrier" command,
+            We need this logic, as Linux vppX interfaces are not physical interfaces,
+        so it is not possible to set the NO-CARRIER link status flag for them.
+        As a result, the Linux might continue to use unplugged interface, thus loosing traffic.
+        Note, VPP does detects the NO-CARRIER and removes interface from FIB:
 
-                    name = fwutils.dev_id_to_tap(wan['dev_id'])
-                    addr = fwutils.get_interface_address(name, log=False)
-                    if not addr:
-                        self.log.debug("dhcpc_thread: %s has no ip address" % name)
-                        apply_netplan = True
+            root@vbox-test-171 ~ # ip r
+            default via 10.72.100.1 dev vpp2 proto dhcp src 10.72.100.172 metric 50
+            default via 192.168.1.1 dev vpp0 proto dhcp src 192.168.1.171 metric 100
+            10.10.10.0/24 dev vpp1 proto kernel scope link src 10.10.10.10
 
-                if apply_netplan:
-                    fwutils.netplan_apply('dhcpc_thread')
-                    time.sleep(60)
+            0@0.0.0.0/0
+            unicast-ip4-chain
+            [@0]: dpo-load-balance: [proto:ip4 index:1 buckets:1 uRPF:16 to:[0:0]]
+                [0] [@5]: ipv4 via 192.168.1.1 GigabitEthernet0/3/0: mtu:1500 next:3 00b8c2
+            8a6baa08002730db130800
 
-            except Exception as e:
-                self.log.error("%s: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
+            GigabitEthernet0/9/0               3     up   GigabitEthernet0/9/0
+            Link speed: 1 Gbps
+            Ethernet address 08:00:27:eb:00:63
+            Intel 82540EM (e1000)
+                no-carrier full duplex mtu 9206
+        '''
+        interfaces = fwglobals.g.router_cfg.get_interfaces()
+        for interface in interfaces:
+            tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
+            if fwpppoe.is_pppoe_interface(dev_id=interface['dev_id']):
+                status_vpp  = fwutils.get_interface_link_state(tap_name, interface['dev_id'])
+            elif fwlte.is_lte_interface_by_dev_id(dev_id=interface['dev_id']):
+                connected = fwlte.mbim_is_connected(interface['dev_id'])
+                status_vpp = 'up' if connected else 'down'
+            else:
+                sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(interface['dev_id'], verbose=False)
+                status_vpp  = fwutils.vpp_get_interface_status(sw_if_index)['link']
+            (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{tap_name}/carrier")
+            if status_vpp == 'down' and ok and status_linux and int(status_linux)==1:
+                self.log.debug(f"detected NO-CARRIER for {tap_name}")
+                fwutils.os_system(f"echo 0 > /sys/class/net/{tap_name}/carrier")
+            elif status_vpp == 'up' and ok and status_linux and int(status_linux)==0:
+                self.log.debug(f"detected CARRIER UP for {tap_name}")
+                fwutils.os_system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
 
-    def static_route_thread(self):
-        """Static route thread.
-        Its function is to monitor static routes.
+    def _sync_addresses(self, old_interfaces, new_interfaces):
+        """Monitors VPP interfaces for IP/GW change and updates system as follows:
+
+        - on IP/GW change on WAN interface:
+            1. update multi-link policy DIA links with proper GW, so the link
+               reachability could be detected properly
+            2. update ARP entry for the LTE GW to be black hole
+
+        - on IP/GW change on LAN interface:
+            1. update FRR with new local network
+
+        :param old_interfaces: the last interface snap
+        :param new_interfaces: the current interface snap
         """
-        self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
+        for dev_id, new in new_interfaces.items():
+            old = old_interfaces.get(dev_id)
+            if not old:
+                continue   # escape newly added interface, take care of it on next sync
 
-        while self.state_is_started() and not fwglobals.g.teardown:
-            time.sleep(1)
+            if old['gw'] != new['gw']:
+                if new['type'] == 'wan':
+                    # Update FWABF link with new GW, it is used for multilink policies
+                    #
+                    link = self.multilink.get_link(dev_id)
+                    if link:
+                        self.multilink.vpp_update_labels(
+                            remove=False, labels=link.labels, next_hop=new['gw'], dev_id=dev_id)
 
-            if int(time.time()) % 5 != 0:
-                continue  # Check routes every 5 seconds, while checking teardown every second
+                    # Update ARP entry of LTE interface
+                    try:
+                        if new['deviceType'] == 'lte':
+                            fwlte.set_arp_entry(is_add=False, dev_id=dev_id, gw=old['gw'])
+                            fwlte.set_arp_entry(is_add=True,  dev_id=dev_id, gw=new['gw'])
+                    except:
+                        pass
 
-            try:  # Ensure thread doesn't exit on exception
-                fwroutes.check_reinstall_static_routes()
+            if old['addr'] != new['addr']:
+                if new['type'] == 'lan' and 'OSPF' in new['routing']:
+                    self.frr.ospf_network_update(dev_id, new['addr'])
 
-            except Exception as e:
-                self.log.error("%s: %s (%s)" %
-                    (threading.current_thread().getName(), str(e), traceback.format_exc()))
-                pass
+    def _get_monitor_interfaces(self, cached=True):
+        '''Retrieves interfaces from the configuration database, fetches their
+        current IP, GW and other data from Linux and returns this information
+        back to the caller in form of dictionary by dev-id.
+
+        :param cached: if True, the cached data is returned, otherwise the cache
+                       is rebuilt and the result is returned.
+
+        :return: dictionary <dev-id> -> <interface name, IP/mask, GW, LAN/WAN, DPDK/LTE/WIFI, etc>
+        '''
+        if not cached:
+            self._clear_monitor_interfaces()
+        if not self.monitor_interfaces:
+            for interface in fwglobals.g.router_cfg.get_interfaces():
+                dev_id  = interface['dev_id']
+                if_name = fwutils.dev_id_to_tap(dev_id)
+                cached_interface = {}
+                cached_interface['if_name'] = if_name
+                cached_interface['addr']        = fwutils.get_interface_address(if_name, log=False)
+                cached_interface['gw']          = fwutils.get_interface_gateway(if_name)[0]
+                cached_interface['dhcp']        = interface.get('dhcp', 'no').lower()           # yes/no
+                cached_interface['type']        = interface.get('type', 'wan').lower()          # LAN/WAN
+                cached_interface['deviceType']  = interface.get('deviceType', 'dpdk').lower()   # DPDK/WIFI/LTE
+                cached_interface['routing']     = interface.get('routing', [])                  # ["OSPF","BGP"]
+                self.monitor_interfaces[dev_id] = cached_interface
+        return self.monitor_interfaces
+
+    def _clear_monitor_interfaces(self):
+        self.monitor_interfaces = {}
 
     def restore_vpp_if_needed(self):
         """Restore VPP.
@@ -257,6 +348,8 @@ class FWROUTER_API(FwCfgRequestHandler):
     def _restore_vpp(self):
         self.log.info("===restore vpp: started===")
         try:
+            with FwFrr(fwglobals.g.FRR_DB_FILE) as db_frr:
+                db_frr.clean()
             with FwMultilink(fwglobals.g.MULTILINK_DB_FILE) as db_multilink:
                 db_multilink.clean()
             with FwPolicies(fwglobals.g.POLICY_REC_DB_FILE) as db_policies:
@@ -270,6 +363,12 @@ class FWROUTER_API(FwCfgRequestHandler):
             # Linux netplan files to remove any lte related information.
             #
             fwnetplan.restore_linux_netplan_files()
+
+            # Reset cache of interfaces for address monitoring.
+            # This is needed, when VPP is restored by watchdog on VPP crash.
+            # In that case the cache becomes to be stale.
+            #
+            self._clear_monitor_interfaces()
 
             fwglobals.g.handle_request({'message': 'start-router'})
         except Exception as e:
@@ -393,7 +492,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             #
             if restart_dhcp_service:
                 if not restart_router: # on router restart DHCP service is restarted as well
-                    fwutils.restart_service(service='isc-dhcp-server', timeout=5)
+                    cmd = 'systemctl restart isc-dhcp-server'
+                    fwutils.os_system(cmd, 'call')
 
             # Reconnect agent if needed
             #
@@ -434,7 +534,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         self.set_logger(prev_logger)  # Restore logger if was changed
         return reply
 
-    def _call_simple(self, request):
+    def _call_simple(self, request, execute=False, filter=None):
         """Execute single request.
 
         :param request: The request received from flexiManage.
@@ -442,7 +542,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         :returns: dictionary with status code and optional error message.
         """
         try:
-            whitelist = None
             req = request['message']
 
             router_was_started = fwutils.vpp_does_run()
@@ -459,8 +558,31 @@ class FWROUTER_API(FwCfgRequestHandler):
                 self.cfg_db.update(request)
                 return {'ok':1}
 
-            execute = False
-            filter = None
+            # Take care of pending requests.
+            # Pending requests are requests that were received from flexiManage,
+            # but can't be configured in VPP/Linux right now due to some issue,
+            # like absence of IP/GW on interface.
+            # As pending request can't be configured at the moment, just save it
+            # into the dedicated database and return. No further processing is
+            # needed. It is flexiManage responsibility to recreate pending tunnels,
+            # routes, etc. The flexiManage detects no-IP/chenaged-IP condition,
+            # using the "reconfig" feature and removes or reconstructs pending
+            # configuration items.
+            #   The 'remove-X' for pending requests just deletes request from
+            # the pending request database.
+            #
+            if self.pending_cfg_db.exists(request):
+                # Clean request from pending database before further processing.
+                #
+                self.pending_cfg_db.remove(request)
+                if re.match('remove-',  req):
+                    return {'ok':1}     # No further processing is needed for 'remove-X'.
+            if router_was_started and self.state_is_starting_stopping(): # For now enable pending requests on start-router only
+                if re.match('add-',  req) and self._is_pending_request(request):
+                    self.pending_cfg_db.update(request)
+                    self.cfg_db.remove(request)
+                    return {'ok':1}
+
             if router_was_started or req == 'start-router':
                 execute = True
             elif re.match('remove-',  req):
@@ -477,6 +599,103 @@ class FWROUTER_API(FwCfgRequestHandler):
             raise e
 
         return {'ok':1}
+
+
+    def _is_pending_request(self, request):
+        """Check if the request can not be configured in VPP/Linux right now.
+        Following are cases where the request is considered to be pending:
+        1. 'add-tunnel'
+            a. If WAN interface used by the tunnel has no IP/GW, e.g. if DHCP
+               interface got no response from DHCP server.
+               We need the GW in multi-WAN setups in order to bind tunnel traffic
+               to the proper WAN interface, and not to rely on default route.
+        2. 'add-route'
+            a. If route is via WAN interface specified by dev-id, and the device
+               has no IP/GW, e.g. if DHCP interface got no response from DHCP server.
+            b. If route is via pending tunnel (specified by loopback IP)
+            c. If route is via interface specified by IP, and there is no
+               successfully configured interface with IP in same network mask.
+               That might happen for either WAN or LAN interfaces that has no IP.
+
+        :param request: the request to be checked.
+
+        :returns: True if request can't be fulfilled right now, becoming thus
+                  to be pending request. False otherwise.
+        """
+        if request['message'] != "add-tunnel" and \
+           request['message'] != "add-route":
+            return False
+
+        monitor_interfaces = self._get_monitor_interfaces()
+
+        if request['message'] == "add-tunnel":
+            interface = monitor_interfaces.get(request['params']['dev_id'])
+            if not interface or not interface['addr']:
+                self.log.debug(f"pending request detected: {str(request)}")
+                self.pending_dev_ids.add(request['params']['dev_id'])
+                return True
+            return False
+
+        if request['message'] == "add-route":
+            # If 'add-route' includes 'dev_id' - we are good - use it, otherwise
+            # use 'via' and search interfaces and tunnel loopbacks that match it.
+            #
+            # {
+            #     "entity": "agent",
+            #     "message": "add-route",
+            #     "params": {
+            #         "addr": "11.11.11.11/32",
+            #         "via": "192.168.1.1",
+            #         "redistributeViaOSPF": false,
+            #         "dev_id": "pci:0000:00:03.00"
+            #     }
+            # }
+            #
+            if 'dev_id' in request['params']:
+                # Check assigned interfaces
+                #
+                interface =  monitor_interfaces.get(request['params']['dev_id'])
+                if interface:
+                    if not interface['addr']:
+                        self.log.debug(f"pending request detected by dev-id: {str(request)}")
+                        self.pending_dev_ids.add(request['params']['dev_id'])
+                        return True
+                    return False
+                # Check unassigned interfaces
+                #
+                if_name = fwutils.get_interface_name(request['params']['via'], by_subnet=True)
+                if if_name:
+                    return False
+                return True
+            else:
+                # Firstly search for interfaces that match VIA
+                #
+                for interface in monitor_interfaces.values():
+                    if interface['addr'] and \
+                       fwutils.is_ip_in_subnet(request['params']['via'], interface['addr']):
+                        return False
+                # No suiting interface was found, search tunnels that match VIA
+                #
+                for tunnel in fwglobals.g.router_cfg.get_tunnels():
+                    # Try regular tunnel firstly
+                    #
+                    network = tunnel.get('loopback-iface', {}).get('addr')
+                    if not network:
+                        network = tunnel.get('peer', {}).get('addr')  # Try peer tunnel
+                    if network and fwutils.is_ip_in_subnet(request['params']['via'], network):
+                        return False
+
+                # Search for unassigned interfaces that match VIA
+                #
+                if_name = fwutils.get_interface_name(request['params']['via'], by_subnet=True)
+                if if_name:
+                    return False
+
+                self.log.debug(f"pending request detected: {str(request)}")
+                return True
+
+        return False
+
 
     def _on_revert_failed(self, reason):
         self.state_change(FwRouterState.FAILED, "revert failed: %s" % reason)
@@ -515,14 +734,15 @@ class FWROUTER_API(FwCfgRequestHandler):
                         neighbor table. That causes VPPSB to propagate the ARP
                         information into VPP FIB.
             restart_dhcp_service - DHCP service should be restarted if modify-interface
-                        was received. This is because modify-interface might remove interface
-                        from VPP/Linux (see usage of "vppctl delete tap") and recreate them again.
+                        was received. This is because modify-interface is implemented
+                        today by pair of 'remove-interface' and 'add-interface'
+                        requests which removes interface from VPP/Linux (see usage of
+                        "vppctl delete tap") and recreates it back.
                         That causes DHCP service to stop monitoring of the recreated interface.
                         Therefor we have to restart it on modify-interface completion.
         """
 
-        def _should_reconnect_agent_on_modify_interface(new_params):
-            old_params = self.cfg_db.get_interfaces(dev_id=new_params['dev_id'])[0]
+        def _should_reconnect_agent_on_modify_interface(old_params, new_params):
             if new_params.get('addr') and new_params.get('addr') != old_params.get('addr'):
                 return True
             if new_params.get('gateway') != old_params.get('gateway'):
@@ -535,39 +755,75 @@ class FWROUTER_API(FwCfgRequestHandler):
         (restart_router, reconnect_agent, gateways, restart_dhcp_service) = \
         (False,          False,           [],       False)
 
-        if self.state_is_started():
-            if re.match('(add|remove)-interface', request['message']):
+        if re.match('(add|remove)-interface', request['message']):
+            if self.state_is_started():
                 restart_router  = True
                 reconnect_agent = True
-            elif request['message'] == 'modify-interface':
-                reconnect_agent = _should_reconnect_agent_on_modify_interface(request['params'])
-                restart_dhcp_service = True
-            elif request['message'] == 'aggregated':
-                for _request in request['params']['requests']:
-                    if re.match('(add|remove)-interface', _request['message']):
-                        restart_router = True
-                        reconnect_agent = True
-                    elif _request['message'] == 'modify-interface':
-                        restart_dhcp_service = True
-                        if _should_reconnect_agent_on_modify_interface(_request['params']):
-                            reconnect_agent = True
-
-        if re.match('(start|stop)-router', request['message']):
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+        elif re.match('(start|stop)-router', request['message']):
             reconnect_agent = True
-        elif re.match('modify-interface', request['message']):
-            gw = request['params'].get('gateway')
-            if gw:
-                gateways.append(gw)
-        elif request['message'] == 'aggregated':
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+        elif request['message'] != 'aggregated':
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+        else:   # aggregated request
+            add_remove_requests = {}
+            modify_requests = {}
             for _request in request['params']['requests']:
                 if re.match('(start|stop)-router', _request['message']):
                     reconnect_agent = True
-                elif re.match('modify-interface', _request['message']):
-                    gw = _request['params'].get('gateway')
-                    if gw:
-                        gateways.append(gw)
+                elif re.match('(add|remove)-interface', _request['message']):
+                    dev_id = _request['params']['dev_id']
+                    if not dev_id in add_remove_requests:
+                        add_remove_requests[dev_id] = _request
+                    else:
+                        # This add/remove complements pair created for modify-X
 
-        return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+                        # Fetch gateway from the add-interface
+                        #
+                        gw = add_remove_requests[dev_id]['params'].get('gateway')
+                        if not gw:
+                            gw = _request['params'].get('gateway')
+                        if gw:
+                            gateways.append(gw)
+
+                        # If the interface to be modified is used by the WebSocket
+                        # connection, we have to reconnect the agent.
+                        # We use following heuristic to determine, if the interface
+                        # is used for the WebSocket connection: we assume that
+                        # there is no static route for the flexiManage address,
+                        # so the connection uses the default route.
+                        # Hence, if the default route with the lowest metric
+                        # uses the interface, we should reconnect.
+                        if not reconnect_agent:
+                            (_, _, default_route_dev_id, _) = fwutils.get_default_route()
+                            if dev_id == default_route_dev_id:
+                                reconnect_agent = True
+
+                        # If the interface to be modified might become the interface
+                        # for default route due to IP/metric/GW modification,
+                        # we have to reconnect agent too.
+                        #
+                        if not reconnect_agent:
+                            if (_request['message'] == 'add-interface'):
+                                new_params = _request['params']
+                                old_params = add_remove_requests[dev_id]['params']
+                            else:
+                                old_params = _request['params']
+                                new_params = add_remove_requests[dev_id]['params']
+                            if _should_reconnect_agent_on_modify_interface(old_params, new_params):
+                                reconnect_agent = True
+
+                        # Move the request to the set of modify-interface-s
+                        #
+                        del add_remove_requests[dev_id]
+                        modify_requests[dev_id] = _request
+
+            if add_remove_requests and self.state_is_started():
+                restart_router = True
+                reconnect_agent = True
+            if modify_requests and self.state_is_started():
+                restart_dhcp_service = True
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
 
     def _preprocess_request(self, request):
         """Some requests require preprocessing. For example before handling
@@ -589,45 +845,9 @@ class FWROUTER_API(FwCfgRequestHandler):
                         This mix should include one original request and one or
                         more simulated requests.
         """
-
-        def _preprocess_modify_X(request):
-            _req    = request['message']
-            _params = request['params']
-            remove_req = _req.replace("modify-", "remove-")
-            old_params = self.cfg_db.get_request_params(request)
-            add_req    = _req.replace("modify-", "add-")
-            new_params = copy.deepcopy(old_params)
-            new_params.update(_params)
-
-            return [
-                { 'message': remove_req, 'params' : old_params },
-                { 'message': add_req,    'params' : new_params }
-            ]
-
-
         req     = request['message']
         params  = request.get('params')
         changes = {}
-
-        # 'modify-X' preprocessing:
-        #  1. Replace 'modify-X' with 'remove-X' and 'add-X' pair.
-        #     Implement real modification on demand :)
-        #
-        if re.match('modify-interface', req):
-            req     = 'aggregated'
-            params  = { 'requests' : _preprocess_modify_X(request) }
-            request = {'message': req, 'params': params}
-            changes['insert'] = True
-            # DON'T RETURN HERE !!! FURTHER PREPROCESSING IS NEEDED !!!
-        elif req == 'aggregated':
-            new_requests = []
-            for _request in params['requests']:
-                if re.match('modify-interface', _request['message']):
-                    new_requests += _preprocess_modify_X(_request)
-                    changes['insert'] = True
-                else:
-                    new_requests.append(_request)
-            params['requests'] = new_requests
 
         # For aggregated request go over all remove-X requests and replace their
         # parameters with current configuration for X stored in database.
@@ -773,11 +993,11 @@ class FWROUTER_API(FwCfgRequestHandler):
         #     'add-application', 'add-multilink-policy', 'add-firewall-policy' ]
         #
         add_order = [
-            'add-ospf', 'add-switch', 'add-interface', 'add-tunnel', 'add-route',
-            'add-dhcp-config', 'add-application', 'add-multilink-policy', 'add-firewall-policy', 'start-router'
+            'add-ospf', 'add-routing-filter', 'add-routing-bgp', 'add-switch',
+            'add-interface', 'add-tunnel', 'add-route', 'add-dhcp-config',
+            'add-application', 'add-multilink-policy', 'add-firewall-policy',
         ]
-        remove_order = [ re.sub('add-','remove-', name) for name in add_order if name != 'start-router' ]
-        remove_order.append('stop-router')
+        remove_order = [ re.sub('add-','remove-', name) for name in add_order ]
         remove_order.reverse()
         requests     = []
         for req_name in remove_order:
@@ -788,6 +1008,28 @@ class FWROUTER_API(FwCfgRequestHandler):
             for _request in params['requests']:
                 if re.match(req_name, _request['message']):
                     requests.append(_request)
+
+        start_router_request = None
+        stop_router_request = None
+        # append modify-x after all remove-x and add-x
+        for _request in params['requests']:
+            if _request['message'] == 'start-router':
+                start_router_request = _request
+                continue
+            elif _request['message'] == 'stop-router':
+                stop_router_request = _request
+                continue
+            if re.match('modify-', _request['message']):
+                requests.append(_request)
+
+        # append start-router at the end
+        if start_router_request:
+            requests.append(start_router_request)
+
+        # insert stop-router as the first request
+        if stop_router_request:
+            requests.insert(0, stop_router_request)
+
         if requests != params['requests']:
             params['requests'] = requests
         requests = params['requests']
@@ -950,39 +1192,31 @@ class FWROUTER_API(FwCfgRequestHandler):
         """Start all threads.
         """
         if self.thread_watchdog is None or self.thread_watchdog.is_alive() == False:
-            self.thread_watchdog = threading.Thread(target=self.watchdog, name='VPP Watchdog Thread')
+            self.vpp_coredump_in_progress = True
+            self.thread_watchdog = fwthread.FwRouterThread(self.vpp_watchdog_thread_func, 'VPP Watchdog', self.log)
             self.thread_watchdog.start()
         if self.thread_tunnel_stats is None or self.thread_tunnel_stats.is_alive() == False:
-            self.thread_tunnel_stats = threading.Thread(target=self.tunnel_stats_thread, name='Tunnel Stats Thread')
+            fwtunnel_stats.fill_tunnel_stats_dict()
+            self.thread_tunnel_stats = fwthread.FwRouterThread(self.tunnel_stats_thread_func, 'Tunnel Stats', self.log)
             self.thread_tunnel_stats.start()
-        if self.thread_dhcpc is None or self.thread_dhcpc.is_alive() == False:
-            self.thread_dhcpc = threading.Thread(target=self.dhcpc_thread, name='DHCP Client Thread')
-            self.thread_dhcpc.start()
-        if self.thread_static_route is None or self.thread_static_route.is_alive() == False:
-            self.thread_static_route = threading.Thread(target=self.static_route_thread, name='Static route Thread')
-            self.thread_static_route.start()
+        if self.thread_monitor_interfaces is None or self.thread_monitor_interfaces.is_alive() == False:
+            self.thread_monitor_interfaces = fwthread.FwRouterThread(self.monitor_interfaces_thread_func, 'Interface Monitor', self.log)
+            self.thread_monitor_interfaces.start()
 
     def _stop_threads(self):
         """Stop all threads.
         """
-        if self.state_is_started(): # Ensure thread loops will break
-            self.state_change(FwRouterState.STOPPED)
-
         if self.thread_watchdog:
-            self.thread_watchdog.join()
+            self.thread_watchdog.stop()
             self.thread_watchdog = None
 
         if self.thread_tunnel_stats:
-            self.thread_tunnel_stats.join()
+            self.thread_tunnel_stats.stop()
             self.thread_tunnel_stats = None
 
-        if self.thread_dhcpc:
-            self.thread_dhcpc.join()
-            self.thread_dhcpc = None
-
-        if self.thread_static_route:
-            self.thread_static_route.join()
-            self.thread_static_route = None
+        if self.thread_monitor_interfaces:
+            self.thread_monitor_interfaces.stop()
+            self.thread_monitor_interfaces = None
 
     def _on_start_router_before(self):
         """Handles pre start VPP activities.
@@ -994,19 +1228,34 @@ class FWROUTER_API(FwCfgRequestHandler):
         #
         os.system('sudo rm -rf /tmp/*%s' % fwglobals.g.VPP_TRACE_FILE_EXT)
 
-        # Clean FRR config files
-        if os.path.exists(fwglobals.g.FRR_CONFIG_FILE):
-            os.remove(fwglobals.g.FRR_CONFIG_FILE)
-        if os.path.exists(fwglobals.g.FRR_OSPFD_FILE):
-            os.remove(fwglobals.g.FRR_OSPFD_FILE)
+        fwutils.frr_clean_files()
 
         fwutils.reset_router_api_db(enforce=True)
 
-        fwutils.vmxnet3_unassigned_interfaces_up()
-
         fwnetplan.load_netplan_filenames()
 
-        fwglobals.g.pppoe.stop()
+        fwglobals.g.pppoe.stop(remove_tun=True)
+
+        self.multilink.db['links'] = {}
+
+        self.pending_dev_ids = set()
+
+
+    def _sync_after_start(self):
+        """Resets signature once interface got IP during router starting.
+        :returns: None.
+        """
+        do_sync = False
+        for dev_id in self.pending_dev_ids:
+            if_name = fwutils.dev_id_to_tap(dev_id)
+            addr = fwutils.get_interface_address(if_name, log=False)
+            if addr:
+                fwglobals.log.debug(f'Pending interface {dev_id} got ip {addr}')
+                do_sync = True
+                break
+
+        if do_sync:
+            fwutils.reset_device_config_signature("pending_interfaces_got_ip", log=False)
 
     def _on_start_router_after(self):
         """Handles post start VPP activities.
@@ -1020,10 +1269,27 @@ class FWROUTER_API(FwCfgRequestHandler):
             # We don't want to fail router start due to failure to save frr configuration file,
             # so we just log the error and return. Hopefully frr will not crash,
             # so the configuration file will be not needed.
-            fwglobals.log.error(f"_on_apply_router_config: failed to flush frr configuration into file: {str(err)}")
+            fwglobals.log.error(f"_on_start_router_after: failed to flush frr configuration into file: {str(err)}")
+
+        if fwglobals.g.is_gcp_vm:
+            # When we shutting down the interfaces on Linux before assigning them to VPP
+            # the GCP agent is stopped. Hence, we need to restart it again.
+            fwutils.restart_gcp_agent()
 
         fwglobals.g.pppoe.start()
+
+        self._sync_after_start()
+
+        # Build cache of interfaces for address monitoring.
+        # Note if address was changed before we reach this point,
+        # the `_sync_after_start()` above should handle the change.
+        # It forces the flexiManage to send `sync-device` to us.
+        #
+        self._get_monitor_interfaces(cached=False)
+
         self.log.info("router was started: vpp_pid=%s" % str(fwutils.vpp_pid()))
+
+        fwglobals.g.applications_api.call_hook('on_router_is_started')
 
     def _on_stop_router_before(self):
         """Handles pre-VPP stop activities.
@@ -1033,9 +1299,11 @@ class FWROUTER_API(FwCfgRequestHandler):
         with FwIKEv2() as ike:
             ike.clean()
         self._stop_threads()
-        fwglobals.g.pppoe.stop()
+        fwglobals.g.pppoe.stop(remove_tun=True)
         fwglobals.g.cache.dev_id_to_vpp_tap_name.clear()
         self.log.info("router is being stopped: vpp_pid=%s" % str(fwutils.vpp_pid()))
+
+        fwglobals.g.applications_api.call_hook('on_router_is_stopping')
 
     def _on_stop_router_after(self):
         """Handles post-VPP stop activities.
@@ -1046,6 +1314,9 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwutils.remove_linux_bridges()
         fwwifi.stop_hostapd()
 
+        if fwglobals.g.is_gcp_vm: # Take care of Google Cloud Platform VM
+            fwutils.restart_gcp_agent()
+
         # keep LTE connectivity on linux interface
         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
 
@@ -1053,13 +1324,17 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwglobals.g.cache.dev_id_to_vpp_tap_name.clear()
         fwglobals.g.cache.dev_id_to_vpp_if_name.clear()
         fwutils.clear_linux_interfaces_cache()
+        self._clear_monitor_interfaces()
 
+        with FwFrr(fwglobals.g.FRR_DB_FILE) as db_frr:
+            db_frr.clean()
         with FwMultilink(fwglobals.g.MULTILINK_DB_FILE) as db_multilink:
             db_multilink.clean()
         with FwPolicies(fwglobals.g.POLICY_REC_DB_FILE) as db_policies:
             db_policies.clean()
 
-        fwglobals.g.pppoe.reset_interfaces()
+        fwglobals.g.applications_api.call_hook('on_router_is_stopped')
+        fwglobals.g.pppoe.start()
 
     def _on_add_interface_after(self, type, sw_if_index):
         """add-interface postprocessing
@@ -1143,15 +1418,29 @@ class FWROUTER_API(FwCfgRequestHandler):
     def _on_apply_router_config(self):
         """Apply router configuration on successful VPP start.
         """
+        # Before applying configuration move pending requests to the main request
+        # database, hopefully their configuration will succeed this time.
+        # Reset cache of interfaces, so it will be rebuilt during configuration
+        # based on the current interface states.
+        #
+        for msg in self.pending_cfg_db.dump():
+            self.cfg_db.update(msg)
+        self.pending_cfg_db.clean()
+        self.pending_interfaces = {}
+
+        # Now fetch configuration items from database and configure them one by one.
+        #
         types = [
             'add-ospf',
+            'add-routing-filter',
+            'add-routing-bgp',             # BGP should come after routing filter, as it might use them!
             'add-switch',
             'add-interface',
             'add-tunnel',
             'add-application',
             'add-multilink-policy',
             'add-firewall-policy',
-            'add-route',            # Routes should come after tunnels as they might use them!
+            'add-route',            # Routes should come after tunnels and after BGP, as they might use them!
             'add-dhcp-config'
         ]
         messages = self.cfg_db.dump(types=types)
@@ -1160,18 +1449,28 @@ class FWROUTER_API(FwCfgRequestHandler):
             if reply.get('ok', 1) == 0:  # Break and return error on failure of any request
                 return reply
 
+    def sync(self, incoming_requests, full_sync=False):
+        self.pending_cfg_db.clean()
+        FwCfgRequestHandler.sync(self, incoming_requests, full_sync=full_sync)
+
     def sync_full(self, incoming_requests):
-        self.log.debug("_sync_device: start router full sync")
+        if len(incoming_requests) == 0:
+            self.log.info("sync_full: incoming_requests is empty, no need to full sync")
+            return True
+
+        self.log.debug("sync_full: start router full sync")
 
         restart_router = False
         if self.state_is_started():
-            self.log.debug("_sync_device: restart_router=True")
+            self.log.debug("sync_full: : restart_router=True")
             restart_router = True
             fwglobals.g.handle_request({'message':'stop-router'})
 
+        self.pending_cfg_db.clean()
+        fwutils.reset_router_cfg()
         FwCfgRequestHandler.sync_full(self, incoming_requests)
 
         if restart_router:
             fwglobals.g.handle_request({'message': 'start-router'})
 
-        self.log.debug("_sync_device: router full sync succeeded")
+        self.log.debug("sync_full: router full sync succeeded")

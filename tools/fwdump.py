@@ -39,8 +39,11 @@ import fwutils
 import fwglobals
 from fw_vpp_coredump_utils import vpp_coredump_copy_cores
 from fwobject import FwObject
+import fwapplications_api
 
 g = fwglobals.Fwglobals()
+
+fwglobals.initialize()
 
 # Special variables in the dumper commands are substituted in run time as follows:
 #   <dumper_out_file> -> '<temporary_folder>/<dumper>.log'
@@ -92,6 +95,8 @@ g_dumpers = {
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_syslog.1':               { 'shell_cmd': 'cp /var/log/syslog.1 <temp_folder>/linux_syslog_1.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'linux_uuid':                   { 'shell_cmd': 'cp /sys/class/dmi/id/product_uuid <temp_folder>/linux_uuid.log 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     ############################################################################
     # VPP related stuff in Linux - !!! PLEASE KEEP ALPHABET ORDER !!!
@@ -105,6 +110,14 @@ g_dumpers = {
     # FRR stuff - !!! PLEASE KEEP ALPHABET ORDER !!!
     #
     'frr_conf':                     { 'shell_cmd': 'mkdir -p <temp_folder>/frr && cp /etc/frr/* <temp_folder>/frr/ 2>/dev/null' },
+    'frr_bgp_summary':              { 'shell_cmd': f'vtysh -c "show bgp summary" > <temp_folder>/frr_bgp_summary.json 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'frr_ip_route':                 { 'shell_cmd': f'vtysh -c "show ip route json" > <temp_folder>/frr_ip_route.json 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'frr_log':                      { 'shell_cmd': f'cp {g.FRR_LOG_FILE} <temp_folder>/frr.log 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'frr_ospf_neighbors':           { 'shell_cmd': f'vtysh -c "show ip ospf neighbor all json" > <temp_folder>/frr_ip_ospf_neighbors.json 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     ############################################################################
     # flexiEdge agent stuff - !!! PLEASE KEEP ALPHABET ORDER !!!
@@ -125,10 +138,13 @@ g_dumpers = {
     'hostapd.log':                  { 'shell_cmd': 'cp %s <temp_folder>/hostapd.log 2>/dev/null ;' % (g.HOSTAPD_LOG_FILE) +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
+    'fwagent_db_applications':      { 'shell_cmd': 'fwagent show --database applications > <dumper_out_file>' },
+    'fwagent_db_frr':               { 'shell_cmd': 'fwagent show --database frr > <dumper_out_file>' },
     'fwagent_db_general':           { 'shell_cmd': 'fwagent show --database general > <dumper_out_file>' },
     'fwagent_db_multilink':         { 'shell_cmd': 'fwagent show --database multilink > <dumper_out_file>' },
     'fwagent_multilink_cfg':        { 'shell_cmd': 'fwagent show --configuration multilink-policy > <dumper_out_file>' },
     'fwagent_router_cfg':           { 'shell_cmd': 'fwagent show --configuration router > <dumper_out_file>' },
+    'fwagent_router_pending_cfg':   { 'shell_cmd': 'fwagent show --configuration router-pending > <dumper_out_file>' },
     'fwagent_system_configuration': { 'shell_cmd': 'fwagent show --configuration system > <dumper_out_file>' },
 
     'fwagent_threads':              { 'shell_cmd': 'fwagent show --agent threads > <dumper_out_file>' },
@@ -258,7 +274,22 @@ class FwDump(FwObject):
         except Exception as e:
             print(self.prompt + 'ERROR: "%s" failed: %s' % (cmd, str(e)))
 
+    def add_application_files(self):
+        try:
+            apps = fwapplications_api.call_applications_hook('get_fwdump_files')
+            for app_identifier, app_files in apps.items():
+                directory = f'<temp_folder>/applications/{app_identifier}'
+                for app_file in app_files:
+                    file_name = app_file.split('/')[-1] # get the filename out of the file full path
+                    g_dumpers[file_name] = {
+                        'shell_cmd': f'mkdir -p {directory} && cat {app_file} > {directory}/{file_name}'
+                    }
+        except:
+            pass # Do not crash in case of application code error
+
     def dump_all(self):
+        self.add_application_files()
+
         dumpers = list(g_dumpers.keys())
         self._dump(dumpers)
         if self.include_vpp_core:

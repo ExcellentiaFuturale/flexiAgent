@@ -105,6 +105,7 @@ class FwStunWrap(FwObject):
         self.thread_stun.start()
 
     def finalize(self):
+        fwstun.finalize()
         if self.thread_stun:
             self.thread_stun.join()
             self.thread_stun = None
@@ -302,6 +303,10 @@ class FwStunWrap(FwObject):
                 nat_type, nat_ext_ip, nat_ext_port, server_index = \
                     self._send_single_stun_request(local_ip, 4789, cached_addr['server_index'])
 
+                if fwglobals.g.router_threads.teardown:
+                    self.log.debug("teardown: stop requests")
+                    return  # handle shutdown in the middle _send_single_stun_request() loop
+
                 if nat_ext_port == '':
                     self._handle_stun_none_response(dev_id)
                 else:
@@ -345,7 +350,7 @@ class FwStunWrap(FwObject):
         probe_sym_nat_timeout = 30
         send_sym_nat_timeout = 3
 
-        while not fwglobals.g.teardown:
+        while not fwglobals.g.router_threads.teardown:
 
             try:  # Ensure thread doesn't exit on exception
 
@@ -577,15 +582,21 @@ class FwStunWrap(FwObject):
             stats = tunnel_stats.get(tunnel_id)
             if stats and stats.get('status') == 'down':
                 vni = self._get_vni(tunnel_id, encryption_mode)
-                if vni in probe_tunnels:
-                    if tunnel['dst'] != probe_tunnels[vni]["dst"] or tunnel['dstPort'] != str(probe_tunnels[vni]["dstPort"]):
-                        self.log.debug("Remove tunnel: %s" %(tunnel))
-                        fwglobals.g.handle_request({'message':'remove-tunnel', "params": tunnel})
-
-                        tunnel['dst'] = probe_tunnels[vni]["dst"]
-                        tunnel['dstPort'] = str(probe_tunnels[vni]["dstPort"])
-                        self.log.debug("Add tunnel: %s" %(tunnel))
-                        fwglobals.g.handle_request({'message':'add-tunnel', "params": tunnel})
+                probe_tunnel = probe_tunnels.get(vni)
+                if probe_tunnel:
+                    new_ip, new_port = probe_tunnel["dst"], str(probe_tunnel["dstPort"])
+                    if new_ip != tunnel['dst'] or new_port != tunnel['dstPort']:
+                        self.log.debug("modify tunnel %d: dst %s:%s -> %s:%s" % \
+                            (tunnel_id, tunnel['dst'], tunnel['dstPort'], new_ip, new_port))
+                        request = {
+                            "message": "modify-tunnel",
+                            "params": {
+                                "tunnel-id": tunnel_id,
+                                "dst":       new_ip,
+                                "dstPort":   new_port,
+                            }
+                        }
+                        fwglobals.g.handle_request(request)
 
     def _send_symmetric_nat(self):
         """ For IKEv2 tunnels, if we are behind symmetric NAT, and if we are IKE responder,

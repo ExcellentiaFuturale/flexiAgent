@@ -21,26 +21,48 @@
 import enum
 import socket
 import fwglobals
+import fwpppoe
+import fwthread
 import fwtunnel_stats
 import fwutils
-import pyroute2
 import subprocess
 
-from pyroute2 import IPDB
+from fwobject import FwObject
+from pyroute2 import IPRoute
+from pyroute2.netlink import exceptions as netlink_exceptions
 
-ipdb = IPDB()
+routes_protocol_map = {
+    -1: '',
+    0: 'unspec',
+    1: 'redirect',
+    2: 'kernel',
+    3: 'boot',
+    4: 'static',
+    8: 'gated',
+    9: 'ra',
+    10: 'mrt',
+    11: 'zebra',
+    12: 'bird',
+    13: 'dnrouted',
+    14: 'xorp',
+    15: 'ntk',
+    16: 'dhcp',
+    18: 'keepalived',
+    42: 'babel',
+    186: 'bgp',
+    187: 'isis',
+    188: 'ospf',
+    189: 'rip',
+    192: 'eigrp',
+}
 
-class FwRouteProto(enum.Enum):
-   BOOT = 3
-   STATIC = 4
-   DHCP = 16
+routes_protocol_id_map = { y:x for x, y in routes_protocol_map.items() }
 
-class FwRouteKey:
-    """Class used as a route key."""
-    def __init__(self, metric, addr, via):
-        self.addr       = addr
-        self.via        = via
-        self.metric     = metric
+class FwRouteKey(str):
+    """Route key"""
+    def __new__(cls, metric, addr, via):
+        obj = f'{addr} {via} {str(metric)}'
+        return obj
 
 class FwRouteNextHop:
     """Class used as a route nexthop."""
@@ -48,18 +70,19 @@ class FwRouteNextHop:
         self.dev        = dev
         self.via        = via
 
-class FwRouteData:
+class FwRoute:
     """Class used as a route data."""
     def __init__(self, prefix, via, dev, proto, metric):
+        self.key        = FwRouteKey(metric, prefix, via)
         self.prefix     = prefix
         self.via        = via
         self.dev        = dev
         self.proto      = proto
         self.metric     = metric
         self.dev_id     = fwutils.get_interface_dev_id(dev)
-        self.probes     = [True] * fwglobals.g.WAN_FAILOVER_WND_SIZE    # List of ping results
+        self.probes     = {}        # Ping results per server
         self.ok         = True      # If True there is connectivity to internet
-        self.default    = False     # If True the route is the default one - has lowest metric
+        self.stats      = {'ifname': '', 'rtt': 0, 'drop_rate':0}    # Connectivity stats results
 
     def __str__(self):
         route = '%s via %s dev %s(%s)' % (self.prefix, self.via, self.dev, self.dev_id)
@@ -68,6 +91,89 @@ class FwRouteData:
         if self.metric:
             route += (' metric ' + str(self.metric))
         return route
+
+class FwRoutes(FwObject):
+    """Manages all route related activity, e.g. watchdog on sync of static
+    routes in router configuration to the actual routes in kernel, or monitor
+    of default route change, which might require some actions.
+    """
+    def __init__(self):
+        FwObject.__init__(self)
+        self.thread_routes = None
+        self.default_route = fwutils.get_default_route()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # The three arguments to `__exit__` describe the exception
+        # caused the `with` statement execution to fail. If the `with`
+        # statement finishes without an exception being raised, these
+        # arguments will be `None`.
+        self.finalize()
+
+    def initialize(self):
+        """Starts the FwRoutes activity - runs the main loop thread.
+        """
+        self.thread_routes = fwthread.FwRouterThread(target=self.route_thread_func, name="Routes", log=self.log)
+        self.thread_routes.start()
+
+    def finalize(self):
+        """Stops the FwRoutes activity - stops the main loop thread.
+        """
+        if self.thread_routes:
+            self.thread_routes.join()
+            self.thread_routes = None
+
+    def route_thread_func(self, ticks):
+        # Firstly sync static routes from router configuration DB to Linux
+        # in order to restore routes that disappeared for some reason,
+        # for example due to 'netplan apply' that overrod cfg routes.
+        # We do that only if router was started already.
+        #
+        if fwglobals.g.router_api and fwglobals.g.router_api.state_is_started():
+            if ticks % 5 == 0:  # Check routes every ~5 seconds
+                self._check_reinstall_static_routes()
+
+        # Check if the default route was modified.
+        # If it was, reconnect the agent to avoid WebSocket timeout.
+        #
+        if fwglobals.g.fwagent:
+            default_route = fwutils.get_default_route()
+            if self.default_route[2] != default_route[2]:
+                self.log.debug(f"reconnect as default route was changed: '{self.default_route}' -> '{default_route}'")
+                self.default_route = default_route
+                fwglobals.g.fwagent.reconnect()
+
+
+    def _check_reinstall_static_routes(self):
+        routes_db = fwglobals.g.router_cfg.get_routes()
+        routes_linux = FwLinuxRoutes(proto='static')
+        tunnel_addresses = fwtunnel_stats.get_tunnel_info()
+
+        for route in routes_db:
+            addr = route['addr']
+            via = route['via']
+            metric = str(route.get('metric', '0'))
+            dev_id = route.get('dev_id')
+            exist_in_linux = routes_linux.exist(addr, metric, via)
+
+            if tunnel_addresses.get(via) == 'down':
+                if exist_in_linux:
+                    success, err_str = add_remove_route(addr, via, metric, True, dev_id, 'static')
+                    if success:
+                        fwglobals.log.debug(f"remove static route through the broken tunnel: {str(route)}")
+                    else:
+                        fwglobals.log.error(f"failed to remove static route ({str(route)}): {err_str}")
+                continue
+
+            if not exist_in_linux:
+                success, err_str = add_remove_route(addr, via, metric, False, dev_id, 'static')
+                if success:
+                    fwglobals.log.debug(f"restore static route: {str(route)}")
+                else:
+                    fwglobals.log.error(f"failed to restore static route ({str(route)}): {err_str}")
+
 
 class FwLinuxRoutes(dict):
     """The object that represents routing rules found in OS.
@@ -79,49 +185,59 @@ class FwLinuxRoutes(dict):
         return self[item]
 
     def _linux_get_routes(self, prefix=None, preference=None, via=None, proto=None):
-        preference = int(preference) if preference else 0
-
         if not proto:
             proto_id = None
-        elif proto == 'dhcp':
-            proto_id = FwRouteProto.DHCP.value
-        elif proto == 'static':
-            proto_id = FwRouteProto.STATIC.value
         else:
-            fwglobals.log.debug("_linux_get_routes: proto %s is not supported" % proto)
-            return
+            proto_id = routes_protocol_id_map.get(proto, -1)
 
-        with pyroute2.IPRoute() as ipr:
-            routes = ipr.get_routes(family=socket.AF_INET, proto=proto_id)
+        with IPRoute() as ipr:
+            try:
+                if prefix == '0.0.0.0/0':
+                    routes = ipr.get_default_routes(family=socket.AF_INET)
+                else:
+                    # if we set filter by prefix ipr.get_routes() returns corrupted routes info (incorrect protocol type, priority, etc.)
+                    # so we pass only proto instead and filter results by other params like prefix, metric, etc.
+                    # routes = ipr.get_routes(dst=prefix, family=socket.AF_INET, proto=proto_id) - returns wrong data
+                    routes = ipr.get_routes(family=socket.AF_INET, proto=proto_id)
+            except netlink_exceptions.NetlinkError:
+                routes = []     # If no matching route exists in kernel, NetlinkError is raised
 
             for route in routes:
                 nexthops = []
                 dst = None # Default routes have no RTA_DST
                 metric = 0
                 gw = None
+                rt_table = 0
 
-                if route['proto'] == FwRouteProto.DHCP.value:
-                    proto = 'dhcp'
-                elif route['proto'] == FwRouteProto.STATIC.value:
-                    proto = 'static'
-                else:
-                    proto = 'unsupported'
+                rt_proto = routes_protocol_map[route.get('proto', -1)]
 
                 for attr in route['attrs']:
                     if attr[0] == 'RTA_PRIORITY':
                         metric = int(attr[1])
                     if attr[0] == 'RTA_OIF':
-                        dev = ipdb.interfaces[attr[1]].ifname
+                        try:
+                            dev = ipr.get_links(attr[1])[0].get_attr('IFLA_IFNAME')
+                        except NetlinkError as e:
+                            continue
                     if attr[0] == 'RTA_DST':
                         dst = attr[1]
                     if attr[0] == 'RTA_GATEWAY':
                         gw = attr[1]
                     if attr[0] == 'RTA_MULTIPATH':
                         for elem in attr[1]:
-                            dev = ipdb.interfaces[elem['oif']].ifname
+                            try:
+                                dev = ipr.get_links(elem['oif'])[0].get_attr('IFLA_IFNAME')
+                            except NetlinkError as e:
+                                continue
                             for attr2 in elem['attrs']:
                                 if attr2[0] == 'RTA_GATEWAY':
                                     nexthops.append(FwRouteNextHop(attr2[1],dev))
+                    if attr[0] == 'RTA_TABLE':
+                        rt_table = int(attr[1])
+
+                if rt_table >= 255:  # ignore bizare routes which are not in main/local tables
+                    continue        # See RT_TABLE_X in /usr/include/linux/rtnetlink.h
+
                 if not dst: # Default routes have no RTA_DST
                     dst = "0.0.0.0"
                 addr = "%s/%u" % (dst, route['dst_len'])
@@ -129,16 +245,20 @@ class FwLinuxRoutes(dict):
                 if gw:
                     nexthops.append(FwRouteNextHop(gw,dev))
 
-                if preference and metric != preference:
+                # check if non None since metric can be 0
+                if preference is not None and metric != int(preference):
                     continue
 
                 if prefix and addr != prefix:
                     continue
 
+                if not nexthops:
+                    nexthops.append(FwRouteNextHop(None,dev))
+
                 for nexthop in nexthops:
                     if via and via != nexthop.via:
                         continue
-                    self[FwRouteKey(metric, addr, nexthop.via)] = FwRouteData(addr, nexthop.via, nexthop.dev, proto, metric)
+                    self[FwRouteKey(metric, addr, nexthop.via)] = FwRoute(addr, nexthop.via, nexthop.dev, rt_proto, metric)
 
     def exist(self, addr, metric, via):
         metric = int(metric) if metric else 0
@@ -155,7 +275,7 @@ class FwLinuxRoutes(dict):
 
         return False
 
-def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev=None, netplan_apply=True):
+def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev=None, netplan_apply=True, on_link=False):
     """Add/Remove route.
 
     :param addr:            Destination network.
@@ -167,6 +287,8 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
     :param dev:             Name of device in Linux to be used for the route.
                             This parameter has higher priority than the 'dev_id'.
     :param netplan_apply:   If False, the 'netplan apply' command will be not run at the end of this function.
+    :param on_link:         If True, "onlink" option will be set to the route.
+                            It pretends that the 'nexthop' is directly attached to this link, even if it does not match any interface prefix
 
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
@@ -180,17 +302,17 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
     if addr == 'default':
         return (True, None)
 
-    if not fwutils.linux_check_gateway_exist(via):
-        return (True, None)
-
-    if not remove:
-        tunnel_addresses = fwtunnel_stats.get_tunnel_info()
-        if via in tunnel_addresses and tunnel_addresses[via] != 'up':
+    pppoe = fwpppoe.is_pppoe_interface(dev_id=dev_id)
+    if not pppoe:  # PPPoE interfaces can use any peer in the world as a GW, so escape sanity checks for it
+        if not on_link and not fwutils.linux_check_gateway_exist(via):
             return (True, None)
+        if not remove:
+            tunnel_addresses = fwtunnel_stats.get_tunnel_info()
+            if via in tunnel_addresses and tunnel_addresses[via] != 'up':
+                return (True, None)
 
     routes_linux = FwLinuxRoutes(prefix=addr, preference=metric, proto=proto)
-    nexthop = FwLinuxRoutes(prefix=addr, preference=metric,via=via, proto=proto)
-    exist_in_linux = True if len(nexthop) >= 1 else False
+    exist_in_linux = routes_linux.exist(addr, metric, via)
 
     if remove and not exist_in_linux:
         return (True, None)
@@ -200,10 +322,10 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
 
     next_hops = ''
     if routes_linux:
-        for key in routes_linux.keys():
-            if remove and via == key.via:
+        for route in routes_linux.values():
+            if remove and via == route.via:
                 continue
-            next_hops += ' nexthop via ' + key.via
+            next_hops += ' nexthop via ' + route.via
 
     metric = ' metric %s' % metric if metric else ' metric 0'
     op     = 'replace'
@@ -218,7 +340,7 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
         if not dev:
             cmd = "sudo ip route %s %s%s proto %s nexthop via %s %s" % (op, addr, metric, proto, via, next_hops)
         else:
-            cmd = "sudo ip route %s %s%s proto %s nexthop via %s dev %s %s" % (op, addr, metric, proto, via, dev, next_hops)
+            cmd = "sudo ip route %s %s%s proto %s nexthop via %s dev %s %s %s" % (op, addr, metric, proto, via, dev, next_hops, 'onlink' if on_link else '')
 
     try:
         fwglobals.log.debug(cmd)
@@ -238,25 +360,21 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
 
     return (True, None)
 
-def check_reinstall_static_routes():
-    routes_db = fwglobals.g.router_cfg.get_routes()
-    routes_linux = FwLinuxRoutes(proto='static')
-    tunnel_addresses = fwtunnel_stats.get_tunnel_info()
+def remove_route(route):
+    """Removes route in format of FwRoute object from Linux.
 
-    for route in routes_db:
-        addr = route['addr']
-        via = route['via']
-        metric = str(route.get('metric', '0'))
-        dev = route.get('dev_id')
-        exist_in_linux = routes_linux.exist(addr, metric, via)
+    :param route: the FwRoute object that represents route to be removed from Linux.
 
-        if tunnel_addresses.get(via) == 'down':
-            if exist_in_linux:
-                add_remove_route(addr, via, metric, True, dev)
-            continue
-
-        if not exist_in_linux:
-            add_remove_route(addr, via, metric, False, dev)
+    :returns: <error string> on failure, None on success.
+    """
+    try:
+        with IPRoute() as ipr:
+            fwglobals.log.debug(f"remove_route: {route.prefix}, metric={route.metric}")
+            ipr.route("del", dst=route.prefix, priority=route.metric)
+        return None
+    except Exception as e:
+        fwglobals.log.debug(f"failed to remove_route({route.prefix} metric={route.metric}): {str(e)}, ignore this error")
+        return str(e)
 
 def add_remove_static_routes(via, is_add):
     routes_db = fwglobals.g.router_cfg.get_routes()
@@ -267,16 +385,18 @@ def add_remove_static_routes(via, is_add):
 
         addr = route['addr']
         metric = str(route.get('metric', '0'))
-        dev = route.get('dev_id')
+        dev_id = route.get('dev_id')
         via = route['via']
 
-        add_remove_route(addr, via, metric, not is_add, dev)
+        success, err_str = add_remove_route(addr, via, metric, not is_add, dev_id, 'static')
+        if not success:
+            fwglobals.log.error(f"failed to add/remove static route ({str(route)}): {err_str}")
 
 
 def update_route_metric(route, new_metric, netplan_apply=False):
     """Updates metric of the specific route in Linux.
 
-    :param route:           The FwRouteData object that reflects route rule in kernel
+    :param route:           The FwRoute object that reflects route rule in kernel
     :param new_metric:      The new metric to be set for the route.
     :param netplan_apply:   If True the 'netplan apply' command will be run after
                             the update. Take a caution: netplan apply might cancel
@@ -284,11 +404,11 @@ def update_route_metric(route, new_metric, netplan_apply=False):
 
     :returns: True on success, False on failure.
     """
-    success, err_str = add_remove_route(route.prefix, route.via, route.metric, True, dev=route.dev, proto=route.proto, netplan_apply=netplan_apply)
+    success, err_str = add_remove_route(route.prefix, route.via, route.metric, True, dev_id=route.dev_id, dev=route.dev, proto=route.proto, netplan_apply=netplan_apply)
     if not success:
         fwglobals.log.error(f"update_route_metric({str(route)}): failed to remove route: {err_str}")
         return False
-    success, err_str = add_remove_route(route.prefix, route.via, new_metric, False, dev=route.dev, proto=route.proto, netplan_apply=netplan_apply)
+    success, err_str = add_remove_route(route.prefix, route.via, new_metric, False, dev_id=route.dev_id, dev=route.dev, proto=route.proto, netplan_apply=netplan_apply)
     if not success:
         fwglobals.log.error(f"update_route_metric({str(route)}): failed to add route with new metric: {err_str}")
         return False

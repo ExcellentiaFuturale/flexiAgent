@@ -31,31 +31,22 @@ def add_lte(params):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']   = "python"
-    cmd['cmd']['params'] = {
-                'module': 'fwlte',
-                'func': 'connect',
-                'args': { 'params': params }
-    }
+    cmd['cmd']['func']   = "connect"
+    cmd['cmd']['module'] = "fwlte"
+    cmd['cmd']['params'] = { 'params': params }
     cmd['cmd']['descr'] = "Connect LTE to the cellular provider"
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
-    cmd['revert']['params'] = {
-                'module': 'fwlte',
-                'func': 'disconnect',
-                'args': { 'dev_id': params['dev_id'] }
-    }
+    cmd['revert']['func']   = "disconnect"
+    cmd['revert']['module'] = "fwlte"
+    cmd['revert']['params'] = { 'dev_id': params['dev_id'] }
     cmd['revert']['descr'] = "Disconnect LTE from the cellular provider"
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']   = "python"
-    cmd['cmd']['params'] = {
-                'module': 'fwlte',
-                'func': 'configure_interface',
-                'args': { 'params': params }
-    }
+    cmd['cmd']['func']   = "configure_interface"
+    cmd['cmd']['module'] = "fwlte"
+    cmd['cmd']['params'] = { 'params': params }
     cmd['cmd']['descr'] = "Configure LTE IP and gateway on linux interface if vpp is not run"
     cmd_list.append(cmd)
 

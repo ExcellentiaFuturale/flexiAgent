@@ -41,6 +41,7 @@ from fwobject import FwObject
 from fwrouter_api import FWROUTER_API
 from fwsystem_api import FWSYSTEM_API
 from fwagent_api import FWAGENT_API
+from fwapplications_api import FWAPPLICATIONS_API
 from os_api import OS_API
 from fwlog import FwLogFile
 from fwlog import FwSyslog
@@ -48,9 +49,11 @@ from fwlog import FWLOG_LEVEL_INFO
 from fwlog import FWLOG_LEVEL_DEBUG
 from fwpolicies import FwPolicies
 from fwrouter_cfg import FwRouterCfg
+from fwroutes import FwRoutes
 from fwsystem_cfg import FwSystemCfg
 from fwstun_wrapper import FwStunWrap
 from fwpppoe import FwPppoeClient
+from fwthread import FwRouterThreading
 from fwwan_monitor import FwWanMonitor
 from fwikev2 import FwIKEv2
 from fw_traffic_identification import FwTrafficIdentifications
@@ -58,10 +61,11 @@ from fw_traffic_identification import FwTrafficIdentifications
 # sync flag indicated if module implement sync logic.
 # IMPORTANT! Please keep the list order. It indicates the sync priorities
 modules = {
-    'fwsystem_api':     { 'module': __import__('fwsystem_api'),   'sync': True,  'object': 'system_api' }, # fwglobals.g.system_api
-    'fwagent_api':      { 'module': __import__('fwagent_api'),    'sync': False, 'object': 'agent_api' },  # fwglobals.g.agent_api
-    'fwrouter_api':     { 'module': __import__('fwrouter_api'),   'sync': True,  'object': 'router_api' }, # fwglobals.g.router_api
-    'os_api':           { 'module': __import__('os_api'),         'sync': False, 'object': 'os_api' }, # fwglobals.g.os_api
+    'fwsystem_api':       { 'module': __import__('fwsystem_api'),       'sync': True,  'object': 'system_api' },       # fwglobals.g.system_api
+    'fwagent_api':        { 'module': __import__('fwagent_api'),        'sync': False, 'object': 'agent_api' },        # fwglobals.g.agent_api
+    'fwrouter_api':       { 'module': __import__('fwrouter_api'),       'sync': True,  'object': 'router_api' },       # fwglobals.g.router_api
+    'os_api':             { 'module': __import__('os_api'),             'sync': False, 'object': 'os_api' },           # fwglobals.g.os_api
+    'fwapplications_api': { 'module': __import__('fwapplications_api'), 'sync': True,  'object': 'applications_api' }, # fwglobals.g.applications_api,
 }
 
 request_handlers = {
@@ -112,82 +116,30 @@ request_handlers = {
     'remove-multilink-policy':      {'name': '_call_router_api', 'sign': True},
     'add-ospf':                     {'name': '_call_router_api', 'sign': True},
     'remove-ospf':                  {'name': '_call_router_api', 'sign': True},
+    'add-routing-bgp':              {'name': '_call_router_api', 'sign': True},
+    'remove-routing-bgp':           {'name': '_call_router_api', 'sign': True},
+    'modify-routing-bgp':           {'name': '_call_router_api', 'sign': True},
+    'add-routing-filter':           {'name': '_call_router_api', 'sign': True},
+    'remove-routing-filter':        {'name': '_call_router_api', 'sign': True},
     'add-switch':                   {'name': '_call_router_api', 'sign': True},
     'remove-switch':                {'name': '_call_router_api', 'sign': True},
     'add-firewall-policy':          {'name': '_call_router_api', 'sign': True},
     'remove-firewall-policy':       {'name': '_call_router_api', 'sign': True},
 
     # System API
-    'add-lte':                        {'name': '_call_system_api'},
-    'remove-lte':                     {'name': '_call_system_api'},
+    'add-lte':                      {'name': '_call_system_api'},
+    'remove-lte':                   {'name': '_call_system_api'},
 
-    ##############################################################
-    # INTERNAL API-s
-    # ------------------------------------------------------------
-    # These API-s are invoked locally by handlers of server
-    # requests, e.g. by FWROUTER_API module.
-    # The FWROUTER_API module translates received requests
-    # into lists of commands that might be not executed immediately.
-    # These internal commands represent the INTERNAL API-s
-    # listed below. They are recorded into database and are invoked
-    # later, when router is started.
-    ##############################################################
+    # Applications api
+    'add-app-install':             {'name': '_call_applications_api', 'sign': True},
+    'remove-app-install':          {'name': '_call_applications_api', 'sign': True},
+    'add-app-config':              {'name': '_call_applications_api', 'sign': True},
+    'remove-app-config':           {'name': '_call_applications_api', 'sign': True},
 
     # OS API
     'cpuutil':                      {'name': '_call_os_api'},
     'exec':                         {'name': '_call_os_api'},
     'exec_timeout':                 {'name': '_call_os_api'},
-
-    # VPP API
-    'abf_itf_attach_add_del':       {'name': '_call_vpp_api'},
-    'abf_policy_add_del':           {'name': '_call_vpp_api'},
-    'acl_add_replace':              {'name': '_call_vpp_api'},
-    'acl_del':                      {'name': '_call_vpp_api'},
-    'acl_interface_set_acl_list':   {'name': '_call_vpp_api'},
-    'bridge_domain_add_del':        {'name': '_call_vpp_api'},
-    'create_loopback_instance':     {'name': '_call_vpp_api'},
-    'delete_loopback':              {'name': '_call_vpp_api'},
-    'gre_tunnel_add_del':           {'name': '_call_vpp_api'},
-    'ikev2_initiate_sa_init':       {'name': '_call_vpp_api'},
-    'ikev2_profile_add_del':        {'name': '_call_vpp_api'},
-    'ikev2_profile_set_auth':       {'name': '_call_vpp_api'},
-    'ikev2_profile_set_id':         {'name': '_call_vpp_api'},
-    'ikev2_profile_set_ts':         {'name': '_call_vpp_api'},
-    'ikev2_set_esp_transforms':     {'name': '_call_vpp_api'},
-    'ikev2_set_ike_transforms':     {'name': '_call_vpp_api'},
-    'ikev2_set_local_key':          {'name': '_call_vpp_api'},
-    'ikev2_set_responder':          {'name': '_call_vpp_api'},
-    'ikev2_set_sa_lifetime':        {'name': '_call_vpp_api'},
-    'ikev2_set_tunnel_interface':   {'name': '_call_vpp_api'},
-    'ipip_add_tunnel':              {'name': '_call_vpp_api'},
-    'ipip_del_tunnel':              {'name': '_call_vpp_api'},
-    'ip_neighbor_add_del':          {'name': '_call_vpp_api'},
-    'ipsec_sad_entry_add_del':      {'name': '_call_vpp_api'},
-    'ipsec_spd_add_del':            {'name': '_call_vpp_api'},
-    'ipsec_interface_add_del_spd':  {'name': '_call_vpp_api'},
-    'ipsec_spd_add_del_entry':      {'name': '_call_vpp_api'},
-    'ipsec_tunnel_protect_del':     {'name': '_call_vpp_api'},
-    'ipsec_tunnel_protect_update':  {'name': '_call_vpp_api'},
-    'l2_flags':                     {'name': '_call_vpp_api'},
-    'nat44_add_del_identity_mapping':           {'name': '_call_vpp_api'},
-    'nat44_add_del_interface_addr':             {'name': '_call_vpp_api'},
-    'nat44_interface_add_del_output_feature':   {'name': '_call_vpp_api'},
-    'nat44_forwarding_enable_disable':          {'name': '_call_vpp_api'},
-    'nat44_plugin_enable_disable':              {'name': '_call_vpp_api'},
-    'nat44_add_del_static_mapping':             {'name': '_call_vpp_api'},
-    'nat44_add_del_identity_mapping':           {'name': '_call_vpp_api'},
-    'sw_interface_add_del_address': {'name': '_call_vpp_api'},
-    'sw_interface_set_flags':       {'name': '_call_vpp_api'},
-    'sw_interface_set_l2_bridge':   {'name': '_call_vpp_api'},
-    'sw_interface_set_mac_address': {'name': '_call_vpp_api'},
-    'sw_interface_set_mtu':         {'name': '_call_vpp_api'},
-    'sw_interface_set_unnumbered':  {'name': '_call_vpp_api'},
-    'vmxnet3_create':               {'name': '_call_vpp_api'},
-    'vmxnet3_delete':               {'name': '_call_vpp_api'},
-    'vxlan_add_del_tunnel':         {'name': '_call_vpp_api'},
-
-    # Python API
-    'python':                       {'name': '_call_python_api'}
 }
 
 global g_initialized
@@ -213,7 +165,8 @@ class Fwglobals(FwObject):
             DEFAULT_MANAGEMENT_URL = 'https://manage.flexiwan.com:443'
             DEFAULT_TOKEN_FILE     = data_path + 'token.txt'
             DEFAULT_UUID           = None
-            DEFAULT_MONITOR_UNASSIGNED_INTERFACES = True
+            DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES = True
+            DEFAULT_WAN_MONITOR_SERVERS = ['1.1.1.1','8.8.8.8']
             try:
                 with open(filename, 'r') as conf_file:
                     conf = yaml.load(conf_file, Loader=yaml.SafeLoader)
@@ -224,7 +177,8 @@ class Fwglobals(FwObject):
                 self.MANAGEMENT_URL = agent_conf.get('server', DEFAULT_MANAGEMENT_URL)
                 self.TOKEN_FILE     = agent_conf.get('token',  DEFAULT_TOKEN_FILE)
                 self.UUID           = agent_conf.get('uuid',   DEFAULT_UUID)
-                self.MONITOR_UNASSIGNED_INTERFACES = agent_conf.get('monitor_unassigned_interfaces', DEFAULT_MONITOR_UNASSIGNED_INTERFACES)
+                self.WAN_MONITOR_UNASSIGNED_INTERFACES = agent_conf.get('monitor_wan',{}).get('monitor_unassigned_interfaces', DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES)
+                self.WAN_MONITOR_SERVERS = agent_conf.get('monitor_wan',{}).get('servers', DEFAULT_WAN_MONITOR_SERVERS)
             except Exception as e:
                 if log:
                     log.excep("%s, set defaults" % str(e))
@@ -234,7 +188,8 @@ class Fwglobals(FwObject):
                 self.MANAGEMENT_URL = DEFAULT_MANAGEMENT_URL
                 self.TOKEN_FILE     = DEFAULT_TOKEN_FILE
                 self.UUID           = DEFAULT_UUID
-                self.MONITOR_UNASSIGNED_INTERFACES = DEFAULT_MONITOR_UNASSIGNED_INTERFACES
+                self.WAN_MONITOR_UNASSIGNED_INTERFACES = DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES
+                self.WAN_MONITOR_SERVERS = DEFAULT_WAN_MONITOR_SERVERS
             if self.DEBUG and log:
                 log.set_level(FWLOG_LEVEL_DEBUG)
 
@@ -285,7 +240,9 @@ class Fwglobals(FwObject):
         self.DEVICE_TOKEN_FILE   = self.DATA_PATH + 'fwagent_info.txt'
         self.VERSIONS_FILE       = self.DATA_PATH + '.versions.yaml'
         self.ROUTER_CFG_FILE     = self.DATA_PATH + '.requests.sqlite'
+        self.ROUTER_PENDING_CFG_FILE = self.DATA_PATH + '.requests.pending.sqlite'
         self.SYSTEM_CFG_FILE     = self.DATA_PATH + '.system.sqlite'
+        self.APPLICATIONS_CFG_FILE = self.DATA_PATH + '.applications.sqlite'
         self.ROUTER_STATE_FILE   = self.DATA_PATH + '.router.state'
         self.CONN_FAILURE_FILE   = self.DATA_PATH + '.upgrade_failed'
         self.IKEV2_FOLDER        = self.DATA_PATH + 'ikev2/'
@@ -298,23 +255,28 @@ class Fwglobals(FwObject):
         self.SYSLOG_FILE         = '/var/log/syslog'
         self.DHCP_LOG_FILE       = '/var/log/dhcpd.log'
         self.VPP_LOG_FILE        = '/var/log/vpp/vpp.log'
-        self.OSPF_LOG_FILE       = '/var/log/frr/ospfd.log'
+        self.FRR_LOG_FILE       = '/var/log/frr/ospfd.log'
         self.VPP_CONFIG_FILE     = '/etc/vpp/startup.conf'
         self.VPP_CONFIG_FILE_BACKUP   = '/etc/vpp/startup.conf.baseline'
         self.VPP_CONFIG_FILE_RESTORE = '/etc/vpp/startup.conf.orig'
         self.VPP_TRACE_FILE_EXT  = '.vpp.api'
+        self.FRR_ZEBRA_FILE      = '/etc/frr/zebra.conf'
         self.FRR_DAEMONS_FILE    = '/etc/frr/daemons'
         self.FRR_CONFIG_FILE     = '/etc/frr/frr.conf'
         self.FRR_OSPFD_FILE      = '/etc/frr/ospfd.conf'
+        self.FRR_BGPD_FILE      = '/etc/frr/bgpd.conf'
         self.FRR_VTYSH_FILE      = '/etc/frr/vtysh.conf'
         self.FRR_OSPF_ACL       = 'fw-redist-ospf-acl'
         self.FRR_OSPF_ROUTE_MAP = 'fw-redist-ospf-rm'
+        self.FRR_BGP_ACL       = 'fw-redist-bgp-acl'
+        self.FRR_BGP_ROUTE_MAP = 'fw-redist-bgp-rm'
         self.DHCPD_CONFIG_FILE   = '/etc/dhcp/dhcpd.conf'
         self.DHCPD_CONFIG_FILE_BACKUP = '/etc/dhcp/dhcpd.conf.fworig'
         self.ISC_DHCP_CONFIG_FILE = '/etc/default/isc-dhcp-server'
         self.ISC_DHCP_CONFIG_FILE_BACKUP = '/etc/default/isc-dhcp-server.fworig'
         self.PPPOE_CONFIG_PATH   = '/etc/ppp/'
         self.PPPOE_CONFIG_PROVIDER_FILE   = 'flexiwan-dsl-provider'
+        self.FRR_DB_FILE         = self.DATA_PATH + '.frr.sqlite'
         self.PPPOE_DB_FILE       = self.DATA_PATH + '.pppoe.sqlite'
         self.POLICY_REC_DB_FILE  = self.DATA_PATH + '.policy.sqlite'
         self.MULTILINK_DB_FILE   = self.DATA_PATH + '.multilink.sqlite'
@@ -330,9 +292,11 @@ class Fwglobals(FwObject):
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
+        self.pppoe = None
         self.loadsimulator = None
+        self.routes = None
+        self.router_api = None
         self.cache   = self.FwCache()
-        self.WAN_FAILOVER_SERVERS          = [ '1.1.1.1' , '8.8.8.8' ]
         self.WAN_FAILOVER_WND_SIZE         = 20         # 20 pings, every ping waits a second for response
         self.WAN_FAILOVER_THRESHOLD        = 12         # 60% of pings lost - enter the bad state, 60% of pings are OK - restore to good state
         self.WAN_FAILOVER_METRIC_WATERMARK = 2000000000 # Bad routes will have metric above 2000000000
@@ -340,7 +304,9 @@ class Fwglobals(FwObject):
         self.LOOPBACK_ID_TUNNELS           = [0, 16299]  # Loopback id in vpp is up to 16384, so we use this range for tunnels
         self.DUMP_FOLDER                   = '/var/log/flexiwan/fwdump'
         self.DEFAULT_DNS_SERVERS           = ['8.8.8.8', '8.8.4.4']
-        self.request_lock                  = threading.RLock()   # lock to syncronize message processing
+        self.router_threads                = FwRouterThreading() # Primitives used for synchronization of router configuration and monitoring threads
+        self.handle_request_lock           = threading.RLock()
+        self.is_gcp_vm                     = fwutils.detect_gcp_vm()
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
@@ -356,8 +322,6 @@ class Fwglobals(FwObject):
         # Load signal to string map
         self.signal_names = dict((getattr(signal, n), n) \
                                 for n in dir(signal) if n.startswith('SIG') and '_' not in n )
-
-        self.teardown = False   # Flag that stops all helper threads in parallel to speedup gracefull exit
 
     def load_configuration_from_file(self):
         """Load configuration from YAML file.
@@ -405,19 +369,21 @@ class Fwglobals(FwObject):
         if not fwutils.vpp_does_run():
             fwlte.reload_lte_drivers_if_needed()
 
-        self.db           = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! Load data at the first place!
-        self.fwagent      = FwAgent(handle_signals=False)
-        self.router_cfg   = FwRouterCfg(self.ROUTER_CFG_FILE) # IMPORTANT! Initialize database at the first place!
-        self.system_cfg   = FwSystemCfg(self.SYSTEM_CFG_FILE)
-        self.agent_api    = FWAGENT_API()
-        self.system_api   = FWSYSTEM_API(self.system_cfg)
-        self.router_api   = FWROUTER_API(self.router_cfg, self.MULTILINK_DB_FILE)
-        self.os_api       = OS_API()
-        self.policies     = FwPolicies(self.POLICY_REC_DB_FILE)
-        self.wan_monitor  = FwWanMonitor(standalone)
-        self.stun_wrapper = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
-        self.ikev2        = FwIKEv2()
-        self.pppoe        = FwPppoeClient(self.PPPOE_DB_FILE, self.PPPOE_CONFIG_PATH, self.PPPOE_CONFIG_PROVIDER_FILE, standalone)
+        self.db               = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! Load data at the first place!
+        self.fwagent          = FwAgent(handle_signals=False)
+        self.router_cfg       = FwRouterCfg(self.ROUTER_CFG_FILE) # IMPORTANT! Initialize database at the first place!
+        self.system_cfg       = FwSystemCfg(self.SYSTEM_CFG_FILE)
+        self.agent_api        = FWAGENT_API()
+        self.system_api       = FWSYSTEM_API(self.system_cfg)
+        self.router_api       = FWROUTER_API(self.router_cfg, self.ROUTER_PENDING_CFG_FILE, self.MULTILINK_DB_FILE, self.FRR_DB_FILE)
+        self.applications_api = FWAPPLICATIONS_API(start_application_stats=True)
+        self.os_api           = OS_API()
+        self.policies         = FwPolicies(self.POLICY_REC_DB_FILE)
+        self.wan_monitor      = FwWanMonitor(standalone)
+        self.stun_wrapper     = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
+        self.ikev2            = FwIKEv2()
+        self.pppoe            = FwPppoeClient(standalone=standalone)
+        self.routes           = FwRoutes()
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 
@@ -434,8 +400,6 @@ class Fwglobals(FwObject):
         # VPPSB need that to handle more netlink events on a heavy load
         fwutils.set_linux_socket_max_receive_buffer_size(2048000)
 
-        self.pppoe.initialize()   # IMPORTANT! The PPPOE should be initialized before restore_vpp_if_needed!
-
         self.stun_wrapper.initialize()   # IMPORTANT! The STUN should be initialized before restore_vpp_if_needed!
 
         self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
@@ -445,7 +409,9 @@ class Fwglobals(FwObject):
         fwutils.get_linux_interfaces(cached=False) # Fill global interface cache
 
         self.wan_monitor.initialize() # IMPORTANT! The WAN monitor should be initialized after restore_vpp_if_needed!
+        self.pppoe.initialize()   # IMPORTANT! The PPPOE should be initialized after restore_vpp_if_needed!
         self.system_api.initialize()
+        self.routes.initialize()      # IMPORTANT! The FwRoutes should be initialized after restore_vpp_if_needed!
 
         return self.fwagent
 
@@ -457,15 +423,23 @@ class Fwglobals(FwObject):
             log.warning('Fwglobals.finalize_agent: agent does not exists')
             return
 
-        self.teardown = True   # Stop all helper threads in parallel to speedup gracefull exit
+        self.router_threads.teardown = True   # Stop all threads in parallel to speedup gracefull exit
 
-        self.wan_monitor.finalize()
-        self.stun_wrapper.finalize()
-        self.system_api.finalize()
-        self.router_api.finalize()
-        self.fwagent.finalize()
-        self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
+        try:
+            self.routes.finalize()
+            self.pppoe.finalize()
+            self.wan_monitor.finalize()
+            self.stun_wrapper.finalize()
+            self.system_api.finalize()
+            self.router_api.finalize()
+            self.fwagent.finalize()
+            self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
+        except Exception as e:
+            self.log.error(f"finalize_agent: {str(e)}")
 
+        del self.routes
+        del self.pppoe
+        self.pppoe = None
         del self.wan_monitor
         del self.stun_wrapper
         del self.policies
@@ -473,6 +447,7 @@ class Fwglobals(FwObject):
         del self.os_api
         del self.router_api
         del self.agent_api
+        del self.applications_api
         del self.logger_add_application
         del self.fwagent
         self.fwagent = None
@@ -507,174 +482,61 @@ class Fwglobals(FwObject):
     def _call_os_api(self, request):
         return self.os_api.call_simple(request)
 
-    def _call_vpp_api(self, request, result=None):
-        return self.router_api.vpp_api.call_by_request(request, result)
+    def _call_applications_api(self, request):
+        return self.applications_api.call(request)
 
-    def _call_python_api(self, request, result=None):
-        '''Handle request that describe python function.
-
-        :param request: the request like:
-            {
-                'name':   "python"
-                'descr':  "add multilink labels into interface %s %s: %s" % (iface_addr, iface_dev_id, labels)
-                'params': {
-                    'module': 'fwutils',
-                    'func'  : 'vpp_multilink_update_labels',
-                    'args'  : {
-                        'labels':   labels,
-                        'next_hop': gw,
-                        'dev_id':   iface_dev_id,
-                        'remove':   False
-                    }
-                }
-            }
-
-        :param result: the cache where the python function should store data,
-                       required by the request sender. Today this cache is
-                       managed by the router_api executor and it is used
-                       to fulfill substitutions in function arguments,
-                       specified by the 'substs' parameter of the request.
-                       The format of the 'result' is as follows:
-            {
-                'result_attr': <name of variable inside python function,
-                                value of which the function should set into cache>
-                'cache':       <the python dict used as a cache>
-                'key':         <the key for the value to be cached>
-            }
-        '''
-        func = self._call_python_api_get_func(request['params'])
-        args = request['params'].get('args')
-
-        if result:
-            args = copy.deepcopy(args) if args else {}
-            args.update({ 'result_cache': result })
-
-        ret = func(**args) if args else func()
-        (ok, val) = self._call_python_api_parse_result(ret)
-        if not ok:
-            func_str = request['params'].get('func')
-            if args:
-                args_str = ', '.join([ "%s=%s" % (arg_name, args[arg_name]) for arg_name in args ])
-            else:
-                args_str = ''
-            log.error('_call_python_api: %s(%s) failed: %s' % (func_str, args_str, val))
-        reply = {'ok':ok, 'message':val}
-        return reply
-
-    def _call_python_api_get_func(self, params):
-        if 'module' in params:
-            func = getattr(__import__(params['module']), params['func'])
-        elif 'object' in params:
-            if params['object'] == 'fwglobals.g':
-                func = getattr(self, params['func'])
-            elif params['object'] == 'fwglobals.g.router_api':
-                func = getattr(self.router_api, params['func'])
-            elif params['object'] == 'fwglobals.g.router_api.vpp_api':
-                func = getattr(self.router_api.vpp_api, params['func'])
-            elif params['object'] == 'fwglobals.g.ikev2':
-                func = getattr(self.ikev2, params['func'])
-            elif params['object'] == 'fwglobals.g.traffic_identifications':
-                func = getattr(self.traffic_identifications, params['func'])
-            elif params['object'] == 'fwglobals.g.pppoe':
-                func = getattr(self.pppoe, params['func'])
-            else:
-                raise Exception("object '%s' is not supported" % (params['object']))
-        else:
-            raise Exception("neither 'module' nor 'object' was provided for '%s'" % (params['func']))
-        return func
-
-    def _call_python_api_parse_result(self, ret):
-        val = None
-        if ret is None:
-            ok  = 1
-        elif type(ret) == tuple:
-            ok  = ret[0]
-            val = ret[1]
-        elif type(ret) == dict:
-            ok  = ret.get('ok', 0)
-            val = ret.get('ret')
-        elif type(ret) == bool:
-            ok = 1 if ret else 0
-        else:
-            ok = 0
-            val = '_call_python_api_parse_result: unsupported type of return: %s' % type(ret)
-        return (ok, val)
-
-
-    # result - how to store result of command.
-    #          It is dict of {<attr> , <cache>, <cache key>}.
-    #          On success we fetch value of attribute <attr> of the object,
-    #          returned by 'cmd' command and store it in the <cache> by key <cache key>.
-    #          Note <attr> may be used for any semantic, depeneding on the command.
-    #          For example, it might contain pattern for grep to be run
-    #          on command output.
-    #
-    def handle_request(self, request, result=None, received_msg=None):
-        """Handle request.
+    def handle_request(self, request, received_msg=None):
+        """Handle request received from flexiManage or injected locally.
 
         :param request:      The request received from flexiManage after
                              transformation by fwutils.fix_received_message().
-        :param result:       Place for result.
         :param received_msg: The original message received from flexiManage.
 
         :returns: Dictionary with error string and status code.
         """
-        try:
-            req    = request['message']
-            params = request.get('params')
+        with self.handle_request_lock:
+            try:
+                req    = request['message']
+                params = request.get('params')
 
-            handler = request_handlers.get(req)
-            assert handler, 'fwglobals: "%s" request is not supported' % req
+                handler      = request_handlers.get(req)
+                handler_func = getattr(self, handler.get('name'))
 
-            # received_msg indicate that request is received from flexiManage
-            received_from_server = (received_msg != None)
+                reply = handler_func(request)
+                if reply['ok'] == 0:
+                    vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
+                    os.system('sudo vppctl api trace save %s' % (vpp_trace_file))
+                    raise Exception(reply['message'])
 
-            # Keep copy of the request aside for signature purposes,
-            # as the original request might by modified by preprocessing.
-            #
-            if handler.get('sign', False) == True and received_msg is None:
-                received_msg = copy.deepcopy(request)
+                # On router configuration request, e.g. add-interface,
+                # remove-tunnel, etc. update the configuration database
+                # signature. This is needed to assists the database synchronization
+                # feature that keeps the configuration set by user on the flexiManage
+                # in sync with the one stored on the flexiEdge device.
+                # Note we update signature on configuration requests received from flexiManage only,
+                # but retrieve it into replies for all requests. This is to simplify
+                # flexiManage code.
+                #
+                if reply['ok'] == 1 and handler.get('sign') and received_msg:
+                    fwutils.update_device_config_signature(received_msg)
+                reply['router-cfg-hash'] = fwutils.get_device_config_signature()
 
-            handler_func = getattr(self, handler.get('name'))
+                return reply
 
-            with self.request_lock:
-                if result is None:
-                    reply = handler_func(request)
-                else:
-                    reply = handler_func(request, result)
-
-            if reply['ok'] == 0:
-                vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
-                os.system('sudo vppctl api trace save %s' % (vpp_trace_file))
-                raise Exception(reply['message'])
-
-            # On router configuration request, e.g. add-interface,
-            # remove-tunnel, etc. update the configuration database
-            # signature. This is needed to assists the database synchronization
-            # feature that keeps the configuration set by user on the flexiManage
-            # in sync with the one stored on the flexiEdge device.
-            # Note we update signature on configuration requests received from flexiManage only,
-            # but retrieve it into replies for all requests. This is to simplify
-            # flexiManage code.
-            #
-            if reply['ok'] == 1 and handler.get('sign', False) == True and received_from_server:
-                fwutils.update_device_config_signature(received_msg)
-            reply['router-cfg-hash'] = fwutils.get_device_config_signature()
-
-            return reply
-
-        except Exception as e:
-            global log
-            err_str = "%s(%s): %s" % (str(e), req, format(params))
-            log.error(err_str + ': %s' % str(traceback.format_exc()))
-            reply = {"message":err_str, 'ok':0}
-            return reply
+            except Exception as e:
+                global log
+                err_str = "%s(%s): %s" % (str(e), req, format(params))
+                log.error(err_str + ': %s' % str(traceback.format_exc()))
+                reply = {"message":err_str, 'ok':0}
+                return reply
 
     def _get_api_object_attr(self, api_type, attr):
         if api_type == '_call_router_api':
             return getattr(self.router_api, attr)
         elif api_type == '_call_system_api':
             return getattr(self.system_api, attr)
+        elif api_type == '_call_applications_api':
+            return getattr(self.applications_api, attr)
 
     def _call_aggregated(self, request):
         """Handle aggregated request from flexiManage.
@@ -767,7 +629,7 @@ class Fwglobals(FwObject):
         apis = list(aggregations.keys())
         executed_apis = []
 
-        for api in ['_call_system_api', '_call_router_api']:
+        for api in ['_call_system_api', '_call_router_api', '_call_applications_api']:
             if api in aggregations:
                 api_call_func = self._get_api_object_attr(api, 'call')
                 try:
