@@ -29,7 +29,7 @@ from netaddr import *
 import fwglobals
 import fwlte
 import fwutils
-
+from fwtranslate_add_routing_bgp import get_neighbor_frr_commands
 
 # add_tunnel
 # --------------------------------------
@@ -1794,7 +1794,7 @@ def add_tunnel(params):
     # we need to clean up BGP routes before removing the tunnel loopback.
     # Otherwise, the routes get stuck in vpp with an unresolved state.
     #
-    # Shutting down a BGP neighborship causes routes to be cleaned from Linux and VPP.
+    # Shutting down a BGP neighbors causes routes to be cleaned from Linux and VPP.
     #
     # Hence, in the remove-tunnel process (revert of add-tunnel), we shut down the BGP peer
     # with the remote side of the tunnel before we removing the loopback.
@@ -1802,6 +1802,32 @@ def add_tunnel(params):
     # In the add-tunnel process we make sure that BGP neighbor is active.
     # --------------------------------------------------------------------------
     if routing == 'bgp' and not 'peer' in params:
+        bgp_remote_asn = params['loopback-iface'].get('bgp-remote-asn')
+        if bgp_remote_asn:
+            neighbor = {
+                'ip': remote_loop0_ip,
+                'remoteAsn': ''
+            }
+            add_frr_cmds = get_neighbor_frr_commands(neighbor)
+            remove_frr_cmds = get_neighbor_frr_commands(neighbor, add=False)
+
+            cmd = {}
+            cmd['cmd'] = {}
+            cmd['cmd']['func']      = "frr_vtysh_run"
+            cmd['cmd']['module']    = "fwutils"
+            cmd['cmd']['descr']     = "add remote ip %s as bgp neighbor" % remote_loop0_ip
+            cmd['cmd']['params']    = {
+                'commands': add_frr_cmds,
+            }
+            cmd['revert'] = {}
+            cmd['revert']['func']   = "frr_vtysh_run"
+            cmd['revert']['module'] = "fwutils"
+            cmd['revert']['params'] = {
+                'commands': remove_frr_cmds,
+            }
+            cmd['revert']['descr']   = "remove remote ip %s from bgp neighbor" % remote_loop0_ip
+            cmd_list.append(cmd)
+
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']      = "shutdown_activate_bgp_peer_if_exists"

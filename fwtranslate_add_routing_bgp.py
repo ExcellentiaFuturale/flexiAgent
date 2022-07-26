@@ -117,7 +117,7 @@ def add_routing_bgp(params):
     # Neighbors
     neighbors = params.get('neighbors', [])
     for neighbor in neighbors:
-        vty_commands += _get_neighbor_frr_commands(neighbor)
+        vty_commands += get_neighbor_frr_commands(neighbor)
 
     vty_commands += [
         'address-family ipv4 unicast',
@@ -163,7 +163,7 @@ def add_routing_bgp(params):
 
     return cmd_list
 
-def _get_neighbor_frr_commands(neighbor):
+def get_neighbor_frr_commands(neighbor, add=True):
     ip = neighbor.get('ip')
     remote_asn = neighbor.get('remoteAsn')
     password = neighbor.get('password')
@@ -182,6 +182,9 @@ def _get_neighbor_frr_commands(neighbor):
 
     if keepalive_interval and hold_interval:
         commands.append(f'neighbor {ip} timers {keepalive_interval} {hold_interval}')
+
+    if not add:
+        commands = 'no '.join(map(lambda x: '%s' % x, commands))
 
     return commands
 
@@ -277,7 +280,7 @@ def _modify_neighbors(cmd_list, new_params, old_params):
     def _add_cmd_func(neighbor):
         ip = neighbor.get('ip')
         vtysh_commands = [f'router bgp {local_asn}']
-        vtysh_commands += _get_neighbor_frr_commands(neighbor)
+        vtysh_commands += get_neighbor_frr_commands(neighbor)
 
         vtysh_commands.append(f'address-family ipv4 unicast')
 
