@@ -1806,10 +1806,9 @@ def add_tunnel(params):
         if bgp_remote_asn:
             neighbor = {
                 'ip': remote_loop0_ip,
-                'remoteAsn': ''
+                'remoteAsn': bgp_remote_asn
             }
             add_frr_cmds = get_neighbor_frr_commands(neighbor)
-            remove_frr_cmds = get_neighbor_frr_commands(neighbor, add=False)
 
             cmd = {}
             cmd['cmd'] = {}
@@ -1817,13 +1816,13 @@ def add_tunnel(params):
             cmd['cmd']['module']    = "fwutils"
             cmd['cmd']['descr']     = "add remote ip %s as bgp neighbor" % remote_loop0_ip
             cmd['cmd']['params']    = {
-                'commands': add_frr_cmds,
+                'commands': ['router bgp'] + add_frr_cmds,
             }
             cmd['revert'] = {}
             cmd['revert']['func']   = "frr_vtysh_run"
             cmd['revert']['module'] = "fwutils"
             cmd['revert']['params'] = {
-                'commands': remove_frr_cmds,
+                'commands': ['router bgp', f'no neighbor {remote_loop0_ip}'],
             }
             cmd['revert']['descr']   = "remove remote ip %s from bgp neighbor" % remote_loop0_ip
             cmd_list.append(cmd)

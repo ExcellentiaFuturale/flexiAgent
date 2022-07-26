@@ -163,7 +163,7 @@ def add_routing_bgp(params):
 
     return cmd_list
 
-def get_neighbor_frr_commands(neighbor, add=True):
+def get_neighbor_frr_commands(neighbor):
     ip = neighbor.get('ip')
     remote_asn = neighbor.get('remoteAsn')
     password = neighbor.get('password')
@@ -182,9 +182,6 @@ def get_neighbor_frr_commands(neighbor, add=True):
 
     if keepalive_interval and hold_interval:
         commands.append(f'neighbor {ip} timers {keepalive_interval} {hold_interval}')
-
-    if not add:
-        commands = 'no '.join(map(lambda x: '%s' % x, commands))
 
     return commands
 
