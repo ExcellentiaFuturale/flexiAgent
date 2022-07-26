@@ -2097,7 +2097,7 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
                     p.remove_element(config['dpdk'], param)
                 tup = p.create_element(param)
                 config['dpdk'].append(tup)
-                name = f'{{ name {if_name} }}'
+                name = f'{{ name vpp_{if_name} }}'
                 old_config_param = f'dev {addr_full} {name}'
                 new_config_param = f'dev {addr_short} {name}'
 
