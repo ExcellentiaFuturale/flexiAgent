@@ -91,15 +91,5 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
         except Exception as e:
             print("Migration error: %s : %s" % (__file__, str(e)))
 
-    # # downgrade to lower (or equal) then 5.2
-    # if upgrade == 'downgrade' and new_major_version < 5 or (new_major_version == 5 and new_minor_version <= 2):
-    #     try:
-    #         print("* Migrating routing field from list to string ...")
-    #         _migrate_routing_field(upgrade=False)
-
-    #         # no need to migrate the vpn scripts on downgrade, the new scripts support both versions
-    #     except Exception as e:
-    #         print("Migration error: %s : %s" % (__file__, str(e)))
-
 if __name__ == "__main__":
     migrate("")
