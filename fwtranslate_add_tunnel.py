@@ -1922,34 +1922,35 @@ def modify_tunnel(new_params, old_params):
 
     cmd_list = []
 
-    remote_device_id = str(old_params['ikev2']['remote-device-id'])
-    role = old_params['ikev2']['role']
+    if 'ikev2' in old_params:
+        remote_device_id = str(old_params['ikev2']['remote-device-id'])
+        role = old_params['ikev2']['role']
 
-    certificate = new_params['ikev2'].get('certificate')
-    if certificate:
-        # Add public certificate file
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']      = "modify_certificate"
-        cmd['cmd']['object']    = "fwglobals.g.ikev2"
-        cmd['cmd']['descr']     = "modify IKEv2 public certificate for %s" % remote_device_id
-        cmd['cmd']['params']    = {
-                                    'device_id'   : remote_device_id,
-                                    'certificate' : certificate,
-                                    'tunnel_id'   : new_params['tunnel-id'],
-                                  }
-        cmd_list.append(cmd)
+        certificate = new_params['ikev2'].get('certificate')
+        if certificate:
+            # Add public certificate file
+            cmd = {}
+            cmd['cmd'] = {}
+            cmd['cmd']['func']      = "modify_certificate"
+            cmd['cmd']['object']    = "fwglobals.g.ikev2"
+            cmd['cmd']['descr']     = "modify IKEv2 public certificate for %s" % remote_device_id
+            cmd['cmd']['params']    = {
+                                        'device_id'   : remote_device_id,
+                                        'certificate' : certificate,
+                                        'tunnel_id'   : new_params['tunnel-id'],
+                                    }
+            cmd_list.append(cmd)
 
-    remote_cert_applied = new_params['ikev2'].get('remote-cert-applied', None)
-    if remote_cert_applied:
-        # Reinitiate IKEv2 session
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']      = "reinitiate_session"
-        cmd['cmd']['object']    = "fwglobals.g.ikev2"
-        cmd['cmd']['descr']     = "Reinitiate IKEv2 session with %s" % remote_device_id
-        cmd['cmd']['params']    = {'tunnel_id': new_params['tunnel-id'], 'role': role}
-        cmd_list.append(cmd)
+        remote_cert_applied = new_params['ikev2'].get('remote-cert-applied', None)
+        if remote_cert_applied:
+            # Reinitiate IKEv2 session
+            cmd = {}
+            cmd['cmd'] = {}
+            cmd['cmd']['func']      = "reinitiate_session"
+            cmd['cmd']['object']    = "fwglobals.g.ikev2"
+            cmd['cmd']['descr']     = "Reinitiate IKEv2 session with %s" % remote_device_id
+            cmd['cmd']['params']    = {'tunnel_id': new_params['tunnel-id'], 'role': role}
+            cmd_list.append(cmd)
 
     return cmd_list
 
