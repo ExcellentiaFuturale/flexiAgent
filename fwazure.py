@@ -46,3 +46,9 @@ def dev_id_is_azure(dev_id):
         fwutils.dev_id_is_of_type(dev_id, 'mlx4_core')):
         return True
     return False
+
+def if_name_is_azure(if_name):
+    driver = fwutils.get_ethtool_value(if_name, 'driver')
+    if (driver == 'hv_netvsc'):
+        return True
+    return False

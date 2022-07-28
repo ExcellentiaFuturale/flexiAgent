@@ -2149,6 +2149,9 @@ def is_interface_without_dev_id(if_name):
     if if_name.startswith('br_'):
         return True
 
+    if fwazure.if_name_is_azure(if_name):
+        return True
+
     return False
 
 def get_lte_interfaces_names():
