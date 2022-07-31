@@ -973,6 +973,43 @@ class FWROUTER_API(FwCfgRequestHandler):
                         with application config was replaced with %s" % json.dumps(request))
                 return request
 
+        ########################################################################
+        # The code below preprocesses 'add-routing-bgp' request.
+        # This preprocessing adds pair of 'remove-tunnel' and 'add-tunnel'
+        # requests to make sure a tunnel with bgp routing protocol is configured
+        # in frr after add-routing-bgp requests is applied.
+        ########################################################################
+        bgp_tunnels_params = self.cfg_db.get_tunnels(routing='bgp')
+        for bgp_tunnel_params in bgp_tunnels_params:
+            add_tunnel_req = { 'message': 'remove-tunnel', 'params' : bgp_tunnel_params }
+            remove_tunnel_req = { 'message': 'add-tunnel', 'params' : bgp_tunnel_params }
+
+            if req == 'aggregated':
+                is_changed = False
+                for _request in params['requests']:
+                    if _request['message'] == 'add-routing-bgp':
+                        params['requests'].append(add_tunnel_req)
+                        params['requests'].append(remove_tunnel_req)
+                        is_changed = True
+                # don't print debug log for each tunnel to support large scale of tunnels.
+                if is_changed:
+                    self.log.debug("_preprocess_request: Tunnel requests was added to  \
+                            the aggregated with BGP request %s" % json.dumps(request))
+                    # don't 'return' here. We need to take care of the aggregated requests order
+                    # Which is done next in the function
+
+            if req == 'add-routing-bgp':
+                updated_requests = [
+                    { 'message': 'remove-tunnel', 'params' : bgp_tunnel_params },
+                    request,
+                    { 'message': 'add-tunnel', 'params' : bgp_tunnel_params }
+                ]
+                request = {'message': 'aggregated', 'params': { 'requests' : updated_requests }}
+                self.log.debug("_preprocess_request: BGP request \
+                        was replaced with aggregated %s" % json.dumps(request))
+                return request
+
+
         # No preprocessing is needed for rest of simple requests, return.
         if req != 'aggregated':
             return request
