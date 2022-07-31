@@ -117,7 +117,7 @@ def add_routing_bgp(params):
     # Neighbors
     neighbors = params.get('neighbors', [])
     for neighbor in neighbors:
-        vty_commands += get_neighbor_frr_commands(neighbor)
+        vty_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
 
     vty_commands += [
         'address-family ipv4 unicast',
@@ -162,28 +162,6 @@ def add_routing_bgp(params):
     cmd_list.append(cmd)
 
     return cmd_list
-
-def get_neighbor_frr_commands(neighbor):
-    ip = neighbor.get('ip')
-    remote_asn = neighbor.get('remoteAsn')
-    password = neighbor.get('password')
-    keepalive_interval = neighbor.get('keepaliveInterval')
-    hold_interval = neighbor.get('holdInterval')
-
-    commands = [
-        f'neighbor {ip} remote-as {remote_asn}',
-
-        # Allow peering between directly connected eBGP peers using loopback addresses.
-        f'neighbor {ip} disable-connected-check',
-    ]
-
-    if password:
-        commands.append(f'neighbor {ip} password {password}')
-
-    if keepalive_interval and hold_interval:
-        commands.append(f'neighbor {ip} timers {keepalive_interval} {hold_interval}')
-
-    return commands
 
 def _get_neighbor_address_family_frr_commands(neighbor):
     ip = neighbor.get('ip')
@@ -277,7 +255,7 @@ def _modify_neighbors(cmd_list, new_params, old_params):
     def _add_cmd_func(neighbor):
         ip = neighbor.get('ip')
         vtysh_commands = [f'router bgp {local_asn}']
-        vtysh_commands += get_neighbor_frr_commands(neighbor)
+        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
 
         vtysh_commands.append(f'address-family ipv4 unicast')
 

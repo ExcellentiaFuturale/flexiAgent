@@ -29,7 +29,6 @@ from netaddr import *
 import fwglobals
 import fwlte
 import fwutils
-from fwtranslate_add_routing_bgp import get_neighbor_frr_commands
 
 # add_tunnel
 # --------------------------------------
@@ -1808,7 +1807,7 @@ def add_tunnel(params):
                 'ip': remote_loop0_ip,
                 'remoteAsn': bgp_remote_asn
             }
-            add_frr_cmds = get_neighbor_frr_commands(neighbor)
+            add_frr_cmds = fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
 
             cmd = {}
             cmd['cmd'] = {}

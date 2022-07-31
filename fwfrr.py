@@ -167,3 +167,25 @@ class FwFrr(FwObject):
         ospf_network['address'] = new_address
         self.db['ospf'] = ospf    # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
         self.log.debug(f"ospf_network_update({dev_id}): '{old_address}' -> '{new_address}'")
+
+    def translate_bgp_neighbor_to_vtysh_commands(self, neighbor):
+        ip = neighbor.get('ip')
+        remote_asn = neighbor.get('remoteAsn')
+        password = neighbor.get('password')
+        keepalive_interval = neighbor.get('keepaliveInterval')
+        hold_interval = neighbor.get('holdInterval')
+
+        commands = [
+            f'neighbor {ip} remote-as {remote_asn}',
+
+            # Allow peering between directly connected eBGP peers using loopback addresses.
+            f'neighbor {ip} disable-connected-check',
+        ]
+
+        if password:
+            commands.append(f'neighbor {ip} password {password}')
+
+        if keepalive_interval and hold_interval:
+            commands.append(f'neighbor {ip} timers {keepalive_interval} {hold_interval}')
+
+        return commands
