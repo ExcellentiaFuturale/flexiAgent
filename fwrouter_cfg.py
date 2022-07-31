@@ -128,16 +128,13 @@ class FwRouterCfg(FwCfgDatabase):
 
     def get_tunnels(self, routing=None):
         tunnels = self.get_requests('add-tunnel')
-        if not routing:
-            return tunnels
-        result = []
-        for params in tunnels:
-            tunnel_routing = params.get('loopback-iface', {}).get('routing')
-            if not tunnel_routing:
-                continue
-            if tunnel_routing == routing:
-                result.append(params)
-        return result
+        if routing:
+            result = []
+            for tunnel in tunnels:
+                if routing == tunnel.get('loopback-iface', {}).get('routing'):
+                    result.append(tunnel)
+            tunnels = result
+        return tunnels
 
     def get_bgp(self):
         return self.get_requests('add-routing-bgp')

@@ -115,7 +115,13 @@ def add_routing_bgp(params):
     ]
 
     # Neighbors
-    neighbors = params.get('neighbors', [])
+    neighbors = params.get('neighbors', []) # make sure params are not modified with tunnels
+
+    tunnels = fwglobals.g.router_cfg.get_tunnels(routing='bgp')
+    for tunnel in tunnels:
+        neighbor = fwglobals.g.router_api.frr.get_tunnel_bgp_neighbor(tunnel)
+        neighbors.append(neighbor)
+
     for neighbor in neighbors:
         vty_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
 
