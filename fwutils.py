@@ -1565,6 +1565,8 @@ def reset_agent_cfg():
         os.remove(fwglobals.g.CONN_FAILURE_FILE)
 
 def reset_router_cfg():
+    with FwFrr(fwglobals.g.FRR_DB_FILE) as db_frr:
+        db_frr.clean()
     with FwRouterCfg(fwglobals.g.ROUTER_CFG_FILE) as router_cfg:
         router_cfg.clean()
     with FwRouterCfg(fwglobals.g.ROUTER_PENDING_CFG_FILE) as router_pending_cfg:
