@@ -177,12 +177,12 @@ class FwCfgRequestHandler(FwObject):
                         op = request['message']
                         request['message'] = op.replace('add-','remove-') if re.match('add-', op) else op.replace('remove-','add-')
                         self._call_simple(request)
-                    except Exception as e:
+                    except Exception as e_revert:
                         # on failure to revert move router into failed state
                         err_str = "_call_aggregated: failed to revert request %s while running rollback on aggregated request" % op
-                        self.log.excep("%s: %s" % (err_str, format(e)))
+                        self.log.excep("%s: %s" % (err_str, format(e_revert)))
                         if self.revert_failure_callback:
-                            self.revert_failure_callback(str(e))
+                            self.revert_failure_callback(str(e_revert))
                         pass
                 raise e
 
