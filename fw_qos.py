@@ -27,6 +27,7 @@ import fwglobals
 import fwutils
 from fwobject import FwObject
 from sqlitedict import SqliteDict
+import json
 
 
 # Commonly used JSON tags and constant strings
@@ -1254,3 +1255,16 @@ def has_qos_policy(dev_id=None):
                 if interface_dev_id == dev_id:
                     return True
     return False
+
+
+def qos_db_dumps():
+    """
+    Function to return all QoS contexts in qos_db as JSON dump
+
+    :return: Dump of QoS context in JSON format
+    :rtype: String
+    """
+    with SqliteDict(fwglobals.g.QOS_DB_FILE,  flag='r') as qos_db:
+        db_keys = sorted(qos_db.keys())
+        dump = [ { key: qos_db[key] } for key in db_keys ]
+        return json.dumps(dump, indent=2, sort_keys=True)

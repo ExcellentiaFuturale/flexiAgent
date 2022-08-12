@@ -142,6 +142,7 @@ g_dumpers = {
     'fwagent_db_frr':               { 'shell_cmd': 'fwagent show --database frr > <dumper_out_file>' },
     'fwagent_db_general':           { 'shell_cmd': 'fwagent show --database general > <dumper_out_file>' },
     'fwagent_db_multilink':         { 'shell_cmd': 'fwagent show --database multilink > <dumper_out_file>' },
+    'fwagent_qos':                  { 'shell_cmd': 'fwagent show --database qos > <dumper_out_file>' },
     'fwagent_multilink_cfg':        { 'shell_cmd': 'fwagent show --configuration multilink-policy > <dumper_out_file>' },
     'fwagent_router_cfg':           { 'shell_cmd': 'fwagent show --configuration router > <dumper_out_file>' },
     'fwagent_router_pending_cfg':   { 'shell_cmd': 'fwagent show --configuration router-pending > <dumper_out_file>' },
@@ -188,6 +189,8 @@ g_dumpers = {
     'vpp_nat44_summary':            { 'shell_cmd': 'vppctl show nat44 summary > <dumper_out_file>' },
     'vpp_tap_inject':               { 'shell_cmd': 'vppctl show tap-inject > <dumper_out_file>' },
     'vpp_vxlan_tunnel':             { 'shell_cmd': 'vppctl sh vxlan tunnel > <dumper_out_file>' },
+    'vpp_qos_interface_config':     { 'shell_cmd': 'vppctl show dpdk interface hqos > <dumper_out_file>' },
+    'vpp_qos_interface_stats':      { 'shell_cmd': 'vppctl show dpdk hqos queue > <dumper_out_file>' },
 }
 
 class FwDump(FwObject):
