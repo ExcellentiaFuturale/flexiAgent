@@ -49,6 +49,7 @@ from netaddr import IPNetwork, IPAddress
 
 import fwlte
 import fwwifi
+import fwqos
 import fwtranslate_add_switch
 
 from fwapplications_api import call_applications_hook, FWAPPLICATIONS_API
@@ -2028,6 +2029,8 @@ def vpp_startup_conf_remove_nopci(vpp_config_filename):
 
 def vpp_startup_conf_add_devices(vpp_config_filename, devices):
     p = FwStartupConf(vpp_config_filename)
+    hqos_capable = True if (p.get_cpu_hqos_workers() > 0) else False
+
     config = p.get_root_element()
 
     if config['dpdk'] == None:
@@ -2035,16 +2038,20 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
         config.append(tup)
 
     for dev in devices:
+        wan_if = fwglobals.g.router_cfg.get_interfaces(dev_id=dev, type='wan')
+        qos_on_dev_id = True if (wan_if and (fwqos.has_qos_policy(dev_id=dev) == True)) else False
         dev_short = dev_id_to_short(dev)
-        dev_full = dev_id_to_full(dev)
         addr_type, addr_short = dev_id_parse(dev_short)
-        addr_type, addr_full = dev_id_parse(dev_full)
+
         if addr_type == "pci":
-            old_config_param = 'dev %s' % addr_full
-            new_config_param = 'dev %s' % addr_short
-            if p.get_element(config['dpdk'],old_config_param) != None:
-                p.remove_element(config['dpdk'], old_config_param)
-            if p.get_element(config['dpdk'],new_config_param) == None:
+            old_config_param = 'dev %s' % addr_short
+            if hqos_capable and qos_on_dev_id:
+                new_config_param = 'dev %s { hqos }' % addr_short
+            else:
+                new_config_param = 'dev %s' % addr_short
+            current_config_value = p.get_element(config['dpdk'],old_config_param)
+            if (current_config_value != new_config_param):
+                p.remove_element(config['dpdk'], current_config_value)
                 tup = p.create_element(new_config_param)
                 config['dpdk'].append(tup)
 
@@ -2067,6 +2074,25 @@ def vpp_startup_conf_remove_devices(vpp_config_filename, devices):
 
     p.dump(config, vpp_config_filename)
     return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
+
+def vpp_startup_conf_hqos(vpp_config_filename, is_add):
+    """
+    Add/Remove HQoS Worker thread if QoS policy is applied
+
+    :param vpp_config_filename: Filename of VPP startup configuration
+    :type vpp_config_filename: String
+    :param is_add: Flag indicating if HQoS worker thread need to be added/removed
+    :type is_add: bool
+    """
+    with FwStartupConf(vpp_config_filename) as startup_conf:
+        num_worker_cores = startup_conf.get_cpu_workers()
+        num_worker_cores += startup_conf.get_cpu_hqos_workers()
+        hqos_enabled = False
+        if fwqos.has_qos_policy() is True:
+            hqos_enabled = True if ((num_worker_cores > 1) and (is_add is True)) else False
+            startup_conf.set_cpu_workers(num_worker_cores, hqos_enabled=hqos_enabled)
+        fwglobals.g.qos.update_hqos_worker_state(hqos_enabled, num_worker_cores)
+
 
 def is_interface_without_dev_id(if_name):
     """Check if the given interface is expected to have no dev_id
@@ -3867,4 +3893,3 @@ class FwJsonEncoder(json.JSONEncoder):
     '''
     def default(self, o):
         return o.__dict__
-

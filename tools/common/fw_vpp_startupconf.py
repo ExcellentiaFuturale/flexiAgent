@@ -641,11 +641,26 @@ class FwStartupConf(FwStartupConfParsed):
 		if len(corelist_workers_list) < 3:
 			raise Exception("get_cpu_workers: not supported format: '%s'" % corelist_workers_string)
 		if len(corelist_workers_list) == 3:
-			return int(corelist_workers_list[2])
+			return 1
 		return int(corelist_workers_list[3]) - int(corelist_workers_list[2]) + 1
 
+	def get_cpu_hqos_workers(self):
+		'''Retrieves number of hqos worker threads based on value of the cpu.corelist-hqos-threads field
+		'''
+		corelist_workers_string = self.get_simple_param('cpu.corelist-hqos-threads')
+		if not corelist_workers_string:
+			return 0
 
-	def set_cpu_workers(self, num_workers, num_interfaces=2, rx_queues=None, tx_queues=None, commit=False):
+		# Parse "corelist-hqos-threads 1-5" or "corelist-hqos-threads 1" string into list
+		#
+		corelist_workers_list = re.split('[-|\s]+', corelist_workers_string.strip())
+		if len(corelist_workers_list) < 4:
+			raise Exception("get_cpu_hqos_workers: not supported format: '%s'" % corelist_workers_string)
+		if len(corelist_workers_list) == 4:
+			return 1
+		return int(corelist_workers_list[4]) - int(corelist_workers_list[3]) + 1
+
+	def set_cpu_workers(self, num_workers, num_interfaces=2, rx_queues=None, tx_queues=None, commit=False, hqos_enabled=False):
 		'''Sets worker threads related parameters:
 			- cpu.main-core
 			- cpu.corelist-workers
@@ -673,6 +688,7 @@ class FwStartupConf(FwStartupConfParsed):
 		#
 		self.del_simple_param('cpu.main-core')
 		self.del_simple_param('cpu.corelist-workers')
+		self.del_simple_param('cpu.corelist-hqos-threads')
 		self.del_simple_param('buffers.buffers-per-numa')
 		self.del_simple_param('dpdk.dev default.num-rx-queues')
 
@@ -680,9 +696,13 @@ class FwStartupConf(FwStartupConfParsed):
 			return
 
 		self.set_simple_param('cpu.main-core', 0)
+		if hqos_enabled and num_workers > 1:
+			hqos_workers_str = "%d" % (num_workers)
+			self.set_simple_param('cpu.corelist-hqos-threads', hqos_workers_str)
+			num_workers -= 1
+
 		num_workers_str = "1" if num_workers == 1 else "1-%d" % (num_workers)
 		self.set_simple_param('cpu.corelist-workers', num_workers_str)
-
 		self.set_simple_param('dpdk.dev default.num-rx-queues', num_workers)
 
 		# Based on analysis of vpp extras/vpp_config/extras/vpp_config.py:

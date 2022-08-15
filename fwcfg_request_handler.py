@@ -352,6 +352,8 @@ class FwCfgRequestHandler(FwObject):
                     func = getattr(fwglobals.g.pppoe, func_name)
                 elif object_name == 'fwglobals.g.applications_api':
                     func = getattr(fwglobals.g.applications_api, func_name)
+                elif object_name == 'fwglobals.g.qos':
+                    func = getattr(fwglobals.g.qos, func_name)
                 else:
                     return None
                 self.cache_func_by_name[full_name] = func
@@ -617,6 +619,10 @@ class FwCfgRequestHandler(FwObject):
                     if re.match('remove-',  req) and self.pending_cfg_db.exists(__request):
                         self.pending_cfg_db.update(request)
                     return True
+            elif re.match('add-qos-policy', req) and self.cfg_db.exists(__request):
+                #Qos-Policy requires full diff
+                existing_params = self.cfg_db.get_request_params(__request)
+                return True if existing_params == __request.get('params') else False
             elif re.match('add-', req) and self.cfg_db.exists(__request):
                 # Ensure this is actually not modification request :)
                 existing_params = self.cfg_db.get_request_params(__request)
