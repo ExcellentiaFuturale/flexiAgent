@@ -191,6 +191,8 @@ g_dumpers = {
     'vpp_vxlan_tunnel':             { 'shell_cmd': 'vppctl sh vxlan tunnel > <dumper_out_file>' },
     'vpp_qos_interface_config':     { 'shell_cmd': 'vppctl show dpdk interface hqos > <dumper_out_file>' },
     'vpp_qos_interface_stats':      { 'shell_cmd': 'vppctl show dpdk hqos queue > <dumper_out_file>' },
+    'vpp_qos_egress_map':           { 'shell_cmd': 'vppctl show qos egress map > <dumper_out_file>' },
+    'vpp_qos_egress_mark':          { 'shell_cmd': 'vppctl show qos mark > <dumper_out_file>' },
 }
 
 class FwDump(FwObject):
