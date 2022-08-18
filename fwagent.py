@@ -53,7 +53,7 @@ import fwthread
 import fwutils
 import fwwebsocket
 import loadsimulator
-import fw_qos
+import fwqos
 
 from fwapplications_api import FWAPPLICATIONS_API
 from fwfrr import FwFrr
@@ -815,7 +815,7 @@ def show(agent, configuration, database, status, networks):
             with fwmultilink.FwMultilink(fwglobals.g.MULTILINK_DB_FILE, fill_if_empty=False) as multilink_db:
                 print(multilink_db.dumps())
         elif database == 'qos':
-            print(fw_qos.qos_db_dumps())
+            print(fwqos.qos_db_dumps())
 
     if status:
         if status == 'daemon':
