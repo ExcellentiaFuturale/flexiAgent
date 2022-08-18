@@ -61,6 +61,10 @@ from fwobject import FwObject
 
 from fw_nat_command_helpers import WAN_INTERFACE_SERVICES
 
+system_checker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tools/system_checker/")
+sys.path.append(system_checker_path)
+import fwsystem_checker_common
+
 # Global signal handler for clean exit
 def global_signal_handler(signum, frame):
     """Global signal handler for CTRL+C
@@ -282,6 +286,7 @@ class FwAgent(FwObject):
         ip_list = ', '.join(all_ip_list[0:min(4,len(all_ip_list))])
         serial = fwutils.get_machine_serial()
         url = fwglobals.g.cfg.MANAGEMENT_URL  + "/api/connect/register"
+        cpu_info = fwsystem_checker_common.Checker().get_cpu_info()
 
         data = {'token': self.token.rstrip(),
                 'fwagent_version' : self.versions['components']['agent']['version'],
@@ -293,7 +298,8 @@ class FwAgent(FwObject):
                 'ip_list': ip_list,
                 'default_route': dr_via,
                 'default_dev': dr_dev,
-                'interfaces': interfaces
+                'interfaces': interfaces,
+                'cpuInfo': cpu_info
         }
         self.log.debug("Registering to %s with: %s" % (url, json.dumps(data)))
         data.update({'interfaces': json.dumps(interfaces)})

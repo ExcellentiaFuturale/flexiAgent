@@ -716,3 +716,31 @@ class FwStartupConf(FwStartupConfParsed):
 		total_ports_per_numa = num_interfaces   # Port = Interface
 		buffers = (rx_queues + tx_queues) * desc_entries * total_ports_per_numa * 2
 		self.set_simple_param('buffers.buffers-per-numa', buffers)
+
+	def get_power_saving(self):
+		'''Retrieves power saving on main core based on value of the unix.poll-sleep-usec field
+		'''
+		try:
+			power_saving_string = self.get_simple_param('unix.poll-sleep-usec')
+			if not power_saving_string:
+				return False
+
+			power_saving_list = power_saving_string.split()
+			if len(power_saving_list) == 2 and int(power_saving_list[1]) > 0:
+				return True
+			else:
+				return False
+		except Exception as e:
+			self.log.error(f"Cannot parse power saving mode: {str(e)}")
+		return False
+
+	def set_power_saving(self, poll_sleep_usec = 300):
+		'''Sets power saving on main core (value of the unix.poll-sleep-usec > 0)
+
+		:param poll_sleep_usec:    sleep time for VPP main core poll loop
+		'''
+
+		if poll_sleep_usec == 0:
+			self.del_simple_param('unix.poll-sleep-usec')
+		else:
+			self.set_simple_param('unix.poll-sleep-usec', poll_sleep_usec)
