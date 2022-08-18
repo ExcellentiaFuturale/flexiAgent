@@ -585,7 +585,7 @@ class FwQoS(FwObject):
                 'substs': [
                     {
                         'add_param': 'map',
-                        'val_by_func': 'fw_qos.build_egress_map',
+                        'val_by_func': 'fwqos.build_egress_map',
                         'arg': [scheduling_params, egress_map]
                     }
                 ]
@@ -663,12 +663,12 @@ class FwQoS(FwObject):
                     'substs': [
                         {
                             'add_param': 'tc',
-                            'val_by_func': 'fw_qos.get_traffic_class',
+                            'val_by_func': 'fwqos.get_traffic_class',
                             'arg': [service_class, importance]
                         },
                         {
                             'add_param': 'queue',
-                            'val_by_func': 'fw_qos.get_queue_id',
+                            'val_by_func': 'fwqos.get_queue_id',
                             'arg': [service_class, importance]
                         },
                     ]
