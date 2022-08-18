@@ -108,6 +108,7 @@ class Checker:
         if self.vpp_config_modified:
             self.vpp_startup_conf.dump(self.vpp_configuration, self.CFG_VPP_CONF_FILE)
             self.update_grub_file()
+            self.vpp_config_modified = False
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE, fwglobals.g.VPP_CONFIG_FILE_BACKUP)
 
     def __enter__(self):
@@ -1335,3 +1336,65 @@ class Checker:
             # Modem cards sometimes get stuck and recover only after disconnecting the router from the power supply
             self.log.error("Failed to switch modem to MBIM. You can unplug the router, wait a few seconds and try again. (%s)" % str(e))
             return (False, str(e))
+
+    def _get_grub_cores(self):
+        """ Return number of cores dedicated for VPP workers parsed from current GRUB cmdline
+        """
+        grub_cores = 0
+        cmd = 'sudo cat /proc/cmdline'
+        try:
+            out = subprocess.check_output(cmd, shell=True).decode()
+            isolcpus = re.search(r'isolcpus=1-(\d+)', out)
+            grub_cores  = int(isolcpus.group(1)) if isolcpus else 0
+        except Exception as e:
+            self.log.error(f"Cannot parse isolated cored from GRUB cmdline: {str(e)}")
+        return grub_cores
+
+    def get_cpu_info(self):
+        """ Collect CPU info
+        """
+
+        cpu_info = {}
+        cpu_info['hwCores'] = psutil.cpu_count()
+        cpu_info['grubCores'] = self._get_grub_cores()
+        cpu_info['vppCores'] = self.vpp_startup_conf.get_cpu_workers() + self.vpp_startup_conf.get_cpu_hqos_workers()
+        cpu_info['powerSaving'] = self.vpp_startup_conf.get_power_saving()
+        return cpu_info
+
+    def set_cpu_info(self, vpp_cores, power_saving):
+        """ Setup CPU info
+            Return flags if VPP and GRUB configurations was modified
+        """
+        update_vpp = False
+        hqos_workers = self.vpp_startup_conf.get_cpu_hqos_workers()
+        hqos_enabled = True if (hqos_workers > 0) else False
+        grub_cores = self._get_grub_cores()
+        cur_vpp_cores = self.vpp_startup_conf.get_cpu_workers() + hqos_workers
+        cur_power_saving = self.vpp_startup_conf.get_power_saving()
+
+        #If there is no GRUB and VPP core assignements tnan it is single thread mode so assign  = 1
+        if grub_cores == 0:
+            grub_cores = 1
+
+        if cur_vpp_cores == 0:
+            cur_vpp_cores = 1
+
+        if vpp_cores != cur_vpp_cores:
+            # if we pass 1 as vRouter cores it means single thread mode and we need to call set_cpu_workers(0)
+            if vpp_cores == 1:
+                vpp_cores = 0
+            self.vpp_startup_conf.set_cpu_workers(vpp_cores, hqos_enabled=hqos_enabled)
+            self.vpp_config_modified = True
+            if vpp_cores > grub_cores:
+                self.update_grub = True
+
+        if power_saving != cur_power_saving:
+            power_saving_value = 300 if power_saving else 0
+            self.vpp_startup_conf.set_power_saving(power_saving_value)
+            self.vpp_config_modified = True
+
+        if self.vpp_config_modified:
+            update_vpp = True
+            self.save_config()
+
+        return update_vpp, self.update_grub
