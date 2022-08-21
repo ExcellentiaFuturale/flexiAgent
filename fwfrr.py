@@ -190,11 +190,3 @@ class FwFrr(FwObject):
 
         return commands
 
-    def get_tunnel_bgp_neighbor(self, tunnel):
-        loop0_ip         = tunnel['loopback-iface']['addr']
-        remote_loop0_ip  = fwutils.build_tunnel_remote_loopback_ip(loop0_ip)
-        bgp_remote_asn   = tunnel['loopback-iface'].get('bgp-remote-asn')
-        return {
-            'ip': remote_loop0_ip,
-            'remoteAsn': bgp_remote_asn
-        }

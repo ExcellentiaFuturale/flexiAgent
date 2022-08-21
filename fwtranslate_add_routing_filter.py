@@ -115,7 +115,7 @@ def add_routing_filter(params):
     :returns: cmd_list. List of commands.
     """
     cmd_list = []
-    vty_commands = []
+    vtysh_commands = []
 
     name = params.get('name')
     description = params.get('description')
@@ -123,13 +123,13 @@ def add_routing_filter(params):
     rules = params.get('rules', [])
 
     # set access list description
-    vty_commands.append(f'access-list {name} remark {description}')
+    vtysh_commands.append(f'access-list {name} remark {description}')
 
     # create acl with name for each rule with "permit"
     rules = params.get('rules', [])
     for rule in rules:
         network = rule.get('network')
-        vty_commands.append(f'access-list {name} permit {network}')
+        vtysh_commands.append(f'access-list {name} permit {network}')
 
     cmd = {}
     cmd['cmd'] = {}
@@ -137,7 +137,7 @@ def add_routing_filter(params):
     cmd['cmd']['module']  = "fwutils"
     cmd['cmd']['descr']   =  f"add FRR access list. Name={name}"
     cmd['cmd']['params'] = {
-                    'commands': vty_commands,
+                    'commands': vtysh_commands,
                     'on_error_commands': [f'no access-list {name}'],
     }
     cmd['revert'] = {}

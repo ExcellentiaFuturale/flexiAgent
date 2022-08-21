@@ -98,7 +98,7 @@ def add_routing_bgp(params):
     router_id = params.get('routerId')
     redistribute_ospf = params.get('redistributeOspf')
 
-    vty_commands = [
+    vtysh_commands = [
         f'router bgp {local_asn}',
 
         # used to disable the connection verification process for EBGP peering sessions
@@ -119,13 +119,13 @@ def add_routing_bgp(params):
 
     tunnels = fwglobals.g.router_cfg.get_tunnels(routing='bgp')
     for tunnel in tunnels:
-        neighbor = fwglobals.g.router_api.frr.get_tunnel_bgp_neighbor(tunnel)
+        neighbor = fwutils.build_tunnel_bgp_neighbor(tunnel)
         neighbors.append(neighbor)
 
     for neighbor in neighbors:
-        vty_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
+        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
 
-    vty_commands += [
+    vtysh_commands += [
         'address-family ipv4 unicast',
         f"redistribute kernel route-map {fwglobals.g.FRR_BGP_ROUTE_MAP}",
         'redistribute ospf' if redistribute_ospf else None,
@@ -133,17 +133,17 @@ def add_routing_bgp(params):
 
     # loop again on neighbors. "address-family" (above) must be before that and after the first neighbors commands.
     for neighbor in neighbors:
-        vty_commands += _get_neighbor_address_family_frr_commands(neighbor)
+        vtysh_commands += _get_neighbor_address_family_frr_commands(neighbor)
 
     networks = params.get('networks', [])
     for network in networks:
         ip = network.get('ipv4')
-        vty_commands += [f'network {ip}']
+        vtysh_commands += [f'network {ip}']
 
-    vty_commands += ['exit-address-family']
+    vtysh_commands += ['exit-address-family']
 
     # During above code lines we put None sometimes. Here we are filtering all None out.
-    vty_commands = list(filter(None, vty_commands))
+    vtysh_commands = list(filter(None, vtysh_commands))
 
     cmd = {}
     cmd['cmd'] = {}
@@ -151,7 +151,7 @@ def add_routing_bgp(params):
     cmd['cmd']['module']  = "fwutils"
     cmd['cmd']['descr']   =  f"add bgp router ASN={local_asn}"
     cmd['cmd']['params'] = {
-                    'commands': vty_commands,
+                    'commands': vtysh_commands,
                     'restart_frr': True,
                     'wait_after': 2,
                     'on_error_commands': [f'no router bgp {local_asn}']

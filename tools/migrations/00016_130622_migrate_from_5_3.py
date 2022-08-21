@@ -41,17 +41,15 @@ from fwrouter_cfg import FwRouterCfg
 def _migrate_remove_bgp_tunnel_neighbors(upgrade=True):
     requests_db_path = "/etc/flexiwan/agent/.requests.sqlite"
     if os.path.exists(requests_db_path):
-        with FwRouterCfg("/etc/flexiwan/agent/.requests.sqlite") as router_cfg:
+        with FwRouterCfg(requests_db_path) as router_cfg:
             router_cfg.set_translators(fwrouter_translators)
-
-            tunnels = router_cfg.get_tunnels()
-            loopbacks = list(map(lambda tunnel: ipaddress.ip_network(tunnel['loopback-iface']['addr']), tunnels))
 
             bgp = router_cfg.get_bgp()
             if not bgp:
                 return
 
-            bgp = bgp[0]
+            tunnels = router_cfg.get_tunnels()
+            loopbacks = list(map(lambda tunnel: ipaddress.ip_network(tunnel['loopback-iface']['addr']), tunnels))
 
             updated_neighbors = []
 
@@ -79,10 +77,7 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
     prev_major_version = int(prev_version[0])
     prev_minor_version = int(prev_version[1])
 
-    new_major_version  = int(new_version[0])
-    new_minor_version  = int(new_version[1])
-
-    # upgrade from 5.3 (the version the includes BGP feature)
+    # upgrade from 5.3 (the version where BGP feature was introduced in)
     if upgrade == 'upgrade' and prev_major_version == 5 and prev_minor_version == 3:
         try:
             print("* Migrating Tunnel BGP neighbors ...")

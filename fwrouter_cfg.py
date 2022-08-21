@@ -141,7 +141,12 @@ class FwRouterCfg(FwCfgDatabase):
         return tunnels
 
     def get_bgp(self):
-        return self.get_requests('add-routing-bgp')
+        bgp_req = self.get_requests('add-routing-bgp')
+        # add-routing-bgp is a single request and can't be more than that.
+        # Therefore, convert it from a list to an object or None
+        if not bgp_req:
+            return None
+        return bgp_req[0]
 
     def get_tunnel(self, tunnel_id):
         key = 'add-tunnel:%d' % (tunnel_id)

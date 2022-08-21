@@ -3859,11 +3859,10 @@ def get_device_networks_json(type=None):
 
 def shutdown_activate_bgp_peer_if_exists(neighbor_ip, shutdown):
     try:
-        bgp_requests = fwglobals.g.router_cfg.get_bgp()
-        if not bgp_requests:
+        bgp_config = fwglobals.g.router_cfg.get_bgp()
+        if not bgp_config:
             return (True, None)
 
-        bgp_config = bgp_requests[0]
         neighbors = bgp_config.get('neighbors', [])
 
         exists = False
@@ -3886,6 +3885,14 @@ def shutdown_activate_bgp_peer_if_exists(neighbor_ip, shutdown):
     except Exception as e:
         return (False, str(e))
 
+def build_tunnel_bgp_neighbor(tunnel):
+    loop0_ip         = tunnel['loopback-iface']['addr']
+    remote_loop0_ip  = build_tunnel_remote_loopback_ip(loop0_ip)
+    bgp_remote_asn   = tunnel['loopback-iface'].get('bgp-remote-asn')
+    return {
+        'ip': remote_loop0_ip,
+        'remoteAsn': bgp_remote_asn
+    }
 class FwJsonEncoder(json.JSONEncoder):
     '''Customization of the JSON encoder that is able to serialize simple
     Python objects, e.g. FwMultilinkLink. This encoder should be used within
