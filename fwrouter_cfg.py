@@ -77,6 +77,8 @@ class FwRouterCfg(FwCfgDatabase):
                 'add-multilink-policy',
                 'add-firewall-policy',
                 'add-ospf',
+                'add-qos-traffic-map',
+                'add-qos-policy',
             ]
 
         return FwCfgDatabase.dump(self, types, escape, full, keys)
@@ -103,6 +105,8 @@ class FwRouterCfg(FwCfgDatabase):
             'add-ospf':             "============= OSPF =============",
             'add-routing-bgp':      "============= ROUTING BGP =============",
             'add-routing-filter':   "============= ROUTING FILTERS =============",
+            'add-qos-traffic-map':  "============= QOS TRAFFIC MAP =============",
+            'add-qos-policy':       "============= QOS POLICY =============",
         }
 
         cfg = self.dump(types=types, escape=escape, full=full, keys=True)
@@ -152,6 +156,16 @@ class FwRouterCfg(FwCfgDatabase):
     def get_firewall_policy(self):
         if 'add-firewall-policy' in self.db:
             return self.db['add-firewall-policy']['params']
+        return None
+
+    def get_qos_traffic_map(self):
+        if 'add-qos-traffic-map' in self.db:
+            return self.db['add-qos-traffic-map']['params']
+        return None
+
+    def get_qos_policy(self):
+        if 'add-qos-policy' in self.db:
+            return self.db['add-qos-policy']['params']
         return None
 
     def get_sync_list(self, requests):
@@ -229,4 +243,3 @@ class FwRouterCfg(FwCfgDatabase):
         output_requests += list(input_requests.values())
 
         return output_requests
-

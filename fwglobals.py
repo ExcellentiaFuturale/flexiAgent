@@ -29,6 +29,7 @@ import re
 import signal
 import traceback
 import yaml
+from fwqos import FwQoS
 import fwutils
 import threading
 import fw_vpp_coredump_utils
@@ -93,6 +94,7 @@ request_handlers = {
     'reset-lte':                         {'name': '_call_agent_api'},
     'modify-lte-pin':                    {'name': '_call_agent_api'},
     'get-device-certificate':            {'name': '_call_agent_api'},
+    'set-cpu-info':                      {'name': '_call_agent_api'},
 
     # Aggregated API
     'aggregated':                   {'name': '_call_aggregated', 'sign': True},
@@ -125,6 +127,10 @@ request_handlers = {
     'remove-switch':                {'name': '_call_router_api', 'sign': True},
     'add-firewall-policy':          {'name': '_call_router_api', 'sign': True},
     'remove-firewall-policy':       {'name': '_call_router_api', 'sign': True},
+    'add-qos-traffic-map':          {'name': '_call_router_api', 'sign': True},
+    'remove-qos-traffic-map':       {'name': '_call_router_api', 'sign': True},
+    'add-qos-policy':               {'name': '_call_router_api', 'sign': True},
+    'remove-qos-policy':            {'name': '_call_router_api', 'sign': True},
 
     # System API
     'add-lte':                      {'name': '_call_system_api'},
@@ -281,7 +287,8 @@ class Fwglobals(FwObject):
         self.POLICY_REC_DB_FILE  = self.DATA_PATH + '.policy.sqlite'
         self.MULTILINK_DB_FILE   = self.DATA_PATH + '.multilink.sqlite'
         self.DATA_DB_FILE        = self.DATA_PATH + '.data.sqlite'
-        self.TRAFFIC_ID_DB_FILE     = self.DATA_PATH + '.traffic_identification.sqlite'
+        self.TRAFFIC_ID_DB_FILE  = self.DATA_PATH + '.traffic_identification.sqlite'
+        self.QOS_DB_FILE         = self.DATA_PATH + '.qos.sqlite'
         self.HOSTAPD_CONFIG_DIRECTORY = '/etc/hostapd/'
         self.NETPLAN_FILES       = {}
         self.NETPLAN_FILE        = '/etc/netplan/99-flexiwan.fwrun.yaml'
@@ -384,6 +391,7 @@ class Fwglobals(FwObject):
         self.ikev2            = FwIKEv2()
         self.pppoe            = FwPppoeClient(standalone=standalone)
         self.routes           = FwRoutes()
+        self.qos              = FwQoS()
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 

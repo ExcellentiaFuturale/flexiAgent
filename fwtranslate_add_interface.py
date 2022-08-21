@@ -28,6 +28,7 @@ import fwpppoe
 import fwutils
 import fwwifi
 import fw_nat_command_helpers
+import fwqos
 
 # add_interface
 # --------------------------------------
@@ -679,6 +680,9 @@ def add_interface(params):
         cmd['cmd']['descr'] = "add filter traffic control command for tap and wwan interfaces"
         cmd_list.append(cmd)
 
+    # Get QoS commands
+    fwglobals.g.qos.get_add_interface_qos_commands(params, cmd_list)
+
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['func']    = "_on_add_interface_after"
@@ -711,6 +715,31 @@ modify_interface_ignored_params = {
     'PublicPort': None,
     'useStun': None,
 }
+
+# In the modify-interface request, If the change is in one of the below params, then it is
+# considered as supported and the message shall be processed
+modify_interface_supported_params = {
+    'bandwidthMbps': {
+        'tx' : None,
+        'rx' : None
+    }
+}
+
+def modify_interface(new_params, old_params):
+    """
+    Called on modify-interface message matching with supported parameter configuration
+
+    :param new_params: Interface configuration parameters
+    :type new_params: dict
+    :param old_params: Previous interface configuration parameters
+    :type old_params: dict
+    :return: Array of commands generated
+    :rtype: Array
+    """
+    cmd_list = []
+    # Get Interface QoS update commands
+    fwglobals.g.qos.get_add_interface_qos_commands(new_params, cmd_list)
+    return cmd_list
 
 
 def get_request_key(params):
