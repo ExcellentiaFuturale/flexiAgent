@@ -129,4 +129,4 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
             print("Migration error: %s : %s" % (__file__, str(e)))
 
 if __name__ == "__main__":
-    migrate("")
+    migrate()

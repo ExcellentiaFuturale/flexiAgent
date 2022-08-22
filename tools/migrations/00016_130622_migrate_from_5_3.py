@@ -22,7 +22,6 @@
 
 import os
 import sys
-import ipaddress
 
 common_tools = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , 'common')
 sys.path.append(common_tools)
@@ -30,13 +29,10 @@ sys.path.append(common_tools)
 globals = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , '..')
 sys.path.append(globals)
 
-import pathlib
-import shutil
 
-import fwglobals
-from fwapplications_cfg import FwApplicationsCfg
 from fwrouter_api import fwrouter_translators
 from fwrouter_cfg import FwRouterCfg
+import fwutils
 
 def _migrate_remove_bgp_tunnel_neighbors(upgrade=True):
     requests_db_path = "/etc/flexiwan/agent/.requests.sqlite"
@@ -49,18 +45,17 @@ def _migrate_remove_bgp_tunnel_neighbors(upgrade=True):
                 return
 
             tunnels = router_cfg.get_tunnels()
-            loopbacks = list(map(lambda tunnel: ipaddress.ip_network(tunnel['loopback-iface']['addr']), tunnels))
+            tunnel_remote_loopback_ips = list(map(lambda tunnel: fwutils.build_tunnel_remote_loopback_ip(tunnel['loopback-iface']['addr']), tunnels))
 
             updated_neighbors = []
 
             neighbors = bgp.get('neighbors', [])
             for neighbor in neighbors:
-                ip = ipaddress.ip_address(neighbor.get('ip'))
-                for loopback in loopbacks:
-                    if ip in loopback:
-                        break
-                else: # this code runs only if "loopbacks" loop exited normally. Not via break.
-                    updated_neighbors.append(neighbor)
+                ip = neighbor.get('ip')
+                if ip in tunnel_remote_loopback_ips:
+                    continue # don't add the tunnel remote loopback to the final neighbors list
+
+                updated_neighbors.append(neighbor)
 
             bgp['neighbors'] = updated_neighbors
 
@@ -87,4 +82,4 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
             print("Migration error: %s : %s" % (__file__, str(e)))
 
 if __name__ == "__main__":
-    migrate("")
+    migrate()

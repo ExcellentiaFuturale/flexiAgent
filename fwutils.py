@@ -3893,6 +3893,7 @@ def build_tunnel_bgp_neighbor(tunnel):
         'ip': remote_loop0_ip,
         'remoteAsn': bgp_remote_asn
     }
+
 class FwJsonEncoder(json.JSONEncoder):
     '''Customization of the JSON encoder that is able to serialize simple
     Python objects, e.g. FwMultilinkLink. This encoder should be used within
