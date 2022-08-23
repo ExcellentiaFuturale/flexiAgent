@@ -1645,6 +1645,10 @@ def reset_router_api_db(enforce=False):
         router_api_db['vpp_if_name_to_tap_if_name'] = {}
     if not 'sw_if_index_to_tap_if_name' in router_api_db or enforce:
         router_api_db['sw_if_index_to_tap_if_name'] = {}
+    if not 'dhcpd' in router_api_db or enforce:
+        router_api_db['dhcpd'] = {}
+    if not 'interfaces' in router_api_db['dhcpd'] or enforce:
+        router_api_db['dhcpd']['interfaces'] = {}
     fwglobals.g.db['router_api'] = router_api_db
 
 def print_system_config(full=False):
@@ -2289,6 +2293,15 @@ def modify_dhcpd(is_add, params):
         output = subprocess.check_output(exec_string, shell=True).decode()
     except Exception as e:
         return (False, str(e))
+
+    # Update persistent cache with DHCPD interface
+    #
+    router_api_db = fwglobals.g.db['router_api'] # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
+    if is_add:
+        router_api_db['dhcpd']['interfaces'].update({dev_id: None})
+    elif dev_id in router_api_db['dhcpd']['interfaces']:
+        del router_api_db['dhcpd']['interfaces'][dev_id]
+    fwglobals.g.db['router_api'] = router_api_db
 
     return True
 
