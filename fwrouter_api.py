@@ -228,6 +228,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             Intel 82540EM (e1000)
                 no-carrier full duplex mtu 9206
         '''
+        restart_dhcpd = False
+
         interfaces = fwglobals.g.router_cfg.get_interfaces()
         for interface in interfaces:
             tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
@@ -246,6 +248,13 @@ class FWROUTER_API(FwCfgRequestHandler):
             elif status_vpp == 'up' and ok and status_linux and int(status_linux)==0:
                 self.log.debug(f"detected CARRIER UP for {tap_name}")
                 fwutils.os_system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
+                if interface['dev_id'] in fwglobals.g.db.get('router_api',{}).get('dhcpd',{}).get('interfaces',{}):
+                    restart_dhcpd = True
+
+        if restart_dhcpd:
+            time.sleep(1)  # give a second to Linux to reconfigure interface
+            cmd = 'systemctl restart isc-dhcp-server'
+            fwutils.os_system(cmd, '_sync_link_status')
 
     def _sync_addresses(self, old_interfaces, new_interfaces):
         """Monitors VPP interfaces for IP/GW change and updates system as follows:
