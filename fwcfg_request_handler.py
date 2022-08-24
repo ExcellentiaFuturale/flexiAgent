@@ -62,7 +62,7 @@ class FwCfgRequestHandler(FwObject):
         self.cache_func_by_name = {}
 
         self.cfg_db.set_translators(translators)
-        if self.pending_cfg_db:
+        if self.pending_cfg_db is not None:
             self.pending_cfg_db.set_translators(translators)
 
     def __enter__(self):
@@ -263,6 +263,7 @@ class FwCfgRequestHandler(FwObject):
                     { 'result_attr' : cmd['cache_ret_val'][0] , 'cache' : cmd_cache , 'key' :  cmd['cache_ret_val'][1] }
                 err_str = self._execute_translation_command(cmd, execute_result)
                 if err_str:   # On failure go back revert already executed commands
+                    fwglobals.g.jobs.update_current_record({'request': req, 'command': cmd, 'error': err_str})
                     self.log.debug(f"_execute_translation_command('{cmd['func']}') failed")
                     raise Exception("API failed: %s" % cmd['func'])
 

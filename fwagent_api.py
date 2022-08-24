@@ -118,6 +118,16 @@ class FWAGENT_API(FwObject):
                 raise e
         return tunnel_info
 
+    def _prepare_jobs_info(self, jobs):
+        """Fetches jobs from the request jobs database.
+
+        :param jobs: The set of jobs to lookup.
+
+        :returns: the list of jobs.
+        """
+        stored_jobs = fwglobals.g.jobs.dump()
+        return list(filter(lambda job: int(job["job_id"]) in jobs, stored_jobs))
+
     def _get_device_info(self, params):
         """Get device information.
 
@@ -139,8 +149,10 @@ class FWAGENT_API(FwObject):
             if fwglobals.g.ikev2.is_private_key_created():
                 info['ikev2'] = fwglobals.g.ikev2.get_certificate_expiration()
             # Load tunnel info, if requested by the management
-            if params and params['tunnels']:
+            if params and params.get('tunnels'):
                 info['tunnels'] = self._prepare_tunnel_info(params['tunnels'])
+            if params and params.get('jobs'):
+                info['jobs'] = self._prepare_jobs_info(params['jobs'])
             info['cpuInfo'] = fwsystem_checker_common.Checker().get_cpu_info()
 
             return {'message': info, 'ok': 1}

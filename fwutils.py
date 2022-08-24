@@ -2,7 +2,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2022  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -60,6 +60,7 @@ from fwpolicies     import FwPolicies
 from fwrouter_cfg   import FwRouterCfg
 from fwsystem_cfg   import FwSystemCfg
 from fwroutes       import FwLinuxRoutes
+from fwjobs         import FwJobs
 from fwapplications_cfg import FwApplicationsCfg
 from fwwan_monitor  import get_wan_failover_metric
 from fw_traffic_identification import FwTrafficIdentifications
@@ -1654,6 +1655,11 @@ def print_system_config(full=False):
      """
     with FwSystemCfg(fwglobals.g.SYSTEM_CFG_FILE) as system_cfg:
         cfg = system_cfg.dumps(full=full)
+        print(cfg)
+
+def print_jobs():
+    with FwJobs(fwglobals.g.JOBS_FILE) as jobs:
+        cfg = jobs.dumps()
         print(cfg)
 
 def print_device_config_signature():
