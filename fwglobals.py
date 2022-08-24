@@ -52,6 +52,7 @@ from fwpolicies import FwPolicies
 from fwrouter_cfg import FwRouterCfg
 from fwroutes import FwRoutes
 from fwsystem_cfg import FwSystemCfg
+from fwjobs import FwJobs
 from fwstun_wrapper import FwStunWrap
 from fwpppoe import FwPppoeClient
 from fwthread import FwRouterThreading
@@ -249,6 +250,7 @@ class Fwglobals(FwObject):
         self.ROUTER_PENDING_CFG_FILE = self.DATA_PATH + '.requests.pending.sqlite'
         self.SYSTEM_CFG_FILE     = self.DATA_PATH + '.system.sqlite'
         self.APPLICATIONS_CFG_FILE = self.DATA_PATH + '.applications.sqlite'
+        self.JOBS_FILE           = self.DATA_PATH + '.jobs.sqlite'
         self.ROUTER_STATE_FILE   = self.DATA_PATH + '.router.state'
         self.CONN_FAILURE_FILE   = self.DATA_PATH + '.upgrade_failed'
         self.IKEV2_FOLDER        = self.DATA_PATH + 'ikev2/'
@@ -380,6 +382,7 @@ class Fwglobals(FwObject):
         self.fwagent          = FwAgent(handle_signals=False)
         self.router_cfg       = FwRouterCfg(self.ROUTER_CFG_FILE) # IMPORTANT! Initialize database at the first place!
         self.system_cfg       = FwSystemCfg(self.SYSTEM_CFG_FILE)
+        self.jobs             = FwJobs(self.JOBS_FILE)
         self.agent_api        = FWAGENT_API()
         self.system_api       = FWSYSTEM_API(self.system_cfg)
         self.router_api       = FWROUTER_API(self.router_cfg, self.ROUTER_PENDING_CFG_FILE, self.MULTILINK_DB_FILE, self.FRR_DB_FILE)
@@ -533,7 +536,7 @@ class Fwglobals(FwObject):
 
             except Exception as e:
                 global log
-                err_str = "%s(%s): %s" % (str(e), req, format(params))
+                err_str = "%s(%s): %s" % (req, format(params), str(e))
                 log.error(err_str + ': %s' % str(traceback.format_exc()))
                 reply = {"message":err_str, 'ok':0}
                 return reply
