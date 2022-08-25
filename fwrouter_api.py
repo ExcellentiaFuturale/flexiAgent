@@ -900,9 +900,9 @@ class FWROUTER_API(FwCfgRequestHandler):
                 reconnect_agent = True
             if modify_requests and self.state_is_started():
                 restart_dhcp_service = True
-                if (_should_restart_on_qos_policy(request) is True):
-                    restart_router  = True
-                    reconnect_agent = True
+            if (_should_restart_on_qos_policy(request) is True):
+                restart_router  = True
+                reconnect_agent = True
             return (restart_router, reconnect_agent, gateways, restart_dhcp_service, mask_gcp_agent)
 
     def _preprocess_request(self, request):
