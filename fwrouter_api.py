@@ -482,7 +482,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             #    In this case we have to ping the GW-s after modification.
             #    See explanations on that workaround later in this function.
             #
-            (restart_router, reconnect_agent, gateways, restart_dhcp_service) = self._analyze_request(request)
+            (restart_router, reconnect_agent, gateways, restart_dhcp_service, mask_gcp_agent) = \
+                self._analyze_request(request)
 
             # Some requests require preprocessing.
             # For example before handling 'add-application' the currently configured
@@ -493,20 +494,31 @@ class FWROUTER_API(FwCfgRequestHandler):
             #
             request = self._preprocess_request(request)
 
-            # Stop vpp if it should be restarted.
-            #
-            if restart_router:
-                fwglobals.g.router_api._call_simple({'message':'stop-router'})
+            try:
+                # Mask and stop Google Guest Agent.
+                #
+                if mask_gcp_agent:
+                    fwutils.stop_start_google_guest_agent(start=False)
 
-            # Finally handle the request
-            #
+                # Stop vpp if it should be restarted.
+                #
+                if restart_router:
+                    fwglobals.g.router_api._call_simple({'message':'stop-router'})
 
-            reply = FwCfgRequestHandler.call(self, request, dont_revert_on_failure)
+                # Finally handle the request
+                #
 
-            # Start vpp if it should be restarted
-            #
-            if restart_router:
-                fwglobals.g.router_api._call_simple({'message':'start-router'})
+                reply = FwCfgRequestHandler.call(self, request, dont_revert_on_failure)
+
+                # Start vpp if it should be restarted
+                #
+                if restart_router:
+                    fwglobals.g.router_api._call_simple({'message':'start-router'})
+            finally:
+                # Unmask and start Google Guest Agent.
+                #
+                if mask_gcp_agent:
+                    fwutils.stop_start_google_guest_agent(start=True)
 
             # Restart DHCP service if needed
             #
@@ -762,6 +774,21 @@ class FWROUTER_API(FwCfgRequestHandler):
                         "vppctl delete tap") and recreates it back.
                         That causes DHCP service to stop monitoring of the recreated interface.
                         Therefor we have to restart it on modify-interface completion.
+            mask_gcp_agent - Google Guest Agent has an issue when starting it without IP on the primary interface.
+                        The service might have depended on 'systemd-networkd'
+                        (See 'WantedBy' attribute in Google Guest Agent service file).
+
+                        In the process of start-router or modify-device, we call 'netplan apply' a few times
+                        even when the interface is not fully configured.
+                        The 'netplan apply' causes the stop and start of 'systemd-networkd'
+                        and 'systemd-networkd' causes Google Guest Agent to be restarted as well.
+
+                        This leads to the issue that Google Guest Agent is stuck when starting with no IP.
+
+                        Hence, We need to ensure that the service will not start even if systemd-networkd tries to start it.
+
+                        The way to do this is by using the 'mask'.
+                        We perform a mask at the beginning of the start-router process and remove it at the end of the process.
         """
 
         def _should_reconnect_agent_on_modify_interface(old_params, new_params):
@@ -790,8 +817,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             return False
 
 
-        (restart_router, reconnect_agent, gateways, restart_dhcp_service) = \
-        (False,          False,           [],       False)
+        (restart_router, reconnect_agent, gateways, restart_dhcp_service, mask_gcp_agent) = \
+        (False,          False,           [],       False               , False)
 
         if re.match('(add|remove)-interface', request['message']):
             if self.state_is_started():
@@ -801,13 +828,8 @@ class FWROUTER_API(FwCfgRequestHandler):
         elif re.match('(start|stop)-router', request['message']):
             reconnect_agent = True
             return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
-        elif re.match('(add|remove)-qos-policy', request['message']):
-            if (_should_restart_on_qos_policy(request) is True):
-                restart_router  = True
-                reconnect_agent = True
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
         elif request['message'] != 'aggregated':
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service, mask_gcp_agent)
         else:   # aggregated request
             add_remove_requests = {}
             modify_requests = {}
@@ -820,10 +842,16 @@ class FWROUTER_API(FwCfgRequestHandler):
                         reconnect_agent = True
                 elif re.match('(add|remove)-interface', _request['message']):
                     dev_id = _request['params']['dev_id']
+                    # check if requests list contains remove-interface and add-interface for the same dev_id.
+                    # If found, it means that these two requests created for modify-interface
                     if not dev_id in add_remove_requests:
                         add_remove_requests[dev_id] = _request
                     else:
-                        # This add/remove complements pair created for modify-X
+                        # This add/remove complements pair created for modify-interface
+
+                        # on modify-interface, mask GCP agent
+                        if fwglobals.g.is_gcp_vm:
+                            mask_gcp_agent = True
 
                         # Fetch gateway from the add-interface
                         #
@@ -870,9 +898,6 @@ class FWROUTER_API(FwCfgRequestHandler):
                 reconnect_agent = True
             if modify_requests and self.state_is_started():
                 restart_dhcp_service = True
-            if (_should_restart_on_qos_policy(request) is True):
-                restart_router  = True
-                reconnect_agent = True
             return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
 
     def _preprocess_request(self, request):
@@ -1345,11 +1370,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             # so the configuration file will be not needed.
             fwglobals.log.error(f"_on_start_router_after: failed to flush frr configuration into file: {str(err)}")
 
-        if fwglobals.g.is_gcp_vm:
-            # When we shutting down the interfaces on Linux before assigning them to VPP
-            # the GCP agent is stopped. Hence, we need to restart it again.
-            fwutils.restart_gcp_agent()
-
         fwglobals.g.pppoe.start()
 
         self._sync_after_start()
@@ -1387,9 +1407,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwutils.reset_traffic_control()
         fwutils.remove_linux_bridges()
         fwwifi.stop_hostapd()
-
-        if fwglobals.g.is_gcp_vm: # Take care of Google Cloud Platform VM
-            fwutils.restart_gcp_agent()
 
         # keep LTE connectivity on linux interface
         fwglobals.g.system_api.restore_configuration(types=['add-lte'])

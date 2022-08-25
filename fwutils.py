@@ -3827,18 +3827,18 @@ def detect_gcp_vm():
     output = os.popen(cmd).read().strip()
     return output == "Google Compute Engine"
 
-def restart_gcp_agent():
-    '''Restart the google-guest-agent service
-
-    GCP configures all interfaces, LAN and WAN as DHCP clients.
-    Only WAN interfaces they put into Netplan but not LAN interfaces.
-    As well, the assigned ip is with /32 mask.
-    To be able to reach the whole subnet (e.f. /24), they push some DHCP options
-    that install the required static routes.
-    So here, after we release the LAN interfaces back to Linux, we need to restart
-    their agent service to reconfigured all network interfaces.
+def stop_start_google_guest_agent(start=True):
+    '''Stop/Start the google-guest-agent service
     '''
-    os_system('systemctl restart google-guest-agent')
+    if start:
+        mask_unmask = 'unmask'
+        stop_start = 'start'
+    else:
+        mask_unmask = 'mask'
+        stop_start = 'stop'
+
+    os_system(f'systemctl {mask_unmask} --no-block google-guest-agent && systemctl {stop_start} --no-block google-guest-agent')
+
 
 def list_to_dict_by_key(list, key_name):
     ''' Creates an object that composed of keys generated from the results of running an each item of the given list.
