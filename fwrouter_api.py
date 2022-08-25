@@ -825,6 +825,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             return (restart_router, reconnect_agent, gateways, restart_dhcp_service, mask_gcp_agent)
         elif re.match('(start|stop)-router', request['message']):
             reconnect_agent = True
+            if fwglobals.g.is_gcp_vm:
+                mask_gcp_agent = True
             return (restart_router, reconnect_agent, gateways, restart_dhcp_service, mask_gcp_agent)
         elif re.match('(add|remove)-qos-policy', request['message']):
             if (_should_restart_on_qos_policy(request) is True):
