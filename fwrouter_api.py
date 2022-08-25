@@ -773,10 +773,10 @@ class FWROUTER_API(FwCfgRequestHandler):
                         That causes DHCP service to stop monitoring of the recreated interface.
                         Therefor we have to restart it on modify-interface completion.
             mask_gcp_agent - Google Guest Agent has an issue when starting it without IP on the primary interface.
-                        The service might have depended on 'systemd-networkd'
+                        This service may also depend on 'systemd-networkd'.
                         (See 'WantedBy' attribute in Google Guest Agent service file).
 
-                        In the process of start-router or modify-device, we call 'netplan apply' a few times
+                        In the process of start-router or modify-interface, we call 'netplan apply' a few times
                         even when the interface is not fully configured.
                         The 'netplan apply' causes the stop and start of 'systemd-networkd'
                         and 'systemd-networkd' causes Google Guest Agent to be restarted as well.
