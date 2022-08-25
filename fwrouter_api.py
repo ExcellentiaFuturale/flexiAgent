@@ -495,8 +495,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             request = self._preprocess_request(request)
 
             try:
-                # Mask and stop Google Guest Agent.
-                #
                 if mask_gcp_agent:
                     fwutils.stop_start_google_guest_agent(start=False)
 
@@ -824,10 +822,15 @@ class FWROUTER_API(FwCfgRequestHandler):
             if self.state_is_started():
                 restart_router  = True
                 reconnect_agent = True
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service, mask_gcp_agent)
         elif re.match('(start|stop)-router', request['message']):
             reconnect_agent = True
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service, mask_gcp_agent)
+        elif re.match('(add|remove)-qos-policy', request['message']):
+            if (_should_restart_on_qos_policy(request) is True):
+                restart_router  = True
+                reconnect_agent = True
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service, mask_gcp_agent)
         elif request['message'] != 'aggregated':
             return (restart_router, reconnect_agent, gateways, restart_dhcp_service, mask_gcp_agent)
         else:   # aggregated request
@@ -843,13 +846,12 @@ class FWROUTER_API(FwCfgRequestHandler):
                 elif re.match('(add|remove)-interface', _request['message']):
                     dev_id = _request['params']['dev_id']
                     # check if requests list contains remove-interface and add-interface for the same dev_id.
-                    # If found, it means that these two requests created for modify-interface
+                    # If found, it means that these two requests were created for modify-interface
                     if not dev_id in add_remove_requests:
                         add_remove_requests[dev_id] = _request
                     else:
                         # This add/remove complements pair created for modify-interface
 
-                        # on modify-interface, mask GCP agent
                         if fwglobals.g.is_gcp_vm:
                             mask_gcp_agent = True
 
@@ -898,7 +900,10 @@ class FWROUTER_API(FwCfgRequestHandler):
                 reconnect_agent = True
             if modify_requests and self.state_is_started():
                 restart_dhcp_service = True
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+                if (_should_restart_on_qos_policy(request) is True):
+                    restart_router  = True
+                    reconnect_agent = True
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service, mask_gcp_agent)
 
     def _preprocess_request(self, request):
         """Some requests require preprocessing. For example before handling
