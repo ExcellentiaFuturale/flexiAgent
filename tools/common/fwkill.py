@@ -71,9 +71,6 @@ def main():
         print ("Shutting down flexiwan-router...")
     fwglobals.initialize(quiet=arg_quiet)
 
-    if fwglobals.g.is_gcp_vm: # Take care of Google Cloud Provider VM
-        fwutils.stop_start_google_guest_agent(start=False)
-
     os.system('systemctl stop flexiwan-router')
     fwutils.stop_vpp()
     fwutils.remove_linux_bridges()
@@ -90,9 +87,6 @@ def main():
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE_BACKUP, fwglobals.g.VPP_CONFIG_FILE)
     if arg_clean_cfg:
         fwutils.reset_device_config(pppoe=True)
-
-    if fwglobals.g.is_gcp_vm: # Take care of Google Cloud Provider VM
-        fwutils.stop_start_google_guest_agent(start=True)
 
     if not arg_quiet:
         print ("Done")

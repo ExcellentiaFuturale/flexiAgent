@@ -3128,6 +3128,20 @@ def netplan_apply(caller_name=None):
         os.system(cmd)
         time.sleep(1)  				# Give a second to Linux to configure interfaces
 
+        if fwglobals.g.is_gcp_vm:
+            # Google Guest Agent has an issue when starting it without IP on the primary interface.
+            # This service may also depend on 'systemd-networkd'.
+            # (See 'WantedBy' attribute in Google Guest Agent service fi
+            # In the process of start-router or modify-interface, we call 'netplan apply' a few times
+            # even when the interface is not fully configured.
+            # The 'netplan apply' causes the stop and start of 'systemd-networkd'
+            # and 'systemd-networkd' causes Google Guest Agent to be restarted too.
+            # This leads to the issue that Google Guest Agent is stuck when starting with no IP.
+            # We saw that 'systemctl restart systemd-networkd' solves the issue.
+            # Hence, After each netplan apply we call restart of systemd-networkd to make it work.
+            os_system('systemctl restart systemd-networkd')
+            time.sleep(1)  				# Give a second to Linux to configure interfaces
+
         # Netplan might change interface names, e.g. enp0s3 -> vpp0, or other parameters so reset cache
         #
         fwglobals.g.cache.linux_interfaces_by_name.clear()
@@ -3826,19 +3840,6 @@ def detect_gcp_vm():
     cmd = 'sudo dmidecode -s system-product-name | grep "Google Compute Engine"'
     output = os.popen(cmd).read().strip()
     return output == "Google Compute Engine"
-
-def stop_start_google_guest_agent(start=True):
-    '''Stop/Start the google-guest-agent service
-    '''
-    if start:
-        mask_unmask = 'unmask'
-        stop_start = 'start'
-    else:
-        mask_unmask = 'mask'
-        stop_start = 'stop'
-
-    os_system(f'systemctl {mask_unmask} --no-block google-guest-agent && systemctl {stop_start} --no-block google-guest-agent')
-
 
 def list_to_dict_by_key(list, key_name):
     ''' Creates an object that composed of keys generated from the results of running an each item of the given list.
