@@ -607,6 +607,10 @@ class FwAgent(FwObject):
 
         if reply['ok'] == 0:
             errors = fwglobals.g.jobs.get_job_errors()
+            # not all jobs are recorded since not all of them have job ID.
+            # For example, direct messages from flexiManage like 'get-device-logs'
+            # that not sent in the jobs queue.
+            # Hence, check if no jobs recorded. If so, add the provided error to the list.
             if len(errors) == 0 and reply['message']:
                 errors.append(reply['message'])
             reply['message'] = {'errors' : errors}
