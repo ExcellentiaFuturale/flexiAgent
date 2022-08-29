@@ -899,7 +899,7 @@ def handle_unblock_sim(dev_id, puk, new_pin):
         raise Exception(LTE_ERROR_MESSAGES.NEW_PIN_IS_REQUIRED)
 
     # unblock the sim and get the updated status
-    updated_status = fwutils.qmi_unblocked_pin(dev_id, puk, new_pin)
+    updated_status = qmi_unblocked_pin(dev_id, puk, new_pin)
     updated_pin_state = updated_status.get('pin1_status')
 
     # if SIM status is not one of below statuses, it means that puk code is wrong
