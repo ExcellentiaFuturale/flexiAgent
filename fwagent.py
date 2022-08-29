@@ -606,7 +606,10 @@ class FwAgent(FwObject):
              return {'ok': 0, 'message': str(e)}
 
         if reply['ok'] == 0:
-            reply['message'] = {'errors' : fwglobals.g.jobs.get_job_errors()}
+            errors = fwglobals.g.jobs.get_job_errors()
+            if len(errors) == 0 and reply['message']:
+                errors.append(reply['message'])
+            reply['message'] = {'errors' : errors}
         return reply
 
     def inject_requests(self, filename, ignore_errors=False, json_requests=None):

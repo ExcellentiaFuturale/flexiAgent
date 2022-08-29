@@ -402,9 +402,9 @@ class FWAGENT_API(FwObject):
             enable = params.get('enable', False)
             puk = params.get('puk')
             fwlte.handle_pin_modifications(dev_id, current_pin, new_pin, enable, puk)
-            reply = {'ok': 1, 'message': { 'err_msg': None, 'data': fwlte.get_pin_state(dev_id)}}
+            reply = {'ok': 1, 'message': { 'data': fwlte.get_pin_state(dev_id) }}
         except Exception as e:
-            reply = {'ok': 0, 'message': { 'err_msg': str(e), 'data': fwlte.get_pin_state(dev_id)} }
+            reply = {'ok': 0, 'message': str(e) }
         return reply
 
     def _get_device_certificate(self, params):
