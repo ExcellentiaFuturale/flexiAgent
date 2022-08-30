@@ -377,6 +377,8 @@ class FwAgent(FwObject):
                 "User-Agent": "fwagent/%s" % (self.versions['components']['agent']['version'])
             }
 
+            fwglobals.g.router_threads.request_processing_thread_ident = threading.current_thread().ident
+
             self.ws.connect(
                         url, headers = headers,
                         check_certificate=(not fwglobals.g.cfg.BYPASS_CERT))
@@ -399,6 +401,9 @@ class FwAgent(FwObject):
             #
             self._mark_connection_failure(error)
             return False
+
+        finally:
+            fwglobals.g.router_threads.request_processing_thread_ident = None
 
 
     def reconnect(self):
