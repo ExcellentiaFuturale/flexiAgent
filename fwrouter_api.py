@@ -773,10 +773,12 @@ class FWROUTER_API(FwCfgRequestHandler):
                     reconnect_agent = True
                 elif re.match('(add|remove)-interface', _request['message']):
                     dev_id = _request['params']['dev_id']
+                    # check if requests list contains remove-interface and add-interface for the same dev_id.
+                    # If found, it means that these two requests were created for modify-interface
                     if not dev_id in add_remove_requests:
                         add_remove_requests[dev_id] = _request
                     else:
-                        # This add/remove complements pair created for modify-X
+                        # This add/remove complements pair created for modify-interface
 
                         # Fetch gateway from the add-interface
                         #
@@ -1271,11 +1273,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             # so the configuration file will be not needed.
             fwglobals.log.error(f"_on_start_router_after: failed to flush frr configuration into file: {str(err)}")
 
-        if fwglobals.g.is_gcp_vm:
-            # When we shutting down the interfaces on Linux before assigning them to VPP
-            # the GCP agent is stopped. Hence, we need to restart it again.
-            fwutils.restart_gcp_agent()
-
         fwglobals.g.pppoe.start()
 
         self._sync_after_start()
@@ -1313,9 +1310,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwutils.reset_traffic_control()
         fwutils.remove_linux_bridges()
         fwwifi.stop_hostapd()
-
-        if fwglobals.g.is_gcp_vm: # Take care of Google Cloud Platform VM
-            fwutils.restart_gcp_agent()
 
         # keep LTE connectivity on linux interface
         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
