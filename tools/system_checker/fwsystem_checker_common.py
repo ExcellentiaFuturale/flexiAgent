@@ -1259,6 +1259,79 @@ class Checker:
 
         return True
 
+    def soft_check_networkd_configuration(self, fix=False, silently=False, prompt=''):
+        """Ensures that the /lib/systemd/system/systemd-networkd.service file has no
+        restart limit, as networkd is restarted by every "netplan apply" invocation,
+        and fwagent might invoke it too frequently, if it has many interfaces.
+        If it does, we will modify it to big enough value.
+        Note, name of the restart limit parameter and it's location was changed
+        few times during systemd developing. The Ubuntu 18.04 comes with systemd v237,
+        where it should be called "StartLimitIntervalUSec" according documentation.
+        But! On AWS machines it is called "StartLimitIntervalSec", and it should be
+        placed under the "[Unit]" section.
+
+        :param fix:             Fix problem.
+        :param silently:        Do not prompt user.
+        :param prompt:          User prompt prefix.
+
+        :returns: 'True' if check is successful and 'False' otherwise.
+        """
+        needed_start_limit_interval = 10
+        needed_start_limit_burst    = 20
+        found_start_limit_interval  = None
+        found_start_limit_burst     = None
+
+        networkd_filename = '/lib/systemd/system/systemd-networkd.service'
+        if not os.path.exists(networkd_filename):
+            raise Exception(f'file not found: {networkd_filename}')
+
+        try:
+            cmd = f"grep 'StartLimitInterval' {networkd_filename}"
+            out = subprocess.check_output(cmd, shell=True).decode().strip()
+            match = re.search('=[ ]*([0-9]+)', out)
+            if not match:
+                raise Exception(f"malformed StartLimitInterval line in {networkd_filename}: {out}")
+            found_start_limit_interval = int(match.group(1))
+        except subprocess.CalledProcessError:
+            return True  # restart limit does not appear in the file, so we are OK
+
+        try:
+            cmd = f"grep 'StartLimitBurst' {networkd_filename}"
+            out = subprocess.check_output(cmd, shell=True).decode().strip()
+            match = re.search('=[ ]*([0-9]+)', out)
+            if not match:
+                raise Exception(f"malformed StartLimitBurst line in {networkd_filename}: {out}")
+            found_start_limit_burst = int(match.group(1))
+        except subprocess.CalledProcessError:
+            found_start_limit_burst = 1
+
+        if not found_start_limit_interval:
+            return True
+
+        result = True if \
+            float(found_start_limit_interval)/float(found_start_limit_burst) < \
+            float(needed_start_limit_interval)/float(needed_start_limit_burst) else False
+
+        if result or not fix:
+            return result
+
+        # At this point we have the problem and we should fix it.
+        # Firstly delete all appearances of the StartLimitInterval* and
+        # StartLimitBurst parameters.
+        #
+        ret = os.system(f'sed -i -E "/StartLimitInterval/d" {networkd_filename}')
+        ret = os.system(f'sed -i -E "/StartLimitBurst/d"    {networkd_filename}')
+
+        # Now add new parameters under the [Unit] section by replacement.
+        #
+        cmd = f'sed -i -E "s/\[Unit\]/[Unit]\\nStartLimitIntervalSec={needed_start_limit_interval}\\nStartLimitBurst={needed_start_limit_burst}/" {networkd_filename}'
+        ret = os.system(cmd)
+        if ret != 0:
+            self.log.error(prompt + "%s - failed (%d)" % (cmd,ret))
+            return False
+        os.system('systemctl daemon-reload')
+        return True
+
     def lte_get_vendor_and_model(self, dev_id):
         hardware_info, err = fwlte.get_hardware_info(dev_id)
         if err:
