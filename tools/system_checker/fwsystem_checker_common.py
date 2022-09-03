@@ -91,7 +91,6 @@ class Checker:
         self.CFG_VPP_CONF_FILE      = fwglobals.g.VPP_CONFIG_FILE
         self.CFG_FWAGENT_CONF_FILE  = fwglobals.g.FWAGENT_CONF_FILE
         self.debug                  = debug   # Don't use fwglobals.g.cfg.jmDEBUG to prevent temporary checker files even DEBUG is enabled globally
-        self.wan_interfaces         = None
         self.nameservers            = None
         self.detected_nics          = None
         self.supported_nics         = None
@@ -174,31 +173,6 @@ class Checker:
         except subprocess.CalledProcessError:
             return False
         return True
-
-    def hard_check_wan_connectivity(self, supported):
-        """Check WAN connectivity.
-
-        :param supported:       Unused.
-
-        :returns: 'True' if check is successful and 'False' otherwise.
-        """
-        def _print_without_line_feed(str):
-            # So odd print is needed to enforce no line feed, so next print()
-            # will override this line.
-            #### print (str,) - python 2
-            print (str, end = '')
-            sys.stdout.flush() # Need this as tail ',' removes the 'newline' in print(), so the print is not flushed immediately
-
-        self.wan_interfaces = []
-        interfaces = [ str(iface) for iface in psutil.net_if_addrs() if str(iface) != "lo" ]
-        for iface in interfaces:
-            _print_without_line_feed("\rcheck WAN connectivity on %s ..." % iface)
-            ret = os.system("ping -c 1 -I %s 8.8.8.8 > /dev/null 2>&1" % iface)
-            _print_without_line_feed("\r                                              \r")  # Clean the line on screen
-            if ret == 0:
-                self.wan_interfaces.append(str(iface))
-                return True
-        return False
 
     def hard_check_kernel_io_modules(self, supported):
         """Check kernel IP modules presence.
@@ -338,37 +312,6 @@ class Checker:
             ruamel_yaml.dump(conf, f)
             f.close()
             return True
-
-    def hard_check_default_route_connectivity(self, fix=False, silently=False, prompt=''):
-        """Check route connectivity.
-
-        :param fix:             Fix problem.
-        :param silently:        Do not prompt user.
-        :param prompt:          User prompt prefix.
-
-        :returns: 'True' if check is successful and 'False' otherwise.
-        """
-        try:
-            # If self.wan_interfaces was not filled yet (by hard_soft_checker), fill it
-            if self.wan_interfaces is None:
-                self.hard_check_wan_connectivity(True)
-
-            # Find all default routes and ensure that configured interface has WAN connectivity
-            default_routes = subprocess.check_output('ip route | grep default', shell=True).decode().strip().split('\n')
-            if len(default_routes) == 0:
-                self.log.error(prompt + "no default route was found")
-                return False
-            for route in default_routes:
-                # The 'route' should be in 'default via 192.168.1.1 dev enp0s3 proto static' format
-                # Extracts the interface name from this line and ensure that it presents in self.wan_interfaces.
-                iface_name = route.split(' ')[4]
-                if iface_name in self.wan_interfaces:
-                    return True
-            self.log.error(prompt + "default route has no WAN connectivity")
-            return False
-        except Exception as e:
-            self.log.error(prompt + str(e))
-            return False
 
     def soft_check_default_route(self, fix=False, silently=False, prompt=''):
         """Check if default route is present.
