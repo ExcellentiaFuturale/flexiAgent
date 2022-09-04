@@ -61,8 +61,6 @@ hard_checkers = [
     { 'hard_check_nic_number'         : [ 2,     'critical' , 'At least 2 Network Interfaces are required' ] },
     { 'hard_check_nic_drivers'        : [ True , 'optional' , 'Supported network cards' ] },
     { 'hard_check_kernel_io_modules'  : [ True , 'optional' , 'Kernel has i/o modules' ] },
-    { 'hard_check_wan_connectivity'   : [ True , 'optional' , 'WAN connectivity is required' ] },
-    { 'hard_check_default_route_connectivity' : [ True, 'optional' ,  'Default route should have WAN connectivity' ] }
 ]
 
 soft_checkers = [
