@@ -37,9 +37,6 @@ fwsystem_translators = {
     'remove-lte':            {'module': __import__('fwtranslate_revert'),    'api':'revert'},
 }
 
-disconnection_detect_interval_default = 10
-disconnection_detect_interval_max = 120
-
 class FWSYSTEM_API(FwCfgRequestHandler):
     """This is System API class representation.
         These APIs are used to handle system configuration requests regardless of the vpp state.
@@ -53,8 +50,10 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         """
         FwCfgRequestHandler.__init__(self, fwsystem_translators, cfg, fwglobals.g.system_cfg)
         self.thread_lte_watchdog = None
-        self.watchdog_disconnection_interval = disconnection_detect_interval_default
-        self.watchdog_disconnection_tries = 0
+        self.lte_reconnect_interval_default = 10
+        self.lte_reconnect_retrials_max = 120
+        self.lte_reconnect_interval = self.lte_reconnect_interval_default
+        self.lte_reconnect_retrials = 0
 
     def initialize(self):
         if self.thread_lte_watchdog is None:
@@ -93,33 +92,25 @@ class FWSYSTEM_API(FwCfgRequestHandler):
             # Ensure that lte connection is opened.
             # Sometimes, the connection between modem and provider becomes disconnected
             #
-            if ticks % self.watchdog_disconnection_interval == 0:
-                prev_interval = self.watchdog_disconnection_interval
-
+            if ticks % self.lte_reconnect_interval == 0:
                 cmd = "fping 8.8.8.8 -C 1 -q -R -I %s > /dev/null 2>&1" % name
                 ok = not subprocess.call(cmd, shell=True)
                 if ok:
-                    self.watchdog_disconnection_interval = disconnection_detect_interval_default
-                    self.watchdog_disconnection_tries = 0
+                    self.lte_reconnect_interval = self.lte_reconnect_interval_default
+                    self.lte_reconnect_retrials = 0
                 else:
                     connected = fwlte.mbim_is_connected(dev_id)
                     if not connected:
                         self.log.debug("lte modem is disconnected on %s" % dev_id)
                         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
 
-                        self.watchdog_disconnection_tries += 1
-
-                        # if it fails constantly, increase the interval time up to the maximum
-                        if self.watchdog_disconnection_tries % 3 == 0:
-                            self.watchdog_disconnection_interval = min(disconnection_detect_interval_max, self.watchdog_disconnection_interval * 2)
+                        self.lte_reconnect_retrials += 1
+                        if self.lte_reconnect_retrials % 3 == 0:
+                            self.lte_reconnect_interval = min(self.lte_reconnect_retrials_max, self.lte_reconnect_interval * 2)
                     else:
                         # Make sure that LTE Linux interface is up
                         linux_ifc_name = fwutils.dev_id_to_linux_if(dev_id)
                         os.system('ifconfig %s up' % linux_ifc_name)
-
-                if self.watchdog_disconnection_interval != prev_interval:
-                    self.log.debug(f"lte watchdog disconnection interval time changed to {self.watchdog_disconnection_interval}. " +
-                    f"Connection attempts: {self.watchdog_disconnection_tries}.")
 
             # Ensure that provider did not change IP provisioned to modem,
             # so the IP that we assigned to the modem interface is still valid.
