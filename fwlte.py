@@ -97,7 +97,7 @@ def _run_qmicli_command(dev_id, flag):
             return _run_qmicli_command(dev_id, flag)
         return ([], err_str)
 
-def _run_mbimcli_command(dev_id, cmd, print_error=False, timeout=None):
+def _run_mbimcli_command(dev_id, cmd, print_error=False):
     err_str = None
     try:
         device = dev_id_to_usb_device(dev_id) if dev_id else 'cdc-wdm0'
