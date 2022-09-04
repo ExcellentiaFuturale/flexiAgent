@@ -97,28 +97,35 @@ def _run_qmicli_command(dev_id, flag):
             return _run_qmicli_command(dev_id, flag)
         return ([], err_str)
 
-def _run_mbimcli_command(dev_id, cmd, print_error=False):
+def _run_mbimcli_command(dev_id, cmd, print_error=False, timeout=None):
+    err_str = None
     try:
         device = dev_id_to_usb_device(dev_id) if dev_id else 'cdc-wdm0'
         mbimcli_cmd = 'mbimcli --device=/dev/%s --device-open-proxy %s' % (device, cmd)
-        if '--attach-packet-service' in mbimcli_cmd:
-            mbimcli_cmd = f'timeout 5 {mbimcli_cmd}'
         fwglobals.log.debug("_run_mbimcli_command: %s" % mbimcli_cmd)
-        output = subprocess.check_output(mbimcli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
-        if output:
-            return (output.splitlines(), None)
+        if timeout:
+            # To use timeout, omit the "shell=True" and split the commands to list of strings
+            output = subprocess.check_output(mbimcli_cmd.split(' '), stderr=subprocess.STDOUT, timeout=timeout).decode()
         else:
+            output = subprocess.check_output(mbimcli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
+
+        if not output:
             fwglobals.log.debug('_run_mbimcli_command: no output from command (%s)' % mbimcli_cmd)
-            return ([], None)
+
+        return (output.splitlines(), None)
     except subprocess.CalledProcessError as err:
         err_str = str(err.output.strip())
+    except subprocess.TimeoutExpired as err:
+        err_str = str(err)
+
+    if err_str:
         if print_error:
             fwglobals.log.debug('_run_mbimcli_command: cmd: %s. err: %s' % (cmd, err_str))
 
         modem_resetted = reset_modem_if_needed(err_str, dev_id)
         if modem_resetted:
             return _run_mbimcli_command(dev_id, cmd, print_error)
-        return ([], err_str)
+    return ([], err_str)
 
 def qmi_get_simcard_status(dev_id):
     return _run_qmicli_command(dev_id, 'uim-get-card-status')
@@ -527,7 +534,10 @@ def connect(params):
             r'--connect=%s | grep "Session ID\|IP\|Gateway\|DNS"' % connection_params
         ]
         for cmd in mbim_commands:
-            lines, err = _run_mbimcli_command(dev_id, cmd, print_error=True)
+            timeout = None
+            if '--attach-packet-service' in cmd:
+                timeout = 5
+            lines, err = _run_mbimcli_command(dev_id, cmd, print_error=True, timeout=timeout)
             if err:
                 raise Exception(err)
 
