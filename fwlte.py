@@ -103,8 +103,9 @@ def _run_mbimcli_command(dev_id, cmd, print_error=False, timeout=None):
         device = dev_id_to_usb_device(dev_id) if dev_id else 'cdc-wdm0'
         mbimcli_cmd = 'mbimcli --device=/dev/%s --device-open-proxy %s' % (device, cmd)
         fwglobals.log.debug("_run_mbimcli_command: %s" % mbimcli_cmd)
-        if '--attach-packet-service' in mbimcli_cmd:
-            timeout = 5
+
+        timeout = 5 if '--attach-packet-service' in mbimcli_cmd else None
+
         if timeout:
             # To use timeout, omit the "shell=True" and split the commands to list of strings
             output = subprocess.check_output(mbimcli_cmd.split(' '), stderr=subprocess.STDOUT, timeout=timeout).decode()
@@ -113,8 +114,7 @@ def _run_mbimcli_command(dev_id, cmd, print_error=False, timeout=None):
 
         if not output:
             fwglobals.log.debug('_run_mbimcli_command: no output from command (%s)' % mbimcli_cmd)
-            output = '' # ensure output is not None
-
+            return ([], None)
         return (output.splitlines(), None)
     except subprocess.CalledProcessError as err:
         err_str = str(err.output.strip())
