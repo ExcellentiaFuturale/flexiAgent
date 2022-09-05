@@ -107,6 +107,7 @@ def _run_mbimcli_command(dev_id, cmd, print_error=False):
             # '-k 10' is to ensure that SIGTERM is not handled and ignored by the service
             # and it sends SIGKILL if process doesn't terminate after 10 second
             mbimcli_cmd = f'timeout -k 10 5 {mbimcli_cmd}'
+        fwglobals.log.debug("_run_mbimcli_command: %s" % mbimcli_cmd)
         output = subprocess.check_output(mbimcli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
         if output:
             return (output.splitlines(), None)
