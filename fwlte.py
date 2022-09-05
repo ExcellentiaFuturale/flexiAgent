@@ -98,7 +98,6 @@ def _run_qmicli_command(dev_id, flag):
         return ([], err_str)
 
 def _run_mbimcli_command(dev_id, cmd, print_error=False):
-    err_str = None
     try:
         device = dev_id_to_usb_device(dev_id) if dev_id else 'cdc-wdm0'
         mbimcli_cmd = 'mbimcli --device=/dev/%s --device-open-proxy %s' % (device, cmd)
@@ -109,21 +108,20 @@ def _run_mbimcli_command(dev_id, cmd, print_error=False):
             # and it sends SIGKILL if process doesn't terminate after 10 second
             mbimcli_cmd = f'timeout -k 10 5 {mbimcli_cmd}'
         output = subprocess.check_output(mbimcli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
-        if not output:
+        if output:
+            return (output.splitlines(), None)
+        else:
             fwglobals.log.debug('_run_mbimcli_command: no output from command (%s)' % mbimcli_cmd)
             return ([], None)
-        return (output.splitlines(), None)
     except subprocess.CalledProcessError as err:
         err_str = str(err.output.strip())
-
-    if err_str:
         if print_error:
             fwglobals.log.debug('_run_mbimcli_command: cmd: %s. err: %s' % (cmd, err_str))
 
         modem_resetted = reset_modem_if_needed(err_str, dev_id)
         if modem_resetted:
             return _run_mbimcli_command(dev_id, cmd, print_error)
-    return ([], err_str)
+        return ([], err_str)
 
 def qmi_get_simcard_status(dev_id):
     return _run_qmicli_command(dev_id, 'uim-get-card-status')
@@ -529,8 +527,7 @@ def connect(params):
             r'--query-subscriber-ready-status',
             r'--query-registration-state',
             r'--attach-packet-service',
-            # r'--connect=%s | grep "Session ID\|IP\|Gateway\|DNS"' % connection_params
-            r'--connect=%s' % connection_params
+            r'--connect=%s | grep "Session ID\|IP\|Gateway\|DNS"' % connection_params
         ]
         for cmd in mbim_commands:
             lines, err = _run_mbimcli_command(dev_id, cmd, print_error=True)
