@@ -2882,7 +2882,7 @@ def is_non_dpdk_interface(dev_id):
 
 def get_ipaddress_ip_network(ip_str):
     try:
-        return ipaddress.ip_network(ip_str)
+        return ipaddress.ip_network(ip_str, strict=False)
     except Exception as e:
         fwglobals.log.warning(f"_get_ip_network_from_str: {ip_str} is not ip address. err={str(e)}")
         return None
