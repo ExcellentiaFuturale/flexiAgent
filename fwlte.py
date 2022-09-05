@@ -102,24 +102,19 @@ def _run_mbimcli_command(dev_id, cmd, print_error=False):
     try:
         device = dev_id_to_usb_device(dev_id) if dev_id else 'cdc-wdm0'
         mbimcli_cmd = 'mbimcli --device=/dev/%s --device-open-proxy %s' % (device, cmd)
-        fwglobals.log.debug("_run_mbimcli_command: %s" % mbimcli_cmd)
-
-        timeout = 5 if '--attach-packet-service' in mbimcli_cmd else None
-
-        if timeout:
-            # To use timeout, omit the "shell=True" and split the commands to list of strings
-            output = subprocess.check_output(mbimcli_cmd.split(' '), stderr=subprocess.STDOUT, timeout=timeout).decode()
-        else:
-            output = subprocess.check_output(mbimcli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
-
+        if '--attach-packet-service' in mbimcli_cmd:
+            # This command might take long or even stuck.
+            # Hence, send SIGTERM after 5 seconds.
+            # '-k 10' is to ensure that SIGTERM is not handled and ignored by the service
+            # and it sends SIGKILL if process doesn't terminate after 10 second
+            mbimcli_cmd = f'timeout -k 10 5 {mbimcli_cmd}'
+        output = subprocess.check_output(mbimcli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
         if not output:
             fwglobals.log.debug('_run_mbimcli_command: no output from command (%s)' % mbimcli_cmd)
             return ([], None)
         return (output.splitlines(), None)
     except subprocess.CalledProcessError as err:
         err_str = str(err.output.strip())
-    except subprocess.TimeoutExpired as err:
-        err_str = str(err)
 
     if err_str:
         if print_error:
@@ -534,7 +529,8 @@ def connect(params):
             r'--query-subscriber-ready-status',
             r'--query-registration-state',
             r'--attach-packet-service',
-            r'--connect=%s | grep "Session ID\|IP\|Gateway\|DNS"' % connection_params
+            # r'--connect=%s | grep "Session ID\|IP\|Gateway\|DNS"' % connection_params
+            r'--connect=%s' % connection_params
         ]
         for cmd in mbim_commands:
             lines, err = _run_mbimcli_command(dev_id, cmd, print_error=True)
