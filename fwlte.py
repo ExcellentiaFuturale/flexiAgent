@@ -102,7 +102,7 @@ def _run_mbimcli_command(dev_id, cmd, print_error=False):
         device = dev_id_to_usb_device(dev_id) if dev_id else 'cdc-wdm0'
         mbimcli_cmd = 'mbimcli --device=/dev/%s --device-open-proxy %s' % (device, cmd)
         if '--attach-packet-service' in mbimcli_cmd:
-            # This command might take long or even stuck.
+            # This command might take a long or even get stuck.
             # Hence, send SIGTERM after 5 seconds.
             # '-k 10' is to ensure that SIGTERM is not handled and ignored by the service
             # and it sends SIGKILL if process doesn't terminate after 10 second
