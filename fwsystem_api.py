@@ -77,6 +77,8 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         if  fwglobals.g.router_api.state_is_starting_stopping():
             return
 
+        is_all_lte_interfaces_connected = None # None - Before any check, False - if one or more disconnected, True - if All LTE interfaces connected
+
         wan_list = fwglobals.g.system_cfg.dump(types=['add-lte'])
         for wan in wan_list:
             dev_id = wan['params']['dev_id']
@@ -95,13 +97,18 @@ class FWSYSTEM_API(FwCfgRequestHandler):
             if ticks % self.lte_reconnect_interval == 0:
                 cmd = "fping 8.8.8.8 -C 1 -q -R -I %s > /dev/null 2>&1" % name
                 ok = not subprocess.call(cmd, shell=True)
-                if ok:
-                    self.lte_reconnect_interval = self.lte_reconnect_interval_default
-                    self.lte_reconnect_retrials = 0
+
+                # In case of two LTE interface, we check that all of them are connected.
+                # If variable is False, it means that one of them was disconnected.
+                if ok and is_all_lte_interfaces_connected is not False:
+                    is_all_lte_interfaces_connected = True
                 else:
                     connected = fwlte.mbim_is_connected(dev_id)
                     if not connected:
                         self.log.debug("lte modem is disconnected on %s" % dev_id)
+
+                        is_all_lte_interfaces_connected = False
+
                         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
 
                         self.lte_reconnect_retrials += 1
@@ -151,6 +158,10 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                             })
 
                         self.log.debug("%s: LTE IP was changed: %s -> %s" % (dev_id, iface_addr, modem_addr))
+
+        if is_all_lte_interfaces_connected:
+            self.lte_reconnect_interval = self.lte_reconnect_interval_default
+            self.lte_reconnect_retrials = 0
 
     def sync_full(self, incoming_requests):
         if len(incoming_requests) == 0:
