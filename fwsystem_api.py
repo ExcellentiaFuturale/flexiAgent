@@ -53,7 +53,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         self.lte_reconnect_interval_default = 10
         self.lte_reconnect_interval_max = 120
         self.lte_reconnect_interval = self.lte_reconnect_interval_default
-        self.lte_reconnect_retrials = 1
+        self.lte_reconnect_retrials = 0
 
     def initialize(self):
         if self.thread_lte_watchdog is None:
@@ -106,9 +106,6 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                         is_all_lte_interfaces_connected = False
 
                         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
-
-                        if self.lte_reconnect_retrials % 3 == 0:
-                            self.lte_reconnect_interval = min(self.lte_reconnect_interval_max, self.lte_reconnect_interval * 2)
                     else:
                         # Make sure that LTE Linux interface is up
                         linux_ifc_name = fwutils.dev_id_to_linux_if(dev_id)
@@ -160,6 +157,8 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                 self.lte_reconnect_retrials = 0
             else:
                 self.lte_reconnect_retrials += 1
+                if self.lte_reconnect_retrials % 3 == 0:
+                    self.lte_reconnect_interval = min(self.lte_reconnect_interval_max, self.lte_reconnect_interval * 2)
 
     def sync_full(self, incoming_requests):
         if len(incoming_requests) == 0:
