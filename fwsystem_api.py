@@ -77,7 +77,8 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         if  fwglobals.g.router_api.state_is_starting_stopping():
             return
 
-        is_all_lte_interfaces_connected = None # None - Before any check, False - if one or more disconnected, True - if All LTE interfaces connected
+        is_all_lte_interfaces_connected = True
+        check_lte_disconnection = ticks % self.lte_reconnect_interval == 0
 
         wan_list = fwglobals.g.system_cfg.dump(types=['add-lte'])
         for wan in wan_list:
@@ -94,15 +95,10 @@ class FWSYSTEM_API(FwCfgRequestHandler):
             # Ensure that lte connection is opened.
             # Sometimes, the connection between modem and provider becomes disconnected
             #
-            if ticks % self.lte_reconnect_interval == 0:
+            if check_lte_disconnection:
                 cmd = "fping 8.8.8.8 -C 1 -q -R -I %s > /dev/null 2>&1" % name
                 ok = not subprocess.call(cmd, shell=True)
-
-                # In case of two LTE interface, we check that all of them are connected.
-                # If variable is False, it means that one of them was disconnected.
-                if ok and is_all_lte_interfaces_connected is not False:
-                    is_all_lte_interfaces_connected = True
-                else:
+                if not ok:
                     connected = fwlte.mbim_is_connected(dev_id)
                     if not connected:
                         self.log.debug("lte modem is disconnected on %s" % dev_id)
@@ -159,7 +155,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
                         self.log.debug("%s: LTE IP was changed: %s -> %s" % (dev_id, iface_addr, modem_addr))
 
-        if is_all_lte_interfaces_connected:
+        if check_lte_disconnection and is_all_lte_interfaces_connected:
             self.lte_reconnect_interval = self.lte_reconnect_interval_default
             self.lte_reconnect_retrials = 0
 

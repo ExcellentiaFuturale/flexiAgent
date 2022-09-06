@@ -104,8 +104,8 @@ def _run_mbimcli_command(dev_id, cmd, print_error=False):
         if '--attach-packet-service' in mbimcli_cmd:
             # This command might take a long or even get stuck.
             # Hence, send SIGTERM after 10 seconds.
-            # '-k 10' is to ensure that SIGTERM is not handled and ignored by the service
-            # and it sends SIGKILL if process doesn't terminate after 10 second
+            # '-k 5' is to ensure that SIGTERM is not handled and ignored by the service
+            # and it sends SIGKILL if process doesn't terminate after 5 second
             mbimcli_cmd = f'timeout -k 5 10 {mbimcli_cmd}'
         fwglobals.log.debug("_run_mbimcli_command: %s" % mbimcli_cmd)
         output = subprocess.check_output(mbimcli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
