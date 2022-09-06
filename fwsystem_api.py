@@ -53,7 +53,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         self.lte_reconnect_interval_default = 10
         self.lte_reconnect_interval_max = 120
         self.lte_reconnect_interval = self.lte_reconnect_interval_default
-        self.lte_reconnect_retrials = 0
+        self.lte_reconnect_retrials = 1
 
     def initialize(self):
         if self.thread_lte_watchdog is None:
@@ -107,7 +107,6 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
                         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
 
-                        self.lte_reconnect_retrials += 1
                         if self.lte_reconnect_retrials % 3 == 0:
                             self.lte_reconnect_interval = min(self.lte_reconnect_interval_max, self.lte_reconnect_interval * 2)
                     else:
@@ -155,9 +154,12 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
                         self.log.debug("%s: LTE IP was changed: %s -> %s" % (dev_id, iface_addr, modem_addr))
 
-        if check_lte_disconnection and is_all_lte_interfaces_connected:
-            self.lte_reconnect_interval = self.lte_reconnect_interval_default
-            self.lte_reconnect_retrials = 0
+        if check_lte_disconnection:
+            if is_all_lte_interfaces_connected:
+                self.lte_reconnect_interval = self.lte_reconnect_interval_default
+                self.lte_reconnect_retrials = 0
+            else:
+                self.lte_reconnect_retrials += 1
 
     def sync_full(self, incoming_requests):
         if len(incoming_requests) == 0:
