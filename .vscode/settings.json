@@ -44,4 +44,9 @@
         "VPPSB",
         "vtysh"
     ]
+    "editor.rulers": [ 80 , 120 ],
+    "workbench.colorCustomizations": {
+        "editorRuler.foreground": "#203829"
+    },
+    "search.showLineNumbers": true,
 }
