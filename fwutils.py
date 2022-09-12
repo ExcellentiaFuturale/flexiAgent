@@ -2138,43 +2138,37 @@ def get_lte_interfaces_names():
 
     return names
 
-def traffic_control_add_del_dev_ingress(dev_name, is_add):
+def traffic_control_add_del_dev_ingress(is_add, dev_name):
     try:
-        subprocess.check_call('sudo tc -force qdisc %s dev %s ingress handle ffff:' % ('add' if is_add else 'delete', dev_name), shell=True)
-        return (True, None)
-    except Exception:
-        return (True, None)
+        subprocess.check_call('sudo tc qdisc %s dev %s handle ffff: ingress' % ('add' if is_add else 'delete', dev_name), stderr=subprocess.STDOUT, shell=True)
+    except Exception as e:
+        fwglobals.log.error(f"traffic_control_add_del_dev_ingress({is_add}, {dev_name}): {str(e)}")
+        raise e
 
-def traffic_control_replace_dev_root(dev_name):
+def traffic_control_add_del_mirror_policy(is_add, from_ifc, to_ifc, set_dst_mac=None):
     try:
-        subprocess.check_call('sudo tc -force qdisc replace dev %s root handle 1: htb' % dev_name, shell=True)
-        return (True, None)
-    except Exception:
-        return (True, None)
-
-def traffic_control_remove_dev_root(dev_name):
-    try:
-        subprocess.check_call('sudo tc -force qdisc del dev %s root' % dev_name, shell=True)
-        return (True, None)
-    except Exception:
-        return (True, None)
+        cmd = f"tc filter {'add' if is_add  else 'del'} dev {from_ifc} parent ffff: \
+                protocol all prio 2 u32 \
+                match u32 0 0 flowid 1:1 \
+                {f'action pedit ex munge eth dst set {set_dst_mac}' if set_dst_mac else ''} \
+                pipe action mirred egress mirror dev {to_ifc} \
+                pipe action drop"
+        subprocess.check_call(cmd, stderr=subprocess.STDOUT, shell=True)
+    except Exception as e:
+        fwglobals.log.error(f"traffic_control_add_del_mirror_policy({is_add}, {from_ifc}, {to_ifc}, {set_dst_mac}): {str(e)}")
+        raise e
 
 def reset_traffic_control():
     fwglobals.log.debug('clean Linux traffic control settings')
-    search = []
-    lte_interfaces = get_lte_interfaces_names()
+    interface_names = []
 
-    if lte_interfaces:
-        search.extend(lte_interfaces)
+    lte_interface_names = get_lte_interfaces_names()
+    if lte_interface_names:
+        interface_names.extend(lte_interface_names)
 
-    for term in search:
+    for interface_name in interface_names:
         try:
-            subprocess.check_call('sudo tc -force qdisc del dev %s root 2>/dev/null' % term, shell=True)
-        except:
-            pass
-
-        try:
-            subprocess.check_call('sudo tc -force qdisc del dev %s ingress handle ffff: 2>/dev/null' % term, shell=True)
+            subprocess.check_call(f'sudo tc -force qdisc del dev {interface_name} ingress handle ffff: 2>/dev/null', shell=True)
         except:
             pass
 

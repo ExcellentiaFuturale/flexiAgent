@@ -18,14 +18,15 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-from datetime import datetime, timedelta
 import os
-import psutil
 import re
-import serial
 import subprocess
 import time
+from datetime import datetime, timedelta
+from functools import partial
 
+import psutil
+import serial
 from netaddr import IPAddress
 
 import fwglobals
@@ -439,10 +440,18 @@ def reset_modem(dev_id):
         return False
 
     set_cache_val(dev_id, 'state', 'resetting')
+
+    is_need_to_remove_add_tc_filter = False
+    if fwglobals.g.router_api.state_is_started() and fwutils.is_interface_assigned_to_vpp(dev_id):
+        is_need_to_remove_add_tc_filter = True
+
     try:
         # If the modem switched between QMI and MBIM modes, the dev_id might change.
         # Hence, we check the reset by interface name, which is a consistent name in both modes.
         lte_if_name = fwutils.dev_id_to_linux_if(dev_id)
+
+        if is_need_to_remove_add_tc_filter:
+            add_del_traffic_control(is_add=False, dev_id=dev_id, lte_if_name=lte_if_name)
 
         fwglobals.log.debug('reset_modem: reset starting')
 
@@ -462,6 +471,9 @@ def reset_modem(dev_id):
 
         # To re-apply set-name for LTE interface we have to call netplan apply here
         fwutils.netplan_apply("reset_modem")
+
+        if is_need_to_remove_add_tc_filter:
+            add_del_traffic_control(is_add=True, dev_id=dev_id, lte_if_name=lte_if_name)
 
         fwglobals.log.debug('reset_modem: reset finished')
     finally:
@@ -1053,3 +1065,83 @@ def set_arp_entry(is_add, dev_id, gw=None):
         fwutils.os_system(cmd, log_prefix=log_prefix, print_error=False, raise_exception_on_error=False) # Suppress exception as arp entry might not exists if interface was taken down for some reason
         cmd = f"set ip neighbor del static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"
         fwutils.vpp_cli_execute([cmd], log_prefix=log_prefix, raise_exception_on_error=True)
+
+def add_del_traffic_control(is_add, dev_id, lte_if_name=None):
+    """
+    Add or remove the needed traffic control command for LTE.
+
+    After configuring the TAP interface in VPP, we have three interfaces in Linux that belong to LTE.
+    1. LTE interface itself - wwan0.
+    2. TAP interface - tap_wwan0.
+    3. VPPSB interface - vppX.
+
+    The IP in Linux is on the vppX interface and the Linux default route is through the vppX interface.
+
+    Outbound traffic originating from Linux goes as follows:
+    Linux application (ping) -> vppX -> VPP -> tap_wwan0 -> wwan0 -> internet.
+
+    Outbound traffic originating from LAN client goes as follows:
+    Client -> VPP -> tap_wwan0 -> wwan0 -> internet.
+
+    Incoming traffic goes:
+    Internet -> wwan0 -> tap_wwan0 -> VPP -> (client or Linux via VPPSB).
+
+    See that:
+    * wwan0 mirrors incoming traffic to tap_wwan0
+    * tap_wwan0 mirrors incoming traffic to wwan0.
+
+    This mirroring is done by traffic control tool.
+
+    We create a filter on both interface to mirrot traffic between them.
+
+    To apply a traffic control policy on an incoming interface, we must add them a "ingress" qdisc.
+    """
+    if not lte_if_name:
+        lte_if_name = fwutils.dev_id_to_linux_if(dev_id)
+        if not lte_if_name:
+            raise Exception(f'add_del_traffic_control({dev_id}): lte interface name not found')
+
+    linux_tap_if_name = fwutils.linux_tap_by_interface_name(lte_if_name)
+    if not linux_tap_if_name:
+        raise Exception(f'add_del_traffic_control(dev_id={dev_id}, {lte_if_name}): linux_tap_if_name not found')
+
+    lte_mac_addr = fwutils.get_interface_mac_addr(lte_if_name)
+    vpp_mac_addr = fwutils.get_vpp_tap_interface_mac_addr(dev_id)
+
+    # since we run here multiple commands, we need to take care of failure case.
+    # if a command is failed, an error is raised.
+    # hence, after each command, we know that it succeeded and we add the revert function of it to a list.
+    # In case of error, we call each function within the revert list to clean up the configuration.
+    revert_functions = []
+    try:
+        if is_add:
+            # first, apply the ingress qdisc
+            fwutils.traffic_control_add_del_dev_ingress(is_add=True, dev_name=lte_if_name)
+            revert_functions.append(partial(fwutils.traffic_control_add_del_dev_ingress, is_add=False, dev_name=lte_if_name))
+
+            fwutils.traffic_control_add_del_dev_ingress(is_add=True, dev_name=linux_tap_if_name)
+            revert_functions.append(partial(fwutils.traffic_control_add_del_dev_ingress, is_add=False, dev_name=linux_tap_if_name))
+
+            # then, apply the mirroring
+            fwutils.traffic_control_add_del_mirror_policy(is_add=True, from_ifc=linux_tap_if_name, to_ifc=lte_if_name, set_dst_mac=lte_mac_addr)
+            revert_functions.append(partial(fwutils.traffic_control_add_del_mirror_policy, is_add=False, from_ifc=linux_tap_if_name, to_ifc=lte_if_name, set_dst_mac=lte_mac_addr))
+
+            fwutils.traffic_control_add_del_mirror_policy(is_add=True, from_ifc=lte_if_name, to_ifc=linux_tap_if_name, set_dst_mac=vpp_mac_addr)
+            revert_functions.append(partial(fwutils.traffic_control_add_del_mirror_policy, is_add=False, from_ifc=lte_if_name, to_ifc=linux_tap_if_name, set_dst_mac=vpp_mac_addr))
+        else:
+            # first, remove the mirroring
+            fwutils.traffic_control_add_del_mirror_policy(is_add=False, from_ifc=linux_tap_if_name, to_ifc=lte_if_name, set_dst_mac=lte_mac_addr)
+            fwutils.traffic_control_add_del_mirror_policy(is_add=False, from_ifc=lte_if_name, to_ifc=linux_tap_if_name, set_dst_mac=vpp_mac_addr)
+            # then, remove the ingress qdisc
+            fwutils.traffic_control_add_del_dev_ingress(is_add=False, dev_name=lte_if_name)
+            fwutils.traffic_control_add_del_dev_ingress(is_add=False, dev_name=linux_tap_if_name)
+    except Exception as e:
+        fwglobals.log.error(f"add_del_traffic_control({dev_id}, {lte_if_name}): {str(e)}")
+        # delete successful commands
+        if revert_functions:
+            for revert_function in revert_functions:
+                try:
+                    revert_function()
+                except: # on revert, don't catch exceptions to prevent infinite loop of failure -> revert failure -> revert of revert failure and so on (:
+                    pass
+        raise e
