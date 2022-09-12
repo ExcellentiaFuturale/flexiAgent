@@ -313,12 +313,10 @@ class FwDump(FwObject):
                         'shell_cmd': f' tc -j filter show dev {device} root > <temp_folder>/{file_name}.json'
                     }
 
-                for device in devices:
                     file_name = f'tc_qdisc_show_dev_{device}'
                     g_dumpers[file_name] = {
                         'shell_cmd': f' tc -j qdisc show dev {device} > <temp_folder>/{file_name}.json'
                     }
-
         except:
             pass # Do not crash in case of application code error
 
