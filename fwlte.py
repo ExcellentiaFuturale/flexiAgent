@@ -1108,10 +1108,10 @@ def add_del_traffic_control(is_add, dev_id, lte_if_name=None):
     lte_mac_addr = fwutils.get_interface_mac_addr(lte_if_name)
     vpp_mac_addr = fwutils.get_vpp_tap_interface_mac_addr(dev_id)
 
-    # since we run here multiple commands, we need to take care of failure case.
-    # if a command is failed, an error is raised.
-    # hence, after each command, we know that it succeeded and we add the revert function of it to a list.
-    # In case of error, we call each function within the revert list to clean up the configuration.
+    # Since we run multiple commands here, we need to take care of the failure case.
+    # If a command fails, it throws an error.
+    # Hence, after each command, we know that it succeeded, and we add the revert function of it to a list.
+    # In case of an error, we call each function within the revert list to clean up the configuration.
     revert_functions = []
     try:
         if is_add:
