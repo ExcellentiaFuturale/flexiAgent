@@ -40,6 +40,7 @@ import fwglobals
 from fw_vpp_coredump_utils import vpp_coredump_copy_cores
 from fwobject import FwObject
 import fwapplications_api
+import fwlte
 
 g = fwglobals.Fwglobals()
 
@@ -293,8 +294,37 @@ class FwDump(FwObject):
         except:
             pass # Do not crash in case of application code error
 
+    def add_lte_files(self):
+        try:
+            lte_interfaces = fwlte.get_lte_interfaces_dev_ids()
+            for dev_id in lte_interfaces:
+                devices = []
+
+                lte_if_name = lte_interfaces[dev_id]
+                devices.append(lte_if_name)
+
+                tap_if_name = fwutils.linux_tap_by_interface_name(lte_if_name)
+                if tap_if_name:
+                    devices.append(tap_if_name)
+
+                for device in devices:
+                    file_name = f'tc_filter_show_dev_{device}_root'
+                    g_dumpers[file_name] = {
+                        'shell_cmd': f' tc -j filter show dev {device} root > <temp_folder>/{file_name}.json'
+                    }
+
+                for device in devices:
+                    file_name = f'tc_qdisc_show_dev_{device}'
+                    g_dumpers[file_name] = {
+                        'shell_cmd': f' tc -j qdisc show dev {device} > <temp_folder>/{file_name}.json'
+                    }
+
+        except:
+            pass # Do not crash in case of application code error
+
     def dump_all(self):
         self.add_application_files()
+        self.add_lte_files()
 
         dumpers = list(g_dumpers.keys())
         self._dump(dumpers)
