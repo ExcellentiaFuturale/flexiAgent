@@ -146,7 +146,7 @@ class FwRouterThread(FwThread):
         The monitoring thread will check the flag as soon as it takes the lock.
         So, it will exit at most on next iteration.
         """
-        if self.ident == fwglobals.g.router_threads.request_processing_thread_ident:
+        if threading.current_thread().ident == fwglobals.g.router_threads.request_processing_thread_ident:
             self.join_called = True
         else:
             FwThread.join(self)
