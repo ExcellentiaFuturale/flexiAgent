@@ -2138,11 +2138,12 @@ def get_lte_interfaces_names():
 
     return names
 
-def traffic_control_add_del_dev_ingress(is_add, dev_name):
+def traffic_control_add_del_qdisc_ingress_class(is_add, dev_name):
+    add_delete = 'add' if is_add else 'del'
     try:
-        subprocess.check_call('sudo tc qdisc %s dev %s handle ffff: ingress' % ('add' if is_add else 'delete', dev_name), stderr=subprocess.STDOUT, shell=True)
+        subprocess.check_call(f'sudo tc qdisc {add_delete} dev {dev_name} handle ffff: ingress', stderr=subprocess.STDOUT, shell=True)
     except Exception as e:
-        fwglobals.log.error(f"traffic_control_add_del_dev_ingress({is_add}, {dev_name}): {str(e)}")
+        fwglobals.log.error(f"traffic_control_add_del_qdisc_ingress_class({is_add}, {dev_name}): {str(e)}")
         raise e
 
 def traffic_control_add_del_mirror_policy(is_add, from_ifc, to_ifc, set_dst_mac=None):
@@ -2160,15 +2161,10 @@ def traffic_control_add_del_mirror_policy(is_add, from_ifc, to_ifc, set_dst_mac=
 
 def reset_traffic_control():
     fwglobals.log.debug('clean Linux traffic control settings')
-    interface_names = []
-
     lte_interface_names = get_lte_interfaces_names()
-    if lte_interface_names:
-        interface_names.extend(lte_interface_names)
-
-    for interface_name in interface_names:
+    for dev_name in lte_interface_names:
         try:
-            subprocess.check_call(f'sudo tc -force qdisc del dev {interface_name} ingress handle ffff: 2>/dev/null', shell=True)
+            subprocess.check_call(f'sudo tc -force qdisc del dev {dev_name} ingress handle ffff: 2>/dev/null', shell=True)
         except:
             pass
 

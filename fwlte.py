@@ -441,19 +441,21 @@ def reset_modem(dev_id):
 
     set_cache_val(dev_id, 'state', 'resetting')
 
-    is_need_to_remove_add_tc_filter = False
+    recreate_tc_filters = False
     if fwglobals.g.router_api.state_is_started() and fwutils.is_interface_assigned_to_vpp(dev_id):
-        is_need_to_remove_add_tc_filter = True
+        recreate_tc_filters = True
 
     try:
         # If the modem switched between QMI and MBIM modes, the dev_id might change.
         # Hence, we check the reset by interface name, which is a consistent name in both modes.
         lte_if_name = fwutils.dev_id_to_linux_if(dev_id)
 
-        if is_need_to_remove_add_tc_filter:
+        fwglobals.log.debug('reset_modem: reset starting')
+
+        if recreate_tc_filters:
+            fwglobals.log.debug('reset_modem: removing TC configuration')
             add_del_traffic_control(is_add=False, dev_id=dev_id, lte_if_name=lte_if_name)
 
-        fwglobals.log.debug('reset_modem: reset starting')
 
         _run_qmicli_command(dev_id,'dms-set-operating-mode=offline')
         _run_qmicli_command(dev_id,'dms-set-operating-mode=reset')
@@ -472,7 +474,8 @@ def reset_modem(dev_id):
         # To re-apply set-name for LTE interface we have to call netplan apply here
         fwutils.netplan_apply("reset_modem")
 
-        if is_need_to_remove_add_tc_filter:
+        if recreate_tc_filters:
+            fwglobals.log.debug('reset_modem: applying TC configuration')
             add_del_traffic_control(is_add=True, dev_id=dev_id, lte_if_name=lte_if_name)
 
         fwglobals.log.debug('reset_modem: reset finished')
@@ -1116,11 +1119,11 @@ def add_del_traffic_control(is_add, dev_id, lte_if_name=None):
     try:
         if is_add:
             # first, apply the ingress qdisc
-            fwutils.traffic_control_add_del_dev_ingress(is_add=True, dev_name=lte_if_name)
-            revert_functions.append(partial(fwutils.traffic_control_add_del_dev_ingress, is_add=False, dev_name=lte_if_name))
+            fwutils.traffic_control_add_del_qdisc_ingress_class(is_add=True, dev_name=lte_if_name)
+            revert_functions.append(partial(fwutils.traffic_control_add_del_qdisc_ingress_class, is_add=False, dev_name=lte_if_name))
 
-            fwutils.traffic_control_add_del_dev_ingress(is_add=True, dev_name=linux_tap_if_name)
-            revert_functions.append(partial(fwutils.traffic_control_add_del_dev_ingress, is_add=False, dev_name=linux_tap_if_name))
+            fwutils.traffic_control_add_del_qdisc_ingress_class(is_add=True, dev_name=linux_tap_if_name)
+            revert_functions.append(partial(fwutils.traffic_control_add_del_qdisc_ingress_class, is_add=False, dev_name=linux_tap_if_name))
 
             # then, apply the mirroring
             fwutils.traffic_control_add_del_mirror_policy(is_add=True, from_ifc=linux_tap_if_name, to_ifc=lte_if_name, set_dst_mac=lte_mac_addr)
@@ -1133,8 +1136,8 @@ def add_del_traffic_control(is_add, dev_id, lte_if_name=None):
             fwutils.traffic_control_add_del_mirror_policy(is_add=False, from_ifc=linux_tap_if_name, to_ifc=lte_if_name, set_dst_mac=lte_mac_addr)
             fwutils.traffic_control_add_del_mirror_policy(is_add=False, from_ifc=lte_if_name, to_ifc=linux_tap_if_name, set_dst_mac=vpp_mac_addr)
             # then, remove the ingress qdisc
-            fwutils.traffic_control_add_del_dev_ingress(is_add=False, dev_name=lte_if_name)
-            fwutils.traffic_control_add_del_dev_ingress(is_add=False, dev_name=linux_tap_if_name)
+            fwutils.traffic_control_add_del_qdisc_ingress_class(is_add=False, dev_name=lte_if_name)
+            fwutils.traffic_control_add_del_qdisc_ingress_class(is_add=False, dev_name=linux_tap_if_name)
     except Exception as e:
         fwglobals.log.error(f"add_del_traffic_control({dev_id}, {lte_if_name}): {str(e)}")
         # delete successful commands
@@ -1142,6 +1145,7 @@ def add_del_traffic_control(is_add, dev_id, lte_if_name=None):
             for revert_function in revert_functions:
                 try:
                     revert_function()
-                except: # on revert, don't catch exceptions to prevent infinite loop of failure -> revert failure -> revert of revert failure and so on (:
+                except Exception as revert_e: # on revert, don't catch exceptions to prevent infinite loop of failure -> revert failure -> revert of revert failure and so on (:
+                    fwglobals.log.excep(f"add_del_traffic_control({dev_id}, {lte_if_name}): revert failed. err: {str(revert_e)}")
                     pass
         raise e
