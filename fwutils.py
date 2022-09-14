@@ -2138,12 +2138,12 @@ def get_lte_interfaces_names():
 
     return names
 
-def traffic_control_add_del_qdisc_ingress_class(is_add, dev_name):
+def traffic_control_add_del_qdisc(is_add, dev_name, class_name='ingress'):
     add_delete = 'add' if is_add else 'del'
     try:
-        subprocess.check_call(f'sudo tc qdisc {add_delete} dev {dev_name} handle ffff: ingress', stderr=subprocess.STDOUT, shell=True)
+        subprocess.check_call(f'sudo tc qdisc {add_delete} dev {dev_name} handle ffff: {class_name}', stderr=subprocess.STDOUT, shell=True)
     except Exception as e:
-        fwglobals.log.error(f"traffic_control_add_del_qdisc_ingress_class({is_add}, {dev_name}): {str(e)}")
+        fwglobals.log.error(f"traffic_control_add_del_qdisc({is_add}, {dev_name}, {class_name}): {str(e)}")
         raise e
 
 def traffic_control_add_del_mirror_policy(is_add, from_ifc, to_ifc, set_dst_mac=None):
@@ -3895,6 +3895,38 @@ def shutdown_activate_bgp_peer_if_exists(neighbor_ip, shutdown):
         return frr_vtysh_run(vtysh_cmd)
     except Exception as e:
         return (False, str(e))
+
+def wait_for_cmd_to_succeed(cmd, retries = 30):
+    for _ in range(retries):
+        try:
+            output = subprocess.check_output(cmd, shell=True).decode()
+            if output:
+                return True
+        except:
+            pass
+
+        time.sleep(1)
+
+    return False
+
+def wait_for_cmd_to_failed(cmd, retries = 30):
+    for _ in range(retries):
+        try:
+            subprocess.check_output(cmd, shell=True).decode()
+        except:
+            return True
+
+        time.sleep(1)
+
+    return False
+
+def check_output_to_file(cmd, file_name):
+    with open(file_name, 'w') as f:
+        try:
+            subprocess.call(cmd, stdout=f, shell=True)
+        except Exception as e:
+            fwglobals.log.excep(f"check_output_to_file({cmd}, {file_name}) failed. error={str(e)")
+            pass
 
 class FwJsonEncoder(json.JSONEncoder):
     '''Customization of the JSON encoder that is able to serialize simple
