@@ -19,14 +19,14 @@
 ################################################################################
 
 import os
+import psutil
 import re
+import serial
 import subprocess
 import time
+
 from datetime import datetime, timedelta
 from functools import partial
-
-import psutil
-import serial
 from netaddr import IPAddress
 
 import fwglobals
