@@ -438,10 +438,10 @@ def reset_modem(dev_id):
         # if vpp runs, we have the tap_wwan0 interface, so we filter it out to make sure that the LTE interface (wwan0) doesn't exist
         cmd = f"sudo ls -l /sys/class/net/ | grep -v tap_ | grep {lte_if_name}"
 
-        ifc_removed = fwutils.wait_for_cmd_to_failed(cmd, retries=60)
+        ifc_removed = fwutils.exec_with_retrials(cmd, retrials=60, expected_to_fail=True)
         if not ifc_removed:
             raise Exception('the modem exists after reset. it was expected to be temporarily removed')
-        ifc_restored = fwutils.wait_for_cmd_to_succeed(cmd)
+        ifc_restored = fwutils.exec_with_retrials(cmd)
         if not ifc_restored:
             raise Exception('The modem has not recovered from the reset')
 
@@ -1127,12 +1127,12 @@ def add_del_traffic_control(is_add, dev_id, lte_if_name=None):
         raise e
 
 
-def dumps(dev_id, lte_if_name, prefix_path=''):
+def dump(dev_id, lte_if_name, prefix_path=''):
     devices = [lte_if_name]
     tap_if_name = fwutils.linux_tap_by_interface_name(lte_if_name)
     if tap_if_name:
         devices.append(tap_if_name)
 
     for device in devices:
-        fwutils.check_output_to_file(f'tc -j filter show dev {device} root', f'{prefix_path}_tc_filter.json')
-        fwutils.check_output_to_file(f'tc -j qdisc show dev {device}', f'{prefix_path}_tc_qdisc.json')
+        fwutils.exec_to_file(f'tc -j filter show dev {device} root', f'{prefix_path}_{device}_tc_filter.json')
+        fwutils.exec_to_file(f'tc -j qdisc show dev {device}', f'{prefix_path}_{device}_tc_qdisc.json')

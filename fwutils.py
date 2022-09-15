@@ -3896,36 +3896,24 @@ def shutdown_activate_bgp_peer_if_exists(neighbor_ip, shutdown):
     except Exception as e:
         return (False, str(e))
 
-def wait_for_cmd_to_succeed(cmd, retries = 30):
-    for _ in range(retries):
-        try:
-            output = subprocess.check_output(cmd, shell=True).decode()
-            if output:
-                return True
-        except:
-            pass
-
-        time.sleep(1)
-
-    return False
-
-def wait_for_cmd_to_failed(cmd, retries = 30):
-    for _ in range(retries):
+def exec_with_retrials(cmd, retrials = 30, expected_to_fail=False):
+    for _ in range(retrials):
         try:
             subprocess.check_output(cmd, shell=True).decode()
+            if not expected_to_fail:
+                return True
         except:
-            return True
-
+            if expected_to_fail:
+                return True
         time.sleep(1)
-
     return False
 
-def check_output_to_file(cmd, file_name):
+def exec_to_file(cmd, file_name):
     with open(file_name, 'w') as f:
         try:
             subprocess.call(cmd, stdout=f, shell=True)
         except Exception as e:
-            fwglobals.log.excep(f"check_output_to_file({cmd}, {file_name}) failed. error={str(e)")
+            fwglobals.log.excep(f"exec_to_file({cmd}, {file_name}) failed. error={str(e)}")
             pass
 
 class FwJsonEncoder(json.JSONEncoder):

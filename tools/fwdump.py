@@ -272,7 +272,7 @@ class FwDump(FwObject):
 
                 try:
                     func  = getattr(__import__(module_name), func_name)
-                    func(prefix_path=f'{self.temp_folder}/{dumper}', **python_args)
+                    func(**python_args)
                 except Exception as e:
                     print(self.prompt + 'warning: dumper %s failed, error %s' % (dumper, str(e)))
                     continue
@@ -313,7 +313,9 @@ class FwDump(FwObject):
                 lte_if_name = lte_interfaces[dev_id]
                 file_name = f'lte_{lte_if_name}'
                 g_dumpers[file_name] = {
-                    'python': { 'func': 'fwlte.dumps', 'args': { 'dev_id': dev_id, 'lte_if_name': lte_if_name } }
+                    'python': {
+                        'func': 'fwlte.dump',
+                        'args': { 'dev_id': dev_id, 'lte_if_name': lte_if_name, 'prefix_path': f'{self.temp_folder}/{file_name}' } }
                 }
         except:
             pass # Do not crash in case of LTE code error
