@@ -67,6 +67,7 @@ g_dumpers = {
     'linux_lsb_release':            { 'shell_cmd': 'cp /etc/lsb-release <temp_folder>/linux_lsb-release.log 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_lspci':                  { 'shell_cmd': 'lspci -Dvmmn > <dumper_out_file>' },
+    'linux_lspci_vnn':              { 'shell_cmd': 'lspci -vnn > <dumper_out_file>' },
     'linux_meminfo':                { 'shell_cmd': 'cat /proc/meminfo > <dumper_out_file>' },
     'linux_neighbors':              { 'shell_cmd': 'ip neigh > <dumper_out_file>' },
     'linux_netplan':                { 'shell_cmd': 'mkdir -p <temp_folder>/linux_netplan/etc/ && ' +
