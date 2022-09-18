@@ -50,7 +50,7 @@ class FwRouterCfg(FwCfgDatabase):
             if re.match('start-router', req):
                 params  = request.get('params')
                 req_key = self._get_request_key(request)
-                self.db[req_key] = { 'request' : req , 'params' : params , 'cmd_list' : cmd_list , 'executed' : executed }
+                self[req_key] = { 'request' : req , 'params' : params , 'cmd_list' : cmd_list , 'executed' : executed }
             else:
                 FwCfgDatabase.update(self, request, cmd_list, executed)
         except KeyError:
@@ -159,18 +159,18 @@ class FwRouterCfg(FwCfgDatabase):
         return self.get_params('add-application')
 
     def get_firewall_policy(self):
-        if 'add-firewall-policy' in self.db:
-            return self.db['add-firewall-policy']['params']
+        if 'add-firewall-policy' in self:
+            return self['add-firewall-policy']['params']
         return None
 
     def get_qos_traffic_map(self):
-        if 'add-qos-traffic-map' in self.db:
-            return self.db['add-qos-traffic-map']['params']
+        if 'add-qos-traffic-map' in self:
+            return self['add-qos-traffic-map']['params']
         return None
 
     def get_qos_policy(self):
-        if 'add-qos-policy' in self.db:
-            return self.db['add-qos-policy']['params']
+        if 'add-qos-policy' in self:
+            return self['add-qos-policy']['params']
         return None
 
     def get_sync_list(self, requests):

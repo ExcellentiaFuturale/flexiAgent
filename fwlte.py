@@ -18,7 +18,6 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-from datetime import datetime, timedelta
 import os
 import psutil
 import re
@@ -26,6 +25,8 @@ import serial
 import subprocess
 import time
 
+from datetime import datetime, timedelta
+from functools import partial
 from netaddr import IPAddress
 
 import fwglobals
@@ -102,7 +103,11 @@ def _run_mbimcli_command(dev_id, cmd, print_error=False):
         device = dev_id_to_usb_device(dev_id) if dev_id else 'cdc-wdm0'
         mbimcli_cmd = 'mbimcli --device=/dev/%s --device-open-proxy %s' % (device, cmd)
         if '--attach-packet-service' in mbimcli_cmd:
-            mbimcli_cmd = f'timeout 5 {mbimcli_cmd}'
+            # This command might take a long or even get stuck.
+            # Hence, send SIGTERM after 10 seconds.
+            # '-k 5' is to ensure that SIGTERM is not handled and ignored by the service
+            # and it sends SIGKILL if process doesn't terminate after 5 second
+            mbimcli_cmd = f'timeout -k 5 10 {mbimcli_cmd}'
         fwglobals.log.debug("_run_mbimcli_command: %s" % mbimcli_cmd)
         output = subprocess.check_output(mbimcli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
         if output:
@@ -406,35 +411,12 @@ def mbim_registration_state(dev_id):
     return res
 
 def reset_modem(dev_id):
-
-    def _wait_for_interface_to_be_restored(if_name):
-        retries = 30
-        for _ in range(retries):
-            try:
-                output = subprocess.check_output("sudo ls -l /sys/class/net/ | grep -v tap_ | grep " + if_name, shell=True).decode()
-                if output:
-                    return True
-            except:
-                pass
-
-            time.sleep(1)
-
-        return False
-
-    def _wait_for_interface_to_be_removed(if_name):
-        retries = 60
-        for _ in range(retries):
-            try:
-                # if vpp runs, we have the tap_wwan0 interfae, so we filter it out to make sure that LTE pyshical interface does not exists
-                output = subprocess.check_output("sudo ls -l /sys/class/net/ | grep -v tap_ | grep " + if_name, shell=True).decode()
-            except:
-                return True
-
-            time.sleep(1)
-
-        return False
-
     set_cache_val(dev_id, 'state', 'resetting')
+
+    recreate_tc_filters = False
+    if fwglobals.g.router_api.state_is_started() and fwutils.is_interface_assigned_to_vpp(dev_id):
+        recreate_tc_filters = True
+
     try:
         # If the modem switched between QMI and MBIM modes, the dev_id might change.
         # Hence, we check the reset by interface name, which is a consistent name in both modes.
@@ -442,15 +424,24 @@ def reset_modem(dev_id):
 
         fwglobals.log.debug('reset_modem: reset starting')
 
+        if recreate_tc_filters:
+            fwglobals.log.debug('reset_modem: removing TC configuration')
+            add_del_traffic_control(is_add=False, dev_id=dev_id, lte_if_name=lte_if_name)
+
+
         _run_qmicli_command(dev_id,'dms-set-operating-mode=offline')
         _run_qmicli_command(dev_id,'dms-set-operating-mode=reset')
 
-        # After resetting, the modem should be deleted from Linux and then back up.
+        # In the reset process, the LTE interface (wwan) is deleted from Linux, and then comes back up.
         # We verify these two steps to make sure the reset process is completed successfully
-        ifc_removed = _wait_for_interface_to_be_removed(lte_if_name)
+
+        # if vpp runs, we have the tap_wwan0 interface, so we filter it out to make sure that the LTE interface (wwan0) doesn't exist
+        cmd = f"sudo ls -l /sys/class/net/ | grep -v tap_ | grep {lte_if_name}"
+
+        ifc_removed = fwutils.exec_with_retrials(cmd, retrials=60, expected_to_fail=True)
         if not ifc_removed:
             raise Exception('the modem exists after reset. it was expected to be temporarily removed')
-        ifc_restored = _wait_for_interface_to_be_restored(lte_if_name)
+        ifc_restored = fwutils.exec_with_retrials(cmd)
         if not ifc_restored:
             raise Exception('The modem has not recovered from the reset')
 
@@ -458,6 +449,10 @@ def reset_modem(dev_id):
 
         # To re-apply set-name for LTE interface we have to call netplan apply here
         fwutils.netplan_apply("reset_modem")
+
+        if recreate_tc_filters:
+            fwglobals.log.debug('reset_modem: applying TC configuration')
+            add_del_traffic_control(is_add=True, dev_id=dev_id, lte_if_name=lte_if_name)
 
         fwglobals.log.debug('reset_modem: reset finished')
     finally:
@@ -899,7 +894,7 @@ def handle_unblock_sim(dev_id, puk, new_pin):
         raise Exception(LTE_ERROR_MESSAGES.NEW_PIN_IS_REQUIRED)
 
     # unblock the sim and get the updated status
-    updated_status = fwutils.qmi_unblocked_pin(dev_id, puk, new_pin)
+    updated_status = qmi_unblocked_pin(dev_id, puk, new_pin)
     updated_pin_state = updated_status.get('pin1_status')
 
     # if SIM status is not one of below statuses, it means that puk code is wrong
@@ -1049,3 +1044,95 @@ def set_arp_entry(is_add, dev_id, gw=None):
         fwutils.os_system(cmd, log_prefix=log_prefix, print_error=False, raise_exception_on_error=False) # Suppress exception as arp entry might not exists if interface was taken down for some reason
         cmd = f"set ip neighbor del static {vpp_if_name} {gw} ff:ff:ff:ff:ff:ff"
         fwutils.vpp_cli_execute([cmd], log_prefix=log_prefix, raise_exception_on_error=True)
+
+def add_del_traffic_control(is_add, dev_id, lte_if_name=None):
+    """
+    Add or remove the needed traffic control command for LTE.
+
+    After configuring the TAP interface in VPP, we have three interfaces in Linux that belong to LTE.
+    1. LTE interface itself - wwan0.
+    2. TAP interface - tap_wwan0.
+    3. VPPSB interface - vppX.
+
+    The IP in Linux is on the vppX interface and the Linux default route is through the vppX interface.
+
+    Outbound traffic originating from Linux goes as follows:
+    Linux application (ping) -> vppX -> VPP -> tap_wwan0 -> wwan0 -> internet.
+
+    Outbound traffic originating from LAN client goes as follows:
+    Client -> VPP -> tap_wwan0 -> wwan0 -> internet.
+
+    Incoming traffic goes:
+    Internet -> wwan0 -> tap_wwan0 -> VPP -> (client or Linux via VPPSB).
+
+    See that:
+    * wwan0 mirrors incoming traffic to tap_wwan0
+    * tap_wwan0 mirrors incoming traffic to wwan0.
+
+    This mirroring is done by traffic control tool.
+
+    We create a filter on both interface to mirrot traffic between them.
+
+    To apply a traffic control policy on an incoming interface, we must add them a "ingress" qdisc.
+    """
+    if not lte_if_name:
+        lte_if_name = fwutils.dev_id_to_linux_if(dev_id)
+        if not lte_if_name:
+            raise Exception(f'add_del_traffic_control({dev_id}): lte interface name not found')
+
+    linux_tap_if_name = fwutils.linux_tap_by_interface_name(lte_if_name)
+    if not linux_tap_if_name:
+        raise Exception(f'add_del_traffic_control(dev_id={dev_id}, {lte_if_name}): linux_tap_if_name not found')
+
+    lte_mac_addr = fwutils.get_interface_mac_addr(lte_if_name)
+    vpp_mac_addr = fwutils.get_vpp_tap_interface_mac_addr(dev_id)
+
+    # Since we run multiple commands here, we need to take care of the failure case.
+    # If a command fails, it throws an error.
+    # Hence, after each command, we know that it succeeded, and we add the revert function of it to a list.
+    # In case of an error, we call each function within the revert list to clean up the configuration.
+    revert_functions = []
+    try:
+        if is_add:
+            # first, apply the ingress qdisc
+            fwutils.traffic_control_add_del_qdisc(is_add=True, dev_name=lte_if_name)
+            revert_functions.append(partial(fwutils.traffic_control_add_del_qdisc, is_add=False, dev_name=lte_if_name))
+
+            fwutils.traffic_control_add_del_qdisc(is_add=True, dev_name=linux_tap_if_name)
+            revert_functions.append(partial(fwutils.traffic_control_add_del_qdisc, is_add=False, dev_name=linux_tap_if_name))
+
+            # then, apply the mirroring
+            fwutils.traffic_control_add_del_mirror_policy(is_add=True, from_ifc=linux_tap_if_name, to_ifc=lte_if_name, set_dst_mac=lte_mac_addr)
+            revert_functions.append(partial(fwutils.traffic_control_add_del_mirror_policy, is_add=False, from_ifc=linux_tap_if_name, to_ifc=lte_if_name, set_dst_mac=lte_mac_addr))
+
+            fwutils.traffic_control_add_del_mirror_policy(is_add=True, from_ifc=lte_if_name, to_ifc=linux_tap_if_name, set_dst_mac=vpp_mac_addr)
+            revert_functions.append(partial(fwutils.traffic_control_add_del_mirror_policy, is_add=False, from_ifc=lte_if_name, to_ifc=linux_tap_if_name, set_dst_mac=vpp_mac_addr))
+        else:
+            # first, remove the mirroring
+            fwutils.traffic_control_add_del_mirror_policy(is_add=False, from_ifc=linux_tap_if_name, to_ifc=lte_if_name, set_dst_mac=lte_mac_addr)
+            fwutils.traffic_control_add_del_mirror_policy(is_add=False, from_ifc=lte_if_name, to_ifc=linux_tap_if_name, set_dst_mac=vpp_mac_addr)
+            # then, remove the ingress qdisc
+            fwutils.traffic_control_add_del_qdisc(is_add=False, dev_name=lte_if_name)
+            fwutils.traffic_control_add_del_qdisc(is_add=False, dev_name=linux_tap_if_name)
+    except Exception as e:
+        fwglobals.log.error(f"add_del_traffic_control({dev_id}, {lte_if_name}): {str(e)}")
+        # delete successful commands
+        if revert_functions:
+            for revert_function in revert_functions:
+                try:
+                    revert_function()
+                except Exception as revert_e: # on revert, don't catch exceptions to prevent infinite loop of failure -> revert failure -> revert of revert failure and so on (:
+                    fwglobals.log.excep(f"add_del_traffic_control({dev_id}, {lte_if_name}): revert failed. err: {str(revert_e)}")
+                    pass
+        raise e
+
+
+def dump(dev_id, lte_if_name, prefix_path=''):
+    devices = [lte_if_name]
+    tap_if_name = fwutils.linux_tap_by_interface_name(lte_if_name)
+    if tap_if_name:
+        devices.append(tap_if_name)
+
+    for device in devices:
+        fwutils.exec_to_file(f'tc -j filter show dev {device} root', f'{prefix_path}_{device}_tc_filter.json')
+        fwutils.exec_to_file(f'tc -j qdisc show dev {device}', f'{prefix_path}_{device}_tc_qdisc.json')

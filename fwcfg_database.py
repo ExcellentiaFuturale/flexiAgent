@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2022  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -21,29 +21,14 @@
 ################################################################################
 
 import json
-import pickle
 import re
-import sqlite3
 import traceback
 import copy
 
-from sqlitedict import SqliteDict
-
-import fwglobals
+from fwsqlitedict import FwSqliteDict
 import fwutils
 
-from fwlog import FwSyslog
-from fwobject import FwObject
-
-def decode(obj):
-    """Deserialize objects retrieved from SQLite."""
-    return pickle.loads(bytes(obj), encoding="latin1")
-
-def encode(obj):
-    """Deserialize objects retrieved from SQLite."""
-    return sqlite3.Binary(pickle.dumps(obj, protocol=2))
-
-class FwCfgDatabase(FwObject):
+class FwCfgDatabase(FwSqliteDict):
     """This is requests DB class representation.
     Persistent database that is used to keep configuration requests received from flexiManage.
     The requests are stored along with their translations into command list.
@@ -53,7 +38,7 @@ class FwCfgDatabase(FwObject):
         {
             "Executed": { Indicates if command are already executed },
             "Key": { The unique key for each request from flexiManage. e.g. "add-interface:pci:0000:08:01" },
-            "Params": { Dictonery with params received from flexiManage },
+            "Params": { Dictionary with params received from flexiManage },
             "Commands": [ list of translated commands ]
         }
     ]
@@ -63,39 +48,11 @@ class FwCfgDatabase(FwObject):
     def __init__(self, db_file):
         """Constructor method
         """
-        FwObject.__init__(self)
-
-        self.db_filename = db_file
-        self.db = SqliteDict(db_file, autocommit=True, encode=encode, decode=decode)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        # The three arguments to `__exit__` describe the exception
-        # caused the `with` statement execution to fail. If the `with`
-        # statement finishes without an exception being raised, these
-        # arguments will be `None`.
-        self.finalize()
-
-    def finalize(self):
-        """Destructor method
-        """
-        self.db.close()
-
-    def close(self):
-        self.db.close()
-
-    def clean(self, reset_signature=True):
-        """Clean DB
-
-        :returns: None.
-        """
-        for req_key in self.db:
-            del self.db[req_key]
+        super().__init__(db_file)
+        self.translators = None
 
     def set_translators(self, translators):
-       self.translators = translators
+        self.translators = translators
 
     def set_logger(self, logger):
        self.log = logger
@@ -144,16 +101,16 @@ class FwCfgDatabase(FwObject):
 
         try:
             if re.match('add-', req):
-                self.db[req_key] = { 'request' : req , 'params' : params , 'cmd_list' : cmd_list , 'executed' : executed }
+                self[req_key] = { 'request' : req , 'params' : params , 'cmd_list' : cmd_list , 'executed' : executed }
             elif re.match('modify-', req):
-                    entry = self.db[req_key]
+                    entry = self[req_key]
                     fwutils.dict_deep_update(entry['params'], params)
                     if cmd_list:
                         updated_cmd_list = entry.get('cmd_list', []) + cmd_list
                         entry.update({'cmd_list' : updated_cmd_list})
-                    self.db[req_key] = entry  # Can't update self.db[req_key] directly, sqldict will ignore such modification
+                    self[req_key] = entry  # Can't update self[req_key] directly, sqldict will ignore such modification
             else:
-                del self.db[req_key]
+                del self[req_key]
 
         except KeyError:
             pass
@@ -171,7 +128,7 @@ class FwCfgDatabase(FwObject):
         """
         try:
             req_key = self._get_request_key(request)
-            del self.db[req_key]
+            del self[req_key]
         except KeyError:
             pass
         except Exception as e:
@@ -188,17 +145,17 @@ class FwCfgDatabase(FwObject):
         return self.get_cmd_list(req_key)
 
     def get_cmd_list(self, req_key):
-        """Retrives translation of the request to list of commands.
+        """Retrieves translation of the request to list of commands.
 
         :param request: The request as it would be received on network,
-                        including name (request['message']) and parmateres
+                        including name (request['message']) and parameters
                         (request['params']) if exist.
 
         :returns: the tuple of the command list and the 'executed' flag
         """
-        if not req_key in self.db:
+        if not req_key in self:
             return (None, None)
-        return (self.db[req_key].get('cmd_list'), self.db[req_key].get('executed'))
+        return (self[req_key].get('cmd_list'), self[req_key].get('executed'))
 
     def exists(self, request):
         """Check if entry exists in DB.
@@ -208,7 +165,7 @@ class FwCfgDatabase(FwObject):
         :returns: 'True' if request exists and 'False' otherwise.
         """
         req_key = self._get_request_key(request)
-        res = True if req_key in self.db else False
+        res = True if req_key in self else False
         return res
 
     def get_params(self, req_key):
@@ -219,8 +176,8 @@ class FwCfgDatabase(FwObject):
         :param request: The configuration request, e.g. modify-interface.
         :returns: parameters of the request stored in the database.
         """
-        if req_key in self.db:
-            return self.db[req_key].get('params')
+        if req_key in self:
+            return self[req_key].get('params')
         return None
 
     def dump(self, types, escape=None, full=False, keys=False):
@@ -247,20 +204,20 @@ class FwCfgDatabase(FwObject):
 
         # The dump is O(num_types x n) - improve that on demand!
         cfg     = []
-        db_keys = sorted(self.db.keys())  # The key order might be affected by dictionary content, so sort it
+        db_keys = sorted(self.keys())  # The key order might be affected by dictionary content, so sort it
         for req in types:
             for key in db_keys:
                 if re.match(req, key):
                     request = {
-                        'message': self.db[key].get('request',""),
-                        'params':  self.db[key].get('params', "")
+                        'message': self[key].get('request',""),
+                        'params':  self[key].get('params', "")
                     }
                     if request['params'] == None:  # flexiManage team doesn't like None :)
                         request['params'] = {}
                     if full:
                         request.update({
-                            'cmd_list': self.db[key].get('cmd_list', ""),
-                            'executed': self.db[key].get('executed', "")})
+                            'cmd_list': self[key].get('cmd_list', ""),
+                            'executed': self[key].get('executed', "")})
                     if keys:
                         request.update({'key': key})
                     cfg.append(request)
@@ -296,7 +253,7 @@ class FwCfgDatabase(FwObject):
         return json.dumps(out, indent=2, sort_keys=True)
 
     def get_requests(self, req):
-        """Retrives list of configuration requests parameters for requests with
+        """Retrieves list of configuration requests parameters for requests with
         the 'req' name.
         This is generic function wrapped by request specific one-line APIs,
         like get_tunnels().
@@ -305,9 +262,9 @@ class FwCfgDatabase(FwObject):
         :returns: list of request parameters.
         """
         requests = []
-        for key in self.db:
+        for key in self:
             if re.match(req, key):
-                requests.append(self.db[key]['params'])
+                requests.append(self[key]['params'])
         return requests
 
     def get_sync_list(self, requests):

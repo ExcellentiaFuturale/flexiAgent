@@ -23,6 +23,7 @@ import shutil
 import json
 import re
 import sys
+import psutil
 
 """
 This class was created for the startupconf parserer/dumper. It mimics a tuple of two elements: a key,
@@ -691,19 +692,10 @@ class FwStartupConf(FwStartupConfParsed):
 		self.del_simple_param('cpu.corelist-hqos-threads')
 		self.del_simple_param('buffers.buffers-per-numa')
 		self.del_simple_param('dpdk.dev default.num-rx-queues')
+		self.del_simple_param('memory.main-heap-size')
 
 		if num_workers == 0:
 			return
-
-		self.set_simple_param('cpu.main-core', 0)
-		if hqos_enabled and num_workers > 1:
-			hqos_workers_str = "%d" % (num_workers)
-			self.set_simple_param('cpu.corelist-hqos-threads', hqos_workers_str)
-			num_workers -= 1
-
-		num_workers_str = "1" if num_workers == 1 else "1-%d" % (num_workers)
-		self.set_simple_param('cpu.corelist-workers', num_workers_str)
-		self.set_simple_param('dpdk.dev default.num-rx-queues', num_workers)
 
 		# Based on analysis of vpp extras/vpp_config/extras/vpp_config.py:
 		# 	buffers-per-numa = ((rx_queues * desc_entries) + (tx_queues * desc_entries)) * total_ports_per_numa * 2
@@ -716,6 +708,20 @@ class FwStartupConf(FwStartupConfParsed):
 		total_ports_per_numa = num_interfaces   # Port = Interface
 		buffers = (rx_queues + tx_queues) * desc_entries * total_ports_per_numa * 2
 		self.set_simple_param('buffers.buffers-per-numa', buffers)
+
+		# Default VPP heap size is 1G, we need at least 2G in multi-thread mode to support 1000+ tunnels
+		if psutil.virtual_memory().total >= 5 * 1024 * 1024 * 1024: # > 5G (2G - DPDK, 2G - VPP, 1G - Apps + Linux)
+			self.set_simple_param('memory.main-heap-size', '2G')
+
+		self.set_simple_param('cpu.main-core', 0)
+		if hqos_enabled and num_workers > 1:
+			hqos_workers_str = "%d" % (num_workers)
+			self.set_simple_param('cpu.corelist-hqos-threads', hqos_workers_str)
+			num_workers -= 1
+
+		num_workers_str = "1" if num_workers == 1 else "1-%d" % (num_workers)
+		self.set_simple_param('cpu.corelist-workers', num_workers_str)
+		self.set_simple_param('dpdk.dev default.num-rx-queues', num_workers)
 
 	def get_power_saving(self):
 		'''Retrieves power saving on main core based on value of the unix.poll-sleep-usec field

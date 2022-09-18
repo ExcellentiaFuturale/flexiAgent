@@ -331,9 +331,12 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
     op     = 'replace'
 
     if remove:
-        if not next_hops:
-            op = 'del'
-        cmd = "sudo ip route %s %s%s proto %s %s" % (op, addr, metric, proto, next_hops)
+        if dev:  # If device was provided, delete specific route via this device only
+            cmd = "sudo ip route del %s%s proto %s dev %s" % (addr, metric, proto, dev)
+        else:    # Else delete all routes with same prefix and metric for all devices
+            if not next_hops:
+                op = 'del'
+            cmd = "sudo ip route %s %s%s proto %s %s" % (op, addr, metric, proto, next_hops)
     else:
         if via in next_hops:
             return (False, "via in next_hop")

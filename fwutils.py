@@ -2,7 +2,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2022  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -60,6 +60,7 @@ from fwpolicies     import FwPolicies
 from fwrouter_cfg   import FwRouterCfg
 from fwsystem_cfg   import FwSystemCfg
 from fwroutes       import FwLinuxRoutes
+from fwjobs         import FwJobs
 from fwapplications_cfg import FwApplicationsCfg
 from fwwan_monitor  import get_wan_failover_metric
 from fw_traffic_identification import FwTrafficIdentifications
@@ -1645,6 +1646,10 @@ def reset_router_api_db(enforce=False):
         router_api_db['vpp_if_name_to_tap_if_name'] = {}
     if not 'sw_if_index_to_tap_if_name' in router_api_db or enforce:
         router_api_db['sw_if_index_to_tap_if_name'] = {}
+    if not 'dhcpd' in router_api_db or enforce:
+        router_api_db['dhcpd'] = {}
+    if not 'interfaces' in router_api_db['dhcpd'] or enforce:
+        router_api_db['dhcpd']['interfaces'] = {}
     fwglobals.g.db['router_api'] = router_api_db
 
 def print_system_config(full=False):
@@ -1654,6 +1659,11 @@ def print_system_config(full=False):
      """
     with FwSystemCfg(fwglobals.g.SYSTEM_CFG_FILE) as system_cfg:
         cfg = system_cfg.dumps(full=full)
+        print(cfg)
+
+def print_jobs():
+    with FwJobs(fwglobals.g.JOBS_FILE) as jobs:
+        cfg = jobs.dumps()
         print(cfg)
 
 def print_device_config_signature():
@@ -2128,43 +2138,33 @@ def get_lte_interfaces_names():
 
     return names
 
-def traffic_control_add_del_dev_ingress(dev_name, is_add):
+def traffic_control_add_del_qdisc(is_add, dev_name, class_name='ingress'):
+    add_delete = 'add' if is_add else 'del'
     try:
-        subprocess.check_call('sudo tc -force qdisc %s dev %s ingress handle ffff:' % ('add' if is_add else 'delete', dev_name), shell=True)
-        return (True, None)
-    except Exception:
-        return (True, None)
+        subprocess.check_call(f'sudo tc qdisc {add_delete} dev {dev_name} handle ffff: {class_name}', stderr=subprocess.STDOUT, shell=True)
+    except Exception as e:
+        fwglobals.log.error(f"traffic_control_add_del_qdisc({is_add}, {dev_name}, {class_name}): {str(e)}")
+        raise e
 
-def traffic_control_replace_dev_root(dev_name):
+def traffic_control_add_del_mirror_policy(is_add, from_ifc, to_ifc, set_dst_mac=None):
     try:
-        subprocess.check_call('sudo tc -force qdisc replace dev %s root handle 1: htb' % dev_name, shell=True)
-        return (True, None)
-    except Exception:
-        return (True, None)
-
-def traffic_control_remove_dev_root(dev_name):
-    try:
-        subprocess.check_call('sudo tc -force qdisc del dev %s root' % dev_name, shell=True)
-        return (True, None)
-    except Exception:
-        return (True, None)
+        cmd = f"tc filter {'add' if is_add  else 'del'} dev {from_ifc} parent ffff: \
+                protocol all prio 2 u32 \
+                match u32 0 0 flowid 1:1 \
+                {f'action pedit ex munge eth dst set {set_dst_mac}' if set_dst_mac else ''} \
+                pipe action mirred egress mirror dev {to_ifc} \
+                pipe action drop"
+        subprocess.check_call(cmd, stderr=subprocess.STDOUT, shell=True)
+    except Exception as e:
+        fwglobals.log.error(f"traffic_control_add_del_mirror_policy({is_add}, {from_ifc}, {to_ifc}, {set_dst_mac}): {str(e)}")
+        raise e
 
 def reset_traffic_control():
     fwglobals.log.debug('clean Linux traffic control settings')
-    search = []
-    lte_interfaces = get_lte_interfaces_names()
-
-    if lte_interfaces:
-        search.extend(lte_interfaces)
-
-    for term in search:
+    lte_interface_names = get_lte_interfaces_names()
+    for dev_name in lte_interface_names:
         try:
-            subprocess.check_call('sudo tc -force qdisc del dev %s root 2>/dev/null' % term, shell=True)
-        except:
-            pass
-
-        try:
-            subprocess.check_call('sudo tc -force qdisc del dev %s ingress handle ffff: 2>/dev/null' % term, shell=True)
+            subprocess.check_call(f'sudo tc -force qdisc del dev {dev_name} ingress handle ffff: 2>/dev/null', shell=True)
         except:
             pass
 
@@ -2289,6 +2289,15 @@ def modify_dhcpd(is_add, params):
         output = subprocess.check_output(exec_string, shell=True).decode()
     except Exception as e:
         return (False, str(e))
+
+    # Update persistent cache with DHCPD interface
+    #
+    router_api_db = fwglobals.g.db['router_api'] # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
+    if is_add:
+        router_api_db['dhcpd']['interfaces'].update({dev_id: None})
+    elif dev_id in router_api_db['dhcpd']['interfaces']:
+        del router_api_db['dhcpd']['interfaces'][dev_id]
+    fwglobals.g.db['router_api'] = router_api_db
 
     return True
 
@@ -2863,7 +2872,7 @@ def is_non_dpdk_interface(dev_id):
 
 def get_ipaddress_ip_network(ip_str):
     try:
-        return ipaddress.ip_network(ip_str)
+        return ipaddress.ip_network(ip_str, strict=False)
     except Exception as e:
         fwglobals.log.warning(f"_get_ip_network_from_str: {ip_str} is not ip address. err={str(e)}")
         return None
@@ -3108,6 +3117,20 @@ def netplan_apply(caller_name=None):
         fwglobals.log.debug(log_str)
         os.system(cmd)
         time.sleep(1)  				# Give a second to Linux to configure interfaces
+
+        if fwglobals.g.is_gcp_vm:
+            # Google Guest Agent has an issue when starting it without IP on the primary interface.
+            # This service may also depend on 'systemd-networkd'.
+            # (See 'WantedBy' attribute in Google Guest Agent service fi
+            # In the process of start-router or modify-interface, we call 'netplan apply' a few times
+            # even when the interface is not fully configured.
+            # The 'netplan apply' causes the stop and start of 'systemd-networkd'
+            # and 'systemd-networkd' causes Google Guest Agent to be restarted too.
+            # This leads to the issue that Google Guest Agent is stuck when starting with no IP.
+            # We saw that 'systemctl restart systemd-networkd' solves the issue.
+            # Hence, After each netplan apply we call restart of systemd-networkd to make it work.
+            os_system('systemctl restart systemd-networkd')
+            time.sleep(1)  				# Give a second to Linux to configure interfaces
 
         # Netplan might change interface names, e.g. enp0s3 -> vpp0, or other parameters so reset cache
         #
@@ -3808,19 +3831,6 @@ def detect_gcp_vm():
     output = os.popen(cmd).read().strip()
     return output == "Google Compute Engine"
 
-def restart_gcp_agent():
-    '''Restart the google-guest-agent service
-
-    GCP configures all interfaces, LAN and WAN as DHCP clients.
-    Only WAN interfaces they put into Netplan but not LAN interfaces.
-    As well, the assigned ip is with /32 mask.
-    To be able to reach the whole subnet (e.f. /24), they push some DHCP options
-    that install the required static routes.
-    So here, after we release the LAN interfaces back to Linux, we need to restart
-    their agent service to reconfigured all network interfaces.
-    '''
-    os_system('systemctl restart google-guest-agent')
-
 def list_to_dict_by_key(list, key_name):
     ''' Creates an object that composed of keys generated from the results of running an each item of the given list.
 
@@ -3884,6 +3894,26 @@ def shutdown_activate_bgp_peer_if_exists(neighbor_ip, shutdown):
         return frr_vtysh_run(vtysh_cmd)
     except Exception as e:
         return (False, str(e))
+
+def exec_with_retrials(cmd, retrials = 30, expected_to_fail=False):
+    for _ in range(retrials):
+        try:
+            subprocess.check_output(cmd, shell=True).decode()
+            if not expected_to_fail:
+                return True
+        except:
+            if expected_to_fail:
+                return True
+        time.sleep(1)
+    return False
+
+def exec_to_file(cmd, file_name):
+    with open(file_name, 'w') as f:
+        try:
+            subprocess.call(cmd, stdout=f, shell=True)
+        except Exception as e:
+            fwglobals.log.excep(f"exec_to_file({cmd}, {file_name}) failed. error={str(e)}")
+            pass
 
 def build_tunnel_bgp_neighbor(tunnel):
     loop0_ip         = tunnel['loopback-iface']['addr']

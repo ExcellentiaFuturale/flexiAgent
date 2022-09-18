@@ -243,7 +243,8 @@ def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
         # Allow list ACL use case - At end of allow list, add the deny
         # Append acl definition with a deny entry - Block all other sources
         if add_last_deny_ace:
-            last_acl, __  = generate_acl_params(None, destination, False, is_ingress)
+            last_acl, __  = generate_acl_params\
+                            (None, destination, False, service_class, importance, is_ingress)
             if last_acl:
                 acl_rules.extend(last_acl)
             else:

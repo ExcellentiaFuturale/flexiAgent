@@ -228,6 +228,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             Intel 82540EM (e1000)
                 no-carrier full duplex mtu 9206
         '''
+        restart_dhcpd = False
+
         interfaces = fwglobals.g.router_cfg.get_interfaces()
         for interface in interfaces:
             tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
@@ -246,6 +248,13 @@ class FWROUTER_API(FwCfgRequestHandler):
             elif status_vpp == 'up' and ok and status_linux and int(status_linux)==0:
                 self.log.debug(f"detected CARRIER UP for {tap_name}")
                 fwutils.os_system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
+                if interface['dev_id'] in fwglobals.g.db.get('router_api',{}).get('dhcpd',{}).get('interfaces',{}):
+                    restart_dhcpd = True
+
+        if restart_dhcpd:
+            time.sleep(1)  # give a second to Linux to reconfigure interface
+            cmd = 'systemctl restart isc-dhcp-server'
+            fwutils.os_system(cmd, '_sync_link_status')
 
     def _sync_addresses(self, old_interfaces, new_interfaces):
         """Monitors VPP interfaces for IP/GW change and updates system as follows:
@@ -811,10 +820,12 @@ class FWROUTER_API(FwCfgRequestHandler):
                         reconnect_agent = True
                 elif re.match('(add|remove)-interface', _request['message']):
                     dev_id = _request['params']['dev_id']
+                    # check if requests list contains remove-interface and add-interface for the same dev_id.
+                    # If found, it means that these two requests were created for modify-interface
                     if not dev_id in add_remove_requests:
                         add_remove_requests[dev_id] = _request
                     else:
-                        # This add/remove complements pair created for modify-X
+                        # This add/remove complements pair created for modify-interface
 
                         # Fetch gateway from the add-interface
                         #
@@ -1336,11 +1347,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             # so the configuration file will be not needed.
             fwglobals.log.error(f"_on_start_router_after: failed to flush frr configuration into file: {str(err)}")
 
-        if fwglobals.g.is_gcp_vm:
-            # When we shutting down the interfaces on Linux before assigning them to VPP
-            # the GCP agent is stopped. Hence, we need to restart it again.
-            fwutils.restart_gcp_agent()
-
         fwglobals.g.pppoe.start()
 
         self._sync_after_start()
@@ -1378,9 +1384,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwutils.reset_traffic_control()
         fwutils.remove_linux_bridges()
         fwwifi.stop_hostapd()
-
-        if fwglobals.g.is_gcp_vm: # Take care of Google Cloud Platform VM
-            fwutils.restart_gcp_agent()
 
         # keep LTE connectivity on linux interface
         fwglobals.g.system_api.restore_configuration(types=['add-lte'])

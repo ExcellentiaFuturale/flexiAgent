@@ -377,6 +377,8 @@ class FwAgent(FwObject):
                 "User-Agent": "fwagent/%s" % (self.versions['components']['agent']['version'])
             }
 
+            fwglobals.g.router_threads.request_processing_thread_ident = threading.current_thread().ident
+
             self.ws.connect(
                         url, headers = headers,
                         check_certificate=(not fwglobals.g.cfg.BYPASS_CERT))
@@ -399,6 +401,9 @@ class FwAgent(FwObject):
             #
             self._mark_connection_failure(error)
             return False
+
+        finally:
+            fwglobals.g.router_threads.request_processing_thread_ident = None
 
 
     def reconnect(self):
@@ -467,7 +472,6 @@ class FwAgent(FwObject):
         if not fwutils.vpp_does_run():
             self.log.info("connect: router is not running, start it in flexiManage")
 
-
     def _on_message(self, message):
         """Websocket received message handler.
         This callbacks invokes global handler of the received request defined
@@ -493,7 +497,9 @@ class FwAgent(FwObject):
             default_route_before = fwutils.get_default_route()
 
             msg_id = seq + " " if not job_id else seq + " job_id:" + job_id + " "
+            fwglobals.g.jobs.start_recording(job_id, request) # add a new job record
             reply  = self.handle_received_request(request, log_prefix=msg_id)
+            fwglobals.g.jobs.stop_recording(job_id, reply)
 
             default_route_after = fwutils.get_default_route()
             if default_route_before[2] != default_route_after[2]:  # reconnect the agent to avoid WebSocket timeout
@@ -601,8 +607,18 @@ class FwAgent(FwObject):
             log_reply(msg, reply, log_prefix, logger)
 
         except Exception as e:
-             self.log.error("handle_received_request failed: %s" + str(e))
+             self.log.error(f"handle_received_request failed: {str(e)} {traceback.format_exc()}")
              return {'ok': 0, 'message': str(e)}
+
+        if reply['ok'] == 0:
+            errors = fwglobals.g.jobs.get_job_errors()
+            # not all jobs are recorded since not all of them have job ID.
+            # For example, direct messages from flexiManage like 'get-device-logs'
+            # that not sent in the jobs queue.
+            # Hence, check if no jobs recorded. If so, add the provided error to the list.
+            if len(errors) == 0 and reply['message']:
+                errors.append(reply['message'])
+            reply['message'] = {'errors' : errors}
         return reply
 
     def inject_requests(self, filename, ignore_errors=False, json_requests=None):
@@ -822,6 +838,8 @@ def show(agent, configuration, database, status, networks):
                 print(multilink_db.dumps())
         elif database == 'qos':
             print(fwqos.qos_db_dumps())
+        elif database == 'jobs':
+            fwutils.print_jobs()
 
     if status:
         if status == 'daemon':
@@ -1295,7 +1313,7 @@ if __name__ == '__main__':
                         choices=['all', 'lan', 'wan'],
                         help="show flexiEdge configuration")
     parser_show.add_argument('--database',
-                        choices=['applications', 'frr', 'general', 'multilink', 'router', 'system', 'qos'],
+                        choices=['applications', 'frr', 'general', 'multilink', 'router', 'system', 'qos', 'jobs'],
                         help="show whole flexiEdge database")
     parser_show.add_argument('--status', choices=['daemon', 'router'],
                         help="show flexiEdge status")
