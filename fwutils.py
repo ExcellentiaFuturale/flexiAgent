@@ -390,7 +390,7 @@ def get_interface_address(if_name, if_dev_id=None, log=True, log_on_failure=None
             if_name = ppp_if_name
 
     interfaces = psutil.net_if_addrs()
-    if if_name not in interfaces:
+    if if_name not in interfaces and log_on_failure:
         fwglobals.log.debug("get_interface_address(%s): interfaces: %s" % (if_name, str(interfaces)))
         return None
 
@@ -3859,7 +3859,7 @@ def get_device_networks_json(type=None):
         if interface['dhcp'] == 'yes':
             # take from interface itself
             linux_if_name = dev_id_to_linux_if_name_safe(interface['dev_id'])
-            network = get_interface_address(linux_if_name, log_on_failure=False)
+            network = get_interface_address(linux_if_name, log=False, log_on_failure=False)
             if network:
                 networks.add(network)
         else:
