@@ -579,105 +579,23 @@ def add_interface(params):
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']   = "traffic_control_add_del_dev_ingress"
-        cmd['cmd']['module'] = "fwutils"
+        cmd['cmd']['func']   = "add_del_traffic_control"
+        cmd['cmd']['module'] = "fwlte"
         cmd['cmd']['params'] = {
-                    'dev_name': '',
                     'is_add': 1,
-                    'substs': [ { 'add_param':'dev_name', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name } ]
+                    'dev_id': dev_id,
+                    'lte_if_name': iface_name,
         }
-        cmd['cmd']['descr'] = "add traffic control command for linux tap interface"
+        cmd['cmd']['descr'] = "add traffic control configuration to LTE interface"
         cmd['revert'] = {}
-        cmd['revert']['func']   = "traffic_control_add_del_dev_ingress"
-        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['func']   = "add_del_traffic_control"
+        cmd['revert']['module'] = "fwlte"
         cmd['revert']['params'] = {
                     'is_add': 0,
-                    'substs': [ { 'add_param':'dev_name', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name } ]
+                    'dev_id': dev_id,
+                    'lte_if_name': iface_name,
         }
-        cmd['revert']['descr']  = "remove traffic control command for linux tap interface"
-        cmd_list.append(cmd)
-
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']   = "traffic_control_replace_dev_root"
-        cmd['cmd']['module'] = "fwutils"
-        cmd['cmd']['params'] = {
-                    'substs': [ { 'add_param':'dev_name', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name } ]
-        }
-        cmd['cmd']['descr'] = "replace traffic control command for linux tap interface"
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "traffic_control_remove_dev_root"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['params'] = {
-                    'substs': [ { 'add_param':'dev_name', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name } ]
-        }
-        cmd['revert']['descr']  = "remove replaced tc command for linux tap interface"
-        cmd_list.append(cmd)
-
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']   = "traffic_control_add_del_dev_ingress"
-        cmd['cmd']['module'] = "fwutils"
-        cmd['cmd']['params'] = { 'dev_name'  : iface_name, 'is_add': 1 }
-        cmd['cmd']['descr'] = "add traffic control command for lte interface"
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "traffic_control_add_del_dev_ingress"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['params'] = { 'dev_name'  : iface_name, 'is_add': 0 }
-        cmd['revert']['descr']  = "remove traffic control command for lte interface"
-        cmd_list.append(cmd)
-
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']   = "traffic_control_replace_dev_root"
-        cmd['cmd']['module'] = "fwutils"
-        cmd['cmd']['params'] = { 'dev_name'  : iface_name }
-        cmd['cmd']['descr'] = "replace traffic control command for lte interface"
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "traffic_control_remove_dev_root"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['params'] = { 'dev_name'  : iface_name }
-        cmd['revert']['descr']  = "remove replaced tc command for lte interface"
-        cmd_list.append(cmd)
-
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']   = "exec"
-        cmd['cmd']['module'] = "fwutils"
-        cmd['cmd']['params'] = {
-            'cmd':
-                f"tc filter add dev DEV-STUB parent ffff: \
-                protocol all prio 2 u32 \
-                match u32 0 0 flowid 1:1 \
-                action pedit ex munge eth dst set LTE-MAC \
-                pipe action mirred egress mirror dev {iface_name} \
-                pipe action drop",
-            'substs': [
-                {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name },
-                {'replace':'LTE-MAC',  'key':'cmd', 'val_by_func':'get_interface_mac_addr', 'arg':iface_name }
-            ]
-        }
-        cmd['cmd']['descr'] = "add filter traffic control command for tap and wwan interfaces"
-        cmd_list.append(cmd)
-
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']   = "exec"
-        cmd['cmd']['module'] = "fwutils"
-        cmd['cmd']['params'] = {
-            'cmd':
-                f"tc filter add dev {iface_name} parent ffff: \
-                protocol all prio 2 u32 \
-                match u32 0 0 flowid 1:1 \
-                action pedit ex munge eth dst set VPP-MAC \
-                pipe action mirred egress mirror dev DEV-STUB \
-                pipe action drop",
-            'substs': [
-                {'replace':'VPP-MAC',  'key':'cmd', 'val_by_func':'get_vpp_tap_interface_mac_addr', 'arg':dev_id },
-                {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name }
-            ]
-        }
-        cmd['cmd']['descr'] = "add filter traffic control command for tap and wwan interfaces"
+        cmd['revert']['descr']  = "remove traffic control configuration from LTE interface"
         cmd_list.append(cmd)
 
     # Get QoS commands
