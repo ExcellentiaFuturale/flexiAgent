@@ -98,7 +98,7 @@ def add_routing_bgp(params):
     router_id = params.get('routerId')
     redistribute_ospf = params.get('redistributeOspf')
 
-    vty_commands = [
+    vtysh_commands = [
         f'router bgp {local_asn}',
 
         # used to disable the connection verification process for EBGP peering sessions
@@ -115,11 +115,17 @@ def add_routing_bgp(params):
     ]
 
     # Neighbors
-    neighbors = params.get('neighbors', [])
-    for neighbor in neighbors:
-        vty_commands += _get_neighbor_frr_commands(neighbor)
+    neighbors = params.get('neighbors', []) # make sure params are not modified with tunnels
 
-    vty_commands += [
+    tunnels = fwglobals.g.router_cfg.get_tunnels(routing='bgp')
+    for tunnel in tunnels:
+        neighbor = fwutils.build_tunnel_bgp_neighbor(tunnel)
+        neighbors.append(neighbor)
+
+    for neighbor in neighbors:
+        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
+
+    vtysh_commands += [
         'address-family ipv4 unicast',
         f"redistribute kernel route-map {fwglobals.g.FRR_BGP_ROUTE_MAP}",
         'redistribute ospf' if redistribute_ospf else None,
@@ -127,17 +133,17 @@ def add_routing_bgp(params):
 
     # loop again on neighbors. "address-family" (above) must be before that and after the first neighbors commands.
     for neighbor in neighbors:
-        vty_commands += _get_neighbor_address_family_frr_commands(neighbor)
+        vtysh_commands += _get_neighbor_address_family_frr_commands(neighbor)
 
     networks = params.get('networks', [])
     for network in networks:
         ip = network.get('ipv4')
-        vty_commands += [f'network {ip}']
+        vtysh_commands += [f'network {ip}']
 
-    vty_commands += ['exit-address-family']
+    vtysh_commands += ['exit-address-family']
 
     # During above code lines we put None sometimes. Here we are filtering all None out.
-    vty_commands = list(filter(None, vty_commands))
+    vtysh_commands = list(filter(None, vtysh_commands))
 
     cmd = {}
     cmd['cmd'] = {}
@@ -145,7 +151,7 @@ def add_routing_bgp(params):
     cmd['cmd']['module']  = "fwutils"
     cmd['cmd']['descr']   =  f"add bgp router ASN={local_asn}"
     cmd['cmd']['params'] = {
-                    'commands': vty_commands,
+                    'commands': vtysh_commands,
                     'restart_frr': True,
                     'wait_after': 2,
                     'on_error_commands': [f'no router bgp {local_asn}']
@@ -162,28 +168,6 @@ def add_routing_bgp(params):
     cmd_list.append(cmd)
 
     return cmd_list
-
-def _get_neighbor_frr_commands(neighbor):
-    ip = neighbor.get('ip')
-    remote_asn = neighbor.get('remoteAsn')
-    password = neighbor.get('password')
-    keepalive_interval = neighbor.get('keepaliveInterval')
-    hold_interval = neighbor.get('holdInterval')
-
-    commands = [
-        f'neighbor {ip} remote-as {remote_asn}',
-
-        # Allow peering between directly connected eBGP peers using loopback addresses.
-        f'neighbor {ip} disable-connected-check',
-    ]
-
-    if password:
-        commands.append(f'neighbor {ip} password {password}')
-
-    if keepalive_interval and hold_interval:
-        commands.append(f'neighbor {ip} timers {keepalive_interval} {hold_interval}')
-
-    return commands
 
 def _get_neighbor_address_family_frr_commands(neighbor):
     ip = neighbor.get('ip')
@@ -277,7 +261,7 @@ def _modify_neighbors(cmd_list, new_params, old_params):
     def _add_cmd_func(neighbor):
         ip = neighbor.get('ip')
         vtysh_commands = [f'router bgp {local_asn}']
-        vtysh_commands += _get_neighbor_frr_commands(neighbor)
+        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
 
         vtysh_commands.append(f'address-family ipv4 unicast')
 
