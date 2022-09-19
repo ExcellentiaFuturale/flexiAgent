@@ -3844,17 +3844,10 @@ def list_to_dict_by_key(list, key_name):
                 res[key] = item
     return res
 
-def get_lan_interfaces(type):
-    if getattr(fwglobals.g, 'router_cfg', False):
-        return fwglobals.g.router_cfg.get_interfaces(type=type)
-    else:
-        with FwRouterCfg(fwglobals.g.ROUTER_CFG_FILE) as router_cfg:
-            return router_cfg.get_interfaces(type=type)
-
 def get_device_networks_json(type=None):
     networks = set() # prevent duplication of bridged interfaces
 
-    interfaces = get_lan_interfaces(type)
+    interfaces = fwglobals.g.router_cfg.get_interfaces(type=type)
     for interface in interfaces:
         if interface['dhcp'] == 'yes':
             # take from interface itself
