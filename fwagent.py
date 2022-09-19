@@ -23,6 +23,7 @@
 import json
 import os
 import glob
+import errno
 import ssl
 import socket
 import sys
@@ -1128,6 +1129,19 @@ def daemon(standalone=False):
     """
     fwglobals.log.set_target(to_syslog=True, to_terminal=False)
     fwglobals.log.info("starting in daemon mode (standalone=%s)" % str(standalone))
+
+    # Ensure the IPC port is not in use
+    #
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        ip   = fwglobals.g.FWAGENT_DAEMON_HOST
+        port = fwglobals.g.FWAGENT_DAEMON_PORT
+        try:
+            s.bind((ip, port))
+        except socket.error as e:
+            if e.errno == errno.EADDRINUSE:
+                fwglobals.log.debug(f"{ip}:{port} is in use, try other port (fwagent_conf.yaml:daemon_socket)")
+                s.close()
+                return
 
     with FwagentDaemon(standalone) as agent_daemon:
 
