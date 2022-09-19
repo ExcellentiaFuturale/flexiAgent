@@ -1,0 +1,12 @@
+[
+{
+  "entity": "agent",
+  "message": "add-interface",
+  "params": {
+      "dev_id":"__INTERFACE_1__dev_id",
+      "addr":"__INTERFACE_1__addr",
+      "routing":"ospf",
+      "type":"lan"
+  }
+}
+]
