@@ -810,7 +810,7 @@ def show(agent, configuration, database, status, networks):
 
     if networks:
         networks_type = None if networks == 'all' else networks
-        out = fwutils.get_device_networks_json(type=networks_type)
+        out = daemon_rpc('show', what='networks', type=networks_type)
         if out:
             print(out)
 
