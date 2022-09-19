@@ -761,8 +761,13 @@ def build_interface_dev_id(linux_dev_name, sys_class_net=None):
 
     :returns: dev_id or None if interface was created by vppsb
     """
+    parts = None
     if not linux_dev_name:
         return ""
+
+    if '.' in linux_dev_name:
+        parts = linux_dev_name.split(".")
+        linux_dev_name = parts[0]
 
     if linux_dev_name.startswith('ppp'):
         return fwpppoe.pppoe_get_dev_id_from_ppp(linux_dev_name)
@@ -787,6 +792,9 @@ def build_interface_dev_id(linux_dev_name, sys_class_net=None):
             if re.search(r'usb|pci', networking_device):
                 dev_id = dev_id_add_type(if_addr)
                 dev_id = dev_id_to_full(dev_id)
+
+                if parts:
+                    dev_id = 'vlan.' + parts[1] + '.' + dev_id
                 return dev_id
 
     return ""
