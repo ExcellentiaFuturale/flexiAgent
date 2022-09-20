@@ -116,6 +116,9 @@ def add_interface(params):
     is_wifi = fwwifi.is_wifi_interface_by_dev_id(dev_id)
     is_lte = fwlte.is_lte_interface_by_dev_id(dev_id) if not is_wifi else False
     is_pppoe = fwpppoe.is_pppoe_interface(dev_id=dev_id)
+    is_vlan = 'vlan' in dev_id
+    add_to_netplan = not is_vlan and not is_pppoe
+
     if is_pppoe:
         dhcp = 'no'
 
@@ -329,7 +332,8 @@ def add_interface(params):
         cmd['cmd']['descr']     = "Start PPPoE connection"
         cmd['cmd']['params']    = { 'dev_id': dev_id }
         cmd_list.append(cmd)
-    else:
+
+    if add_to_netplan:
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']   = "add_remove_netplan_interface"

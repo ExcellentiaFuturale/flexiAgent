@@ -657,3 +657,28 @@ def create_baseline_if_not_exist(fname):
     os.system('cp %s %s.fworig' % (fname, fname))
     os.system('mv %s %s' % (fname, fname_baseline))
     return fname_baseline
+
+def netplan_unload_vlans():
+    files = netplan_get_filepaths()
+    netplan_apply = False
+
+    for fname in files:
+        changed = False
+        config = None
+        with open(fname, 'r') as stream:
+            config = yaml.safe_load(stream)
+            if config is None:
+                continue
+            if 'network' in config:
+                network = config['network']
+                if 'vlans' in network:
+                    del network['vlans']
+                    changed = True
+        if changed:
+            config['network'] = network
+            with open(fname, 'w') as file_stream:
+                yaml.dump(config, file_stream)
+            netplan_apply = True
+
+    if netplan_apply:
+        fwutils.netplan_apply('netplan_unload_vlans')
