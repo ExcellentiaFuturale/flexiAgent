@@ -333,6 +333,37 @@ def add_interface(params):
         cmd['cmd']['params']    = { 'dev_id': dev_id }
         cmd_list.append(cmd)
 
+    if is_vlan:
+        parts = dev_id.split("pci")
+        parent_dev_id = 'pci' + parts[1]
+        parts = parts[0].split(".")
+        vlan_id = int(parts[1])
+
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']          = "call_vpp_api"
+        cmd['cmd']['object']        = "fwglobals.g.router_api.vpp_api"
+        cmd['cmd']['params']        = {
+                        'api':  "create_vlan_subif",
+                        'args': {
+                            'vlan_id': vlan_id,
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_func':'dev_id_to_vpp_sw_if_index', 'arg':parent_dev_id } ]
+                        },
+        }
+        cmd['cmd']['cache_ret_val'] = ('sw_if_index', 'vlan_cache_key')
+        cmd['cmd']['descr']         = "create vlan interface"
+        cmd['revert'] = {}
+        cmd['revert']['func']       = "call_vpp_api"
+        cmd['revert']['object']     = "fwglobals.g.router_api.vpp_api"
+        cmd['revert']['params']     = {
+                        'api':  "delete_subif",
+                        'args': {
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':'vlan_cache_key'} ]
+                        },
+        }
+        cmd['revert']['descr']      = "delete vlan interface"
+        cmd_list.append(cmd)
+
     if add_to_netplan:
         cmd = {}
         cmd['cmd'] = {}
