@@ -6,7 +6,18 @@
       "dev_id":"vlan.101.__INTERFACE_1__dev_id",
       "addr":"192.168.101.1/24",
       "routing":"ospf",
-      "type":"lan"
+      "type":"lan",
+      "dhcp":"no"
+  }
+}
+,
+{
+  "entity": "agent",
+  "message": "add-interface",
+  "params": {
+      "dev_id":"vlan.102.__INTERFACE_1__dev_id",
+      "type":"wan",
+      "dhcp":"yes"
   }
 }
 ,

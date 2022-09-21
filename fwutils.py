@@ -452,9 +452,13 @@ def dev_id_to_full(dev_id):
     if addr_type == 'usb':
         return dev_id
 
+    if addr_type == 'vlan':
+        return dev_id
+
     pc = addr.split('.')
     if len(pc) == 2:
         return dev_id_add_type(pc[0]+'.'+"%02x"%(int(pc[1],16)))
+
     return dev_id
 
 # Convert 0000:00:08.01 provided by management to 0000:00:08.1 used by Linux
@@ -484,7 +488,10 @@ def dev_id_parse(dev_id):
     :returns: Tuple (type, address)
     """
     type_and_addr = dev_id.split(':', 1)
+
     if type_and_addr and len(type_and_addr) == 2:
+        if 'vlan' in type_and_addr[0]:
+            type_and_addr[0] = 'vlan'
         return (type_and_addr[0], type_and_addr[1])
 
     return ("", "")
@@ -2463,14 +2470,13 @@ def vpp_set_dhcp_detect(dev_id, remove):
     """
     addr_type, _ = dev_id_parse(dev_id)
 
-    if addr_type != "pci":
+    if addr_type != "pci" and addr_type != "vlan":
         return (False, "addr type needs to be a pci address")
 
     op = 'del' if remove else ''
 
     sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
     int_name = vpp_sw_if_index_to_name(sw_if_index)
-
 
     vppctl_cmd = 'set dhcp detect intfc %s %s' % (int_name, op)
 
