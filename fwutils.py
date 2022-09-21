@@ -2642,15 +2642,19 @@ def fix_received_message(msg):
 
         return msg
 
-    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    # Order of functions is important, as the first one (_fix_aggregation_format())
-    # creates clone of the received message, so the rest functions can simply
-    # modify it as they wish!
-    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    msg = _fix_aggregation_format(msg)
-    msg = _fix_dhcp(msg)
-    msg = _fix_application(msg)
-    return msg
+    try:
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        # Order of functions is important, as the first one (_fix_aggregation_format())
+        # creates clone of the received message, so the rest functions can simply
+        # modify it as they wish!
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        msg = _fix_aggregation_format(msg)
+        msg = _fix_dhcp(msg)
+        msg = _fix_application(msg)
+        return msg
+    except Exception as e:
+        fwglobals.log.error(f"fix_received_message failed: {str(e)} {traceback.format_exc()}")
+        return None
 
 def decompress_params(params):
     """ Decompress parmas from base64 to object

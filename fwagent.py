@@ -497,9 +497,16 @@ class FwAgent(FwObject):
             default_route_before = fwutils.get_default_route()
 
             msg_id = seq + " " if not job_id else seq + " job_id:" + job_id + " "
-            fwglobals.g.jobs.start_recording(job_id, request) # add a new job record
-            reply  = self.handle_received_request(request, log_prefix=msg_id)
-            fwglobals.g.jobs.stop_recording(job_id, reply)
+
+            msg = fwutils.fix_received_message(request)
+            if msg:
+                fwglobals.g.jobs.start_recording(job_id, msg) # add a new job record
+                reply  = self.handle_received_request(request, msg, log_prefix=msg_id)
+                fwglobals.g.jobs.stop_recording(job_id, reply)
+            else:
+                err_str = 'Invalid message format'
+                fwglobals.g.jobs.add_record(job_id, {'error': err_str})
+                reply = {'ok':0, 'message': err_str}
 
             default_route_after = fwutils.get_default_route()
             if default_route_before[2] != default_route_after[2]:  # reconnect the agent to avoid WebSocket timeout
@@ -527,7 +534,7 @@ class FwAgent(FwObject):
         if self.ws:
             self.ws.disconnect()
 
-    def handle_received_request(self, received_msg, log_prefix=''):
+    def handle_received_request(self, received_msg, msg, log_prefix=''):
         """Handles received request: invokes the global request handler
         while logging the request and the response returned by the global
         request handler. Note the global request handler is implemented
@@ -535,6 +542,7 @@ class FwAgent(FwObject):
         request handlers.
 
         :param received_msg:  the receive instance.
+        :param msg:           the normalized received message
         :param log_prefix:    the prefix to be added to the log line while printing message
 
         :returns: (reply, msg), where reply is reply to be sent back to server,
@@ -573,8 +581,6 @@ class FwAgent(FwObject):
 
 
         try:
-            msg = fwutils.fix_received_message(received_msg)
-
             logger = log_request(msg, received_msg, log_prefix)
 
             # Use 'request_cond_var' conditional variable to suspend monitoring
@@ -644,13 +650,13 @@ class FwAgent(FwObject):
 
         if type(requests) is list:   # Take care of file with list of requests
             for (idx, req) in enumerate(requests):
-                reply = self.handle_received_request(req)
+                reply = self.handle_received_request(req, msg)
                 if reply['ok'] == 0 and ignore_errors == False:
                     raise Exception('failed to inject request #%d in %s: %s' % \
                                     ((idx+1), filename, reply['message']))
             return None
         else:   # Take care of file with single request
-            reply = self.handle_received_request(requests)
+            reply = self.handle_received_request(requests, msg)
             if reply['ok'] == 0:
                 raise Exception('failed to inject request from within %s: %s' % \
                                 (filename, reply['message']))
@@ -1190,7 +1196,7 @@ def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None,
                                 elements are api arguments.
                                 e.g. [ 'inject_requests', 'requests.json' ].
                                 If provided, no prompt loop will be run.
-    :param script_fname:        Shortcat for --api==inject_requests(<script_fname>)
+    :param script_fname:        Shortcut for --api==inject_requests(<script_fname>)
                                 command. Is kept for backward compatibility.
     :param template_fname:      Path to template file that includes variables to replace in the cli request.
     :returns: None.

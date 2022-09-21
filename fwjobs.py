@@ -121,6 +121,20 @@ class FwJobs(FwObject):
         }
         self.log.debug(f"(start_record), job_id {self.current_job_id} added, total number of recorded jobs {len(self.job_ids)}")
 
+    def add_record(self, job_id, err):
+        """Creates failed job record. Useful when the error occurred during pre-processing
+        of the request, but we still want to create a record of a failure
+
+        :param job_id:      The id of the job received from flexiManage.
+        :param error:       The error to be recorded.
+
+        :returns: None.
+        """
+
+        self.start_recording(job_id, { 'message': '' })
+        self.update_current_record(err)
+        self.stop_recording(job_id, { 'ok': 0})
+
     def update_current_record(self, error):
         """Updates current job record in case of an error. Uses stored current job id.
 
