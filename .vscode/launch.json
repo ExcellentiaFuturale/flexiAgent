@@ -188,6 +188,17 @@
                 "PYTHONPATH": "${workspaceRoot}/"
             },
             "sudo": true,
+        },
+        {
+            "name": "Pre Remove ",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/common/pre_remove.py",
+            "cwd": "${workspaceRoot}",
+            "env": {
+                "PYTHONPATH": "${workspaceRoot}/"
+            },
+            "sudo": true,
         }
     ],
     "inputs": [

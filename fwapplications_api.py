@@ -247,5 +247,9 @@ def call_applications_hook(hook):
     if hasattr(fwglobals, 'g') and hasattr(fwglobals.g, 'applications_api'):
         return fwglobals.g.applications_api.call_hook(hook)
 
+    # to call FWAPPLICATIONS_API, we need the globals to be initialized
+    if not hasattr(fwglobals, 'g'):
+        fwglobals.initialize()
+
     with FWAPPLICATIONS_API() as applications_api:
         return applications_api.call_hook(hook)
