@@ -180,28 +180,15 @@ class FwPppoeConnection(FwObject):
         except Exception as e:
             self.log.error("remove: %s" % str(e))
 
-    def create_tun(self):
-        """Create TUN interface.
+    def setup_tun_if_params(self):
+        """Setup TUN interface params
         """
-        self.tun_if_name = 'pppoe%u' % self.id
+        self.tun_if_name, self.tun_vpp_if_name = self.get_linux_and_vpp_tun_if_names()
         self.if_name = fwutils.dev_id_to_tap(self.dev_id)
-
-        self.tun_vpp_if_name = fwutils.vpp_cli_execute_one(f'create tap host-if-name {self.tun_if_name} tun', debug=True)
-        if not self.tun_vpp_if_name:
-            self.log.error("create_tun: tun_vpp_if_name is empty")
-            return False
-
-        # Workaround to handle the following output.
-        # '_______   _              _   _____  ___
-        #  __/ __/ _ \\  (_)__    | | / / _ \\/  \\
-        #  _/ _// // / / / _ \\   | |/ / ___/ ___/
-        #  /_/ /____(_)_/\\___/   |___/_/  /_/
-        #  tun0'
-        self.tun_vpp_if_name = self.tun_vpp_if_name.split(' ')[-1]
 
         self.tun_vppsb_if_name = fwutils.vpp_if_name_to_tap(self.tun_vpp_if_name)
         if not self.tun_vppsb_if_name:
-            self.log.error("create_tun: tun_vppsb_if_name is empty")
+            self.log.error("setup_tun_if_params: tun_vppsb_if_name is empty")
             return False
 
         fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id] = self.tun_vpp_if_name
@@ -209,8 +196,13 @@ class FwPppoeConnection(FwObject):
 
         return True
 
-    def remove_tun(self):
-        """Remove TUN interface.
+    def get_linux_and_vpp_tun_if_names(self):
+        """Return TUN interface names in Linux and VPP
+        """
+        return 'pppoe%u' % self.id, 'tun%u' % self.id
+
+    def reset_tun_if_params(self):
+        """Reset TUN interface params
         """
         if not self.tun_if_name:
             return
@@ -220,7 +212,6 @@ class FwPppoeConnection(FwObject):
         if self.tun_vpp_if_name in fwglobals.g.cache.vpp_if_name_to_dev_id:
             del fwglobals.g.cache.vpp_if_name_to_dev_id[self.tun_vpp_if_name]
 
-        fwutils.vpp_cli_execute([f'delete tap {self.tun_vpp_if_name}'], debug=True)
         self.tun_if_name = ''
         self.tun_vpp_if_name = ''
         self.tun_vppsb_if_name = ''
@@ -269,8 +260,9 @@ class FwPppoeConnection(FwObject):
         sys_cmd = f'ip link set dev {self.tun_vppsb_if_name} down'
         fwutils.os_system(sys_cmd, 'PPPoE remove_linux_ip_route')
 
-    def _tc_mirror_set(self, ifname_1=None, ifname_2=None, op='add'):
-        if ifname_1:
+    def _tc_mirror_set(self, ifname_1=None, ifname_2=None, ingress=True, op='add'):
+
+        if ifname_1 and ingress:
             sys_cmd = 'tc qdisc %s dev %s handle ffff: ingress' % (op, ifname_1)
             fwutils.os_system(sys_cmd, 'PPPoE _tc_mirror_set')
 
@@ -281,8 +273,9 @@ class FwPppoeConnection(FwObject):
     def create_tc_mirror(self):
         """Setup TC mirroring.
         """
-        self._tc_mirror_set(self.tun_if_name, self.ppp_if_name, 'add')
-        self._tc_mirror_set(self.ppp_if_name, self.tun_if_name, 'add')
+        # For the Linux TUN interface (tun_if_name), tc qdisc ingress is already added by VPP DPDK
+        self._tc_mirror_set(self.tun_if_name, self.ppp_if_name, False, 'add')
+        self._tc_mirror_set(self.ppp_if_name, self.tun_if_name, True, 'add')
 
     def remove_tc_mirror(self):
         """Remove TC mirroring.
@@ -290,7 +283,7 @@ class FwPppoeConnection(FwObject):
         if not self.tun_if_name:
             return
 
-        self._tc_mirror_set(self.tun_if_name, None, 'del')
+        self._tc_mirror_set(self.tun_if_name, None, False, 'del')
 
 class FwPppoeSecretsConfig(FwObject):
     """The object that represents PPPoE PAP/CHAP configuration file.
@@ -498,13 +491,13 @@ class FwPppoeClient(FwObject):
         for conn in self.connections.values():
             conn.remove()
 
-    def stop(self, remove_tun=False):
+    def stop(self, reset_tun_if_params=False):
         """Stop all PPPoE connections.
         """
         for dev_id in self.interfaces.keys():
             self.stop_interface(dev_id)
-            if remove_tun:
-                self.remove_tun(dev_id)
+            if reset_tun_if_params:
+                self.reset_tun_if_params(dev_id)
 
     def _add_user(self, name, password):
         self.chap_config.add_user(name, password)
@@ -705,11 +698,11 @@ class FwPppoeClient(FwObject):
                 conn.open()
                 self.connections[dev_id] = conn
 
-    def create_tun(self, dev_id):
+    def setup_tun_if_params(self, dev_id):
         """Create TUN.
         """
         conn = self.connections.get(dev_id)
-        rc = conn.create_tun()
+        rc = conn.setup_tun_if_params()
         if not rc:
             return (False, f'PPPoE: {dev_id} TUN was not created')
         conn.save()
@@ -717,11 +710,17 @@ class FwPppoeClient(FwObject):
 
         return (True, None)
 
-    def remove_tun(self, dev_id):
-        """Remove TUN.
+    def get_linux_and_vpp_tun_if_names(self, dev_id):
+        """Return TUN interface names in Linux and VPP
         """
         conn = self.connections.get(dev_id)
-        conn.remove_tun()
+        return conn.get_linux_and_vpp_tun_if_names()
+
+    def reset_tun_if_params(self, dev_id):
+        """Reset TUN interface params
+        """
+        conn = self.connections.get(dev_id)
+        conn.reset_tun_if_params()
         conn.save()
         self.connections[dev_id] = conn
 

@@ -872,9 +872,6 @@ class FWROUTER_API(FwCfgRequestHandler):
                 reconnect_agent = True
             if modify_requests and self.state_is_started():
                 restart_dhcp_service = True
-            if (_should_restart_on_qos_policy(request) is True):
-                restart_router  = True
-                reconnect_agent = True
             return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
 
     def _preprocess_request(self, request):
@@ -1308,7 +1305,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         fwnetplan.load_netplan_filenames()
 
-        fwglobals.g.pppoe.stop(remove_tun=True)
+        fwglobals.g.pppoe.stop(reset_tun_if_params=True)
 
         self.multilink.db['links'] = {}
 
@@ -1370,7 +1367,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         with FwIKEv2() as ike:
             ike.clean()
         self._stop_threads()
-        fwglobals.g.pppoe.stop(remove_tun=True)
+        fwglobals.g.pppoe.stop(reset_tun_if_params=True)
         fwglobals.g.cache.dev_id_to_vpp_tap_name.clear()
         self.log.info("router is being stopped: vpp_pid=%s" % str(fwutils.vpp_pid()))
 
