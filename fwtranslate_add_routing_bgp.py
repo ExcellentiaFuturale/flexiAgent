@@ -115,7 +115,7 @@ def add_routing_bgp(params):
     ]
 
     # Neighbors
-    neighbors = params.get('neighbors', []) # make sure params are not modified with tunnels
+    neighbors = list(params.get('neighbors', [])) # make sure params are not modified with tunnels
 
     tunnels = fwglobals.g.router_cfg.get_tunnels(routing='bgp')
     for tunnel in tunnels:

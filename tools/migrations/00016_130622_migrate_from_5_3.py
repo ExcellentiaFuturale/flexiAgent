@@ -30,11 +30,16 @@ globals = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , '..'
 sys.path.append(globals)
 
 
+import fwutils
 from fwrouter_api import fwrouter_translators
 from fwrouter_cfg import FwRouterCfg
-import fwutils
 
 def _migrate_remove_bgp_tunnel_neighbors(upgrade=True):
+    ''' In 5.3.16 version the tunnel BGP neighbors sent by server in (add|modify)-routing-bgp request.
+    In the 6.1.X version, the BGP neighbors for tunnel create automatically by add_tunnel translation.
+    In this migration from 5.3.X to 6.1.X we remove the tunnel neighbors from add-routing-bgp request
+    and populate the relevant information to add-tunnel request.
+    '''
     requests_db_path = "/etc/flexiwan/agent/.requests.sqlite"
     if os.path.exists(requests_db_path):
         with FwRouterCfg(requests_db_path) as router_cfg:
@@ -44,8 +49,11 @@ def _migrate_remove_bgp_tunnel_neighbors(upgrade=True):
             if not bgp:
                 return
 
-            tunnels = router_cfg.get_tunnels()
-            tunnel_remote_loopback_ips = list(map(lambda tunnel: fwutils.build_tunnel_remote_loopback_ip(tunnel['loopback-iface']['addr']), tunnels))
+            tunnels = router_cfg.get_tunnels(routing='bgp')
+            tunnel_remote_loopback_ips = {}
+            for tunnel in tunnels:
+                remote_loopback_ip = fwutils.build_tunnel_remote_loopback_ip(tunnel['loopback-iface']['addr'])
+                tunnel_remote_loopback_ips[remote_loopback_ip] = tunnel
 
             updated_neighbors = []
 
@@ -53,6 +61,17 @@ def _migrate_remove_bgp_tunnel_neighbors(upgrade=True):
             for neighbor in neighbors:
                 ip = neighbor.get('ip')
                 if ip in tunnel_remote_loopback_ips:
+                    # update tunnel with BGP info as it expected with new format introduced in 6.x version
+                    remote_asn = neighbor.get('remoteAsn')
+
+                    tunnel = tunnel_remote_loopback_ips[ip]
+                    tunnel['loopback-iface']['bgp-remote-asn'] = remote_asn
+                    new_tunnel_request = {
+                        'message':   'add-tunnel',
+                        'params':    tunnel
+                    }
+                    router_cfg.update(new_tunnel_request, [], False)
+
                     continue # don't add the tunnel remote loopback to the final neighbors list
 
                 updated_neighbors.append(neighbor)
