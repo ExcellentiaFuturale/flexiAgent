@@ -1000,7 +1000,6 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
     sw_ifs = fwglobals.g.router_api.vpp_api.vpp.call('sw_interface_dump')
     for sw_if in sw_ifs:
         if sw_if.type == 1: # IF_API_TYPE_SUB
-            ## TBD: HEAVY OPERATION TO BE OPTIMIZED!!!
             parent_vpp_if_name = vpp_sw_if_index_to_name(sw_if.sup_sw_if_index)
             parent_dev_id = fwglobals.g.cache.vpp_if_name_to_dev_id[parent_vpp_if_name]
             pci_addr = f'vlan.{sw_if.sub_outer_vlan_id}.{parent_dev_id}'
