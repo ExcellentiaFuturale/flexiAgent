@@ -452,17 +452,13 @@ def dev_id_to_full(dev_id):
     if addr_type == 'usb':
         return dev_id
 
-    if 'vlan' in addr_type:
-        pc = addr.split('.')
-        if len(pc) == 2:
-            parent_dev_id = dev_id_add_type(pc[0]+'.'+"%02x"%(int(pc[1],16)))
-            addr_type = addr_type.replace('pci', '')
-            return f'{addr_type}{parent_dev_id}'
-        return dev_id
-
     pc = addr.split('.')
     if len(pc) == 2:
-        return dev_id_add_type(pc[0]+'.'+"%02x"%(int(pc[1],16)))
+        dev_id = dev_id_add_type(pc[0]+'.'+"%02x"%(int(pc[1],16)))
+
+    if 'vlan' in addr_type:
+        vlan_id = addr_type.split('.')[1]
+        dev_id = f'vlan.{vlan_id}.{dev_id}'
 
     return dev_id
 
@@ -500,7 +496,7 @@ def dev_id_parse(dev_id):
     return ("", "")
 
 def dev_id_add_type(dev_id):
-    """Add address type at the begining of the address.
+    """Add address type at the beginning of the address.
 
     :param dev_id:      device bus address.
 
