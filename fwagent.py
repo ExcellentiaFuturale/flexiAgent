@@ -534,7 +534,7 @@ class FwAgent(FwObject):
         if self.ws:
             self.ws.disconnect()
 
-    def handle_received_request(self, received_msg, msg, log_prefix=''):
+    def handle_received_request(self, received_msg, msg=None, log_prefix=''):
         """Handles received request: invokes the global request handler
         while logging the request and the response returned by the global
         request handler. Note the global request handler is implemented
@@ -578,9 +578,11 @@ class FwAgent(FwObject):
             self.log.debug(log_line)
             if logger:
                 logger.debug(log_line)
-
-
         try:
+
+            if not msg:
+                msg = received_msg
+
             logger = log_request(msg, received_msg, log_prefix)
 
             # Use 'request_cond_var' conditional variable to suspend monitoring
@@ -650,13 +652,13 @@ class FwAgent(FwObject):
 
         if type(requests) is list:   # Take care of file with list of requests
             for (idx, req) in enumerate(requests):
-                reply = self.handle_received_request(req, msg)
+                reply = self.handle_received_request(req)
                 if reply['ok'] == 0 and ignore_errors == False:
                     raise Exception('failed to inject request #%d in %s: %s' % \
                                     ((idx+1), filename, reply['message']))
             return None
         else:   # Take care of file with single request
-            reply = self.handle_received_request(requests, msg)
+            reply = self.handle_received_request(requests)
             if reply['ok'] == 0:
                 raise Exception('failed to inject request from within %s: %s' % \
                                 (filename, reply['message']))
