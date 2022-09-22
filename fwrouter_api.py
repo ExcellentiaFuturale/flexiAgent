@@ -795,8 +795,10 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         if re.match('(add|remove)-interface', request['message']):
             if self.state_is_started():
-                restart_router  = True
-                reconnect_agent = True
+                is_vlan = 'vlan' in request['params']['dev_id']
+                if not is_vlan:
+                    restart_router  = True
+                    reconnect_agent = True
             return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
         elif re.match('(start|stop)-router', request['message']):
             reconnect_agent = True
