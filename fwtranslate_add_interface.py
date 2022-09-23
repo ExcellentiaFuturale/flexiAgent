@@ -311,14 +311,14 @@ def add_interface(params):
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']      = "create_tun"
+        cmd['cmd']['func']      = "setup_tun_if_params"
         cmd['cmd']['object']    = "fwglobals.g.pppoe"
-        cmd['cmd']['descr']     = "Create PPPoE TUN interface"
+        cmd['cmd']['descr']     = "Setup PPPoE TUN interface params"
         cmd['cmd']['params']    = { 'dev_id': dev_id }
         cmd['revert'] = {}
-        cmd['revert']['func']   = "remove_tun"
+        cmd['revert']['func']   = "reset_tun_if_params"
         cmd['revert']['object'] = "fwglobals.g.pppoe"
-        cmd['revert']['descr']  = "Remove PPPoE TUN interface"
+        cmd['revert']['descr']  = "Reset PPPoE TUN interface params"
         cmd['revert']['params'] = { 'dev_id': dev_id }
         cmd_list.append(cmd)
 

@@ -2047,15 +2047,23 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
         tup = p.create_element('dpdk')
         config.append(tup)
 
+    # Ensure no stale tunnel interfaces created as part of PPPoE setup is left behind
+    tun_config_param = p.get_element(config['dpdk'], 'vdev net_tun')
+    while (tun_config_param):
+        p.remove_element(config['dpdk'], tun_config_param)
+        tun_config_param = p.get_element(config['dpdk'], 'vdev net_tun')
+
     for dev in devices:
         wan_if = fwglobals.g.router_cfg.get_interfaces(dev_id=dev, type='wan')
         qos_on_dev_id = True if (wan_if and (fwqos.has_qos_policy(dev_id=dev) == True)) else False
         dev_short = dev_id_to_short(dev)
         addr_type, addr_short = dev_id_parse(dev_short)
+        pppoe_if = fwpppoe.is_pppoe_interface(dev_id=dev)
 
         if addr_type == "pci":
             old_config_param = 'dev %s' % addr_short
-            if hqos_capable and qos_on_dev_id:
+            # For PPPoE interface, QoS is enabled on the corresponding tun interface
+            if hqos_capable and qos_on_dev_id and not pppoe_if:
                 new_config_param = 'dev %s { hqos }' % addr_short
             else:
                 new_config_param = 'dev %s' % addr_short
@@ -2064,6 +2072,19 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
                 p.remove_element(config['dpdk'], current_config_value)
                 tup = p.create_element(new_config_param)
                 config['dpdk'].append(tup)
+
+        if pppoe_if:
+            tun_linux_if_name, tun_vpp_if_name = \
+                fwglobals.g.pppoe.get_linux_and_vpp_tun_if_names(dev_id=dev)
+            tunnel_config_param = 'vdev net_%s,iface=%s' % (tun_vpp_if_name, tun_linux_if_name)
+            # If queues are not specified, DPDK tun interface init looks to be dynamically
+            # setting up queue numbers. Working compatibly with this dynamic queue setup may likely
+            # need corresponding changes from other configs (like tc) made in setting up PPPoE
+            tunnel_config_param += ' { %s num-rx-queues 1 num-tx-queues 1 }' % \
+                ('hqos' if (hqos_capable and qos_on_dev_id) else '')
+            tup = p.create_element(tunnel_config_param)
+            config['dpdk'].append(tup)
+
 
     p.dump(config, vpp_config_filename)
     return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
