@@ -232,7 +232,7 @@ def _dump_netplan_file(fname):
               % (fname, str(e))
             fwglobals.log.error(err_str)
 
-def _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw, dnsServers, dnsDomains):
+def _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw, dnsServers=None, dnsDomains=None):
     if 'dhcp6' in config_section:
         del config_section['dhcp6']
 
@@ -285,7 +285,6 @@ def _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw, dnsSer
         config_section['addresses'] = [ip]
     elif 'addresses' in config_section:
         del config_section['addresses']
-
 
     if not gw or type != 'WAN':
         return config_section
@@ -682,3 +681,92 @@ def netplan_unload_vlans():
 
     if netplan_apply:
         fwutils.netplan_apply('netplan_unload_vlans')
+
+def _set_netplan_section_vlan(config_section, vlan_id, parent_dev_id):
+    ifname = fwutils.dev_id_to_tap(parent_dev_id)
+    config_section['id'] = vlan_id
+    config_section['link'] = ifname
+    return config_section
+
+def add_remove_netplan_vlan(is_add, dev_id, ip, gw, metric, dhcp, type, netplan_apply=True):
+
+    fwglobals.log.debug(
+        "add_remove_netplan_vlan: is_add=%d, dev_id=%s, ip=%s, gw=%s, metric=%d, dhcp=%s, type=%s" % \
+        (is_add, dev_id, ip, gw, metric, dhcp, type))
+
+    ifname = fwutils.dev_id_to_tap(dev_id)
+    if not ifname:
+        err_str = "add_remove_netplan_vlan: %s was not found" % dev_id
+        fwglobals.log.error(err_str)
+        return (False, err_str)
+
+    parts = dev_id.split("pci")
+    parent_dev_id = "pci" + parts[1]
+    vlan_id = parts[0].split(".")[1]
+
+    fname_run = fwglobals.g.NETPLAN_FILE
+    _add_netplan_file(fname_run)
+
+    try:
+        with open(fname_run, 'r') as stream:
+            config = yaml.safe_load(stream)
+            network = config['network']
+            network['renderer'] = 'networkd'
+
+        if 'vlans' not in network:
+            network['vlans'] = {}
+
+        vlans = network['vlans']
+
+        config_section = {}
+        config_section = _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw)
+        config_section = _set_netplan_section_vlan(config_section, vlan_id, parent_dev_id)
+
+        if is_add == 1:
+            vlans[ifname] = config_section
+        else:
+            # This part of the function is executed when the VPP is running, and we will not stop it.
+            # This means that the interface will remain under VPP control and will not be released to Linux control.
+            # Hence, when we come to remove an interface, the intention is only to clear its configuration.
+            if ifname in vlans:
+                vlans[ifname] = {}
+
+        _write_to_netplan_file(fname_run, config)
+
+        # Remove default route from ip table because Netplan is not doing it.
+        if not is_add and type == 'WAN':
+            fwutils.remove_linux_default_route(ifname)
+
+        if netplan_apply:
+            fwutils.netplan_apply('add_remove_netplan_interface')
+
+        # On interface adding or removal update caches interface related caches.
+        #
+        if dev_id:
+            dev_id_full = fwutils.dev_id_to_full(dev_id)
+
+            # Remove dev-id-to-vpp-if-name and vpp-if-name-to-dev-id cached
+            # values for this dev id if the interface is removed from system.
+            #
+            if is_add == False:
+                vpp_if_name = fwglobals.g.cache.dev_id_to_vpp_if_name.get(dev_id_full)
+                if vpp_if_name:
+                    del fwglobals.g.cache.dev_id_to_vpp_if_name[dev_id_full]
+                    del fwglobals.g.cache.vpp_if_name_to_dev_id[vpp_if_name]
+
+            # Remove dev-id-to-tap cached value for this dev id, as netplan might change
+            # interface name (see 'set-name' netplan option).
+            # As well re-initialize the interface name by dev id.
+            # Note 'dev_id' is None for tap-inject (vppX) of tapcli-X interfaces used for LTE/WiFi devices.
+            #
+            fwutils.set_dev_id_to_tap(dev_id, ifname)
+            fwglobals.log.debug("Interface name in cache is %s, dev_id %s" % (ifname, dev_id_full))
+
+    except Exception as e:
+        err_str = "add_remove_netplan_vlan failed: dev_id: %s, file: %s, error: %s"\
+              % (dev_id, fname_run, str(e))
+        fwglobals.log.error(err_str)
+        _dump_netplan_file(fname_run)
+        return (False, err_str)
+
+    return (True, None)

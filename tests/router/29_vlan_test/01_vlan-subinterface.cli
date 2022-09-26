@@ -6,7 +6,7 @@
       "dev_id":"vlan.101.__INTERFACE_1__dev_id",
       "addr":"192.168.101.1/24",
       "routing":"ospf",
-      "type":"lan",
+      "type":"LAN",
       "dhcp":"no"
   }
 }
@@ -16,8 +16,19 @@
   "message": "add-interface",
   "params": {
       "dev_id":"vlan.102.__INTERFACE_1__dev_id",
-      "type":"wan",
+      "type":"WAN",
       "dhcp":"yes"
+  }
+}
+,
+{
+  "entity": "agent",
+  "message": "add-interface",
+  "params": {
+      "dev_id":"vlan.103.__INTERFACE_1__dev_id",
+      "type":"WAN",
+      "addr":"192.168.103.2/24",
+      "gateway":"192.168.103.1"
   }
 }
 ,
@@ -30,7 +41,7 @@
         "dev_id":"__INTERFACE_1__dev_id",
         "addr":"__INTERFACE_1__addr",
         "routing":"ospf",
-        "type":"lan"
+        "type":"LAN"
       }
     ]
   }
@@ -41,15 +52,6 @@
   "message": "remove-interface",
   "params": {
       "dev_id":"vlan.102.__INTERFACE_1__dev_id"
-  }
-}
-,
-{
-  "entity": "agent",
-  "message": "add-interface",
-  "params": {
-      "dev_id":"vlan.101.__INTERFACE_1__dev_id",
-      "type":"lan"
   }
 }
 ,

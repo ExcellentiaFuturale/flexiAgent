@@ -153,6 +153,30 @@ def add_interface(params):
         cmd['revert']['descr']      = "delete vlan interface"
         cmd_list.append(cmd)
 
+        vlan_netplan_params = {
+                        'is_add'   : 1,
+                        'dev_id'   : dev_id,
+                        'ip'       : iface_addr,
+                        'gw'       : gw,
+                        'metric'   : metric,
+                        'dhcp'     : dhcp,
+                        'type'     : int_type
+        }
+
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']   = "add_remove_netplan_vlan"
+        cmd['cmd']['module'] = "fwnetplan"
+        cmd['cmd']['params'] = vlan_netplan_params
+        cmd['cmd']['descr'] = "add vlan into netplan config file"
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "add_remove_netplan_vlan"
+        cmd['revert']['module'] = "fwnetplan"
+        cmd['revert']['params'] = copy.deepcopy(vlan_netplan_params)
+        cmd['revert']['params']['is_add'] = 0
+        cmd['revert']['descr'] = "remove vlan from netplan config file"
+        cmd_list.append(cmd)
+
     if is_wifi or is_lte:
         # Create tap interface in linux and vpp.
         # This command will create three interfaces:
