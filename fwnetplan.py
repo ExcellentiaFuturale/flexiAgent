@@ -719,8 +719,8 @@ def add_remove_netplan_vlan(is_add, dev_id, ip, gw, metric, dhcp, type, netplan_
         vlans = network['vlans']
 
         config_section = {}
-        config_section = _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw)
         config_section = _set_netplan_section_vlan(config_section, vlan_id, parent_dev_id)
+        config_section = _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw)
 
         if is_add == 1:
             vlans[ifname] = config_section

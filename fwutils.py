@@ -733,7 +733,11 @@ def get_interface_dev_id(if_name):
             interface.update({'dev_id': dev_id})
             return dev_id
 
-        if not vpp_does_run() or is_interface_assigned_to_vpp(dev_id) == False:
+        if not vpp_does_run():
+            # don't update cache
+            return ''
+
+        if dev_id and is_interface_assigned_to_vpp(dev_id) == False:
             # don't update cache
             return ''
 
@@ -1278,7 +1282,7 @@ def vpp_get_tap_info(vpp_if_name=None, vpp_sw_if_index=None, tap_if_name=None):
     # ]
     # we use a regex check to get the closest words before and after the arrow
     for line in tap_lines:
-        tap_info = re.search(r'([/\w-]+) -> ([\S]+)', line)
+        tap_info = re.search(r'([/.\w-]+) -> ([\S]+)', line)
         if tap_info:
             vpp_if_name = tap_info.group(1)
             tap = tap_info.group(2)
