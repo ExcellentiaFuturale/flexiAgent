@@ -51,7 +51,23 @@
   "entity": "agent",
   "message": "remove-interface",
   "params": {
+      "dev_id":"vlan.101.__INTERFACE_1__dev_id"
+  }
+}
+,
+{
+  "entity": "agent",
+  "message": "remove-interface",
+  "params": {
       "dev_id":"vlan.102.__INTERFACE_1__dev_id"
+  }
+}
+,
+{
+  "entity": "agent",
+  "message": "remove-interface",
+  "params": {
+      "dev_id":"vlan.103.__INTERFACE_1__dev_id"
   }
 }
 ,

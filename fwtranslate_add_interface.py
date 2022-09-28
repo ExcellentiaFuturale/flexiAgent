@@ -153,6 +153,25 @@ def add_interface(params):
         cmd['revert']['descr']      = "delete vlan interface"
         cmd_list.append(cmd)
 
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']      = "exec"
+        cmd['cmd']['module']    = "fwutils"
+        cmd['cmd']['descr']     = "UP interface in Linux"
+        cmd['cmd']['params']    = {
+                     'cmd':    f"sudo ip link set dev DEV-STUB up",
+                     'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':'vlan_cache_key'} ]
+        }
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "exec"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['descr']  = "Down interface in Linux"
+        cmd['revert']['params'] = {
+                        'cmd': f"sudo ip link set dev DEV-STUB down && sudo ip addr flush dev DEV-STUB",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':'vlan_cache_key'} ]
+        }
+        cmd_list.append(cmd)
+
         vlan_netplan_params = {
                         'is_add'   : 1,
                         'dev_id'   : dev_id,
