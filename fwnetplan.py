@@ -725,9 +725,6 @@ def add_remove_netplan_vlan(is_add, dev_id, ip, gw, metric, dhcp, type, netplan_
         if is_add == 1:
             vlans[ifname] = config_section
         else:
-            # This part of the function is executed when the VPP is running, and we will not stop it.
-            # This means that the interface will remain under VPP control and will not be released to Linux control.
-            # Hence, when we come to remove an interface, the intention is only to clear its configuration.
             if ifname in vlans:
                 del vlans[ifname]
 
