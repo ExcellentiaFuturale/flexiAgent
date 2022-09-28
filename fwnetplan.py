@@ -729,7 +729,7 @@ def add_remove_netplan_vlan(is_add, dev_id, ip, gw, metric, dhcp, type, netplan_
             # This means that the interface will remain under VPP control and will not be released to Linux control.
             # Hence, when we come to remove an interface, the intention is only to clear its configuration.
             if ifname in vlans:
-                vlans[ifname] = {}
+                del vlans[ifname]
 
         _write_to_netplan_file(fname_run, config)
 
