@@ -759,7 +759,7 @@ def add_interface(params):
         cmd_list.append(cmd)
 
     # Get QoS commands
-    # TBD: fwglobals.g.qos.get_add_interface_qos_commands(params, cmd_list)
+    fwglobals.g.qos.get_add_interface_qos_commands(params, cmd_list)
 
     cmd = {}
     cmd['cmd'] = {}
