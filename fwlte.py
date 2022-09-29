@@ -352,7 +352,7 @@ def disconnect(dev_id, hard_reset_service=False):
         return (False, str(e))
 
 def prepare_connection_params(params):
-    connection_params = []
+    connection_params = ['ip-type=ipv4'] # ask for IPv4 only. Available options are ipv4, ipv6, ipv4v6
     if 'apn' in params and params['apn']:
         connection_params.append('apn=%s' % params['apn'])
     if 'user' in params and params['user']:
@@ -516,17 +516,20 @@ def connect(params):
 
         connection_params = prepare_connection_params(params)
         mbim_commands = [
-            r'--query-subscriber-ready-status',
-            r'--query-registration-state',
-            r'--attach-packet-service',
-            r'--connect=%s | grep "Session ID\|IP\|Gateway\|DNS"' % connection_params
+            '--query-subscriber-ready-status',
+            '--query-registration-state',
+            '--attach-packet-service',
+            f'--connect={connection_params}'
         ]
         for cmd in mbim_commands:
             lines, err = _run_mbimcli_command(dev_id, cmd, print_error=True)
             if err:
                 raise Exception(err)
 
-        for idx, line in enumerate(lines) :
+        for idx, line in enumerate(lines):
+            if 'IPv4 configuration available' in line and 'none' in line:
+                fwglobals.log.debug(f'connect: failed to get IPv4 from the ISP. lines={str(lines)}')
+                raise Exception(f'Failed to get IPv4 configuration from the ISP')
             if 'Session ID:' in line:
                 session = line.split(':')[-1].strip().replace("'", '')
                 set_cache_val(dev_id, 'session', session)
@@ -550,6 +553,7 @@ def connect(params):
     except Exception as e:
         fwglobals.log.debug('connect: failed to connect lte. %s' % str(e))
         set_cache_val(dev_id, 'state', '')
+        disconnect(dev_id)
         return (False, str(e))
 
 def get_system_info(dev_id, cached=True):
