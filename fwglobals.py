@@ -60,6 +60,23 @@ from fwwan_monitor import FwWanMonitor
 from fwikev2 import FwIKEv2
 from fw_traffic_identification import FwTrafficIdentifications
 
+# VXLAN default src and dst port
+VXLAN_PORTS={'src_port': 4788 , 'dst_port': 4788, 'default_src_port':4789, 'default_dst_port':4789}
+
+# Services enabled for access on WAN interface
+WAN_INTERFACE_SERVICES = {
+  "VXLAN Tunnel":
+    {
+        "port": VXLAN_PORTS['src_port'],
+        "protocol": "udp"
+    },
+    "VXLAN Tunnel default":
+    {
+        "port": VXLAN_PORTS['default_src_port'],
+        "protocol": "udp"
+    },
+}
+
 # sync flag indicated if module implement sync logic.
 # IMPORTANT! Please keep the list order. It indicates the sync priorities
 modules = {
@@ -186,6 +203,8 @@ class Fwglobals(FwObject):
                 self.UUID           = agent_conf.get('uuid',   DEFAULT_UUID)
                 self.WAN_MONITOR_UNASSIGNED_INTERFACES = agent_conf.get('monitor_wan',{}).get('monitor_unassigned_interfaces', DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES)
                 self.WAN_MONITOR_SERVERS = agent_conf.get('monitor_wan',{}).get('servers', DEFAULT_WAN_MONITOR_SERVERS)
+                global VXLAN_PORTS
+                VXLAN_PORTS = conf.get('vxlan', {})
             except Exception as e:
                 if log:
                     log.excep("%s, set defaults" % str(e))

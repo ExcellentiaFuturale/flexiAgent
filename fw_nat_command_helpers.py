@@ -23,16 +23,8 @@ Helper functions to convert NAT configurations into VPP NAT commands
 ################################################################################
 
 import copy
+import fwglobals
 import fwutils
-
-# Services enabled for access on WAN interface
-WAN_INTERFACE_SERVICES = {
-  "VXLAN Tunnel":
-    {
-        "port": 4789,
-        "protocol": "udp"
-    },
-}
 
 def get_nat_forwarding_config(enable):
     """
@@ -151,7 +143,7 @@ def get_nat_wan_setup_config(dev_id):
     }
     cmd_list.append(cmd)
 
-    for service_name, service_cfg in WAN_INTERFACE_SERVICES.items():
+    for service_name, service_cfg in fwglobals.WAN_INTERFACE_SERVICES.items():
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']   = "call_vpp_api"

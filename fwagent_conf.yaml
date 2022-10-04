@@ -9,3 +9,9 @@ agent:
 
 edgeui:
   enabled: true                         # default or omit: true
+
+vxlan:
+  src_port: 4788
+  dst_port: 4788
+  default_src_port: 4789
+  default_dst_port: 4789

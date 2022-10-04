@@ -179,7 +179,7 @@ class FwStunWrap(FwObject):
         : param dev_id : interface bus address to find in cache.
         : return :  local_ip associated with this dev id address -> str
                     public_ip of a local address or emptry string -> str
-                    public_port of a local 4789 port or empty string -> int
+                    public_port of a local fwglobals.VXLAN_PORTS['src_port'] port or empty string -> int
                     nat_type which is the NAT server the device is behind or empty string -> str
         """
         if self.standalone:
@@ -273,7 +273,7 @@ class FwStunWrap(FwObject):
         cached_addr = self.stun_cache.get(dev_id)
         if not cached_addr:
             return
-        self.log.debug("found external %s:%s for %s:4789" %(p_ip, p_port, cached_addr['local_ip']))
+        self.log.debug("found external %s:%s for %s:%s" %(p_ip, p_port, cached_addr['local_ip'], fwglobals.VXLAN_PORTS['src_port']))
         cached_addr['success']     = True
         cached_addr['send_time']   = 0
         cached_addr['nat_type']         = nat_type
@@ -301,7 +301,7 @@ class FwStunWrap(FwObject):
             if time.time() >= cached_addr['send_time']:
                 local_ip = cached_addr['local_ip']
                 nat_type, nat_ext_ip, nat_ext_port, server_index = \
-                    self._send_single_stun_request(local_ip, 4789, cached_addr['server_index'])
+                    self._send_single_stun_request(local_ip, fwglobals.VXLAN_PORTS['src_port'], cached_addr['server_index'])
 
                 if fwglobals.g.router_threads.teardown:
                     self.log.debug("teardown: stop requests")
@@ -338,7 +338,7 @@ class FwStunWrap(FwObject):
 
     def _stun_thread(self, *args):
         """STUN thread
-        Its function is to send STUN requests for address:4789 in a timely manner
+        Its function is to send STUN requests for address:fwglobals.VXLAN_PORTS['src_port'] in a timely manner
         according to some algorithm-based calculations.
         """
         self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}")
@@ -554,7 +554,7 @@ class FwStunWrap(FwObject):
 
             if time.time() >= cached_addr['probe_time']:
                 src_ip = cached_addr['local_ip']
-                src_port = 4789
+                src_port = fwglobals.VXLAN_PORTS['src_port']
                 dev_name = fwutils.get_interface_name(src_ip)
 
                 self.log.debug("Tunnel: discovering remote ip for tunnels with src %s:%s on device %s" \
@@ -611,7 +611,7 @@ class FwStunWrap(FwObject):
 
         for tunnel_id, tunnel in list(self.sym_nat_tunnels_cache.items()):
             src_ip = tunnel['src']
-            src_port = 4789
+            src_port = fwglobals.VXLAN_PORTS['src_port']
             dst_ip = tunnel['dst']
             dst_port = int(tunnel['dstPort'])
             dev_name = fwutils.get_interface_name(src_ip)
