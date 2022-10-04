@@ -390,11 +390,8 @@ def get_interface_address(if_name, if_dev_id=None, log=True, log_on_failure=None
             if_name = ppp_if_name
 
     interfaces = psutil.net_if_addrs()
-    if if_name not in interfaces and log_on_failure:
-        fwglobals.log.debug("get_interface_address(%s): interfaces: %s" % (if_name, str(interfaces)))
-        return None
 
-    addresses = interfaces[if_name]
+    addresses = interfaces.get(if_name, [])
     for addr in addresses:
         if addr.family == socket.AF_INET:
             ip   = addr.address
