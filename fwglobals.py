@@ -297,8 +297,6 @@ class Fwglobals(FwObject):
         self.HOSTAPD_CONFIG_DIRECTORY = '/etc/hostapd/'
         self.NETPLAN_FILES       = {}
         self.NETPLAN_FILE        = '/etc/netplan/99-flexiwan.fwrun.yaml'
-        self.FWAGENT_DAEMON_NAME = 'fwagent.daemon'
-        self.FWAGENT_DAEMON_HOST = '127.0.0.1'
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
@@ -323,6 +321,7 @@ class Fwglobals(FwObject):
 
         self.FWAGENT_DAEMON_HOST = self.cfg.DAEMON_SOCKET_NAME.split(":")[0]
         self.FWAGENT_DAEMON_PORT = int(self.cfg.DAEMON_SOCKET_NAME.split(":")[1])
+        self.FWAGENT_DAEMON_NAME = 'fwagent.daemon'
         self.FWAGENT_DAEMON_URI  = 'PYRO:%s@%s:%d' % (self.FWAGENT_DAEMON_NAME, self.FWAGENT_DAEMON_HOST, self.FWAGENT_DAEMON_PORT)
 
         self.db = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! set the db variable regardless of agent initialization
