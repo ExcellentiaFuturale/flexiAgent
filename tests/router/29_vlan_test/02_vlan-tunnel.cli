@@ -60,6 +60,22 @@
 }
 ,
 {
+  "entity":  "agent",
+  "message": "remove-tunnel",
+  "params": {
+    "tunnel-id": 1
+  }
+}
+,
+{
+  "entity": "agent",
+  "message": "remove-interface",
+  "params": {
+      "dev_id":"vlan.102.__INTERFACE_1__dev_id"
+  }
+}
+,
+{
   "entity": "agent",
   "message": "stop-router"
 }
