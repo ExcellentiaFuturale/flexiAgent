@@ -23,12 +23,14 @@
 import json
 import os
 import glob
+import errno
 import ssl
 import socket
 import sys
 import time
 import random
 import signal
+import psutil
 import Pyro4
 import re
 import subprocess
@@ -1136,6 +1138,13 @@ def daemon(standalone=False):
     """
     fwglobals.log.set_target(to_syslog=True, to_terminal=False)
     fwglobals.log.info("starting in daemon mode (standalone=%s)" % str(standalone))
+
+    # Ensure the IPC port is not in use
+    #
+    for c in psutil.net_connections():
+        if c.laddr.port == fwglobals.g.FWAGENT_DAEMON_PORT:
+            fwglobals.log.debug(f"port {c.laddr.port} is in use, try other port (fwagent_conf.yaml:daemon_socket)")
+            return
 
     with FwagentDaemon(standalone) as agent_daemon:
 
