@@ -1,0 +1,19 @@
+[
+{
+  "entity": "agent",
+  "message": "start-router",
+  "params": {
+    "interfaces": [
+      {
+        "dev_id":"__INTERFACE_1__dev_id"
+        "type":"TRUNK"
+      }
+    ]
+  }
+}
+,
+{
+  "entity": "agent",
+  "message": "stop-router"
+}
+]
