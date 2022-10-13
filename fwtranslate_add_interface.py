@@ -117,7 +117,9 @@ def add_interface(params):
     is_lte = fwlte.is_lte_interface_by_dev_id(dev_id) if not is_wifi else False
     is_pppoe = fwpppoe.is_pppoe_interface(dev_id=dev_id)
     is_vlan = 'vlan' in dev_id
-    add_to_netplan = not is_vlan and not is_pppoe
+    add_to_netplan = True
+    if is_vlan or is_pppoe or int_type == 'trunk':
+        add_to_netplan = False
 
     if is_pppoe:
         dhcp = 'no'

@@ -1667,7 +1667,7 @@ def reset_router_api_db(enforce=False):
         router_api_db['sw_if_index_to_vpp_if_name'] = {}
     if not 'vpp_if_name_to_sw_if_index' in router_api_db or enforce:
         router_api_db['vpp_if_name_to_sw_if_index'] = {}
-    vpp_if_name_to_sw_if_index_keys = ['tunnel', 'peer-tunnel', 'lan', 'switch-lan', 'wan', 'switch']
+    vpp_if_name_to_sw_if_index_keys = ['tunnel', 'peer-tunnel', 'lan', 'switch-lan', 'wan', 'switch', 'trunk']
     for key in vpp_if_name_to_sw_if_index_keys:
         if not key in router_api_db['vpp_if_name_to_sw_if_index'] or enforce:
             router_api_db['vpp_if_name_to_sw_if_index'][key] = {}
