@@ -3945,4 +3945,8 @@ class FwJsonEncoder(json.JSONEncoder):
     json.dump/json.dumps calls.
     '''
     def default(self, o):
-        return o.__dict__
+        try:
+            serialized = str(o)      # Firstly, probe the existence of __str__()
+        except:
+            serialized = o.__dict__  # As a last resort, assume complex object
+        return serialized

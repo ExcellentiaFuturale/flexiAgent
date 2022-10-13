@@ -202,7 +202,7 @@ class FwJobs(FwObject):
         """
         jobs = []
         db_keys = (
-            list(filter(lambda job: job in job_ids, self.job_ids))
+            list(filter(lambda job_id: int(job_id) in job_ids, self.job_ids))
             if job_ids
             else self.job_ids
         )
