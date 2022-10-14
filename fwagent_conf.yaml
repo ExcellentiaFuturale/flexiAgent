@@ -11,7 +11,7 @@ edgeui:
   enabled: true                         # default or omit: true
 
 vxlan:
-  src_port: 4788
-  dst_port: 4788
-  default_src_port: 4789
-  default_dst_port: 4789
+  src_port: 4789                        # VXLAN UDP listening port 
+  dst_port: 4789                        # VXLAN UDP destination port for the other side
+  default_src_port: 4789                # Default VXLAN UDP source port
+  default_dst_port: 4789                # Default VXLAN UDP destination port
