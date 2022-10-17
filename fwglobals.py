@@ -29,6 +29,7 @@ import re
 import signal
 import traceback
 import yaml
+from fwqos import FwQoS
 import fwutils
 import threading
 import fw_vpp_coredump_utils
@@ -51,6 +52,7 @@ from fwpolicies import FwPolicies
 from fwrouter_cfg import FwRouterCfg
 from fwroutes import FwRoutes
 from fwsystem_cfg import FwSystemCfg
+from fwjobs import FwJobs
 from fwstun_wrapper import FwStunWrap
 from fwpppoe import FwPppoeClient
 from fwthread import FwRouterThreading
@@ -93,6 +95,7 @@ request_handlers = {
     'reset-lte':                         {'name': '_call_agent_api'},
     'modify-lte-pin':                    {'name': '_call_agent_api'},
     'get-device-certificate':            {'name': '_call_agent_api'},
+    'set-cpu-info':                      {'name': '_call_agent_api'},
 
     # Aggregated API
     'aggregated':                   {'name': '_call_aggregated', 'sign': True},
@@ -125,6 +128,10 @@ request_handlers = {
     'remove-switch':                {'name': '_call_router_api', 'sign': True},
     'add-firewall-policy':          {'name': '_call_router_api', 'sign': True},
     'remove-firewall-policy':       {'name': '_call_router_api', 'sign': True},
+    'add-qos-traffic-map':          {'name': '_call_router_api', 'sign': True},
+    'remove-qos-traffic-map':       {'name': '_call_router_api', 'sign': True},
+    'add-qos-policy':               {'name': '_call_router_api', 'sign': True},
+    'remove-qos-policy':            {'name': '_call_router_api', 'sign': True},
 
     # System API
     'add-lte':                      {'name': '_call_system_api'},
@@ -167,6 +174,7 @@ class Fwglobals(FwObject):
             DEFAULT_UUID           = None
             DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES = True
             DEFAULT_WAN_MONITOR_SERVERS = ['1.1.1.1','8.8.8.8']
+            DEFAULT_DAEMON_SOCKET_NAME  = "127.0.0.1:9090"  # Used for RPC to daemon
             try:
                 with open(filename, 'r') as conf_file:
                     conf = yaml.load(conf_file, Loader=yaml.SafeLoader)
@@ -179,6 +187,7 @@ class Fwglobals(FwObject):
                 self.UUID           = agent_conf.get('uuid',   DEFAULT_UUID)
                 self.WAN_MONITOR_UNASSIGNED_INTERFACES = agent_conf.get('monitor_wan',{}).get('monitor_unassigned_interfaces', DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES)
                 self.WAN_MONITOR_SERVERS = agent_conf.get('monitor_wan',{}).get('servers', DEFAULT_WAN_MONITOR_SERVERS)
+                self.DAEMON_SOCKET_NAME  = agent_conf.get('daemon_socket',  DEFAULT_DAEMON_SOCKET_NAME)
             except Exception as e:
                 if log:
                     log.excep("%s, set defaults" % str(e))
@@ -190,6 +199,7 @@ class Fwglobals(FwObject):
                 self.UUID           = DEFAULT_UUID
                 self.WAN_MONITOR_UNASSIGNED_INTERFACES = DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES
                 self.WAN_MONITOR_SERVERS = DEFAULT_WAN_MONITOR_SERVERS
+                self.DAEMON_SOCKET_NAME  = DEFAULT_DAEMON_SOCKET_NAME
             if self.DEBUG and log:
                 log.set_level(FWLOG_LEVEL_DEBUG)
 
@@ -243,6 +253,7 @@ class Fwglobals(FwObject):
         self.ROUTER_PENDING_CFG_FILE = self.DATA_PATH + '.requests.pending.sqlite'
         self.SYSTEM_CFG_FILE     = self.DATA_PATH + '.system.sqlite'
         self.APPLICATIONS_CFG_FILE = self.DATA_PATH + '.applications.sqlite'
+        self.JOBS_FILE           = self.DATA_PATH + '.jobs.sqlite'
         self.ROUTER_STATE_FILE   = self.DATA_PATH + '.router.state'
         self.CONN_FAILURE_FILE   = self.DATA_PATH + '.upgrade_failed'
         self.IKEV2_FOLDER        = self.DATA_PATH + 'ikev2/'
@@ -281,14 +292,11 @@ class Fwglobals(FwObject):
         self.POLICY_REC_DB_FILE  = self.DATA_PATH + '.policy.sqlite'
         self.MULTILINK_DB_FILE   = self.DATA_PATH + '.multilink.sqlite'
         self.DATA_DB_FILE        = self.DATA_PATH + '.data.sqlite'
-        self.TRAFFIC_ID_DB_FILE     = self.DATA_PATH + '.traffic_identification.sqlite'
+        self.TRAFFIC_ID_DB_FILE  = self.DATA_PATH + '.traffic_identification.sqlite'
+        self.QOS_DB_FILE         = self.DATA_PATH + '.qos.sqlite'
         self.HOSTAPD_CONFIG_DIRECTORY = '/etc/hostapd/'
         self.NETPLAN_FILES       = {}
         self.NETPLAN_FILE        = '/etc/netplan/99-flexiwan.fwrun.yaml'
-        self.FWAGENT_DAEMON_NAME = 'fwagent.daemon'
-        self.FWAGENT_DAEMON_HOST = '127.0.0.1'
-        self.FWAGENT_DAEMON_PORT = 9090
-        self.FWAGENT_DAEMON_URI  = 'PYRO:%s@%s:%d' % (self.FWAGENT_DAEMON_NAME, self.FWAGENT_DAEMON_HOST, self.FWAGENT_DAEMON_PORT)
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
@@ -310,6 +318,11 @@ class Fwglobals(FwObject):
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
+
+        self.FWAGENT_DAEMON_HOST = self.cfg.DAEMON_SOCKET_NAME.split(":")[0]
+        self.FWAGENT_DAEMON_PORT = int(self.cfg.DAEMON_SOCKET_NAME.split(":")[1])
+        self.FWAGENT_DAEMON_NAME = 'fwagent.daemon'
+        self.FWAGENT_DAEMON_URI  = 'PYRO:%s@%s:%d' % (self.FWAGENT_DAEMON_NAME, self.FWAGENT_DAEMON_HOST, self.FWAGENT_DAEMON_PORT)
 
         self.db = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! set the db variable regardless of agent initialization
 
@@ -373,6 +386,7 @@ class Fwglobals(FwObject):
         self.fwagent          = FwAgent(handle_signals=False)
         self.router_cfg       = FwRouterCfg(self.ROUTER_CFG_FILE) # IMPORTANT! Initialize database at the first place!
         self.system_cfg       = FwSystemCfg(self.SYSTEM_CFG_FILE)
+        self.jobs             = FwJobs(self.JOBS_FILE)
         self.agent_api        = FWAGENT_API()
         self.system_api       = FWSYSTEM_API(self.system_cfg)
         self.router_api       = FWROUTER_API(self.router_cfg, self.ROUTER_PENDING_CFG_FILE, self.MULTILINK_DB_FILE, self.FRR_DB_FILE)
@@ -384,6 +398,7 @@ class Fwglobals(FwObject):
         self.ikev2            = FwIKEv2()
         self.pppoe            = FwPppoeClient(standalone=standalone)
         self.routes           = FwRoutes()
+        self.qos              = FwQoS()
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 
@@ -525,7 +540,7 @@ class Fwglobals(FwObject):
 
             except Exception as e:
                 global log
-                err_str = "%s(%s): %s" % (str(e), req, format(params))
+                err_str = "%s(%s): %s" % (req, format(params), str(e))
                 log.error(err_str + ': %s' % str(traceback.format_exc()))
                 reply = {"message":err_str, 'ok':0}
                 return reply

@@ -62,7 +62,7 @@ class FwCfgRequestHandler(FwObject):
         self.cache_func_by_name = {}
 
         self.cfg_db.set_translators(translators)
-        if self.pending_cfg_db:
+        if self.pending_cfg_db is not None:
             self.pending_cfg_db.set_translators(translators)
 
     def __enter__(self):
@@ -177,12 +177,12 @@ class FwCfgRequestHandler(FwObject):
                         op = request['message']
                         request['message'] = op.replace('add-','remove-') if re.match('add-', op) else op.replace('remove-','add-')
                         self._call_simple(request)
-                    except Exception as e:
+                    except Exception as e_revert:
                         # on failure to revert move router into failed state
                         err_str = "_call_aggregated: failed to revert request %s while running rollback on aggregated request" % op
-                        self.log.excep("%s: %s" % (err_str, format(e)))
+                        self.log.excep("%s: %s" % (err_str, format(e_revert)))
                         if self.revert_failure_callback:
-                            self.revert_failure_callback(str(e))
+                            self.revert_failure_callback(str(e_revert))
                         pass
                 raise e
 
@@ -263,6 +263,7 @@ class FwCfgRequestHandler(FwObject):
                     { 'result_attr' : cmd['cache_ret_val'][0] , 'cache' : cmd_cache , 'key' :  cmd['cache_ret_val'][1] }
                 err_str = self._execute_translation_command(cmd, execute_result)
                 if err_str:   # On failure go back revert already executed commands
+                    fwglobals.g.jobs.update_current_record({'request': req, 'command': cmd, 'error': err_str})
                     self.log.debug(f"_execute_translation_command('{cmd['func']}') failed")
                     raise Exception("API failed: %s" % cmd['func'])
 
@@ -352,6 +353,8 @@ class FwCfgRequestHandler(FwObject):
                     func = getattr(fwglobals.g.pppoe, func_name)
                 elif object_name == 'fwglobals.g.applications_api':
                     func = getattr(fwglobals.g.applications_api, func_name)
+                elif object_name == 'fwglobals.g.qos':
+                    func = getattr(fwglobals.g.qos, func_name)
                 else:
                     return None
                 self.cache_func_by_name[full_name] = func
@@ -617,6 +620,10 @@ class FwCfgRequestHandler(FwObject):
                     if re.match('remove-',  req) and self.pending_cfg_db.exists(__request):
                         self.pending_cfg_db.update(request)
                     return True
+            elif re.match('add-qos-policy', req) and self.cfg_db.exists(__request):
+                #Qos-Policy requires full diff
+                existing_params = self.cfg_db.get_request_params(__request)
+                return True if existing_params == __request.get('params') else False
             elif re.match('add-', req) and self.cfg_db.exists(__request):
                 # Ensure this is actually not modification request :)
                 existing_params = self.cfg_db.get_request_params(__request)

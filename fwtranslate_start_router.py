@@ -151,6 +151,28 @@ def start_router(params=None):
     cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename }
     cmd_list.append(cmd)
 
+    # Enable HQoS worker to startup conf if QoS Policy if enabled
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['name']    = "python"
+    cmd['cmd']['descr']   = "Enable hqos to %s" % vpp_filename
+    cmd['cmd']['module']  = 'fwutils'
+    cmd['cmd']['func']    = 'vpp_startup_conf_hqos'
+    cmd['cmd']['params']  = {
+        'vpp_config_filename' : vpp_filename,
+        'is_add'              : True
+    }
+    cmd['revert'] = {}
+    cmd['revert']['name']   = "python"
+    cmd['revert']['descr']  = "Disable hqos from %s" % vpp_filename
+    cmd['revert']['module'] = 'fwutils'
+    cmd['revert']['func']   = 'vpp_startup_conf_hqos'
+    cmd['revert']['params'] = {
+        'vpp_config_filename' : vpp_filename,
+        'is_add'              : False
+    }
+    cmd_list.append(cmd)
+
     # Add interfaces to the vpp configuration file, thus creating whitelist.
     # If whitelist exists, on bootup vpp captures only whitelisted interfaces.
     # Other interfaces will be not captured by vpp even if they are DOWN.
@@ -361,4 +383,3 @@ def get_request_key(*params):
      :returns: A key.
      """
     return 'start-router'
-

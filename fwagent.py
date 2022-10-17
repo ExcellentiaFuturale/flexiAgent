@@ -23,12 +23,14 @@
 import json
 import os
 import glob
+import errno
 import ssl
 import socket
 import sys
 import time
 import random
 import signal
+import psutil
 import Pyro4
 import re
 import subprocess
@@ -53,12 +55,17 @@ import fwthread
 import fwutils
 import fwwebsocket
 import loadsimulator
+import fwqos
 
 from fwapplications_api import FWAPPLICATIONS_API
 from fwfrr import FwFrr
 from fwobject import FwObject
 
 from fw_nat_command_helpers import WAN_INTERFACE_SERVICES
+
+system_checker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tools/system_checker/")
+sys.path.append(system_checker_path)
+import fwsystem_checker_common
 
 # Global signal handler for clean exit
 def global_signal_handler(signum, frame):
@@ -281,6 +288,7 @@ class FwAgent(FwObject):
         ip_list = ', '.join(all_ip_list[0:min(4,len(all_ip_list))])
         serial = fwutils.get_machine_serial()
         url = fwglobals.g.cfg.MANAGEMENT_URL  + "/api/connect/register"
+        cpu_info = fwsystem_checker_common.Checker().get_cpu_info()
 
         data = {'token': self.token.rstrip(),
                 'fwagent_version' : self.versions['components']['agent']['version'],
@@ -292,7 +300,8 @@ class FwAgent(FwObject):
                 'ip_list': ip_list,
                 'default_route': dr_via,
                 'default_dev': dr_dev,
-                'interfaces': interfaces
+                'interfaces': interfaces,
+                'cpuInfo': cpu_info
         }
         self.log.debug("Registering to %s with: %s" % (url, json.dumps(data)))
         data.update({'interfaces': json.dumps(interfaces)})
@@ -370,6 +379,8 @@ class FwAgent(FwObject):
                 "User-Agent": "fwagent/%s" % (self.versions['components']['agent']['version'])
             }
 
+            fwglobals.g.router_threads.request_processing_thread_ident = threading.current_thread().ident
+
             self.ws.connect(
                         url, headers = headers,
                         check_certificate=(not fwglobals.g.cfg.BYPASS_CERT))
@@ -392,6 +403,9 @@ class FwAgent(FwObject):
             #
             self._mark_connection_failure(error)
             return False
+
+        finally:
+            fwglobals.g.router_threads.request_processing_thread_ident = None
 
 
     def reconnect(self):
@@ -460,7 +474,6 @@ class FwAgent(FwObject):
         if not fwutils.vpp_does_run():
             self.log.info("connect: router is not running, start it in flexiManage")
 
-
     def _on_message(self, message):
         """Websocket received message handler.
         This callbacks invokes global handler of the received request defined
@@ -486,7 +499,16 @@ class FwAgent(FwObject):
             default_route_before = fwutils.get_default_route()
 
             msg_id = seq + " " if not job_id else seq + " job_id:" + job_id + " "
-            reply  = self.handle_received_request(request, log_prefix=msg_id)
+
+            msg = fwutils.fix_received_message(request)
+            if msg:
+                fwglobals.g.jobs.start_recording(job_id, msg) # add a new job record
+                reply  = self.handle_received_request(request, msg, log_prefix=msg_id)
+                fwglobals.g.jobs.stop_recording(job_id, reply)
+            else:
+                err_str = 'Invalid message format'
+                fwglobals.g.jobs.add_record(job_id, {'error': err_str})
+                reply = {'ok':0, 'message': err_str}
 
             default_route_after = fwutils.get_default_route()
             if default_route_before[2] != default_route_after[2]:  # reconnect the agent to avoid WebSocket timeout
@@ -514,7 +536,7 @@ class FwAgent(FwObject):
         if self.ws:
             self.ws.disconnect()
 
-    def handle_received_request(self, received_msg, log_prefix=''):
+    def handle_received_request(self, received_msg, msg=None, log_prefix=''):
         """Handles received request: invokes the global request handler
         while logging the request and the response returned by the global
         request handler. Note the global request handler is implemented
@@ -522,6 +544,7 @@ class FwAgent(FwObject):
         request handlers.
 
         :param received_msg:  the receive instance.
+        :param msg:           the normalized received message
         :param log_prefix:    the prefix to be added to the log line while printing message
 
         :returns: (reply, msg), where reply is reply to be sent back to server,
@@ -557,10 +580,10 @@ class FwAgent(FwObject):
             self.log.debug(log_line)
             if logger:
                 logger.debug(log_line)
-
-
         try:
-            msg = fwutils.fix_received_message(received_msg)
+
+            if not msg:
+                msg = received_msg
 
             logger = log_request(msg, received_msg, log_prefix)
 
@@ -594,8 +617,18 @@ class FwAgent(FwObject):
             log_reply(msg, reply, log_prefix, logger)
 
         except Exception as e:
-             self.log.error("handle_received_request failed: %s" + str(e))
+             self.log.error(f"handle_received_request failed: {str(e)} {traceback.format_exc()}")
              return {'ok': 0, 'message': str(e)}
+
+        if reply['ok'] == 0:
+            errors = fwglobals.g.jobs.get_job_errors()
+            # not all jobs are recorded since not all of them have job ID.
+            # For example, direct messages from flexiManage like 'get-device-logs'
+            # that not sent in the jobs queue.
+            # Hence, check if no jobs recorded. If so, add the provided error to the list.
+            if len(errors) == 0 and reply['message']:
+                errors.append(reply['message'])
+            reply['message'] = {'errors' : errors}
         return reply
 
     def inject_requests(self, filename, ignore_errors=False, json_requests=None):
@@ -787,7 +820,7 @@ def show(agent, configuration, database, status, networks):
 
     if networks:
         networks_type = None if networks == 'all' else networks
-        out = fwutils.get_device_networks_json(type=networks_type)
+        out = daemon_rpc('show', what='networks', type=networks_type)
         if out:
             print(out)
 
@@ -813,6 +846,10 @@ def show(agent, configuration, database, status, networks):
         elif database == 'multilink':
             with fwmultilink.FwMultilink(fwglobals.g.MULTILINK_DB_FILE, fill_if_empty=False) as multilink_db:
                 print(multilink_db.dumps())
+        elif database == 'qos':
+            print(fwqos.qos_db_dumps())
+        elif database == 'jobs':
+            fwutils.print_jobs()
 
     if status:
         if status == 'daemon':
@@ -1102,6 +1139,13 @@ def daemon(standalone=False):
     fwglobals.log.set_target(to_syslog=True, to_terminal=False)
     fwglobals.log.info("starting in daemon mode (standalone=%s)" % str(standalone))
 
+    # Ensure the IPC port is not in use
+    #
+    for c in psutil.net_connections():
+        if c.laddr.port == fwglobals.g.FWAGENT_DAEMON_PORT:
+            fwglobals.log.debug(f"port {c.laddr.port} is in use, try other port (fwagent_conf.yaml:daemon_socket)")
+            return
+
     with FwagentDaemon(standalone) as agent_daemon:
 
         # Start the FwagentDaemon main function in separate thread as it is infinite,
@@ -1163,7 +1207,7 @@ def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None,
                                 elements are api arguments.
                                 e.g. [ 'inject_requests', 'requests.json' ].
                                 If provided, no prompt loop will be run.
-    :param script_fname:        Shortcat for --api==inject_requests(<script_fname>)
+    :param script_fname:        Shortcut for --api==inject_requests(<script_fname>)
                                 command. Is kept for backward compatibility.
     :param template_fname:      Path to template file that includes variables to replace in the cli request.
     :returns: None.
@@ -1286,7 +1330,7 @@ if __name__ == '__main__':
                         choices=['all', 'lan', 'wan'],
                         help="show flexiEdge configuration")
     parser_show.add_argument('--database',
-                        choices=['applications', 'frr', 'general', 'multilink', 'router', 'system'],
+                        choices=['applications', 'frr', 'general', 'multilink', 'router', 'system', 'qos', 'jobs'],
                         help="show whole flexiEdge database")
     parser_show.add_argument('--status', choices=['daemon', 'router'],
                         help="show flexiEdge status")

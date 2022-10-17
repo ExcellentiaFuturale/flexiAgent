@@ -107,10 +107,11 @@ def configure_hostapd(dev_id, configuration):
 
             ap_mode = config.get('operationMode', 'g')
 
-            if ap_mode == "g":
+            if ap_mode == "g": # for b/g/n
                 data['hw_mode']       = 'g'
+                data['ieee80211n']    = 1
 
-            elif ap_mode == "n":
+            elif ap_mode == "n": # for n only
                 if band == '5GHz':
                     data['hw_mode']       = 'a'
                 else:
@@ -119,13 +120,13 @@ def configure_hostapd(dev_id, configuration):
                 data['ieee80211n']    = 1
                 data['ht_capab']      = '[HT40+][LDPC][SHORT-GI-20][SHORT-GI-40][TX-STBC][RX-STBC1][DSSS_CCK-40]'
 
-            elif ap_mode == "a":
+            elif ap_mode == "a": # for a only
                 data['hw_mode']       = 'a'
                 data['ieee80211n']    = 1
                 data['ieee80211ac']   = 0
                 data['wmm_enabled']   = 0
 
-            elif ap_mode == "ac":
+            elif ap_mode == "ac": # for a/c
                 data['hw_mode']       = 'a'
                 data['ieee80211ac']   = 1
                 data['ieee80211n']    = 1

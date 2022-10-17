@@ -54,5 +54,5 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
 
 
 if __name__ == "__main__":
-    migrate("")
+    migrate()
 

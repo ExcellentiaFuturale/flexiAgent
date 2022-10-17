@@ -28,6 +28,7 @@ import fwpppoe
 import fwutils
 import fwwifi
 import fw_nat_command_helpers
+import fwqos
 
 # add_interface
 # --------------------------------------
@@ -310,14 +311,14 @@ def add_interface(params):
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']      = "create_tun"
+        cmd['cmd']['func']      = "setup_tun_if_params"
         cmd['cmd']['object']    = "fwglobals.g.pppoe"
-        cmd['cmd']['descr']     = "Create PPPoE TUN interface"
+        cmd['cmd']['descr']     = "Setup PPPoE TUN interface params"
         cmd['cmd']['params']    = { 'dev_id': dev_id }
         cmd['revert'] = {}
-        cmd['revert']['func']   = "remove_tun"
+        cmd['revert']['func']   = "reset_tun_if_params"
         cmd['revert']['object'] = "fwglobals.g.pppoe"
-        cmd['revert']['descr']  = "Remove PPPoE TUN interface"
+        cmd['revert']['descr']  = "Reset PPPoE TUN interface params"
         cmd['revert']['params'] = { 'dev_id': dev_id }
         cmd_list.append(cmd)
 
@@ -578,106 +579,27 @@ def add_interface(params):
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']   = "traffic_control_add_del_dev_ingress"
-        cmd['cmd']['module'] = "fwutils"
+        cmd['cmd']['func']   = "add_del_traffic_control"
+        cmd['cmd']['module'] = "fwlte"
         cmd['cmd']['params'] = {
-                    'dev_name': '',
                     'is_add': 1,
-                    'substs': [ { 'add_param':'dev_name', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name } ]
+                    'dev_id': dev_id,
+                    'lte_if_name': iface_name,
         }
-        cmd['cmd']['descr'] = "add traffic control command for linux tap interface"
+        cmd['cmd']['descr'] = "add traffic control configuration to LTE interface"
         cmd['revert'] = {}
-        cmd['revert']['func']   = "traffic_control_add_del_dev_ingress"
-        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['func']   = "add_del_traffic_control"
+        cmd['revert']['module'] = "fwlte"
         cmd['revert']['params'] = {
                     'is_add': 0,
-                    'substs': [ { 'add_param':'dev_name', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name } ]
+                    'dev_id': dev_id,
+                    'lte_if_name': iface_name,
         }
-        cmd['revert']['descr']  = "remove traffic control command for linux tap interface"
+        cmd['revert']['descr']  = "remove traffic control configuration from LTE interface"
         cmd_list.append(cmd)
 
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']   = "traffic_control_replace_dev_root"
-        cmd['cmd']['module'] = "fwutils"
-        cmd['cmd']['params'] = {
-                    'substs': [ { 'add_param':'dev_name', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name } ]
-        }
-        cmd['cmd']['descr'] = "replace traffic control command for linux tap interface"
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "traffic_control_remove_dev_root"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['params'] = {
-                    'substs': [ { 'add_param':'dev_name', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name } ]
-        }
-        cmd['revert']['descr']  = "remove replaced tc command for linux tap interface"
-        cmd_list.append(cmd)
-
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']   = "traffic_control_add_del_dev_ingress"
-        cmd['cmd']['module'] = "fwutils"
-        cmd['cmd']['params'] = { 'dev_name'  : iface_name, 'is_add': 1 }
-        cmd['cmd']['descr'] = "add traffic control command for lte interface"
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "traffic_control_add_del_dev_ingress"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['params'] = { 'dev_name'  : iface_name, 'is_add': 0 }
-        cmd['revert']['descr']  = "remove traffic control command for lte interface"
-        cmd_list.append(cmd)
-
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']   = "traffic_control_replace_dev_root"
-        cmd['cmd']['module'] = "fwutils"
-        cmd['cmd']['params'] = { 'dev_name'  : iface_name }
-        cmd['cmd']['descr'] = "replace traffic control command for lte interface"
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "traffic_control_remove_dev_root"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['params'] = { 'dev_name'  : iface_name }
-        cmd['revert']['descr']  = "remove replaced tc command for lte interface"
-        cmd_list.append(cmd)
-
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']   = "exec"
-        cmd['cmd']['module'] = "fwutils"
-        cmd['cmd']['params'] = {
-            'cmd':
-                f"tc filter add dev DEV-STUB parent ffff: \
-                protocol all prio 2 u32 \
-                match u32 0 0 flowid 1:1 \
-                action pedit ex munge eth dst set LTE-MAC \
-                pipe action mirred egress mirror dev {iface_name} \
-                pipe action drop",
-            'substs': [
-                {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name },
-                {'replace':'LTE-MAC',  'key':'cmd', 'val_by_func':'get_interface_mac_addr', 'arg':iface_name }
-            ]
-        }
-        cmd['cmd']['descr'] = "add filter traffic control command for tap and wwan interfaces"
-        cmd_list.append(cmd)
-
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']   = "exec"
-        cmd['cmd']['module'] = "fwutils"
-        cmd['cmd']['params'] = {
-            'cmd':
-                f"tc filter add dev {iface_name} parent ffff: \
-                protocol all prio 2 u32 \
-                match u32 0 0 flowid 1:1 \
-                action pedit ex munge eth dst set VPP-MAC \
-                pipe action mirred egress mirror dev DEV-STUB \
-                pipe action drop",
-            'substs': [
-                {'replace':'VPP-MAC',  'key':'cmd', 'val_by_func':'get_vpp_tap_interface_mac_addr', 'arg':dev_id },
-                {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name }
-            ]
-        }
-        cmd['cmd']['descr'] = "add filter traffic control command for tap and wwan interfaces"
-        cmd_list.append(cmd)
+    # Get QoS commands
+    fwglobals.g.qos.get_add_interface_qos_commands(params, cmd_list)
 
     cmd = {}
     cmd['cmd'] = {}
@@ -711,6 +633,31 @@ modify_interface_ignored_params = {
     'PublicPort': None,
     'useStun': None,
 }
+
+# In the modify-interface request, If the change is in one of the below params, then it is
+# considered as supported and the message shall be processed
+modify_interface_supported_params = {
+    'bandwidthMbps': {
+        'tx' : None,
+        'rx' : None
+    }
+}
+
+def modify_interface(new_params, old_params):
+    """
+    Called on modify-interface message matching with supported parameter configuration
+
+    :param new_params: Interface configuration parameters
+    :type new_params: dict
+    :param old_params: Previous interface configuration parameters
+    :type old_params: dict
+    :return: Array of commands generated
+    :rtype: Array
+    """
+    cmd_list = []
+    # Get Interface QoS update commands
+    fwglobals.g.qos.get_add_interface_qos_commands(new_params, cmd_list)
+    return cmd_list
 
 
 def get_request_key(params):

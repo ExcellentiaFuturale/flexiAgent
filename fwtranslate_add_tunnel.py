@@ -29,6 +29,7 @@ from netaddr import *
 import fwglobals
 import fwlte
 import fwutils
+import fwqos
 
 
 # add_tunnel
@@ -774,7 +775,10 @@ def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
             'vni'                  : bridge_id,
             'dest_port'            : int(params.get('dstPort', 4789)),
             'substs': [{'add_param': 'next_hop_sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': params['dev_id']},
-                       {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [dst, dev_id]}],
+                       {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [dst, dev_id]},
+                       {'add_param': 'qos_hierarchy_id',
+                        'val_by_func': 'fwqos.get_tunnel_qos_identifier',
+                        'arg': [dev_id,  params['tunnel-id']]}],
             'instance'             : bridge_id,
             'decap_next_index'     : 1 # VXLAN_INPUT_NEXT_L2_INPUT, vpp/include/vnet/vxlan/vxlan.h
     }
@@ -1082,6 +1086,20 @@ def _add_ikev2_common_profile(cmd_list, params, name, cache_key, auth_method, lo
     cmd['cmd']['descr']     = "set IKEv2 auth method, profile %s" % name
     cmd_list.append(cmd)
 
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']      = "call_vpp_api"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['descr']     = "IKEv2 enable replay check in profile %s" % name
+    cmd['cmd']['params']    = {
+        'api':  "ikev2_profile_replay_check_update",
+        'args': {
+            'name'  :  name,
+            'enable':  True,
+        }
+    }
+    cmd_list.append(cmd)
+
     # ikev2.api.json: ikev2_profile_set_id (..., 'is_local':1)
     _add_ikev2_id(cmd_list, name, 1, local_id, local_id_type)
 
@@ -1256,7 +1274,10 @@ def _add_ikev2_initiator_profile(cmd_list, name, lifetime,
     esp_tr = {
               'crypto_alg'      : crypto_algs[esp['crypto-alg']],
               'crypto_key_size' : esp['key-size'],
-              'integ_alg'       : integ_algs[esp['integ-alg']]
+              'integ_alg'       : integ_algs[esp['integ-alg']],
+              # In Extended Sequence number (ESN) mode, Out of order packets can lead to
+              # ESP session getting stuck due to wrong increment detection of higher order 4 bytes
+              'esn_type'        : 0
              }
 
     cmd = {}
@@ -1710,6 +1731,9 @@ def add_tunnel(params):
         cmd['cmd']['params']    = { 'tunnel_id': params['tunnel-id'] }
         cmd_list.append(cmd)
 
+        # Get tunnel QoS commands
+        fwglobals.g.qos.get_add_tunnel_qos_commands(params, cmd_list)
+
         if encryption_mode == "none":
             loop0_cfg = {'addr':str(loop0_ip), 'mac':str(loop0_mac), 'mtu': 9000}
             bridge_id = params['tunnel-id']*2
@@ -1794,7 +1818,7 @@ def add_tunnel(params):
     # we need to clean up BGP routes before removing the tunnel loopback.
     # Otherwise, the routes get stuck in vpp with an unresolved state.
     #
-    # Shutting down a BGP neighborship causes routes to be cleaned from Linux and VPP.
+    # Shutting down a BGP neighbors causes routes to be cleaned from Linux and VPP.
     #
     # Hence, in the remove-tunnel process (revert of add-tunnel), we shut down the BGP peer
     # with the remote side of the tunnel before we removing the loopback.
@@ -1802,6 +1826,33 @@ def add_tunnel(params):
     # In the add-tunnel process we make sure that BGP neighbor is active.
     # --------------------------------------------------------------------------
     if routing == 'bgp' and not 'peer' in params:
+        bgp_remote_asn = params['loopback-iface'].get('bgp-remote-asn')
+        if bgp_remote_asn:
+            neighbor = {
+                'ip': remote_loop0_ip,
+                'remoteAsn': bgp_remote_asn
+            }
+            add_frr_cmds = fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
+
+            revert_cmds = ['router bgp', f'no neighbor {remote_loop0_ip}']
+            cmd = {}
+            cmd['cmd'] = {}
+            cmd['cmd']['func']      = "frr_vtysh_run"
+            cmd['cmd']['module']    = "fwutils"
+            cmd['cmd']['descr']     = "add remote ip %s as bgp neighbor" % remote_loop0_ip
+            cmd['cmd']['params']    = {
+                'commands': ['router bgp'] + add_frr_cmds,
+                'on_error_commands': revert_cmds,
+            }
+            cmd['revert'] = {}
+            cmd['revert']['func']   = "frr_vtysh_run"
+            cmd['revert']['module'] = "fwutils"
+            cmd['revert']['params'] = {
+                'commands': revert_cmds,
+            }
+            cmd['revert']['descr']   = "remove remote ip %s from bgp neighbor" % remote_loop0_ip
+            cmd_list.append(cmd)
+
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']      = "shutdown_activate_bgp_peer_if_exists"
@@ -1897,34 +1948,40 @@ def modify_tunnel(new_params, old_params):
 
     cmd_list = []
 
-    remote_device_id = str(old_params['ikev2']['remote-device-id'])
-    role = old_params['ikev2']['role']
+    if old_params.get('ikev2'):
+        remote_device_id = str(old_params['ikev2']['remote-device-id'])
+        role = old_params['ikev2']['role']
 
-    certificate = new_params['ikev2'].get('certificate')
-    if certificate:
-        # Add public certificate file
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']      = "modify_certificate"
-        cmd['cmd']['object']    = "fwglobals.g.ikev2"
-        cmd['cmd']['descr']     = "modify IKEv2 public certificate for %s" % remote_device_id
-        cmd['cmd']['params']    = {
-                                    'device_id'   : remote_device_id,
-                                    'certificate' : certificate,
-                                    'tunnel_id'   : new_params['tunnel-id'],
-                                  }
-        cmd_list.append(cmd)
+        old_params_certificate = old_params['ikev2'].get('certificate')
+        certificate = new_params['ikev2'].get('certificate')
 
-    remote_cert_applied = new_params['ikev2'].get('remote-cert-applied', None)
-    if remote_cert_applied:
-        # Reinitiate IKEv2 session
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']      = "reinitiate_session"
-        cmd['cmd']['object']    = "fwglobals.g.ikev2"
-        cmd['cmd']['descr']     = "Reinitiate IKEv2 session with %s" % remote_device_id
-        cmd['cmd']['params']    = {'tunnel_id': new_params['tunnel-id'], 'role': role}
-        cmd_list.append(cmd)
+        if certificate and (old_params_certificate != certificate):
+            # Add public certificate file
+            cmd = {}
+            cmd['cmd'] = {}
+            cmd['cmd']['func']      = "modify_certificate"
+            cmd['cmd']['object']    = "fwglobals.g.ikev2"
+            cmd['cmd']['descr']     = "modify IKEv2 public certificate for %s" % remote_device_id
+            cmd['cmd']['params']    = {
+                                        'device_id'   : remote_device_id,
+                                        'certificate' : certificate,
+                                        'tunnel_id'   : new_params['tunnel-id'],
+                                    }
+            cmd_list.append(cmd)
+
+        remote_cert_applied = new_params['ikev2'].get('remote-cert-applied', None)
+        if remote_cert_applied:
+            # Reinitiate IKEv2 session
+            cmd = {}
+            cmd['cmd'] = {}
+            cmd['cmd']['func']      = "reinitiate_session"
+            cmd['cmd']['object']    = "fwglobals.g.ikev2"
+            cmd['cmd']['descr']     = "Reinitiate IKEv2 session with %s" % remote_device_id
+            cmd['cmd']['params']    = {'tunnel_id': new_params['tunnel-id'], 'role': role}
+            cmd_list.append(cmd)
+
+    # Get tunnel QoS commands
+    fwglobals.g.qos.get_modify_tunnel_qos_commands(new_params, old_params, cmd_list)
 
     return cmd_list
 
@@ -1946,6 +2003,10 @@ modify_tunnel_supported_params = {
     },
     'ikev2': {
         'certificate': None,
+    },
+    'remoteBandwidthMbps': {
+        'tx' : None,
+        'rx' : None
     }
 }
 

@@ -25,6 +25,7 @@ import ctypes
 
 import fwglobals
 import fwutils
+from fw_traffic_identification import TRAFFIC_IMPORTANCE_VALUES, TRAFFIC_SERVICE_CLASS_VALUES
 
 # add-multilink-policy
 # --------------------------------------
@@ -92,24 +93,6 @@ import fwutils
 # }
 
 policy_index = 0
-
-ServiceAttrToVal = {
-                'telephony'                 : 0,
-                'broadcast-video'           : 1,
-                'real-time'                 : 2,
-                'signaling'                 : 3,
-                'network-control'           : 3,
-                'low-latency'               : 4,
-                'oam'                       : 5,
-                'high-throughput'           : 6,
-                'multimedia-conferencing'   : 7,
-                'multimedia-streaming'      : 8,
-                'default'                   : 9}
-
-ImportanceAttrToVal = {
-                'low'                       : 0,
-                'medium'                    : 1,
-                'high'                      : 2}
 
 def _generate_id(ret):
     """Generate identifier.
@@ -217,8 +200,8 @@ def _traffic_to_acl_rules(rules):
             proto = [ fwutils.proto_map['any'] ] if not ports else \
                     [ fwutils.proto_map['udp'] , fwutils.proto_map['tcp'] ]
 
-        serviceClass = ServiceAttrToVal.get(traffic_rule.get('serviceClass', 'default'), 9)
-        importance = ImportanceAttrToVal.get(traffic_rule.get('importance', 'low'), 0)
+        serviceClass = TRAFFIC_SERVICE_CLASS_VALUES.get(traffic_rule.get('serviceClass', 'default'))
+        importance = TRAFFIC_IMPORTANCE_VALUES.get(traffic_rule.get('importance', 'low'))
 
         for p in proto:
             acl_rules.append({

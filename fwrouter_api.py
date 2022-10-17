@@ -42,24 +42,31 @@ import fwthread
 import fwtunnel_stats
 import fwutils
 import fwwifi
+import fwqos
 from fwcfg_request_handler import FwCfgRequestHandler
 from fwfrr import FwFrr
 from fwikev2 import FwIKEv2
 from fwmultilink import FwMultilink
 from fwpolicies import FwPolicies
 from vpp_api import VPP_API
+from tools.common.fw_vpp_startupconf import FwStartupConf
 
 fwrouter_translators = {
     'start-router':             {'module': __import__('fwtranslate_start_router'),    'api':'start_router'},
     'stop-router':              {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
     'add-interface':            {'module': __import__('fwtranslate_add_interface'),   'api':'add_interface'},
     'remove-interface':         {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
-    'modify-interface':         {'module': __import__('fwtranslate_add_interface'),   'api':None,                'ignored_params': 'modify_interface_ignored_params'},
+    'modify-interface':         {'module': __import__('fwtranslate_add_interface'),   'api':'modify_interface',
+                                    'ignored_params'  : 'modify_interface_ignored_params',
+                                    'supported_params': 'modify_interface_supported_params'
+                                },
     'add-route':                {'module': __import__('fwtranslate_add_route'),       'api':'add_route'},
     'remove-route':             {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
     'add-tunnel':               {'module': __import__('fwtranslate_add_tunnel'),      'api':'add_tunnel'},
     'remove-tunnel':            {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
-    'modify-tunnel':            {'module': __import__('fwtranslate_add_tunnel'),      'api':'modify_tunnel',     'supported_params':'modify_tunnel_supported_params'},
+    'modify-tunnel':            {'module': __import__('fwtranslate_add_tunnel'),      'api':'modify_tunnel',
+                                    'supported_params':'modify_tunnel_supported_params'
+                                },
     'add-dhcp-config':          {'module': __import__('fwtranslate_add_dhcp_config'), 'api':'add_dhcp_config'},
     'remove-dhcp-config':       {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
     'add-application':          {'module': __import__('fwtranslate_add_application'), 'api':'add_application'},
@@ -77,6 +84,10 @@ fwrouter_translators = {
     'modify-routing-bgp':       {'module': __import__('fwtranslate_add_routing_bgp'),  'api':'modify_routing_bgp',     'supported_params':'modify_routing_bgp_supported_params'},
     'add-routing-filter':       {'module': __import__('fwtranslate_add_routing_filter'), 'api':'add_routing_filter'},
     'remove-routing-filter':    {'module': __import__('fwtranslate_revert'),           'api':'revert'},
+    'add-qos-traffic-map':      {'module': __import__('fwtranslate_add_qos_traffic_map'), 'api':'add_qos_traffic_map'},
+    'remove-qos-traffic-map':   {'module': __import__('fwtranslate_revert'),          'api':'revert'},
+    'add-qos-policy':           {'module': __import__('fwtranslate_add_qos_policy'),  'api':'add_qos_policy'},
+    'remove-qos-policy':        {'module': __import__('fwtranslate_revert'),          'api':'revert'},
 }
 
 class FwRouterState(enum.Enum):
@@ -217,6 +228,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             Intel 82540EM (e1000)
                 no-carrier full duplex mtu 9206
         '''
+        restart_dhcpd = False
+
         interfaces = fwglobals.g.router_cfg.get_interfaces()
         for interface in interfaces:
             tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
@@ -235,6 +248,13 @@ class FWROUTER_API(FwCfgRequestHandler):
             elif status_vpp == 'up' and ok and status_linux and int(status_linux)==0:
                 self.log.debug(f"detected CARRIER UP for {tap_name}")
                 fwutils.os_system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
+                if interface['dev_id'] in fwglobals.g.db.get('router_api',{}).get('dhcpd',{}).get('interfaces',{}):
+                    restart_dhcpd = True
+
+        if restart_dhcpd:
+            time.sleep(1)  # give a second to Linux to reconfigure interface
+            cmd = 'systemctl restart isc-dhcp-server'
+            fwutils.os_system(cmd, '_sync_link_status')
 
     def _sync_addresses(self, old_interfaces, new_interfaces):
         """Monitors VPP interfaces for IP/GW change and updates system as follows:
@@ -554,7 +574,9 @@ class FWROUTER_API(FwCfgRequestHandler):
             if router_was_started == False and \
                 (req == 'add-application' or
                 req == 'add-multilink-policy' or
-                req == 'add-firewall-policy'):
+                req == 'add-firewall-policy' or
+                req == 'add-qos-traffic-map' or
+                (req == 'add-qos-policy' or req == 'remove-qos-policy')):
                 self.cfg_db.update(request)
                 return {'ok':1}
 
@@ -752,6 +774,22 @@ class FWROUTER_API(FwCfgRequestHandler):
             return False
 
 
+        def _should_restart_on_qos_policy(request):
+            hqos_enabled, total_cpu_workers = fwglobals.g.qos.get_hqos_worker_state()
+            if (self.state_is_started() is False) or (total_cpu_workers < 2):
+                # VPP not started or device not capable - No restart required
+                return False
+
+            if (request['message'] == 'add-qos-policy'):
+                if fwqos.check_policy_has_interface_add_del(request['params']):
+                    # QoS interfaces have changed in the new request - Restart required
+                    return True
+            elif (request['message'] == 'remove-qos-policy'):
+                if hqos_enabled is True:
+                    return True
+            return False
+
+
         (restart_router, reconnect_agent, gateways, restart_dhcp_service) = \
         (False,          False,           [],       False)
 
@@ -763,6 +801,11 @@ class FWROUTER_API(FwCfgRequestHandler):
         elif re.match('(start|stop)-router', request['message']):
             reconnect_agent = True
             return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+        elif re.match('(add|remove)-qos-policy', request['message']):
+            if (_should_restart_on_qos_policy(request) is True):
+                restart_router  = True
+                reconnect_agent = True
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
         elif request['message'] != 'aggregated':
             return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
         else:   # aggregated request
@@ -771,12 +814,18 @@ class FWROUTER_API(FwCfgRequestHandler):
             for _request in request['params']['requests']:
                 if re.match('(start|stop)-router', _request['message']):
                     reconnect_agent = True
+                elif re.match('(add|remove)-qos-policy', _request['message']):
+                    if (_should_restart_on_qos_policy(_request) is True):
+                        restart_router  = True
+                        reconnect_agent = True
                 elif re.match('(add|remove)-interface', _request['message']):
                     dev_id = _request['params']['dev_id']
+                    # check if requests list contains remove-interface and add-interface for the same dev_id.
+                    # If found, it means that these two requests were created for modify-interface
                     if not dev_id in add_remove_requests:
                         add_remove_requests[dev_id] = _request
                     else:
-                        # This add/remove complements pair created for modify-X
+                        # This add/remove complements pair created for modify-interface
 
                         # Fetch gateway from the add-interface
                         #
@@ -907,33 +956,38 @@ class FWROUTER_API(FwCfgRequestHandler):
                         was replaced with %s" % json.dumps(request))
                 return request
 
+        def _single_message_add_corresponding_remove (add_request, current_params, new_params):
+            remove_request = add_request.replace('add-', 'remove-')
+            updated_requests = [
+                { 'message': remove_request, 'params' : current_params },
+                { 'message': add_request,    'params' : new_params }
+            ]
+            request = {'message': 'aggregated', 'params': { 'requests' : updated_requests }}
+            self.log.debug("_preprocess_request: %s request \
+                    was replaced with %s" % (add_request, json.dumps(request)))
+            return request
+
         # 'add-multilink-policy' preprocessing:
         # 1. The currently configured policy should be removed firstly.
         #    We do that by adding simulated 'remove-multilink-policy' request in
         #    front of the original 'add-multilink-policy' request.
         #
-        if multilink_policy_params:
-            if req == 'add-multilink-policy':
-                updated_requests = [
-                    { 'message': 'remove-multilink-policy', 'params' : multilink_policy_params },
-                    { 'message': 'add-multilink-policy',    'params' : params }
-                ]
-                request = {'message': 'aggregated', 'params': { 'requests' : updated_requests }}
-                self.log.debug("_preprocess_request: Multilink \
-                        request was replaced with %s" % json.dumps(request))
-                return request
+        if multilink_policy_params and req == 'add-multilink-policy':
+            return _single_message_add_corresponding_remove(req, multilink_policy_params, params)
 
         # Setup remove-firewall-policy before executing add-firewall-policy
-        if firewall_policy_params:
-            if req == 'add-firewall-policy':
-                updated_requests = [
-                    { 'message': 'remove-firewall-policy', 'params' : firewall_policy_params },
-                    { 'message': 'add-firewall-policy',    'params' : params }
-                ]
-                request = {'message': 'aggregated', 'params': { 'requests' : updated_requests }}
-                self.log.debug("_preprocess_request: Firewall request \
-                        was replaced with %s" % json.dumps(request))
-                return request
+        if firewall_policy_params and req == 'add-firewall-policy':
+            return _single_message_add_corresponding_remove(req, firewall_policy_params, params)
+
+        qos_policy_params = self.cfg_db.get_qos_policy()
+        # Setup remove-qos-policy before executing add-qos-policy
+        if qos_policy_params and req == 'add-qos-policy':
+            return _single_message_add_corresponding_remove(req, qos_policy_params, params)
+
+        qos_traffic_map_params = self.cfg_db.get_qos_traffic_map()
+        # Setup remove-qos-traffic-map before executing add-qos-traffic-map
+        if qos_traffic_map_params and req == 'add-qos-traffic-map':
+            return _single_message_add_corresponding_remove(req, qos_traffic_map_params, params)
 
         # 'add/remove-application' preprocessing:
         # 1. The multilink policy should be re-installed: if exists, the policy
@@ -996,6 +1050,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-ospf', 'add-routing-filter', 'add-routing-bgp', 'add-switch',
             'add-interface', 'add-tunnel', 'add-route', 'add-dhcp-config',
             'add-application', 'add-multilink-policy', 'add-firewall-policy',
+            'add-qos-traffic-map', 'add-qos-policy'
         ]
         remove_order = [ re.sub('add-','remove-', name) for name in add_order ]
         remove_order.reverse()
@@ -1048,7 +1103,11 @@ class FWROUTER_API(FwCfgRequestHandler):
             'remove-multilink-policy' : -1,
             'add-multilink-policy'    : -1,
             'remove-firewall-policy'  : -1,
-            'add-firewall-policy'     : -1
+            'add-firewall-policy'     : -1,
+            'remove-qos-traffic-map'  : -1,
+            'add-qos-traffic-map'     : -1,
+            'remove-qos-policy'       : -1,
+            'add-qos-policy'          : -1,
         }
 
         reinstall_multilink_policy = True
@@ -1100,6 +1159,12 @@ class FWROUTER_API(FwCfgRequestHandler):
             elif request_name == 'firewall':
                 add_request_name = 'add-firewall-policy'
                 remove_request_name = 'remove-firewall-policy'
+            elif request_name == 'qos':
+                add_request_name = 'add-qos-policy'
+                remove_request_name = 'remove-qos-policy'
+            elif request_name == 'qos-traffic-map':
+                add_request_name = 'add-qos-traffic-map'
+                remove_request_name = 'remove-qos-traffic-map'
             if params and indexes[add_request_name] > -1:
                 if indexes[remove_request_name] == -1:
                     # If list has no 'remove-X-policy' at all just add it before 'add-X-policy'.
@@ -1118,6 +1183,12 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         add_corresponding_remove_policy_message(requests, indexes, 'firewall',
                 firewall_policy_params)
+
+        add_corresponding_remove_policy_message(requests, indexes, 'qos',
+                qos_policy_params)
+
+        add_corresponding_remove_policy_message(requests, indexes, 'qos-traffic-map',
+                qos_traffic_map_params)
 
         # Now preprocess 'add/remove-application' and 'add/remove-interface':
         # reinstall multilink policy if:
@@ -1234,12 +1305,14 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         fwnetplan.load_netplan_filenames()
 
-        fwglobals.g.pppoe.stop(remove_tun=True)
+        fwglobals.g.pppoe.stop(reset_tun_if_params=True)
 
         self.multilink.db['links'] = {}
 
         self.pending_dev_ids = set()
 
+        # Reset FlexiWAN QoS contexts on VPP start
+        fwglobals.g.qos.reset()
 
     def _sync_after_start(self):
         """Resets signature once interface got IP during router starting.
@@ -1271,11 +1344,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             # so the configuration file will be not needed.
             fwglobals.log.error(f"_on_start_router_after: failed to flush frr configuration into file: {str(err)}")
 
-        if fwglobals.g.is_gcp_vm:
-            # When we shutting down the interfaces on Linux before assigning them to VPP
-            # the GCP agent is stopped. Hence, we need to restart it again.
-            fwutils.restart_gcp_agent()
-
         fwglobals.g.pppoe.start()
 
         self._sync_after_start()
@@ -1299,7 +1367,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         with FwIKEv2() as ike:
             ike.clean()
         self._stop_threads()
-        fwglobals.g.pppoe.stop(remove_tun=True)
+        fwglobals.g.pppoe.stop(reset_tun_if_params=True)
         fwglobals.g.cache.dev_id_to_vpp_tap_name.clear()
         self.log.info("router is being stopped: vpp_pid=%s" % str(fwutils.vpp_pid()))
 
@@ -1313,9 +1381,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwutils.reset_traffic_control()
         fwutils.remove_linux_bridges()
         fwwifi.stop_hostapd()
-
-        if fwglobals.g.is_gcp_vm: # Take care of Google Cloud Platform VM
-            fwutils.restart_gcp_agent()
 
         # keep LTE connectivity on linux interface
         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
@@ -1440,6 +1505,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-application',
             'add-multilink-policy',
             'add-firewall-policy',
+            'add-qos-traffic-map',
+            'add-qos-policy',
             'add-route',            # Routes should come after tunnels and after BGP, as they might use them!
             'add-dhcp-config'
         ]

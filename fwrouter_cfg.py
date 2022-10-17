@@ -50,7 +50,7 @@ class FwRouterCfg(FwCfgDatabase):
             if re.match('start-router', req):
                 params  = request.get('params')
                 req_key = self._get_request_key(request)
-                self.db[req_key] = { 'request' : req , 'params' : params , 'cmd_list' : cmd_list , 'executed' : executed }
+                self[req_key] = { 'request' : req , 'params' : params , 'cmd_list' : cmd_list , 'executed' : executed }
             else:
                 FwCfgDatabase.update(self, request, cmd_list, executed)
         except KeyError:
@@ -77,6 +77,8 @@ class FwRouterCfg(FwCfgDatabase):
                 'add-multilink-policy',
                 'add-firewall-policy',
                 'add-ospf',
+                'add-qos-traffic-map',
+                'add-qos-policy',
             ]
 
         return FwCfgDatabase.dump(self, types, escape, full, keys)
@@ -103,6 +105,8 @@ class FwRouterCfg(FwCfgDatabase):
             'add-ospf':             "============= OSPF =============",
             'add-routing-bgp':      "============= ROUTING BGP =============",
             'add-routing-filter':   "============= ROUTING FILTERS =============",
+            'add-qos-traffic-map':  "============= QOS TRAFFIC MAP =============",
+            'add-qos-policy':       "============= QOS POLICY =============",
         }
 
         cfg = self.dump(types=types, escape=escape, full=full, keys=True)
@@ -126,11 +130,23 @@ class FwRouterCfg(FwCfgDatabase):
     def get_routes(self):
         return self.get_requests('add-route')
 
-    def get_tunnels(self):
-        return self.get_requests('add-tunnel')
+    def get_tunnels(self, routing=None):
+        tunnels = self.get_requests('add-tunnel')
+        if routing:
+            result = []
+            for tunnel in tunnels:
+                if routing == tunnel.get('loopback-iface', {}).get('routing'):
+                    result.append(tunnel)
+            tunnels = result
+        return tunnels
 
     def get_bgp(self):
-        return self.get_requests('add-routing-bgp')
+        bgp_req = self.get_requests('add-routing-bgp')
+        # add-routing-bgp is a single request and can't be more than that.
+        # Therefore, convert it from a list to an object or None
+        if not bgp_req:
+            return None
+        return bgp_req[0]
 
     def get_tunnel(self, tunnel_id):
         key = 'add-tunnel:%d' % (tunnel_id)
@@ -143,8 +159,18 @@ class FwRouterCfg(FwCfgDatabase):
         return self.get_params('add-application')
 
     def get_firewall_policy(self):
-        if 'add-firewall-policy' in self.db:
-            return self.db['add-firewall-policy']['params']
+        if 'add-firewall-policy' in self:
+            return self['add-firewall-policy']['params']
+        return None
+
+    def get_qos_traffic_map(self):
+        if 'add-qos-traffic-map' in self:
+            return self['add-qos-traffic-map']['params']
+        return None
+
+    def get_qos_policy(self):
+        if 'add-qos-policy' in self:
+            return self['add-qos-policy']['params']
         return None
 
     def get_sync_list(self, requests):
@@ -222,4 +248,3 @@ class FwRouterCfg(FwCfgDatabase):
         output_requests += list(input_requests.values())
 
         return output_requests
-

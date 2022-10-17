@@ -27,6 +27,35 @@ import fwglobals
 
 from fwobject import FwObject
 
+# Valid service class values are between 0 to 15 (4 bits, Values 10 to 15 are unused at this point)
+MAX_TRAFFIC_SERVICE_CLASSES = 16
+
+#Update the below variable on adding new service class
+HIGHEST_IN_USE_TRAFFIC_CLASS = 9
+
+TRAFFIC_SERVICE_CLASS_VALUES = {
+    'telephony'                 : 0,
+    'broadcast-video'           : 1,
+    'real-time'                 : 2,
+    'signaling'                 : 3,
+    'network-control'           : 3,
+    'low-latency'               : 4,
+    'oam'                       : 5,
+    'high-throughput'           : 6,
+    'multimedia-conferencing'   : 7,
+    'multimedia-streaming'      : 8,
+    'default'                   : 9,
+}
+
+#Valid importance values are between 0 and 2 (2 bits, Value 3 is unused)
+MAX_TRAFFIC_IMPORTANCE_VALUES = 4
+
+TRAFFIC_IMPORTANCE_VALUES = {
+    'low'                       : 0,
+    'medium'                    : 1,
+    'high'                      : 2
+}
+
 class FwTrafficIdentifications(FwObject):
 
     """ Encapsulates functions associated with storing/removing/searching traffic identifiers.

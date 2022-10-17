@@ -33,6 +33,10 @@ import fwroutes
 
 from fwobject import FwObject
 
+system_checker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tools/system_checker/")
+sys.path.append(system_checker_path)
+import fwsystem_checker_common
+
 fwagent_api = {
     'get-device-certificate':        '_get_device_certificate',
     'get-device-config':             '_get_device_config',
@@ -48,6 +52,7 @@ fwagent_api = {
     'reset-device':                  '_reset_device_soft',
     'sync-device':                   '_sync_device',
     'upgrade-device-sw':             '_upgrade_device_sw',
+    'set-cpu-info':                  '_set_cpu_info',
 }
 
 class FWAGENT_API(FwObject):
@@ -113,6 +118,16 @@ class FWAGENT_API(FwObject):
                 raise e
         return tunnel_info
 
+    def _prepare_jobs_info(self, jobs):
+        """Fetches jobs from the request jobs database.
+
+        :param jobs: The set of jobs to lookup.
+
+        :returns: the list of jobs.
+        """
+        stored_jobs = fwglobals.g.jobs.dump()
+        return list(filter(lambda job: int(job["job_id"]) in jobs, stored_jobs))
+
     def _get_device_info(self, params):
         """Get device information.
 
@@ -134,11 +149,40 @@ class FWAGENT_API(FwObject):
             if fwglobals.g.ikev2.is_private_key_created():
                 info['ikev2'] = fwglobals.g.ikev2.get_certificate_expiration()
             # Load tunnel info, if requested by the management
-            if params and params['tunnels']:
+            if params and params.get('tunnels'):
                 info['tunnels'] = self._prepare_tunnel_info(params['tunnels'])
+            if params and params.get('jobs'):
+                info['jobs'] = self._prepare_jobs_info(params['jobs'])
+            info['cpuInfo'] = fwsystem_checker_common.Checker().get_cpu_info()
+
             return {'message': info, 'ok': 1}
         except:
             raise Exception("_get_device_info: failed to get device info: %s" % format(sys.exc_info()[1]))
+
+
+    def _set_cpu_info(self, params):
+        """Get device information.
+
+        :param params: Parameters from flexiManage.
+
+        :returns: Dictionary with information and status code.
+        """
+        try:
+            vpp_cores = params.get('vppCores')
+            power_saving = params.get('powerSaving')
+            with fwsystem_checker_common.Checker() as checker:
+                update_vpp, update_grub = checker.set_cpu_info(vpp_cores, power_saving)
+                reply = {'ok': 1, 'message': {'cpuInfo' : checker.get_cpu_info()} }
+                if update_grub:
+                    self.log.info("_set_cpu_info: Rebooting the system for changes to take effect.")
+                    os.system('sudo reboot')
+                elif update_vpp and fwglobals.g.router_api.state_is_started():
+                    self.log.info("_set_cpu_info: Restart the router to apply changes in VPP configuration.")
+                    fwglobals.g.handle_request({'message':'stop-router'})
+                    fwglobals.g.handle_request({'message': 'start-router'})
+        except Exception as e:
+            reply = {'ok': 0, 'message': str(e) }
+        return reply
 
     def _get_device_stats(self, params):
         """Get device and interface statistics.

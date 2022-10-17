@@ -538,7 +538,9 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         if dhcp == 'yes' and is_add:
             for _ in range(10):
                 time.sleep(1)
-                if fwutils.get_interface_address(ifname, log=False):
+                if_addr = fwutils.get_interface_address(ifname, log=False)
+                if if_addr:
+                    fwglobals.log.debug("Interface address from DHCP server is %s, dev_id %s" % (if_addr, dev_id))
                     break
 
         # On interface adding or removal update caches interface related caches.

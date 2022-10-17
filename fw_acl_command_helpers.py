@@ -28,7 +28,8 @@ import fwglobals
 import fwutils
 
 
-def add_acl_rule(acl_id, source, destination, permit, is_ingress, add_last_deny_ace):
+def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
+                 is_ingress, add_last_deny_ace):
     """ Function that encapsulates call to generation of ACL command and its params
 
     :param id: String identifier representing the ACL
@@ -68,7 +69,7 @@ def add_acl_rule(acl_id, source, destination, permit, is_ingress, add_last_deny_
         return ip_with_prefix, port_from, port_to, protocols_map if protocols_map else None
 
 
-    def build_vpp_acl_params(source_match, dest_match, permit, is_ingress):
+    def build_vpp_acl_params(source_match, dest_match, permit, service_class, importance, is_ingress):
 
         rules = []
         src_ip_with_prefix, src_port_from, src_port_to, src_proto =\
@@ -89,7 +90,8 @@ def add_acl_rule(acl_id, source, destination, permit, is_ingress, add_last_deny_
 
         for proto in dst_proto:
             if proto == fwutils.proto_map['icmp']:
-                sport_from = sport_to = dport_from = dport_to = 0
+                sport_from = dport_from = 0
+                sport_to = dport_to = 0xffff
             else:
                 sport_from = src_port_from
                 sport_to = src_port_to
@@ -105,7 +107,9 @@ def add_acl_rule(acl_id, source, destination, permit, is_ingress, add_last_deny_
                               'srcport_or_icmptype_first': sport_from,
                               'srcport_or_icmptype_last': sport_to,
                               'dstport_or_icmpcode_first': dport_from,
-                              'dstport_or_icmpcode_last': dport_to})
+                              'dstport_or_icmpcode_last': dport_to,
+                              'service_class': service_class,
+                              'importance': importance})
             else:
                 rules.append({'is_permit': int(permit is True),
                               'is_ipv6': 0,
@@ -115,7 +119,9 @@ def add_acl_rule(acl_id, source, destination, permit, is_ingress, add_last_deny_
                               'srcport_or_icmptype_first': dport_from,
                               'srcport_or_icmptype_last': dport_to,
                               'dstport_or_icmpcode_first': sport_from,
-                              'dstport_or_icmpcode_last': sport_to})
+                              'dstport_or_icmpcode_last': sport_to,
+                              'service_class': service_class,
+                              'importance': importance})
         return rules
 
 
@@ -132,7 +138,8 @@ def add_acl_rule(acl_id, source, destination, permit, is_ingress, add_last_deny_
         return 1
 
 
-    def generate_acl_params(source, destination, permit, is_ingress):
+    def generate_acl_params(source, destination, permit,
+                            rule_service_class, rule_importance, is_ingress):
 
         acl_rules = []
         dest_matches = []
@@ -179,7 +186,8 @@ def add_acl_rule(acl_id, source, destination, permit, is_ingress, add_last_deny_
             for source_match in source_matches:
                 if is_match_unique(source_match, source_match_prev):
                     rules = build_vpp_acl_params(
-                        source_match, dest_match, permit, is_ingress)
+                        source_match, dest_match, permit,
+                        rule_service_class, rule_importance, is_ingress)
                     acl_rules.extend(rules)
                     source_match_prev = source_match
 
@@ -220,7 +228,8 @@ def add_acl_rule(acl_id, source, destination, permit, is_ingress, add_last_deny_
 
     cmd = {}
 
-    acl_rules, tags_based = generate_acl_params(source, destination, permit, is_ingress)
+    acl_rules, tags_based = generate_acl_params\
+                            (source, destination, permit, service_class, importance, is_ingress)
     if not acl_rules:
         fwglobals.log.warning('Generated ACL rule is empty. ' +
             'Check if traffic tags has a valid match.' +
@@ -235,7 +244,8 @@ def add_acl_rule(acl_id, source, destination, permit, is_ingress, add_last_deny_
         # Allow list ACL use case - At end of allow list, add the deny
         # Append acl definition with a deny entry - Block all other sources
         if add_last_deny_ace:
-            last_acl, __  = generate_acl_params(None, destination, False, is_ingress)
+            last_acl, __  = generate_acl_params\
+                            (None, destination, False, service_class, importance, is_ingress)
             if last_acl:
                 acl_rules.extend(last_acl)
             else:

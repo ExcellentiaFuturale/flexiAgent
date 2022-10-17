@@ -91,7 +91,6 @@ class Checker:
         self.CFG_VPP_CONF_FILE      = fwglobals.g.VPP_CONFIG_FILE
         self.CFG_FWAGENT_CONF_FILE  = fwglobals.g.FWAGENT_CONF_FILE
         self.debug                  = debug   # Don't use fwglobals.g.cfg.jmDEBUG to prevent temporary checker files even DEBUG is enabled globally
-        self.wan_interfaces         = None
         self.nameservers            = None
         self.detected_nics          = None
         self.supported_nics         = None
@@ -108,6 +107,7 @@ class Checker:
         if self.vpp_config_modified:
             self.vpp_startup_conf.dump(self.vpp_configuration, self.CFG_VPP_CONF_FILE)
             self.update_grub_file()
+            self.vpp_config_modified = False
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE, fwglobals.g.VPP_CONFIG_FILE_BACKUP)
 
     def __enter__(self):
@@ -173,31 +173,6 @@ class Checker:
         except subprocess.CalledProcessError:
             return False
         return True
-
-    def hard_check_wan_connectivity(self, supported):
-        """Check WAN connectivity.
-
-        :param supported:       Unused.
-
-        :returns: 'True' if check is successful and 'False' otherwise.
-        """
-        def _print_without_line_feed(str):
-            # So odd print is needed to enforce no line feed, so next print()
-            # will override this line.
-            #### print (str,) - python 2
-            print (str, end = '')
-            sys.stdout.flush() # Need this as tail ',' removes the 'newline' in print(), so the print is not flushed immediately
-
-        self.wan_interfaces = []
-        interfaces = [ str(iface) for iface in psutil.net_if_addrs() if str(iface) != "lo" ]
-        for iface in interfaces:
-            _print_without_line_feed("\rcheck WAN connectivity on %s ..." % iface)
-            ret = os.system("ping -c 1 -I %s 8.8.8.8 > /dev/null 2>&1" % iface)
-            _print_without_line_feed("\r                                              \r")  # Clean the line on screen
-            if ret == 0:
-                self.wan_interfaces.append(str(iface))
-                return True
-        return False
 
     def hard_check_kernel_io_modules(self, supported):
         """Check kernel IP modules presence.
@@ -337,37 +312,6 @@ class Checker:
             ruamel_yaml.dump(conf, f)
             f.close()
             return True
-
-    def hard_check_default_route_connectivity(self, fix=False, silently=False, prompt=''):
-        """Check route connectivity.
-
-        :param fix:             Fix problem.
-        :param silently:        Do not prompt user.
-        :param prompt:          User prompt prefix.
-
-        :returns: 'True' if check is successful and 'False' otherwise.
-        """
-        try:
-            # If self.wan_interfaces was not filled yet (by hard_soft_checker), fill it
-            if self.wan_interfaces is None:
-                self.hard_check_wan_connectivity(True)
-
-            # Find all default routes and ensure that configured interface has WAN connectivity
-            default_routes = subprocess.check_output('ip route | grep default', shell=True).decode().strip().split('\n')
-            if len(default_routes) == 0:
-                self.log.error(prompt + "no default route was found")
-                return False
-            for route in default_routes:
-                # The 'route' should be in 'default via 192.168.1.1 dev enp0s3 proto static' format
-                # Extracts the interface name from this line and ensure that it presents in self.wan_interfaces.
-                iface_name = route.split(' ')[4]
-                if iface_name in self.wan_interfaces:
-                    return True
-            self.log.error(prompt + "default route has no WAN connectivity")
-            return False
-        except Exception as e:
-            self.log.error(prompt + str(e))
-            return False
 
     def soft_check_default_route(self, fix=False, silently=False, prompt=''):
         """Check if default route is present.
@@ -1258,6 +1202,79 @@ class Checker:
 
         return True
 
+    def soft_check_networkd_configuration(self, fix=False, silently=False, prompt=''):
+        """Ensures that the /lib/systemd/system/systemd-networkd.service file has no
+        restart limit, as networkd is restarted by every "netplan apply" invocation,
+        and fwagent might invoke it too frequently, if it has many interfaces.
+        If it does, we will modify it to big enough value.
+        Note, name of the restart limit parameter and it's location was changed
+        few times during systemd developing. The Ubuntu 18.04 comes with systemd v237,
+        where it should be called "StartLimitIntervalUSec" according documentation.
+        But! On AWS machines it is called "StartLimitIntervalSec", and it should be
+        placed under the "[Unit]" section.
+
+        :param fix:             Fix problem.
+        :param silently:        Do not prompt user.
+        :param prompt:          User prompt prefix.
+
+        :returns: 'True' if check is successful and 'False' otherwise.
+        """
+        needed_start_limit_interval = 10
+        needed_start_limit_burst    = 20
+        found_start_limit_interval  = None
+        found_start_limit_burst     = None
+
+        networkd_filename = '/lib/systemd/system/systemd-networkd.service'
+        if not os.path.exists(networkd_filename):
+            raise Exception(f'file not found: {networkd_filename}')
+
+        try:
+            cmd = f"systemctl show systemd-networkd | grep StartLimitInterval"
+            out = subprocess.check_output(cmd, shell=True).decode().strip()
+            match = re.search('=[ ]*([0-9]+)', out)
+            if not match:
+                raise Exception(f"malformed StartLimitInterval line in {networkd_filename}: {out}")
+            found_start_limit_interval = int(match.group(1))
+        except subprocess.CalledProcessError:
+            return True   # restart limit is not configured at all, so we are OK
+
+        try:
+            cmd = f"systemctl show systemd-networkd | grep StartLimitBurst"
+            out = subprocess.check_output(cmd, shell=True).decode().strip()
+            match = re.search('=[ ]*([0-9]+)', out)
+            if not match:
+                raise Exception(f"malformed StartLimitBurst line in {networkd_filename}: {out}")
+            found_start_limit_burst = int(match.group(1))
+        except subprocess.CalledProcessError:
+            found_start_limit_burst = 1
+
+        if not found_start_limit_interval:  # If it is configured to '0', we are OK
+            return True
+
+        result = True if \
+            float(found_start_limit_interval)/float(found_start_limit_burst) <= \
+            float(needed_start_limit_interval)/float(needed_start_limit_burst) else False
+
+        if result or not fix:
+            return result
+
+        # At this point we have the problem and we should fix it.
+        # Firstly delete all appearances of the StartLimitInterval* and
+        # StartLimitBurst parameters.
+        #
+        ret = os.system(f'sed -i -E "/StartLimitInterval/d" {networkd_filename}')
+        ret = os.system(f'sed -i -E "/StartLimitBurst/d"    {networkd_filename}')
+
+        # Now add new parameters under the [Unit] section by replacement.
+        #
+        cmd = f'sed -i -E "s/\[Unit\]/[Unit]\\nStartLimitIntervalSec={needed_start_limit_interval}\\nStartLimitBurst={needed_start_limit_burst}/" {networkd_filename}'
+        ret = os.system(cmd)
+        if ret != 0:
+            self.log.error(prompt + "%s - failed (%d)" % (cmd,ret))
+            return False
+        os.system('systemctl daemon-reload')
+        return True
+
     def lte_get_vendor_and_model(self, dev_id):
         hardware_info, err = fwlte.get_hardware_info(dev_id)
         if err:
@@ -1335,3 +1352,65 @@ class Checker:
             # Modem cards sometimes get stuck and recover only after disconnecting the router from the power supply
             self.log.error("Failed to switch modem to MBIM. You can unplug the router, wait a few seconds and try again. (%s)" % str(e))
             return (False, str(e))
+
+    def _get_grub_cores(self):
+        """ Return number of cores dedicated for VPP workers parsed from current GRUB cmdline
+        """
+        grub_cores = 0
+        cmd = 'sudo cat /proc/cmdline'
+        try:
+            out = subprocess.check_output(cmd, shell=True).decode()
+            isolcpus = re.search(r'isolcpus=1-(\d+)', out)
+            grub_cores  = int(isolcpus.group(1)) if isolcpus else 0
+        except Exception as e:
+            self.log.error(f"Cannot parse isolated cored from GRUB cmdline: {str(e)}")
+        return grub_cores
+
+    def get_cpu_info(self):
+        """ Collect CPU info
+        """
+
+        cpu_info = {}
+        cpu_info['hwCores'] = psutil.cpu_count()
+        cpu_info['grubCores'] = self._get_grub_cores()
+        cpu_info['vppCores'] = self.vpp_startup_conf.get_cpu_workers() + self.vpp_startup_conf.get_cpu_hqos_workers()
+        cpu_info['powerSaving'] = self.vpp_startup_conf.get_power_saving()
+        return cpu_info
+
+    def set_cpu_info(self, vpp_cores, power_saving):
+        """ Setup CPU info
+            Return flags if VPP and GRUB configurations was modified
+        """
+        update_vpp = False
+        hqos_workers = self.vpp_startup_conf.get_cpu_hqos_workers()
+        hqos_enabled = True if (hqos_workers > 0) else False
+        grub_cores = self._get_grub_cores()
+        cur_vpp_cores = self.vpp_startup_conf.get_cpu_workers() + hqos_workers
+        cur_power_saving = self.vpp_startup_conf.get_power_saving()
+
+        #If there is no GRUB and VPP core assignements tnan it is single thread mode so assign  = 1
+        if grub_cores == 0:
+            grub_cores = 1
+
+        if cur_vpp_cores == 0:
+            cur_vpp_cores = 1
+
+        if vpp_cores != cur_vpp_cores:
+            # if we pass 1 as vRouter cores it means single thread mode and we need to call set_cpu_workers(0)
+            if vpp_cores == 1:
+                vpp_cores = 0
+            self.vpp_startup_conf.set_cpu_workers(vpp_cores, hqos_enabled=hqos_enabled)
+            self.vpp_config_modified = True
+            if vpp_cores > grub_cores:
+                self.update_grub = True
+
+        if power_saving != cur_power_saving:
+            power_saving_value = 300 if power_saving else 0
+            self.vpp_startup_conf.set_power_saving(power_saving_value)
+            self.vpp_config_modified = True
+
+        if self.vpp_config_modified:
+            update_vpp = True
+            self.save_config()
+
+        return update_vpp, self.update_grub
