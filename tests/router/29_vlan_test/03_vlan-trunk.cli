@@ -26,6 +26,15 @@
 ,
 {
   "entity": "agent",
+  "message": "modify-interface",
+  "params": {
+      "dev_id":"__INTERFACE_1__dev_id",
+      "mtu": 1000
+  }
+}
+,
+{
+  "entity": "agent",
   "message": "stop-router"
 }
 ]
