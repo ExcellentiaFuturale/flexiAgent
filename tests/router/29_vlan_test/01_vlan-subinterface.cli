@@ -13,6 +13,19 @@
 ,
 {
   "entity": "agent",
+  "message": "add-dhcp-config",
+  "params": {
+    "interface": "vlan.101.__INTERFACE_1__dev_id",
+    "range_start": "20.20.20.100",
+    "range_end": "20.20.20.150",
+    "dns": [
+      "8.8.8.8"
+    ]
+  }
+}
+,
+{
+  "entity": "agent",
   "message": "add-interface",
   "params": {
       "dev_id":"vlan.102.__INTERFACE_1__dev_id",
