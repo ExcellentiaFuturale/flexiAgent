@@ -42,6 +42,7 @@
       "type":"WAN",
       "addr":"192.168.103.2/24",
       "gateway":"192.168.103.1",
+      "metric": "200",
       "multilink": {
           "labels": [
               "green",
