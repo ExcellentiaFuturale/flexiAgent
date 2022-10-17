@@ -28,7 +28,13 @@
       "dev_id":"vlan.103.__INTERFACE_1__dev_id",
       "type":"WAN",
       "addr":"192.168.103.2/24",
-      "gateway":"192.168.103.1"
+      "gateway":"192.168.103.1",
+      "multilink": {
+          "labels": [
+              "green",
+              "blue",
+              "red"]
+      }
   }
 }
 ,
