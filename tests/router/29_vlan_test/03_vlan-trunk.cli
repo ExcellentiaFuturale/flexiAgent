@@ -6,7 +6,8 @@
     "interfaces": [
       {
         "dev_id":"__INTERFACE_1__dev_id",
-        "type":"TRUNK"
+        "type":"TRUNK",
+        "mtu": 1000
       }
     ]
   }
