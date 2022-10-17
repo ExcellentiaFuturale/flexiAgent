@@ -78,6 +78,15 @@
 ,
 {
   "entity": "agent",
+  "message": "modify-interface",
+  "params": {
+      "dev_id":"vlan.103.__INTERFACE_1__dev_id",
+      "addr":"192.168.103.33/24"
+  }
+}
+,
+{
+  "entity": "agent",
   "message": "remove-interface",
   "params": {
       "dev_id":"vlan.101.__INTERFACE_1__dev_id"
