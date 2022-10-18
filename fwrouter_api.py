@@ -389,6 +389,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             # In that case the cache becomes to be stale.
             #
             self._clear_monitor_interfaces()
+            fwpppoe.pppoe_reset()
 
             fwglobals.g.handle_request({'message': 'start-router'})
         except Exception as e:

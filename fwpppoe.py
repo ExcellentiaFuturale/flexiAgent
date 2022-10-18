@@ -513,8 +513,16 @@ class FwPppoeClient(FwObject):
         self.chap_config.save()
         self.pap_config.save()
         for dev_id, conn in self.connections.items():
+            conn.addr = ''
+            conn.gw = ''
             conn.save()
             self.connections[dev_id] = conn
+
+        for dev_id, pppoe_iface in self.interfaces.items():
+            pppoe_iface.is_connected = False
+            pppoe_iface.addr = ''
+            pppoe_iface.gw = ''
+            self.interfaces[dev_id] = pppoe_iface
 
     def _parse_resolv_conf(self, filename):
         nameservers = []
@@ -754,6 +762,8 @@ class FwPppoeClient(FwObject):
             conn.close()
             self.connections[dev_id] = conn
             pppoe_iface.is_connected = False
+            pppoe_iface.addr = ''
+            pppoe_iface.gw = ''
             self.interfaces[dev_id] = pppoe_iface
 
         return (True, None)
