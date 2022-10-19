@@ -199,7 +199,7 @@ class FwPppoeConnection(FwObject):
     def get_linux_and_vpp_tun_if_names(self):
         """Return TUN interface names in Linux and VPP
         """
-        return 'pppoe%u' % self.id, 'tun%u' % self.id
+        return 'pppoe%u' % self.id, 'dpdk-tun%u' % self.id
 
     def reset_tun_if_params(self):
         """Reset TUN interface params

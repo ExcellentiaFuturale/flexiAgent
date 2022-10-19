@@ -119,7 +119,8 @@ def add_interface(params):
     if is_pppoe:
         dhcp = 'no'
 
-    if is_wifi or is_lte:
+
+    if is_wifi:
         # Create tap interface in linux and vpp.
         # This command will create three interfaces:
         #   1. linux tap interface.
@@ -145,107 +146,106 @@ def add_interface(params):
         cmd['revert']['descr']  = "delete tap interface in vpp and linux"
         cmd_list.append(cmd)
 
-        if is_wifi:
-            # Configure hostapd with saved configuration
-            cmd = {}
-            cmd['cmd'] = {}
-            cmd['cmd']['func']   = "configure_hostapd"
-            cmd['cmd']['module'] = "fwwifi"
-            cmd['cmd']['params'] = {
-                            'dev_id': dev_id,
-                            'configuration': params.get('configuration', None)
-            }
-            cmd_list.append(cmd)
+        # Configure hostapd with saved configuration
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']   = "configure_hostapd"
+        cmd['cmd']['module'] = "fwwifi"
+        cmd['cmd']['params'] = {
+                        'dev_id': dev_id,
+                        'configuration': params.get('configuration', None)
+        }
+        cmd_list.append(cmd)
 
-            cmd = {}
-            cmd['cmd'] = {}
-            cmd['cmd']['func']   = "start_hostapd"
-            cmd['cmd']['module'] = "fwwifi"
-            cmd['cmd']['descr']  = "start hostpad"
-            cmd['revert'] = {}
-            cmd['revert']['func']   = "stop_hostapd"
-            cmd['revert']['module'] = "fwwifi"
-            cmd['revert']['descr']  = "stop hostpad"
-            cmd_list.append(cmd)
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']   = "start_hostapd"
+        cmd['cmd']['module'] = "fwwifi"
+        cmd['cmd']['descr']  = "start hostpad"
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "stop_hostapd"
+        cmd['revert']['module'] = "fwwifi"
+        cmd['revert']['descr']  = "stop hostpad"
+        cmd_list.append(cmd)
 
-            bridge_name = fwutils.generate_linux_interface_short_name("br", iface_name)
-            cmd = {}
-            cmd['cmd'] = {}
-            cmd['cmd']['func']   = "exec"
-            cmd['cmd']['module'] = "fwutils"
-            cmd['cmd']['params'] = { 'cmd': f"sudo brctl addbr {bridge_name} || true" }
-            cmd['cmd']['descr']  = "create linux bridge %s for interface %s" % (bridge_name, iface_name)
+        bridge_name = fwutils.generate_linux_interface_short_name("br", iface_name)
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']   = "exec"
+        cmd['cmd']['module'] = "fwutils"
+        cmd['cmd']['params'] = { 'cmd': f"sudo brctl addbr {bridge_name} || true" }
+        cmd['cmd']['descr']  = "create linux bridge %s for interface %s" % (bridge_name, iface_name)
 
-            cmd['revert'] = {}
-            cmd['revert']['func']   = "exec"
-            cmd['revert']['module'] = "fwutils"
-            cmd['revert']['params'] = { 'cmd': f"sudo ip link set dev {bridge_name} down && sudo brctl delbr {bridge_name}" }
-            cmd['revert']['descr']  = "remove linux bridge %s for interface %s" % (bridge_name, iface_name)
-            cmd_list.append(cmd)
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "exec"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['params'] = { 'cmd': f"sudo ip link set dev {bridge_name} down && sudo brctl delbr {bridge_name}" }
+        cmd['revert']['descr']  = "remove linux bridge %s for interface %s" % (bridge_name, iface_name)
+        cmd_list.append(cmd)
 
-            # add tap into a bridge.
-            cmd = {}
-            cmd['cmd'] = {}
-            cmd['cmd']['func']   = "exec"
-            cmd['cmd']['module'] = "fwutils"
-            cmd['cmd']['params'] =  {
-                            'cmd':    f"sudo brctl addif {bridge_name} DEV-TAP || true",
-                            'substs': [ {'replace':'DEV-TAP', 'key': 'cmd', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name } ]
-            }
-            cmd['cmd']['descr']  = "add tap interface of %s into the appropriate bridge %s" % (iface_name, bridge_name)
+        # add tap into a bridge.
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']   = "exec"
+        cmd['cmd']['module'] = "fwutils"
+        cmd['cmd']['params'] =  {
+                        'cmd':    f"sudo brctl addif {bridge_name} DEV-TAP || true",
+                        'substs': [ {'replace':'DEV-TAP', 'key': 'cmd', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name } ]
+        }
+        cmd['cmd']['descr']  = "add tap interface of %s into the appropriate bridge %s" % (iface_name, bridge_name)
 
-            cmd['revert'] = {}
-            cmd['revert']['func']   = "exec"
-            cmd['revert']['module'] = "fwutils"
-            cmd['revert']['params'] = {
-                            'cmd':    f"sudo brctl delif {bridge_name} DEV-TAP",
-                            'substs': [ {'replace':'DEV-TAP', 'key': 'cmd', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name } ]
-            }
-            cmd['revert']['descr']  = "remove tap from a bridge %s" % bridge_name
-            cmd_list.append(cmd)
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "exec"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['params'] = {
+                        'cmd':    f"sudo brctl delif {bridge_name} DEV-TAP",
+                        'substs': [ {'replace':'DEV-TAP', 'key': 'cmd', 'val_by_func':'linux_tap_by_interface_name', 'arg':iface_name } ]
+        }
+        cmd['revert']['descr']  = "remove tap from a bridge %s" % bridge_name
+        cmd_list.append(cmd)
 
-            cmd = {}
-            cmd['cmd'] = {}
-            cmd['cmd']['func']   = "exec"
-            cmd['cmd']['module'] = "fwutils"
-            cmd['cmd']['params'] =  { 'cmd': f"sudo brctl addif {bridge_name} {iface_name} || true" }
-            cmd['cmd']['descr']  = "add wifi interface %s into the bridge %s" % (iface_name, bridge_name)
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']   = "exec"
+        cmd['cmd']['module'] = "fwutils"
+        cmd['cmd']['params'] =  { 'cmd': f"sudo brctl addif {bridge_name} {iface_name} || true" }
+        cmd['cmd']['descr']  = "add wifi interface %s into the bridge %s" % (iface_name, bridge_name)
 
-            cmd['revert'] = {}
-            cmd['revert']['func']   = "exec"
-            cmd['revert']['module'] = "fwutils"
-            cmd['revert']['params'] = { 'cmd': f"sudo brctl delif {bridge_name} {iface_name}" }
-            cmd['revert']['descr']  = "remove wifi interface %s from the bridge %s" %  (iface_name, bridge_name)
-            cmd_list.append(cmd)
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "exec"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['params'] = { 'cmd': f"sudo brctl delif {bridge_name} {iface_name}" }
+        cmd['revert']['descr']  = "remove wifi interface %s from the bridge %s" %  (iface_name, bridge_name)
+        cmd_list.append(cmd)
 
-            cmd = {}
-            cmd['cmd'] = {}
-            cmd['cmd']['func']      = "exec"
-            cmd['cmd']['module']    = "fwutils"
-            cmd['cmd']['descr']     = "UP bridge %s in Linux" % bridge_name
-            cmd['cmd']['params']    = { 'cmd': f"sudo ip link set dev {bridge_name} up" }
-            cmd_list.append(cmd)
-        elif is_lte:
-            # dhcp for LTE interface has special meaning.
-            # Although that flexiManage looks at it as DHCP because the user can't set static IP
-            # but the agent looks at it as static IP from the modem.
-            # We take the IP from the modem via the mbimcli command.
-            # That's why we override the the 'dhcp' to 'no'
-            #
-            dhcp = 'no'
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']      = "exec"
+        cmd['cmd']['module']    = "fwutils"
+        cmd['cmd']['descr']     = "UP bridge %s in Linux" % bridge_name
+        cmd['cmd']['params']    = { 'cmd': f"sudo ip link set dev {bridge_name} up" }
+        cmd_list.append(cmd)
+    elif is_lte:
+        # dhcp for LTE interface has special meaning.
+        # Although that flexiManage looks at it as DHCP because the user can't set static IP
+        # but the agent looks at it as static IP from the modem.
+        # We take the IP from the modem via the mbimcli command.
+        # That's why we override the the 'dhcp' to 'no'
+        #
+        dhcp = 'no'
 
-            cmd = {}
-            cmd['cmd'] = {}
-            cmd['cmd']['func']      = "exec"
-            cmd['cmd']['module']    = "fwutils"
-            cmd['cmd']['descr']     = "UP interface %s in Linux" % iface_name
-            cmd['cmd']['params']    = { 'cmd': f"sudo ip link set dev {iface_name} up" }
-            cmd['revert'] = {}
-            cmd['revert']['func']   = "exec"
-            cmd['revert']['module'] = "fwutils"
-            cmd['revert']['descr']  = "Down interface %s in Linux" % iface_name
-            cmd['revert']['params'] = { 'cmd': f"sudo ip link set dev {iface_name} down && sudo ip addr flush dev {iface_name}" }
-            cmd_list.append(cmd)
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']      = "exec"
+        cmd['cmd']['module']    = "fwutils"
+        cmd['cmd']['descr']     = "UP interface %s in Linux" % iface_name
+        cmd['cmd']['params']    = { 'cmd': f"sudo ip link set dev {iface_name} up" }
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "exec"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['descr']  = "Down interface %s in Linux" % iface_name
+        cmd['revert']['params'] = { 'cmd': f"sudo ip link set dev {iface_name} down && sudo ip addr flush dev {iface_name}" }
+        cmd_list.append(cmd)
 
     # enable DHCP packets detection in VPP
     if dhcp == 'yes':
