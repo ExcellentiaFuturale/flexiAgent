@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2022  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -20,18 +20,21 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import yaml
-import sys
 import os
+import threading
 from shutil import copyfile
+from subprocess import run
+from subprocess import PIPE
+import sys
+import yaml
+
 import fwglobals
+import fwlte
+from fwobject import FwObject
+import fwroutes
 import fwstats
 import fwutils
-import fwlte
 import fwwifi
-import fwroutes
-
-from fwobject import FwObject
 
 system_checker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tools/system_checker/")
 sys.path.append(system_checker_path)
@@ -184,8 +187,25 @@ class FWAGENT_API(FwObject):
         reply = fwstats.get_stats()
         return reply
 
+    def _upgrade(self, version, job_id):
+        """Asynchronous upgrade device SW.
+
+        :param version: Upgrade version.
+        :param version: job_id which requested the upgrade.
+
+        """
+        cmd = 'bash /tmp/fwupgrade.sh {} {} {} {}' \
+            .format(version, fwglobals.g.VERSIONS_FILE, \
+                    fwglobals.g.CONN_FAILURE_FILE, \
+                    fwglobals.g.ROUTER_LOG_FILE)
+        retval = run(cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+        self.log.debug(f"_upgrade_device_sw finished: job id = {job_id}, return code = {retval.returncode}, stdout = {retval.stdout}, stderr = {retval.stderr}")
+        if retval.returncode != 0:
+            err = retval.stdout if retval.stdout else retval.stderr if retval.stderr else 'unknown'
+            fwglobals.g.jobs.update_job_record(job_id, {'request': 'upgrade-device-sw', 'command': 'upgrade-device-sw', 'error': err.strip('\n')})
+
     def _upgrade_device_sw(self, params):
-        """Upgrade device SW.
+        """Upgrade device SW handler.
 
         :param params: Parameters from flexiManage.
 
@@ -201,12 +221,10 @@ class FWAGENT_API(FwObject):
         except Exception as e:
             return { 'message': 'Failed to copy upgrade file', 'ok': 0 }
 
-        cmd = 'bash /tmp/fwupgrade.sh {} {} {} {} >> {} 2>&1 &' \
-            .format(params['version'], fwglobals.g.VERSIONS_FILE, \
-                    fwglobals.g.CONN_FAILURE_FILE, \
-                    fwglobals.g.ROUTER_LOG_FILE, \
-                    fwglobals.g.ROUTER_LOG_FILE)
-        os.system(cmd)
+        # start asynchronous upgrade process
+        thread_upgrade = threading.Thread(target=self._upgrade, name='upgrade-device-sw', args=(params['version'], fwglobals.g.jobs.current_job_id,), kwargs={})
+        thread_upgrade.start()
+
         return { 'message': 'Started software upgrade process', 'ok': 1 }
 
     def _get_device_logs(self, params):

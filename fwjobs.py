@@ -146,10 +146,21 @@ class FwJobs(FwObject):
         :returns: None.
         """
 
-        if not self.current_job_id:
+        self.update_job_record(self.current_job_id, error)
+
+    def update_job_record(self, job_id, error):
+        """Updates job record in case of an error.
+
+        :param job_id:      The id of the job to update.
+        :param error:       The error which occurred while processing the job.
+
+        :returns: None.
+        """
+
+        if not job_id:
             return
 
-        self._update(self.current_job_id, 'failed', error)
+        self._update(job_id, 'failed', error)
 
     def stop_recording(self, job_id, reply):
         """Stops recording job updates.

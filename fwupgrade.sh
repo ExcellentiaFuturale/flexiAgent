@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2022  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -39,11 +39,22 @@ log() {
     echo `date +'%b %e %R:%S'`" $HOSTNAME: fwagent:" "$@" >> "$AGENT_LOG_FILE" 2>&1
 }
 
+#######################################
+# Handles upgrade failure routine
+# Arguments:
+#   Failure reason.
+#   Revert flag.
+# Returns:
+#   Exit status
+#######################################
 handle_upgrade_failure() {
-    log 'Software upgrade failed'
+    # we send an echo here, so it will be captured at stdout, for error
+    # handling
+    echo 'Software upgrade failed:' $1
+    log 'Software upgrade failed:' $1
 
     # Revert back to previous version if required
-    if [ "$1" == 'revert' ]; then
+    if [ "$2" == 'revert' ]; then
         log 'Reverting to previous version ('"$prev_ver"')...'
         res=$(apt-get -y install --allow-downgrades "$AGENT_SERVICE"="$prev_ver")
         ret=${PIPESTATUS[0]}
@@ -134,8 +145,8 @@ rm "$UPGRADE_FAILURE_FILE" >> /dev/null 2>&1
 # Save previous version for revert in case the upgrade process fails
 get_prev_version
 if [ -z "$prev_ver" ]; then
-    log 'Failed to extract previous version from' "$VERSIONS_FILE"
-    handle_upgrade_failure
+    reason='Failed to extract previous version from' "$VERSIONS_FILE"
+    handle_upgrade_failure $reason
 fi
 
 # Quit upgrade process if device is already running the latest version
@@ -151,8 +162,7 @@ log 'Closing connection to MGMT...'
 res=$(fwagent stop --dont_stop_vpp --dont_stop_applications)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
-    log 'Failed to stop agent connection to management'
-    handle_upgrade_failure
+    handle_upgrade_failure 'Failed to stop agent connection to management'
 fi
 
 log 'Installing new software...'
@@ -162,16 +172,15 @@ log 'Installing new software...'
 # command returns success status code even if the connection fails.
 check_connection_to_sw_repo
 if [ ${PIPESTATUS[0]} != 0 ]; then
-    log 'Failed to connect to software repository ' "$SW_REPOSITORY"
-    handle_upgrade_failure
+    reason='Failed to connect to software repository ' "$SW_REPOSITORY"
+    handle_upgrade_failure $reason
 fi
 
 # Update debian repositories
 res=$(apt-get update)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
-    log 'Failed to update debian repositores'
-    handle_upgrade_failure
+    handle_upgrade_failure 'Failed to update debian repositores'
 fi
 
 # Upgrade device package. From this stage on, we should
@@ -181,14 +190,12 @@ fi
 # doesn't kill the upgrade process when the process is stopped
 update_service_conf_file
 if [ ${PIPESTATUS[0]} != 0 ]; then
-    log 'Failed to update service configuration file'
-    handle_upgrade_failure
+    handle_upgrade_failure 'Failed to update service configuration file'
 fi
 
 res=$(apt-get -o Dpkg::Options::="--force-confold" install -y "$AGENT_SERVICE")
 if [ ${PIPESTATUS[0]} != 0 ]; then
-    log $res
-    handle_upgrade_failure 'revert'
+    handle_upgrade_failure $res 'revert'
 fi
 
 # Reopen the connection loop in case it is closed
@@ -203,8 +210,7 @@ log 'Finished installing new software. waiting for agent check ('"$AGENT_CHECK_T
 sleep "$AGENT_CHECK_TIMEOUT"
 
 if [ -f "$UPGRADE_FAILURE_FILE" ]; then
-    log 'Agent checks failed'
-    handle_upgrade_failure 'revert'
+    handle_upgrade_failure 'Agent checks failed' 'revert'
 fi
 
 log 'Software upgrade process finished successfully'
