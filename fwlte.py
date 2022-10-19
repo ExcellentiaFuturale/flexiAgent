@@ -1101,10 +1101,14 @@ def add_del_traffic_control(is_add, dev_id, lte_if_name=None):
             # first, apply the ingress qdisc
             fwutils.traffic_control_add_del_qdisc(is_add=True, dev_name=lte_if_name)
             revert_functions.append(partial(fwutils.traffic_control_add_del_qdisc, is_add=False, dev_name=lte_if_name))
+            '''
+            When DPDK is used to initialize the tap interface created as part of LTE init,
+            the ingress qdisc setup is taken care as part of dpdk initialization
 
+            Below setup is need only if the tap is initialized by VPP (not DPDK)
             fwutils.traffic_control_add_del_qdisc(is_add=True, dev_name=linux_tap_if_name)
             revert_functions.append(partial(fwutils.traffic_control_add_del_qdisc, is_add=False, dev_name=linux_tap_if_name))
-
+            '''
             # then, apply the mirroring
             fwutils.traffic_control_add_del_mirror_policy(is_add=True, from_ifc=linux_tap_if_name, to_ifc=lte_if_name, set_dst_mac=lte_mac_addr)
             revert_functions.append(partial(fwutils.traffic_control_add_del_mirror_policy, is_add=False, from_ifc=linux_tap_if_name, to_ifc=lte_if_name, set_dst_mac=lte_mac_addr))
@@ -1117,7 +1121,10 @@ def add_del_traffic_control(is_add, dev_id, lte_if_name=None):
             fwutils.traffic_control_add_del_mirror_policy(is_add=False, from_ifc=lte_if_name, to_ifc=linux_tap_if_name, set_dst_mac=vpp_mac_addr)
             # then, remove the ingress qdisc
             fwutils.traffic_control_add_del_qdisc(is_add=False, dev_name=lte_if_name)
+            '''
+            Below teardown is need only if the tap is initialized by VPP (not DPDK)
             fwutils.traffic_control_add_del_qdisc(is_add=False, dev_name=linux_tap_if_name)
+            '''
     except Exception as e:
         fwglobals.log.error(f"add_del_traffic_control({dev_id}, {lte_if_name}): {str(e)}")
         # delete successful commands
