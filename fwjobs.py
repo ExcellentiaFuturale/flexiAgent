@@ -101,12 +101,13 @@ class FwJobs(FwObject):
         if not job_id:
             return
 
+        self.current_job_id = job_id
+
         entry = self.db.get(job_id)
         if entry is not None:
-            self.log.debug("(start_record), job_id already added, nothing to do", job_id)
+            self.log.debug(f"start_recording(job_id={job_id}): job exists, return")
             return
 
-        self.current_job_id = job_id
         # pop the oldest item in the database, if max size exceeded
         if len(self.db) >= self.max_stored_jobs:
             self.db.pop(self.job_ids.pop(0))
@@ -130,6 +131,8 @@ class FwJobs(FwObject):
 
         :returns: None.
         """
+        if not job_id:  # Take care of requests without 'job_id', like 'get-device-stats'
+            return
 
         self.start_recording(job_id, { 'message': '' })
         self.update_current_record(err)

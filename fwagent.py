@@ -507,7 +507,7 @@ class FwAgent(FwObject):
                     reply  = self.handle_received_request(request, msg, log_prefix=msg_id)
                     fwglobals.g.jobs.stop_recording(job_id, reply)
                 else:
-                    err_str = 'Invalid message format'
+                    err_str = 'invalid message format'
                     fwglobals.g.jobs.add_record(job_id, {'error': err_str})
                     reply = {'ok':0, 'message': err_str}
 
@@ -531,7 +531,9 @@ class FwAgent(FwObject):
 
         except Exception as e:
             self.log.error(f"exception in _on_message(), reject received request ({str(e)})")
-            reply = {'ok':0, 'message': 'unknown error'}
+            err_str = 'unknown error'
+            fwglobals.g.jobs.add_record(job_id, {'error': err_str})
+            reply = {'ok':0, 'message': err_str}
             return json.dumps({'seq':pmsg['seq'], 'msg':reply})
 
     def disconnect(self):
