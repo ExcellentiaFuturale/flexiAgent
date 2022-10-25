@@ -492,41 +492,49 @@ class FwAgent(FwObject):
         seq     = str(pmsg['seq'])              # Sequence number of the received message
         job_id  = str(pmsg.get('jobid',''))     # ID of job on flexiManage that sent this message
 
-        # In load simulator mode always reply ok on sync message
-        if fwglobals.g.loadsimulator and request["message"] == "sync-device":
-            reply = {"ok":1}
-        else:
-            default_route_before = fwutils.get_default_route()
-
-            msg_id = seq + " " if not job_id else seq + " job_id:" + job_id + " "
-
-            msg = fwutils.fix_received_message(request)
-            if msg:
-                fwglobals.g.jobs.start_recording(job_id, msg) # add a new job record
-                reply  = self.handle_received_request(request, msg, log_prefix=msg_id)
-                fwglobals.g.jobs.stop_recording(job_id, reply)
+        try:
+            # In load simulator mode always reply ok on sync message
+            if fwglobals.g.loadsimulator and request["message"] == "sync-device":
+                reply = {"ok":1}
             else:
-                err_str = 'Invalid message format'
-                fwglobals.g.jobs.add_record(job_id, {'error': err_str})
-                reply = {'ok':0, 'message': err_str}
+                default_route_before = fwutils.get_default_route()
 
-            default_route_after = fwutils.get_default_route()
-            if default_route_before[2] != default_route_after[2]:  # reconnect the agent to avoid WebSocket timeout
-                self.log.debug(f"reconnect as default route was changed: '{default_route_before}' -> '{default_route_after}'")
-                self.reconnect()
+                msg_id = seq + " " if not job_id else seq + " job_id:" + job_id + " "
 
-        # Messages that change the interfaces might break the existing connection
-        # (for example, if the WAN interface IP/mask has changed). Since sending
-        # the reply on a broken connection will not work, we close the connection
-        # before sending the reply and save the reply into pending queue.
-        # Later, when daemon re-opens the new connection by connection loop,
-        # we will pop the reply out of queue and will send it to the flexiManage.
-        #
-        if self.reconnecting == True:
-            self.log.info("_on_message: goes to reestablish connection, queue reply %s" % str(pmsg['seq']))
-            self.pending_msg_replies.append({'seq':pmsg['seq'], 'msg':reply})
-        else:
-            self.ws.send(json.dumps({'seq':pmsg['seq'], 'msg':reply}))
+                msg = fwutils.fix_received_message(request)
+                if msg:
+                    fwglobals.g.jobs.start_recording(job_id, msg) # add a new job record
+                    reply  = self.handle_received_request(request, msg, log_prefix=msg_id)
+                    fwglobals.g.jobs.stop_recording(job_id, reply)
+                else:
+                    err_str = 'invalid message format'
+                    fwglobals.g.jobs.add_record(job_id, {'error': err_str})
+                    reply = {'ok':0, 'message': err_str}
+
+                default_route_after = fwutils.get_default_route()
+                if default_route_before[2] != default_route_after[2]:  # reconnect the agent to avoid WebSocket timeout
+                    self.log.debug(f"reconnect as default route was changed: '{default_route_before}' -> '{default_route_after}'")
+                    self.reconnect()
+
+            # Messages that change the interfaces might break the existing connection
+            # (for example, if the WAN interface IP/mask has changed). Since sending
+            # the reply on a broken connection will not work, we close the connection
+            # before sending the reply and save the reply into pending queue.
+            # Later, when daemon re-opens the new connection by connection loop,
+            # we will pop the reply out of queue and will send it to the flexiManage.
+            #
+            if self.reconnecting == True:
+                self.log.info("_on_message: goes to reestablish connection, queue reply %s" % str(pmsg['seq']))
+                self.pending_msg_replies.append({'seq':pmsg['seq'], 'msg':reply})
+            else:
+                self.ws.send(json.dumps({'seq':pmsg['seq'], 'msg':reply}, cls=fwutils.FwJsonEncoder))
+
+        except Exception as e:
+            self.log.error(f"exception in _on_message(), reject received request ({str(e)})")
+            err_str = 'unknown error'
+            fwglobals.g.jobs.add_record(job_id, {'error': err_str})
+            reply = {'ok':0, 'message': err_str}
+            return json.dumps({'seq':pmsg['seq'], 'msg':reply})
 
     def disconnect(self):
         """Shutdowns the WebSocket connection.
@@ -576,7 +584,7 @@ class FwAgent(FwObject):
                 reply_for_log = {"ok":1}
             else:
                 reply_for_log = reply
-            log_line = log_prefix + "handle_received_request:reply\n" + json.dumps(reply_for_log, sort_keys=True, indent=1)
+            log_line = log_prefix + "handle_received_request:reply\n" + json.dumps(reply_for_log, sort_keys=True, indent=1, cls=fwutils.FwJsonEncoder)
             self.log.debug(log_line)
             if logger:
                 logger.debug(log_line)
