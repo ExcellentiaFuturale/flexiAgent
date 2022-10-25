@@ -203,6 +203,30 @@ class Fwglobals(FwObject):
             if self.DEBUG and log:
                 log.set_level(FWLOG_LEVEL_DEBUG)
 
+    class FwDebugConfiguration:
+        """This is configuration class representation.
+
+        :param filename:    YAML Debug configuration file name.
+        """
+        def __init__(self, filename, log=None):
+            """Constructor method
+            """
+            # Load default values
+            self.cfg.debug['daemon']['standalone'] = False
+            self.cfg.debug['features']['wan_monitor']['enabled'] = False
+            self.cfg.debug['features']['stun']['enabled'] = False
+            self.cfg.debug['features']['pppoe']['enabled'] = False
+            try:
+                # Load configured values if configuration file exists
+                with open(filename, 'r') as debug_conf_file:
+                    self.cfg.debug = yaml.load(debug_conf_file, Loader=yaml.SafeLoader)
+
+            except Exception as e:
+                if log:
+                    log.excep("%s, set defaults" % str(e))
+            if self.DEBUG and log:
+                log.set_level(FWLOG_LEVEL_DEBUG)
+
     class FwCache:
         """Storage for data that is valid during one FwAgent lifecycle only.
         """
@@ -247,6 +271,7 @@ class Fwglobals(FwObject):
         self.RETRY_INTERVAL_LONG_MAX = 70
         self.DATA_PATH           = '/etc/flexiwan/agent/'
         self.FWAGENT_CONF_FILE   = self.DATA_PATH + 'fwagent_conf.yaml'  # Optional, if not present, defaults are taken
+        self.DEBUG_CONF_FILE     = self.DATA_PATH + 'debug_conf.yaml'
         self.DEVICE_TOKEN_FILE   = self.DATA_PATH + 'fwagent_info.txt'
         self.VERSIONS_FILE       = self.DATA_PATH + '.versions.yaml'
         self.ROUTER_CFG_FILE     = self.DATA_PATH + '.requests.sqlite'
@@ -318,6 +343,9 @@ class Fwglobals(FwObject):
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
+
+        # Load debug configuration from file
+        self.cgf.debug = self.FwDebugConfiguration(self.DEBUG_CONF_FILE, log=log)
 
         self.FWAGENT_DAEMON_HOST = self.cfg.DAEMON_SOCKET_NAME.split(":")[0]
         self.FWAGENT_DAEMON_PORT = int(self.cfg.DAEMON_SOCKET_NAME.split(":")[1])
@@ -393,10 +421,10 @@ class Fwglobals(FwObject):
         self.applications_api = FWAPPLICATIONS_API(start_application_stats=True)
         self.os_api           = OS_API()
         self.policies         = FwPolicies(self.POLICY_REC_DB_FILE)
-        self.wan_monitor      = FwWanMonitor(standalone)
-        self.stun_wrapper     = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
+        self.wan_monitor      = FwWanMonitor()
+        self.stun_wrapper     = FwStunWrap()
         self.ikev2            = FwIKEv2()
-        self.pppoe            = FwPppoeClient(standalone=standalone)
+        self.pppoe            = FwPppoeClient()
         self.routes           = FwRoutes()
         self.qos              = FwQoS()
 

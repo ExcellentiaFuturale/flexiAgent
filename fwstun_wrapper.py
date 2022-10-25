@@ -52,7 +52,7 @@ class FwStunWrap(FwObject):
     More info can be found in unassigned_if.py
     """
 
-    def __init__(self, standalone):
+    def __init__(self):
         """ Init function. This function inits the cache, gets the router-db handle
             and register callback and request names to listen too.
 
@@ -67,7 +67,7 @@ class FwStunWrap(FwObject):
         self.sym_nat_cache = fwglobals.g.cache.sym_nat_cache
         self.sym_nat_tunnels_cache = fwglobals.g.cache.sym_nat_tunnels_cache
         self.thread_stun   = None
-        self.standalone    = standalone
+        self.standalone    = not fwglobals.g.cfg.debug['features']['stun']['enabled']
         self.stun_retry    = 60
         fwstun.set_log(fwglobals.log)
 

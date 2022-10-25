@@ -50,14 +50,14 @@ class FwWanMonitor(FwObject):
     The 2.000.000.000 threshold is derived as a 1/2 of the max u32 value,
     supported by Linux for metrics.
     """
-    def __init__(self, standalone):
+    def __init__(self):
         """Constructor.
 
         :param standalone: if True, the module does nothing. It is used for tests.
                         The 'standalone' stands for the agent mode and means,
                         that the agent is not connected to internet.
         """
-        self.standalone = standalone
+        self.standalone = not fwglobals.g.cfg.debug['features']['wan_monitor']['enabled']
         if self.standalone:
             return
 
