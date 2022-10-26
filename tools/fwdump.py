@@ -40,6 +40,7 @@ import fwglobals
 from fw_vpp_coredump_utils import vpp_coredump_copy_cores
 from fwobject import FwObject
 import fwapplications_api
+import fwlte
 
 g = fwglobals.Fwglobals()
 
@@ -62,11 +63,13 @@ g_dumpers = {
     'linux_dpdk_devbind_status':    { 'shell_cmd': 'dpdk-devbind -s > <dumper_out_file>' },
     'linux_grub':                   { 'shell_cmd': 'cp /etc/default/grub <temp_folder>/linux_grub.log 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'linux_hardware':               { 'shell_cmd': 'dmidecode > <dumper_out_file>' },
     'linux_interfaces':             { 'shell_cmd': 'ip addr > <dumper_out_file>' },
     'linux_wifi':                   { 'shell_cmd': 'iwconfig > <dumper_out_file> 2>/dev/null ;' },
     'linux_lsb_release':            { 'shell_cmd': 'cp /etc/lsb-release <temp_folder>/linux_lsb-release.log 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_lspci':                  { 'shell_cmd': 'lspci -Dvmmn > <dumper_out_file>' },
+    'linux_lspci_vnn':              { 'shell_cmd': 'lspci -vnn > <dumper_out_file>' },
     'linux_meminfo':                { 'shell_cmd': 'cat /proc/meminfo > <dumper_out_file>' },
     'linux_neighbors':              { 'shell_cmd': 'ip neigh > <dumper_out_file>' },
     'linux_netplan':                { 'shell_cmd': 'mkdir -p <temp_folder>/linux_netplan/etc/ && ' +
@@ -264,6 +267,18 @@ class FwDump(FwObject):
                 except Exception as e:
                     print(self.prompt + 'warning: dumper %s failed, error %s' % (dumper, str(e)))
                     continue
+            if 'python' in g_dumpers[dumper]:
+                python_func = g_dumpers[dumper]['python']['func']
+                python_args = g_dumpers[dumper]['python']['args']
+                module_name, func_name = python_func.split('.')
+
+                try:
+                    func  = getattr(__import__(module_name), func_name)
+                    func(**python_args)
+                except Exception as e:
+                    print(self.prompt + 'warning: dumper %s failed, error %s' % (dumper, str(e)))
+                    continue
+
 
     def zip(self, filename=None, path=None, delete_temp_folder=True):
         if not filename:
@@ -293,8 +308,23 @@ class FwDump(FwObject):
         except:
             pass # Do not crash in case of application code error
 
+    def add_lte_files(self):
+        try:
+            lte_interfaces = fwlte.get_lte_interfaces_dev_ids()
+            for dev_id in lte_interfaces:
+                lte_if_name = lte_interfaces[dev_id]
+                file_name = f'lte_{lte_if_name}'
+                g_dumpers[file_name] = {
+                    'python': {
+                        'func': 'fwlte.dump',
+                        'args': { 'dev_id': dev_id, 'lte_if_name': lte_if_name, 'prefix_path': f'{self.temp_folder}/{file_name}' } }
+                }
+        except:
+            pass # Do not crash in case of LTE code error
+
     def dump_all(self):
         self.add_application_files()
+        self.add_lte_files()
 
         dumpers = list(g_dumpers.keys())
         self._dump(dumpers)

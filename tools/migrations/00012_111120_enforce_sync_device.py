@@ -47,11 +47,8 @@ def _enforce_sync_device():
     db['signature'] = 'enforce-sync-device'
 
 def migrate(prev_version, new_version, upgrade):
-    if upgrade != 'upgrade':
-        return
-
     try:
-        print("* Migrating PCI address for tunnel creation...")
+        print("* Migrating enforce sync on upgrade/downgrade...")
         _enforce_sync_device()
 
     except Exception as e:

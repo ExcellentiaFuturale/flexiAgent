@@ -191,6 +191,7 @@ class Fwglobals(FwObject):
             DEFAULT_UUID           = None
             DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES = True
             DEFAULT_WAN_MONITOR_SERVERS = ['1.1.1.1','8.8.8.8']
+            DEFAULT_DAEMON_SOCKET_NAME  = "127.0.0.1:9090"  # Used for RPC to daemon
             try:
                 with open(filename, 'r') as conf_file:
                     conf = yaml.load(conf_file, Loader=yaml.SafeLoader)
@@ -205,6 +206,7 @@ class Fwglobals(FwObject):
                 self.WAN_MONITOR_SERVERS = agent_conf.get('monitor_wan',{}).get('servers', DEFAULT_WAN_MONITOR_SERVERS)
                 global VXLAN_PORTS
                 VXLAN_PORTS = conf.get('vxlan', {})
+                self.DAEMON_SOCKET_NAME  = agent_conf.get('daemon_socket',  DEFAULT_DAEMON_SOCKET_NAME)
             except Exception as e:
                 if log:
                     log.excep("%s, set defaults" % str(e))
@@ -216,6 +218,7 @@ class Fwglobals(FwObject):
                 self.UUID           = DEFAULT_UUID
                 self.WAN_MONITOR_UNASSIGNED_INTERFACES = DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES
                 self.WAN_MONITOR_SERVERS = DEFAULT_WAN_MONITOR_SERVERS
+                self.DAEMON_SOCKET_NAME  = DEFAULT_DAEMON_SOCKET_NAME
             if self.DEBUG and log:
                 log.set_level(FWLOG_LEVEL_DEBUG)
 
@@ -313,10 +316,6 @@ class Fwglobals(FwObject):
         self.HOSTAPD_CONFIG_DIRECTORY = '/etc/hostapd/'
         self.NETPLAN_FILES       = {}
         self.NETPLAN_FILE        = '/etc/netplan/99-flexiwan.fwrun.yaml'
-        self.FWAGENT_DAEMON_NAME = 'fwagent.daemon'
-        self.FWAGENT_DAEMON_HOST = '127.0.0.1'
-        self.FWAGENT_DAEMON_PORT = 9090
-        self.FWAGENT_DAEMON_URI  = 'PYRO:%s@%s:%d' % (self.FWAGENT_DAEMON_NAME, self.FWAGENT_DAEMON_HOST, self.FWAGENT_DAEMON_PORT)
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
@@ -338,6 +337,11 @@ class Fwglobals(FwObject):
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
+
+        self.FWAGENT_DAEMON_HOST = self.cfg.DAEMON_SOCKET_NAME.split(":")[0]
+        self.FWAGENT_DAEMON_PORT = int(self.cfg.DAEMON_SOCKET_NAME.split(":")[1])
+        self.FWAGENT_DAEMON_NAME = 'fwagent.daemon'
+        self.FWAGENT_DAEMON_URI  = 'PYRO:%s@%s:%d' % (self.FWAGENT_DAEMON_NAME, self.FWAGENT_DAEMON_HOST, self.FWAGENT_DAEMON_PORT)
 
         self.db = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! set the db variable regardless of agent initialization
 

@@ -54,7 +54,20 @@ handle_upgrade_failure() {
             # Agent must be restarted if revert fails, or otherwise
             # it will remain stopped.
             systemctl restart "$AGENT_SERVICE"
+            log 'handle_upgrade_failure: failed to downgrade ${ret}: exit 1'
+            exit 1
         fi
+
+        # There is a flow, where "handle_upgrade_failure revert" is called on failure of
+        # the "apt-get install <new-version>", but the previous version was not uninstalled
+        # and still runs. In this case the "apt-get install <prev-version>"
+        # will do nothing and will return OK (zero). As a result, the "if" block above will
+        # be not executed and service will be not restarted. In this case, the agent will not
+        # connect to the flexiManage after revert, as this script stops the connection loop
+        # the before upgarde, and nobody starts it back. To handle this case we just restart
+        # service here, so the connection loop should be resumed.
+        #
+        systemctl restart "$AGENT_SERVICE"
 
         log 'handle_upgrade_failure: exit 1'
         exit 1

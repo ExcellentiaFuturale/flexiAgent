@@ -34,6 +34,7 @@ class FwRouterThreading:
         self.request_cond_var = threading.Condition()
         self.thread_names     = []
         self.handling_request = False
+        self.request_processing_thread_ident = None
 
     def is_no_active_threads(self):
         return len(self.thread_names) == 0
@@ -134,14 +135,18 @@ class FwRouterThread(FwThread):
 
     def join(self):
         """Overrides the threading.Thread.join() function to avoid deadlock,
-        when join() is called by the request processing thread, e.g. when
-        monitoring threads are stopped on handling 'stop-router' request.
+        when the request processing thread calls the monitoring thread's join(),
+        e.g. on handling 'stop-router' request.
         In this case request processing thread takes the 'request_cond_var' lock
-        and calls join(), when the monitoring thread might be blocked
-        on the 'request_cond_var' lock while waiting the request processing thread
-        to finish. To avoid deadlock the overriding join() does not block, but
-        raises the flag. So the request processing thread with continue and will
-        finish the request processing. The monitoring thread will check the flag
-        as soon as it takes the lock. So it will exit at least on next iteration.
+        and calls <monitoring thread>.join(), when the monitoring thread might
+        be blocked on the 'request_cond_var' lock while waiting the request
+        processing thread to finish. To avoid deadlock the overriding join()
+        does not block, but raises the flag. So the request processing thread
+        will be not blocked, will continue and will finish the request processing.
+        The monitoring thread will check the flag as soon as it takes the lock.
+        So, it will exit at most on next iteration.
         """
-        self.join_called= True
+        if threading.current_thread().ident == fwglobals.g.router_threads.request_processing_thread_ident:
+            self.join_called = True
+        else:
+            FwThread.join(self)
