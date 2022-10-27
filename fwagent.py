@@ -1323,7 +1323,7 @@ if __name__ == '__main__':
     parser_start.add_argument('-r', '--start_router', action='store_true',
                         help="start router before loop is started")
     parser_daemon = subparsers.add_parser('daemon', help='Run agent in daemon mode: infinite register-connect loop')
-    parser_daemon.add_argument('-d', '--dont_connect', action='store_true',
+    parser_daemon.add_argument('-d', '--debug_cfg', action='store_true',
                         help="Don't start connection loop on daemon start")
     parser_simulate = subparsers.add_parser('simulate', help='register and connect many fake devices with flexiManage')
     parser_simulate.add_argument('-c', '--count', dest='count',

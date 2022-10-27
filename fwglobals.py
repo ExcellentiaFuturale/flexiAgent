@@ -163,12 +163,11 @@ class Fwglobals(FwObject):
         :param filename:    YAML configuration file name.
         :param data_path:   Path to token file.
         """
-        def __init__(self, filename, data_path, log=None):
+        def __init__(self, filename, debug_filename, data_path, log=None):
             """Constructor method
             """
             DEFAULT_BYPASS_CERT    = False
             DEFAULT_DEBUG          = False
-            DEFAULT_DISABLE_STUN   = False
             DEFAULT_MANAGEMENT_URL = 'https://manage.flexiwan.com:443'
             DEFAULT_TOKEN_FILE     = data_path + 'token.txt'
             DEFAULT_UUID           = None
@@ -181,7 +180,6 @@ class Fwglobals(FwObject):
                 agent_conf = conf.get('agent', {})
                 self.BYPASS_CERT    = agent_conf.get('bypass_certificate', DEFAULT_BYPASS_CERT)
                 self.DEBUG          = agent_conf.get('debug',  DEFAULT_DEBUG)
-                self.DISABLE_STUN   = agent_conf.get('disable_stun',  DEFAULT_DISABLE_STUN)
                 self.MANAGEMENT_URL = agent_conf.get('server', DEFAULT_MANAGEMENT_URL)
                 self.TOKEN_FILE     = agent_conf.get('token',  DEFAULT_TOKEN_FILE)
                 self.UUID           = agent_conf.get('uuid',   DEFAULT_UUID)
@@ -193,7 +191,6 @@ class Fwglobals(FwObject):
                     log.excep("%s, set defaults" % str(e))
                 self.BYPASS_CERT    = DEFAULT_BYPASS_CERT
                 self.DEBUG          = DEFAULT_DEBUG
-                self.DISABLE_STUN   = DEFAULT_DISABLE_STUN
                 self.MANAGEMENT_URL = DEFAULT_MANAGEMENT_URL
                 self.TOKEN_FILE     = DEFAULT_TOKEN_FILE
                 self.UUID           = DEFAULT_UUID
@@ -202,30 +199,19 @@ class Fwglobals(FwObject):
                 self.DAEMON_SOCKET_NAME  = DEFAULT_DAEMON_SOCKET_NAME
             if self.DEBUG and log:
                 log.set_level(FWLOG_LEVEL_DEBUG)
-
-    class FwDebugConfiguration:
-        """This is configuration class representation.
-
-        :param filename:    YAML Debug configuration file name.
-        """
-        def __init__(self, filename, log=None):
-            """Constructor method
-            """
             # Load default values
             self.cfg.debug['daemon']['standalone'] = False
-            self.cfg.debug['features']['wan_monitor']['enabled'] = False
-            self.cfg.debug['features']['stun']['enabled'] = False
-            self.cfg.debug['features']['pppoe']['enabled'] = False
+            self.cfg.debug['features']['wan_monitor']['enabled'] = True
+            self.cfg.debug['features']['stun']['enabled'] = True
+            self.cfg.debug['features']['pppoe']['enabled'] = True
             try:
                 # Load configured values if configuration file exists
-                with open(filename, 'r') as debug_conf_file:
+                with open(debug_filename, 'r') as debug_conf_file:
                     self.cfg.debug = yaml.load(debug_conf_file, Loader=yaml.SafeLoader)
 
             except Exception as e:
                 if log:
-                    log.excep("%s, set defaults" % str(e))
-            if self.DEBUG and log:
-                log.set_level(FWLOG_LEVEL_DEBUG)
+                    log.excep("%s, set debug configuration defaults" % str(e))
 
     class FwCache:
         """Storage for data that is valid during one FwAgent lifecycle only.
@@ -342,10 +328,7 @@ class Fwglobals(FwObject):
         self.is_gcp_vm                     = fwutils.detect_gcp_vm()
 
         # Load configuration from file
-        self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
-
-        # Load debug configuration from file
-        self.cgf.debug = self.FwDebugConfiguration(self.DEBUG_CONF_FILE, log=log)
+        self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DEBUG_CONF_FILE, self.DATA_PATH, log=log)
 
         self.FWAGENT_DAEMON_HOST = self.cfg.DAEMON_SOCKET_NAME.split(":")[0]
         self.FWAGENT_DAEMON_PORT = int(self.cfg.DAEMON_SOCKET_NAME.split(":")[1])
