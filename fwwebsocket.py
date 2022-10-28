@@ -168,6 +168,9 @@ class FwWebSocketClient(FwObject):
 
     def close(self):
         self.lock.acquire()
+        if self.state == self.FwWebSocketState.IDLE:
+            self.lock.release()
+            return
         self.state = self.FwWebSocketState.CLOSING
         if self.ws:
             self.ws.close()
@@ -194,7 +197,13 @@ class FwWebSocketClient(FwObject):
         while self.state == self.FwWebSocketState.CONNECTED:
             received = self.recv(timeout)
             if received:
-                to_send = self.on_message(received)
+                to_send = None
+                try:
+                    to_send = self.on_message(received)
+                except Exception as e:
+                    self.log.error(f"run_loop_send_recv: exception in on_message(): {str(e)}")
+                    self.close()
+                    continue
                 if to_send:
                     self.send(to_send)
 
@@ -221,7 +230,7 @@ class FwWebSocketClient(FwObject):
             if opcode == 0x8:                    # OPCODE_CLOSE rfc5234
                 if self.state == self.FwWebSocketState.CONNECTED:
                     self.state = self.FwWebSocketState.DISCONNECTED
-                    self.log.debug(f"disconnected by {self.remote_host}")
+                    self.log.debug(f"recv: disconnected by {self.remote_host}")
                     self.ws.shutdown()
                     self.close()
                 elif self.state == self.FwWebSocketState.DISCONNECTING:
@@ -231,10 +240,10 @@ class FwWebSocketClient(FwObject):
                 return None
 
             else:
-                raise Exception(f"not suppported opcode {opcode}")
+                raise Exception(f"not supported opcode {opcode}")
 
         except Exception as e:
-            self.log.error(f"recv_send_loop: exception: {str(e)}")
+            self.log.error(f"recv: exception: {str(e)}")
             self.close()
             raise e
 

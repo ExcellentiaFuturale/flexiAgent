@@ -53,6 +53,10 @@ def run_lte(currpath):
             driver = fwutils.get_ethtool_value(nicname, 'driver')
             if driver and driver in ['cdc_mbim', 'qmi_wwan']:
                 exists = True
+
+                # store LTE dev it in a global scope
+                pytest.lte_dev_id = fwutils.build_interface_dev_id(nicname)
+
                 break
         if not exists:
             pytest.skip('LTE card does not exist on the current machine')
