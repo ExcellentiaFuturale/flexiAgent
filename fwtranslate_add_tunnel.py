@@ -787,8 +787,8 @@ def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
     }
 
     # Verify if the port sent from fleximanage is 4789. If so, change it with the local ports
-    if cmd_params['src_port'] == fwglobals.VXLAN_PORTS['default_src_port']: cmd_params['src_port'] = fwglobals.VXLAN_PORTS['src_port']
-    if cmd_params['dst_port'] == fwglobals.VXLAN_PORTS['default_dst_port']: cmd_params['dst_port'] = fwglobals.VXLAN_PORTS['dst_port']
+    if cmd_params['src_port'] == fwglobals.VXLAN_PORTS['default_port']: cmd_params['src_port'] = fwglobals.VXLAN_PORTS['src_port']
+    if cmd_params['dst_port'] == fwglobals.VXLAN_PORTS['default_port']: cmd_params['dst_port'] = fwglobals.VXLAN_PORTS['dst_port']
 
     cmd = {}
     cmd['cmd'] = {}

@@ -60,21 +60,22 @@ from fwwan_monitor import FwWanMonitor
 from fwikev2 import FwIKEv2
 from fw_traffic_identification import FwTrafficIdentifications
 
-# VXLAN default src and dst port
-VXLAN_PORTS={'src_port': 4788 , 'dst_port': 4788, 'default_src_port':4789, 'default_dst_port':4789}
+# VXLAN UDP default, source and destination ports
+global VXLAN_PORTS
+VXLAN_PORTS = {
+    "src_port": 4789,            # UDP VXLAN local listening port
+    "dst_port": 4789,            # UDP VXLAN remote listening port
+    "default_port": 4789,        # UDP VXLAN 4789 default port
+}
 
 # Services enabled for access on WAN interface
+global WAN_INTERFACE_SERVICES
 WAN_INTERFACE_SERVICES = {
   "VXLAN Tunnel":
     {
         "port": VXLAN_PORTS['src_port'],
         "protocol": "udp"
-    },
-    "VXLAN Tunnel default":
-    {
-        "port": VXLAN_PORTS['default_src_port'],
-        "protocol": "udp"
-    },
+    }
 }
 
 # sync flag indicated if module implement sync logic.
@@ -204,7 +205,11 @@ class Fwglobals(FwObject):
                 self.WAN_MONITOR_UNASSIGNED_INTERFACES = agent_conf.get('monitor_wan',{}).get('monitor_unassigned_interfaces', DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES)
                 self.WAN_MONITOR_SERVERS = agent_conf.get('monitor_wan',{}).get('servers', DEFAULT_WAN_MONITOR_SERVERS)
                 global VXLAN_PORTS
-                VXLAN_PORTS = conf.get('vxlan', {})
+                if conf.get('vxlan', {}):
+                    VXLAN_PORTS = conf.get('vxlan', {})
+                    if VXLAN_PORTS["src_port"]:
+                        global WAN_INTERFACE_SERVICES
+                        WAN_INTERFACE_SERVICES["VXLAN Tunnel"]["port"] = VXLAN_PORTS["src_port"]
             except Exception as e:
                 if log:
                     log.excep("%s, set defaults" % str(e))
