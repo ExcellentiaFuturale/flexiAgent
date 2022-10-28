@@ -207,7 +207,7 @@ class Fwglobals(FwObject):
                 self.WAN_MONITOR_SERVERS = agent_conf.get('monitor_wan',{}).get('servers', DEFAULT_WAN_MONITOR_SERVERS)
                 global VXLAN_PORTS
                 if conf.get('vxlan', {}):
-                    VXLAN_PORTS = conf.get('vxlan', {})
+                    VXLAN_PORTS = {**VXLAN_PORTS, **conf.get('vxlan', {})}  # merge both dictionaries
                     if VXLAN_PORTS["src_port"]:
                         global WAN_INTERFACE_SERVICES
                         WAN_INTERFACE_SERVICES["VXLAN Tunnel"]["port"] = VXLAN_PORTS["src_port"]
