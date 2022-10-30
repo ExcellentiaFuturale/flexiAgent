@@ -28,6 +28,7 @@ import json
 import os
 import sys
 import traceback
+import jwt
 
 import requests
 
@@ -38,9 +39,25 @@ logger = Logger()
 user_password_file = sys.argv[1]
 
 try:
-  # retrive username and password from the temporary file
+  # retrieve username and password from the temporary file
   username = os.popen(f'head -n 1 {user_password_file}').read().strip()
   password = os.popen(f'cat {user_password_file} | head -2 | tail -1').read().strip()
+
+  parsed_password = jwt.decode(password, options={"verify_signature": False})
+  server = parsed_password.get('server')
+  if not server:
+    logger.info(f'No server exists in the JWT. parsed_password={str(parsed_password)}')
+    sys.exit(1)
+
+  allowed_servers = os.getenv('AUTH_SCRIPT_ALLOWED_SERVERS')
+  if not allowed_servers:
+    logger.info(f'No allowed servers environment variable exists')
+    sys.exit(1)
+
+  allowed_servers = allowed_servers.split(sep=',')
+  if not server in allowed_servers:
+    logger.info(f'Server {server} is not in the allowed list ({str(allowed_servers)})')
+    sys.exit(1)
 
   # For the verification process, we also send to the server some information about the router
   device_info_txt = os.popen('cat /etc/flexiwan/agent/fwagent_info.txt').read()
@@ -48,9 +65,7 @@ try:
 
   data['userName'] = username
 
-  # the "__VPN_SERVER__" should be replaced with the server base url that we send from flexiManage
-  # in the installation vpn job parameters
-  url = f"__VPN_SERVER__/api/auth/tokens/verify"
+  url = f"{server}/api/auth/tokens/verify"
 
   # on local setup there is no real ssl certificate and we need to call the server without verification
   verify = False if 'local' in url else True
