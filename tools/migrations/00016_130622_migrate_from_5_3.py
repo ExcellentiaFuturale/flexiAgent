@@ -22,6 +22,7 @@
 
 import os
 import sys
+import shutil
 
 common_tools = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , 'common')
 sys.path.append(common_tools)
@@ -29,10 +30,26 @@ sys.path.append(common_tools)
 globals = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , '..')
 sys.path.append(globals)
 
-
+import fwglobals
 import fwutils
+from fwapplications_cfg import FwApplicationsCfg
 from fwrouter_api import fwrouter_translators
 from fwrouter_cfg import FwRouterCfg
+
+def _migrate_vpn_auth_script():
+    application_db_path = "/etc/flexiwan/agent/.applications.sqlite"
+    if os.path.exists(application_db_path):
+        with FwApplicationsCfg(application_db_path) as application_cfg:
+            apps = application_cfg.get_applications()
+
+            for app in apps:
+                identifier = app.get('identifier')
+                if not identifier == 'com.flexiwan.remotevpn':
+                    continue
+
+                path = '/usr/share/flexiwan/agent/applications/com_flexiwan_remotevpn/scripts'
+                shutil.copyfile('{}/auth.py'.format(path), '/etc/openvpn/server/auth-script.py')
+                os.system('killall openvpn') # it will be start again by our application watchdog
 
 def _migrate_remove_bgp_tunnel_neighbors(upgrade=True):
     ''' In 5.3.16 version the tunnel BGP neighbors sent by server in (add|modify)-routing-bgp request.
@@ -96,6 +113,15 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
         try:
             print("* Migrating Tunnel BGP neighbors ...")
             _migrate_remove_bgp_tunnel_neighbors()
+
+        except Exception as e:
+            print("Migration error: %s : %s" % (__file__, str(e)))
+
+    # upgrade from any version before 6:
+    if upgrade == 'upgrade' and prev_major_version < 6:
+        try:
+            print("* Migrating OpenVPN auth script ...")
+            _migrate_vpn_auth_script()
 
         except Exception as e:
             print("Migration error: %s : %s" % (__file__, str(e)))
