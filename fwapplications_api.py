@@ -49,6 +49,10 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
     def __init__(self,start_application_stats = False):
         """Constructor method.
         """
+        # FWAPPLICATIONS_API can be called without globals initialization.
+        if not hasattr(fwglobals, 'g'):
+            fwglobals.initialize()
+
         cfg = FwApplicationsCfg()
         FwCfgRequestHandler.__init__(self, fwapplication_translators, cfg)
 
@@ -246,10 +250,6 @@ def call_applications_hook(hook):
     # when calling this function from fwdump, there is no "g" in fwglobals
     if hasattr(fwglobals, 'g') and hasattr(fwglobals.g, 'applications_api'):
         return fwglobals.g.applications_api.call_hook(hook)
-
-    # to call FWAPPLICATIONS_API, we need the globals to be initialized
-    if not hasattr(fwglobals, 'g'):
-        fwglobals.initialize()
 
     with FWAPPLICATIONS_API() as applications_api:
         return applications_api.call_hook(hook)
