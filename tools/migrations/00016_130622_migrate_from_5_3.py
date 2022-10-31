@@ -35,21 +35,34 @@ import fwutils
 from fwapplications_cfg import FwApplicationsCfg
 from fwrouter_api import fwrouter_translators
 from fwrouter_cfg import FwRouterCfg
+import fwapplications_api
 
-def _migrate_vpn_auth_script():
+def _migrate_vpn_auth_script(upgrade=True):
     application_db_path = "/etc/flexiwan/agent/.applications.sqlite"
     if os.path.exists(application_db_path):
         with FwApplicationsCfg(application_db_path) as application_cfg:
             apps = application_cfg.get_applications()
+            application_cfg.set_translators(fwapplications_api.fwapplication_translators)
 
             for app in apps:
                 identifier = app.get('identifier')
                 if not identifier == 'com.flexiwan.remotevpn':
                     continue
 
-                path = '/usr/share/flexiwan/agent/applications/com_flexiwan_remotevpn/scripts'
-                shutil.copyfile('{}/auth.py'.format(path), '/etc/openvpn/server/auth-script.py')
-                os.system('killall openvpn') # it will be start again by our application watchdog
+                if upgrade:
+                    path = '/usr/share/flexiwan/agent/applications/com_flexiwan_remotevpn/scripts'
+                    shutil.copyfile('{}/auth.py'.format(path), '/etc/openvpn/server/auth-script.py')
+                    os.system('killall openvpn') # it will be start again by our application watchdog
+                else:
+                    # for downgrade, we don't have the previous auth script format.
+                    # No other option but to trigger reinstallation with the auto sync after the downgrade.
+                    fwapplications_api.call_applications_hook('uninstall', identifier=identifier)
+                    app_req = {
+                        'message':   'add-app-install',
+                        'params':    app
+                    }
+                    application_cfg.remove(app_req)
+
 
 def _migrate_remove_bgp_tunnel_neighbors(upgrade=True):
     ''' In 5.3.16 version the tunnel BGP neighbors sent by server in (add|modify)-routing-bgp request.
@@ -105,6 +118,8 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
     prev_version = prev_version.split('-')[0].split('.')
     new_version  = new_version.split('-')[0].split('.')
 
+    new_major_version = int(new_version[0])
+
     prev_major_version = int(prev_version[0])
     prev_minor_version = int(prev_version[1])
 
@@ -122,6 +137,15 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
         try:
             print("* Migrating OpenVPN auth script ...")
             _migrate_vpn_auth_script()
+
+        except Exception as e:
+            print("Migration error: %s : %s" % (__file__, str(e)))
+
+    # downgrade from 6 (or above) to 5:
+    if upgrade == 'downgrade' and prev_major_version >= 6 and new_major_version == 5:
+        try:
+            print("* Migrating OpenVPN auth script ...")
+            _migrate_vpn_auth_script(upgrade=False)
 
         except Exception as e:
             print("Migration error: %s : %s" % (__file__, str(e)))
