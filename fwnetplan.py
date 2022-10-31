@@ -311,7 +311,7 @@ def _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw,
 
     return config_section
 
-def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dnsServers, dnsDomains, mtu=None, if_name=None, netplan_apply=True):
+def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dnsServers, dnsDomains, mtu=None, if_name=None):
     '''
     :param metric:  integer (whole number)
     '''
@@ -469,8 +469,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         if not is_add and type == 'WAN':
             fwutils.remove_linux_default_route(ifname)
 
-        if netplan_apply:
-            fwutils.netplan_apply('add_remove_netplan_interface')
+        fwutils.netplan_apply('add_remove_netplan_interface')
 
         if is_add and set_name and set_name is not ifname and not is_lte:
             # To understand the following code, it is necessary to understand the following two principles:

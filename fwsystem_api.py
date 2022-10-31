@@ -139,9 +139,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                                 type='WAN',
                                 dnsServers=fwglobals.g.DEFAULT_DNS_SERVERS,
                                 dnsDomains=None,
-                                mtu=mtu,
-                                if_name=None,
-                                netplan_apply=True
+                                mtu=mtu
                             )
                         else:
                             fwlte.configure_interface({
