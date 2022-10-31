@@ -51,11 +51,16 @@ def _migrate_vpn_auth_script(upgrade=True):
 
                 if upgrade:
                     path = '/usr/share/flexiwan/agent/applications/com_flexiwan_remotevpn/scripts'
+                    shutil.copyfile('/etc/openvpn/server/auth-script.py', '/etc/openvpn/server/auth-script.py.orig_5_3') # save backup to use for downgrade
                     shutil.copyfile('{}/auth.py'.format(path), '/etc/openvpn/server/auth-script.py')
                     os.system('killall openvpn') # it will be start again by our application watchdog
                 else:
-                    # for downgrade, we don't have the previous auth script format.
-                    # No other option but to trigger reinstallation with the auto sync after the downgrade.
+                    if os.path.exists('/etc/openvpn/server/auth-script.py.orig_5_3'):
+                        shutil.copyfile('/etc/openvpn/server/auth-script.py.orig_5_3', '/etc/openvpn/server/auth-script.py') # restore backup
+                        return
+
+                    # When we don't have tha backup file, there is no other option
+                    # but to trigger reinstallation with the auto sync after the downgrade.
                     fwapplications_api.call_applications_hook('uninstall', identifier=identifier)
                     app_req = {
                         'message':   'add-app-install',
