@@ -1609,10 +1609,10 @@ def reset_router_cfg():
     restore_dhcpd_files()
     reset_device_config_signature("empty_router_cfg", log=False)
 
-def reset_system_cfg(reset_internal_db=True):
+def reset_system_cfg(reset_lte_db=True):
     with FwSystemCfg(fwglobals.g.SYSTEM_CFG_FILE) as system_cfg:
         system_cfg.clean()
-    if 'lte' in fwglobals.g.db and reset_internal_db:
+    if 'lte' in fwglobals.g.db and reset_lte_db:
         fwglobals.g.db['lte'] = {}
     reset_device_config_signature("empty_system_cfg", log=False)
 
