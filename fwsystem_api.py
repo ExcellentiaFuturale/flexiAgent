@@ -167,7 +167,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
         self.log.debug("sync_full: start system full sync")
 
-        fwutils.reset_system_cfg(reset_internal_db=False)
+        fwutils.reset_system_cfg(reset_lte_db=False)
         FwCfgRequestHandler.sync_full(self, incoming_requests)
 
         self.log.debug("sync_full: system full sync succeeded")
