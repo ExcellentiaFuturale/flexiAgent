@@ -95,6 +95,7 @@ def add_interface(params):
     metric    = 0 if not params.get('metric', '') else int(params.get('metric', '0'))
     dhcp      = params.get('dhcp', 'no')
     int_type  = params.get('type', None)
+    int_type  = int_type.lower() if int_type else int_type
 
     dnsServers  = params.get('dnsServers', [])
     # If for any reason, static IP interface comes without static dns servers, we set the default automatically
@@ -118,8 +119,13 @@ def add_interface(params):
     is_pppoe = fwpppoe.is_pppoe_interface(dev_id=dev_id)
     is_vlan = 'vlan' in dev_id
     add_to_netplan = True
-    if is_vlan or is_pppoe or int_type == 'trunk':
+    if is_vlan or is_pppoe:
         add_to_netplan = False
+
+    if int_type == 'trunk':
+        iface_addr = ''
+        gw = ''
+        dhcp = 'no'
 
     if is_pppoe:
         dhcp = 'no'
@@ -525,7 +531,7 @@ def add_interface(params):
             cmd_list.append(cmd)
 
     # Setup NAT config on WAN interface
-    if 'type' not in params or params['type'].lower() == 'wan':
+    if not int_type or int_type == 'wan':
         cmd_list.extend(fw_nat_command_helpers.get_nat_wan_setup_config(dev_id))
 
     # Update ospfd configuration.

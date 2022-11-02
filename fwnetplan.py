@@ -312,6 +312,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
     '''
 
     old_ethernets = {}
+    type = type.upper()
 
     if fwpppoe.is_pppoe_interface(dev_id=dev_id):
         err_str = "add_remove_netplan_interface: PPPoE interface %s is not supported" % dev_id
@@ -689,6 +690,7 @@ def _set_netplan_section_vlan(config_section, vlan_id, parent_dev_id):
     return config_section
 
 def add_remove_netplan_vlan(is_add, dev_id, ip, gw, metric, dhcp, type, netplan_apply=True):
+    type = type.upper()
 
     fwglobals.log.debug(
         "add_remove_netplan_vlan: is_add=%d, dev_id=%s, ip=%s, gw=%s, metric=%d, dhcp=%s, type=%s" % \
