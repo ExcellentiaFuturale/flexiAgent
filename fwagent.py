@@ -957,9 +957,6 @@ class FwagentDaemon(FwObject):
             self.log.debug("already started, ignore")
             return
 
-        # Reload configuration.
-        fwglobals.g.load_configuration_from_file()
-
         # Ensure system compatibility with our soft
         if check_system and fwglobals.g.router_api.state_is_started():
             check_system = False    # No need to check system if VPP runs, it is too late :)
@@ -1129,7 +1126,7 @@ class FwagentDaemon(FwObject):
                 ret = api_func()
             return ret
 
-def daemon(debug_conf_filename=False):
+def daemon(debug_conf_filename=None):
     """Handles 'fwagent daemon' command.
     This command runs Fwagent in daemon mode. It creates the wrapping
     FwagentDaemon object that manages the instance of the Fwagent class and
@@ -1149,11 +1146,14 @@ def daemon(debug_conf_filename=False):
             fwglobals.log.debug(f"port {c.laddr.port} is in use, try other port (fwagent_conf.yaml:daemon_socket)")
             return
 
+    # load configuration.
+    fwglobals.g.load_debug_configuration_from_file(debug_conf_filename)
+
     with FwagentDaemon() as agent_daemon:
 
         # Start the FwagentDaemon main function in separate thread as it is infinite,
         # and we need to get to Pyro4.Daemon.serveSimple() call to run rpc loop.
-        if not debug_conf_filename:
+        if not fwglobals.g.cfg.debug['daemon']['standalone']:
             agent_daemon.start()
 
         # Register FwagentDaemon object with Pyro framework and start Pyro request loop:

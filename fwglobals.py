@@ -366,6 +366,20 @@ class Fwglobals(FwObject):
             #     if isinstance(val, (int, float, str, unicode)):
             #         log.debug("  %s: %s" % (a, str(val)), to_terminal=False)
 
+    def load_debug_configuration_from_file(self, debug_conf_file=None):
+        """Load debug configuration from YAML file.
+
+        :returns: None.
+        """
+        if debug_conf_file:
+            self.DEBUG_CONF_FILE = debug_conf_file
+        # Load configuration
+        self.cfg.__init__(self.FWAGENT_CONF_FILE, self.DEBUG_CONF_FILE, self.DATA_PATH)
+        # Print loaded configuration into log
+        if self.cfg.DEBUG:
+            self.log.debug("Fwglobals debug configuration: " + self.__str__(), to_terminal=False)
+
+
     def initialize_agent(self):
         """Initialize singleton object. Restore VPP if needed.
 
