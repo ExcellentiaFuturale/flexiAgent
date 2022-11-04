@@ -393,7 +393,7 @@ class FwPppoeClient(FwObject):
         path = path if path else fwglobals.g.PPPOE_CONFIG_PATH
         self.path = path + 'peers/'
         self.resolv_path = path + 'resolv/'
-        self.standalone = not fwglobals.g.cfg.debug['features']['pppoe']['enabled']
+        self.standalone = not fwglobals.g.cfg.debug['agent']['features']['pppoe']['enabled']
         self.thread_pppoec = None
         self.interfaces = SqliteDict(db_file, 'interfaces', autocommit=True)
         self.connections = SqliteDict(db_file, 'connections', autocommit=True)

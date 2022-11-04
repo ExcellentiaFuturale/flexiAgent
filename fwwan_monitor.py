@@ -53,11 +53,8 @@ class FwWanMonitor(FwObject):
     def __init__(self):
         """Constructor.
 
-        :param standalone: if True, the module does nothing. It is used for tests.
-                        The 'standalone' stands for the agent mode and means,
-                        that the agent is not connected to internet.
         """
-        self.standalone = not fwglobals.g.cfg.debug['features']['wan_monitor']['enabled']
+        self.standalone = not fwglobals.g.cfg.debug['agent']['features']['wan_monitor']['enabled']
         if self.standalone:
             return
 

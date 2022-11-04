@@ -163,7 +163,7 @@ class Fwglobals(FwObject):
         :param filename:    YAML configuration file name.
         :param data_path:   Path to token file.
         """
-        def __init__(self, filename, debug_filename, data_path, log=None):
+        def __init__(self, filename, debug_conf_filename, data_path, log=None):
             """Constructor method
             """
             DEFAULT_BYPASS_CERT    = False
@@ -201,12 +201,12 @@ class Fwglobals(FwObject):
                 log.set_level(FWLOG_LEVEL_DEBUG)
             # Load default values
             self.cfg.debug['daemon']['standalone'] = False
-            self.cfg.debug['features']['wan_monitor']['enabled'] = True
-            self.cfg.debug['features']['stun']['enabled'] = True
-            self.cfg.debug['features']['pppoe']['enabled'] = True
+            self.cfg.debug['agent']['features']['wan_monitor']['enabled'] = True
+            self.cfg.debug['agent']['features']['stun']['enabled'] = True
+            self.cfg.debug['agent']['features']['pppoe']['enabled'] = True
             try:
                 # Load configured values if configuration file exists
-                with open(debug_filename, 'r') as debug_conf_file:
+                with open(debug_conf_filename, 'r') as debug_conf_file:
                     self.cfg.debug = yaml.load(debug_conf_file, Loader=yaml.SafeLoader)
 
             except Exception as e:
@@ -353,7 +353,7 @@ class Fwglobals(FwObject):
         :returns: None.
         """
         # Load configuration
-        self.cfg.__init__(self.FWAGENT_CONF_FILE, self.DATA_PATH)
+        self.cfg.__init__(self.FWAGENT_CONF_FILE, self.DEBUG_CONF_FILE, self.DATA_PATH)
         # Print loaded configuration into log
         if self.cfg.DEBUG:
             self.log.debug("Fwglobals configuration: " + self.__str__(), to_terminal=False)
@@ -366,12 +366,9 @@ class Fwglobals(FwObject):
             #     if isinstance(val, (int, float, str, unicode)):
             #         log.debug("  %s: %s" % (a, str(val)), to_terminal=False)
 
-    def initialize_agent(self, standalone=False):
+    def initialize_agent(self):
         """Initialize singleton object. Restore VPP if needed.
 
-        :param standalone: if True, the agent will be not connected to flexiManage,
-                           hence no need in network activity, like STUN.
-                           The standalone mode is used by CLI-based tests.
         """
         if self.fwagent:
             self.log.warning('Fwglobals.initialize_agent: agent exists')
