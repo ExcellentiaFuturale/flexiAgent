@@ -475,7 +475,7 @@ def connect(params):
             time.sleep(1)
             inserted = is_sim_inserted(dev_id)
             if not inserted:
-                raise Exception("Sim is not presented")
+                raise Exception("SIM not present")
 
         # check PIN status
         pin_state = get_pin_state(dev_id).get('pin1_status', 'disabled')
