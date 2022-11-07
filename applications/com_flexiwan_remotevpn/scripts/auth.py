@@ -38,34 +38,54 @@ logger = Logger()
 # get temporary file
 user_password_file = sys.argv[1]
 
+api_end_point = '/api/auth/tokens/verify'
+
 try:
   # retrieve username and password from the temporary file
   username = os.popen(f'head -n 1 {user_password_file}').read().strip()
   password = os.popen(f'cat {user_password_file} | head -2 | tail -1').read().strip()
 
-  parsed_password = jwt.decode(password, options={"verify_signature": False})
-  server = parsed_password.get('server')
-  if not server:
-    logger.info(f'No server exists in the JWT. parsed_password={str(parsed_password)}')
-    sys.exit(1)
+  # *** For backward compatibility ***
+  # The new script supports two modes:
+  #   1. New feature using the OpenVPN ENV
+  #   2. Old code that uses the "sed" command to replace the "__VPN_SERVER__" url.
+  # The reason is to support downgrade from 6.1.X to 5.3.X.
+  # In downgrade, there is "sync" that:
+  #   1. Removes the "setenv" from server.conf
+  #   2. Replaces the __VPN_SERVER__ to the server sent by flexiManage.
+  # So on downgrade, the new auth.py will still be used
+  # but we check if "__VPN_SERVER__" is replaced. If so, it means that we are in old code (5.3.X)
+  # and we user= this server.
+  alt_url = f"__VPN_SERVER__{api_end_point}" # in old code (5.3.X), the "sed" replaces the "__VPN_SERVER__" with the server from flexiManage.
+  is_alt_url_changed = 'VPN_SERVER' not in alt_url # don't use the underlines, in order to prevent the "sed" from changing this line as well.
+  # *** For backward compatibility  ***
 
-  allowed_servers = os.getenv('AUTH_SCRIPT_ALLOWED_SERVERS')
-  if not allowed_servers:
-    logger.info(f'No allowed servers environment variable exists')
-    sys.exit(1)
+  if is_alt_url_changed:
+    url = alt_url
+  else:
+    parsed_password = jwt.decode(password, options={"verify_signature": False})
+    server = parsed_password.get('server')
+    if not server:
+      logger.info(f'No server exists in the JWT. parsed_password={str(parsed_password)}')
+      sys.exit(1)
 
-  allowed_servers = allowed_servers.split(sep=',')
-  if not server in allowed_servers:
-    logger.info(f'Server {server} is not in the allowed list ({str(allowed_servers)})')
-    sys.exit(1)
+    allowed_servers = os.getenv('AUTH_SCRIPT_ALLOWED_SERVERS')
+    if not allowed_servers:
+      logger.info(f'No allowed servers environment variable exists')
+      sys.exit(1)
+
+    allowed_servers = allowed_servers.split(sep=',')
+    if not server in allowed_servers:
+      logger.info(f'Server {server} is not in the allowed list ({str(allowed_servers)})')
+      sys.exit(1)
+
+    url = f"{server}{api_end_point}"
 
   # For the verification process, we also send to the server some information about the router
   device_info_txt = os.popen('cat /etc/flexiwan/agent/fwagent_info.txt').read()
   data = json.loads(device_info_txt)
 
   data['userName'] = username
-
-  url = f"{server}/api/auth/tokens/verify"
 
   # on local setup there is no real ssl certificate and we need to call the server without verification
   verify = False if 'local' in url else True
