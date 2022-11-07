@@ -289,7 +289,7 @@ def get_interface_gateway(if_name, if_dev_id=None):
         return '', ''
 
     rip    = route.split('via ')[1].split(' ')[0]
-    metric = '' if not 'metric ' in route else route.split('metric ')[1].split(' ')[0]
+    metric = '0' if not 'metric ' in route else route.split('metric ')[1].split(' ')[0]
     return rip, metric
 
 
