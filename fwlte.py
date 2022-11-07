@@ -489,7 +489,7 @@ def connect(params):
             # and we will not try again with this wrong one.
             wrong_pin = get_db_entry(dev_id, 'wrong_pin')
             if wrong_pin and wrong_pin == pin:
-                raise Exception("PIN detected as wrong")
+                raise Exception("Wrong PIN provisioned")
 
             _, err = qmi_verify_pin(dev_id, pin)
             if err:
