@@ -141,10 +141,7 @@ class FwQoS(FwObject):
         self.__qos_db['traffic-map'] = get_default_qos_traffic_map()
 
 
-    def __del__(self):
-        """
-        Destructor - Close SqliteDict
-        """
+    def finalize(self):
         self.__qos_db.close()
 
 
