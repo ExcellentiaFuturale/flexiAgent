@@ -204,14 +204,7 @@ class Fwglobals(FwObject):
             self.cfg.debug['agent']['features']['wan_monitor']['enabled'] = True
             self.cfg.debug['agent']['features']['stun']['enabled'] = True
             self.cfg.debug['agent']['features']['pppoe']['enabled'] = True
-            try:
-                # Load configured values if configuration file exists
-                with open(debug_conf_filename, 'r') as debug_conf_file:
-                    self.cfg.debug = yaml.load(debug_conf_file, Loader=yaml.SafeLoader)
-
-            except Exception as e:
-                if log:
-                    log.excep("%s, set debug configuration defaults" % str(e))
+            self.load_debug_configuration_from_file(self.DEBUG_CONF_FILE)
 
     class FwCache:
         """Storage for data that is valid during one FwAgent lifecycle only.
@@ -366,18 +359,22 @@ class Fwglobals(FwObject):
             #     if isinstance(val, (int, float, str, unicode)):
             #         log.debug("  %s: %s" % (a, str(val)), to_terminal=False)
 
-    def load_debug_configuration_from_file(self, debug_conf_file=None):
+    def load_debug_configuration_from_file(self, debug_conf_file):
         """Load debug configuration from YAML file.
 
         :returns: None.
         """
-        if debug_conf_file:
-            self.DEBUG_CONF_FILE = debug_conf_file
-        # Load configuration
-        self.cfg.__init__(self.FWAGENT_CONF_FILE, self.DEBUG_CONF_FILE, self.DATA_PATH)
+        try:
+            # Load configured values if configuration file exists
+            with open(debug_conf_file, 'r') as debug_conf_file:
+                self.cfg.debug = yaml.load(debug_conf_file, Loader=yaml.SafeLoader)
+
+        except Exception as e:
+            if log:
+                log.excep("%s, set debug configuration defaults" % str(e))
         # Print loaded configuration into log
         if self.cfg.DEBUG:
-            self.log.debug("Fwglobals debug configuration: " + self.__str__(), to_terminal=False)
+            self.log.debug("Fwglobals debug configuration: " + json.dumps(self.cfg.debug, indent=2))
 
 
     def initialize_agent(self):
