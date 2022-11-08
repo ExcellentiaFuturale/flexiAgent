@@ -758,8 +758,11 @@ def add_remove_netplan_vlan(is_add, dev_id, ip, gw, metric, dhcp, type, netplan_
             # As well re-initialize the interface name by dev id.
             # Note 'dev_id' is None for tap-inject (vppX) of tapcli-X interfaces used for LTE/WiFi devices.
             #
-            fwutils.set_dev_id_to_tap(dev_id, ifname)
-            fwglobals.log.debug("Interface name in cache is %s, dev_id %s" % (ifname, dev_id_full))
+            if is_add == 1:
+                fwutils.set_dev_id_to_tap(dev_id, ifname)
+                fwglobals.log.debug("Interface name in cache is %s, dev_id %s" % (ifname, dev_id_full))
+            else:
+                fwutils.remove_dev_id_to_tap(dev_id)
 
     except Exception as e:
         err_str = "add_remove_netplan_vlan failed: dev_id: %s, file: %s, error: %s"\

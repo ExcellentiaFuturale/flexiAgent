@@ -1173,6 +1173,18 @@ def set_dev_id_to_tap(dev_id, tap):
     cache = fwglobals.g.cache.dev_id_to_vpp_tap_name
     cache[dev_id_full] = tap
 
+def remove_dev_id_to_tap(dev_id):
+    """Remove entry from cache.
+
+    :param dev_id:          Bus address.
+    """
+    if not dev_id:
+        return
+
+    dev_id_full = dev_id_to_full(dev_id)
+    cache = fwglobals.g.cache.dev_id_to_vpp_tap_name
+    del cache[dev_id_full]
+
 def tunnel_to_vpp_if_name(params):
     """Finds the name of the tunnel loopback interface in vpp.
     We exploit vpp internals to do it in simple way.
