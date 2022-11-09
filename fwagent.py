@@ -962,6 +962,9 @@ class FwagentDaemon(FwObject):
             self.log.debug("already started, ignore")
             return
 
+        # Reload configuration.
+        fwglobals.g.load_configuration_from_file()
+
         # Ensure system compatibility with our soft
         if check_system and fwglobals.g.router_api.state_is_started():
             check_system = False    # No need to check system if VPP runs, it is too late :)
