@@ -27,24 +27,25 @@ import fwglobals
 
 from fwobject import FwObject
 
-# Valid service class values are between 0 to 15 (4 bits, Values 10 to 15 are unused at this point)
+# Valid service class values are between 0 to 15 (4 bits, Values 13 to 15 are unused at this point)
 MAX_TRAFFIC_SERVICE_CLASSES = 16
 
 #Update the below variable on adding new service class
-HIGHEST_IN_USE_TRAFFIC_CLASS = 9
+HIGHEST_IN_USE_TRAFFIC_CLASS = 10
 
 TRAFFIC_SERVICE_CLASS_VALUES = {
     'telephony'                 : 0,
     'broadcast-video'           : 1,
     'real-time'                 : 2,
     'signaling'                 : 3,
-    'network-control'           : 3,
-    'low-latency'               : 4,
-    'oam'                       : 5,
-    'high-throughput'           : 6,
-    'multimedia-conferencing'   : 7,
-    'multimedia-streaming'      : 8,
-    'default'                   : 9,
+    'network-control'           : 4,
+    'low-latency'               : 5,
+    'oam'                       : 6,
+    'high-throughput'           : 7,
+    'multimedia-conferencing'   : 8,
+    'multimedia-streaming'      : 9,
+    'custom:new service class'  : 10,
+    'default'                   : 10,
 }
 
 #Valid importance values are between 0 and 2 (2 bits, Value 3 is unused)
