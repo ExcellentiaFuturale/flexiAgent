@@ -1735,11 +1735,13 @@ def add_tunnel(params):
         fwglobals.g.qos.get_add_tunnel_qos_commands(params, cmd_list)
 
         if encryption_mode == "none":
-            loop0_cfg = {'addr':str(loop0_ip), 'mac':str(loop0_mac), 'mtu': 9000}
+            loop0_cfg = copy.deepcopy(params['loopback-iface'])
+            loop0_cfg.update({'addr':str(loop0_ip), 'mac':str(loop0_mac), 'mtu': 9000})
             bridge_id = params['tunnel-id']*2
             _add_loop_bridge_vxlan(cmd_list, params, loop0_cfg, remote_loop0_cfg, vxlan_ips, bridge_id=bridge_id, internal=False, loop_cache_key=loop0_cache_key)
         else:
-            loop1_cfg = {'addr':str(loop1_ip), 'mac':str(loop1_mac), 'mtu': 9000}
+            loop1_cfg = copy.deepcopy(params['loopback-iface'])
+            loop1_cfg.update({'addr':str(loop1_ip), 'mac':str(loop1_mac), 'mtu': 9000})
             bridge_id = params['tunnel-id']*2+1
             _add_loop_bridge_vxlan(cmd_list, params, loop1_cfg, remote_loop1_cfg, vxlan_ips, bridge_id=bridge_id, internal=True, loop_cache_key='loop1_sw_if_index')
 
