@@ -370,11 +370,13 @@ class Fwglobals(FwObject):
                 self.cfg.debug = yaml.load(debug_conf_file, Loader=yaml.SafeLoader)
 
         except Exception as e:
-            if log:
-                log.excep("%s, set debug configuration defaults" % str(e))
+            if debug_conf_file != self.DEBUG_CONF_FILE:
+                if log:
+                  log.error("load_debug_configuration_from_file() failed: %s" % str(e))
+                raise e
         # Print loaded configuration into log
         if self.cfg.DEBUG:
-            self.log.debug("Fwglobals debug configuration: " + json.dumps(self.cfg.debug, indent=2))
+            self.log.debug("Fwglobals debug configuration: \n" + json.dumps(self.cfg.debug, indent=2))
 
 
     def initialize_agent(self):
