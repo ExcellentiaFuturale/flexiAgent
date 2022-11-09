@@ -218,17 +218,21 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         self.call_hook('uninstall')
         self.cfg_db.clean()
 
-    def call_hook(self, hook_name, params=None):
+    def call_hook(self, hook_name, params=None, identifier=None):
         res = {}
         apps = self.cfg_db.get_applications()
         for app in apps:
-            identifier = app['identifier']
+            app_identifier = app['identifier']
+
+            if identifier and identifier != app_identifier:
+                continue
+
             try:
-                ret = self._call_application_api(identifier, hook_name, params)
+                ret = self._call_application_api(app_identifier, hook_name, params)
                 if ret:
-                    res[identifier] = ret
+                    res[app_identifier] = ret
             except Exception as e:
-                self.log.debug(f'call_hook({hook_name}): failed for identifier={identifier}: err={str(e)}')
+                self.log.debug(f'call_hook({hook_name}, {identifier}): failed for identifier={app_identifier}: err={str(e)}')
 
         return res
 
@@ -244,12 +248,12 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
     def get_log_filename(self, identifier):
         return self._call_application_api_safe(identifier, 'get_log_filename')
 
-def call_applications_hook(hook):
+def call_applications_hook(hook, identifier=None):
     '''This function calls a function within applications_api even if the agent object is not initialized
     '''
     # when calling this function from fwdump, there is no "g" in fwglobals
     if hasattr(fwglobals, 'g') and hasattr(fwglobals.g, 'applications_api'):
-        return fwglobals.g.applications_api.call_hook(hook)
+        return fwglobals.g.applications_api.call_hook(hook, identifier=identifier)
 
     with FWAPPLICATIONS_API() as applications_api:
-        return applications_api.call_hook(hook)
+        return applications_api.call_hook(hook, identifier=identifier)
