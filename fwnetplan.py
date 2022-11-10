@@ -232,7 +232,7 @@ def _dump_netplan_file(fname):
               % (fname, str(e))
             fwglobals.log.error(err_str)
 
-def _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw, dnsServers=None, dnsDomains=None):
+def _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw, dnsServers=None, dnsDomains=None, ignoreMtu=False):
     if 'dhcp6' in config_section:
         del config_section['dhcp6']
 
@@ -274,6 +274,9 @@ def _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw, dnsSer
         elif config_section.get('nameservers', {}).get('search'):
             del config_section['nameservers']['search']
 
+        if ignoreMtu:
+            config_section['dhcp4-overrides']['use-mtu'] = False
+
         return config_section
 
     # Static IP
@@ -306,7 +309,7 @@ def _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw, dnsSer
 
     return config_section
 
-def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dnsServers, dnsDomains, mtu=None, if_name=None, netplan_apply=True):
+def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dnsServers, dnsDomains, mtu=None, if_name=None):
     '''
     :param metric:  integer (whole number)
     '''
@@ -377,7 +380,9 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
             config_section['mtu'] = mtu
 
         # Configure DHCP related logic
-        config_section = _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw, dnsServers, dnsDomains)
+        ignoreMtu = True if mtu else False
+        config_section = _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip,
+                                                   gw, dnsServers, dnsDomains, ignoreMtu)
 
         # Note, for the LTE interface we have two interfaces.
         # The physical interface (wwan0) and the vppsb(vppX) interface.
@@ -463,8 +468,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         if not is_add and type == 'WAN':
             fwutils.remove_linux_default_route(ifname)
 
-        if netplan_apply:
-            fwutils.netplan_apply('add_remove_netplan_interface')
+        fwutils.netplan_apply('add_remove_netplan_interface')
 
         if is_add and set_name and set_name is not ifname and not is_lte:
             # To understand the following code, it is necessary to understand the following two principles:

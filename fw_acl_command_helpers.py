@@ -90,7 +90,8 @@ def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
 
         for proto in dst_proto:
             if proto == fwutils.proto_map['icmp']:
-                sport_from = sport_to = dport_from = dport_to = 0
+                sport_from = dport_from = 0
+                sport_to = dport_to = 0xffff
             else:
                 sport_from = src_port_from
                 sport_to = src_port_to

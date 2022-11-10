@@ -156,11 +156,12 @@ class FwRoutes(FwObject):
             via = route['via']
             metric = str(route.get('metric', '0'))
             dev_id = route.get('dev_id')
+            on_link = route.get('onLink', False)
             exist_in_linux = routes_linux.exist(addr, metric, via)
 
             if tunnel_addresses.get(via) == 'down':
                 if exist_in_linux:
-                    success, err_str = add_remove_route(addr, via, metric, True, dev_id, 'static')
+                    success, err_str = add_remove_route(addr, via, metric, True, dev_id, 'static', on_link=on_link)
                     if success:
                         fwglobals.log.debug(f"remove static route through the broken tunnel: {str(route)}")
                     else:
@@ -168,7 +169,7 @@ class FwRoutes(FwObject):
                 continue
 
             if not exist_in_linux:
-                success, err_str = add_remove_route(addr, via, metric, False, dev_id, 'static')
+                success, err_str = add_remove_route(addr, via, metric, False, dev_id, 'static', on_link=on_link)
                 if success:
                     fwglobals.log.debug(f"restore static route: {str(route)}")
                 else:
@@ -331,9 +332,12 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
     op     = 'replace'
 
     if remove:
-        if not next_hops:
-            op = 'del'
-        cmd = "sudo ip route %s %s%s proto %s %s" % (op, addr, metric, proto, next_hops)
+        if dev:  # If device was provided, delete specific route via this device only
+            cmd = "sudo ip route del %s%s proto %s dev %s" % (addr, metric, proto, dev)
+        else:    # Else delete all routes with same prefix and metric for all devices
+            if not next_hops:
+                op = 'del'
+            cmd = "sudo ip route %s %s%s proto %s %s" % (op, addr, metric, proto, next_hops)
     else:
         if via in next_hops:
             return (False, "via in next_hop")
@@ -386,9 +390,10 @@ def add_remove_static_routes(via, is_add):
         addr = route['addr']
         metric = str(route.get('metric', '0'))
         dev_id = route.get('dev_id')
+        on_link = route.get('onLink', False)
         via = route['via']
 
-        success, err_str = add_remove_route(addr, via, metric, not is_add, dev_id, 'static')
+        success, err_str = add_remove_route(addr, via, metric, not is_add, dev_id, 'static', on_link=on_link)
         if not success:
             fwglobals.log.error(f"failed to add/remove static route ({str(route)}): {err_str}")
 

@@ -289,7 +289,7 @@ def get_interface_gateway(if_name, if_dev_id=None):
         return '', ''
 
     rip    = route.split('via ')[1].split(' ')[0]
-    metric = '' if not 'metric ' in route else route.split('metric ')[1].split(' ')[0]
+    metric = '0' if not 'metric ' in route else route.split('metric ')[1].split(' ')[0]
     return rip, metric
 
 
@@ -390,11 +390,8 @@ def get_interface_address(if_name, if_dev_id=None, log=True, log_on_failure=None
             if_name = ppp_if_name
 
     interfaces = psutil.net_if_addrs()
-    if if_name not in interfaces:
-        fwglobals.log.debug("get_interface_address(%s): interfaces: %s" % (if_name, str(interfaces)))
-        return None
 
-    addresses = interfaces[if_name]
+    addresses = interfaces.get(if_name, [])
     for addr in addresses:
         if addr.family == socket.AF_INET:
             ip   = addr.address
@@ -970,6 +967,7 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
             fwglobals.g.cache.dev_id_to_vpp_if_name[bus] = vpp_tap
             fwglobals.g.cache.vpp_if_name_to_dev_id[vpp_tap] = bus
 
+    lte_dev_id_dict = None
     shif = _vppctl_read('show hardware-interfaces')
     if shif == None:
         fwglobals.log.debug("_build_dev_id_to_vpp_if_name_maps: Error reading interface info")
@@ -985,6 +983,19 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
             full_addr = dev_id_to_full(k)
             fwglobals.g.cache.dev_id_to_vpp_if_name[full_addr] = v
             fwglobals.g.cache.vpp_if_name_to_dev_id[v] = full_addr
+        else:
+            # Non PCI cases - LTE tap interfaces initialized by DPDK
+            lte_vpp_if_name = data.split(' ', 1)[0]
+            if 'dpdk-tap' in lte_vpp_if_name: #VPP LTE tap name starts with dpdk-tap
+                if lte_dev_id_dict is None:
+                    lte_dev_id_dict = fwlte.get_lte_interfaces_dev_ids()
+                for _, linux_dev_name in lte_dev_id_dict.items():
+                    # For LTE tap interfaces, data would have device args as 'iface=tap_wwan0'
+                    lte_dev_args = 'iface=' + generate_linux_interface_short_name("tap", linux_dev_name)
+                    if lte_dev_args in data:
+                        lte_dev_bus = build_interface_dev_id(linux_dev_name)
+                        fwglobals.g.cache.dev_id_to_vpp_if_name[lte_dev_bus] = lte_vpp_if_name
+                        fwglobals.g.cache.vpp_if_name_to_dev_id[lte_vpp_if_name] = lte_dev_bus
 
     vmxnet3hw = fwglobals.g.router_api.vpp_api.vpp.call('vmxnet3_dump')
     for hw_if in vmxnet3hw:
@@ -1639,10 +1650,10 @@ def reset_router_cfg():
     restore_dhcpd_files()
     reset_device_config_signature("empty_router_cfg", log=False)
 
-def reset_system_cfg():
+def reset_system_cfg(reset_lte_db=True):
     with FwSystemCfg(fwglobals.g.SYSTEM_CFG_FILE) as system_cfg:
         system_cfg.clean()
-    if 'lte' in fwglobals.g.db:
+    if 'lte' in fwglobals.g.db and reset_lte_db:
         fwglobals.g.db['lte'] = {}
     reset_device_config_signature("empty_system_cfg", log=False)
 
@@ -2078,9 +2089,37 @@ def vpp_startup_conf_remove_nopci(vpp_config_filename):
     p.dump(config, vpp_config_filename)
     return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
 
+def _vmxnet3_align_to_pow2_and_max_value(x):
+    """
+    vmxnet3 driver supports RX queues only values pow of 2 and the max value is 16
+    So we need to map configured value to supported as following:
+
+    1        -> 1
+    2,3      -> 2
+    4-7      -> 4
+    8-15     -> 8
+    >= 16    -> 16
+
+    :returns: Aligned value to closest which is supported.
+    """
+
+    if x//16:
+        pw = 16
+    elif x//8:
+        pw = 8
+    elif x//4:
+        pw = 4
+    elif x//2:
+        pw = 2
+    else:
+        pw = 1
+    return pw
+
 def vpp_startup_conf_add_devices(vpp_config_filename, devices):
     p = FwStartupConf(vpp_config_filename)
     hqos_capable = True if (p.get_cpu_hqos_workers() > 0) else False
+    tap_count = 0
+    tun_count = 0
 
     config = p.get_root_element()
 
@@ -2088,23 +2127,63 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
         tup = p.create_element('dpdk')
         config.append(tup)
 
+    # Ensure no stale tuntap interfaces created as part of PPPoE setup is left behind
+    tun_config_param = p.get_element(config['dpdk'], 'vdev net_')
+    while (tun_config_param):
+        p.remove_element(config['dpdk'], tun_config_param)
+        tun_config_param = p.get_element(config['dpdk'], 'vdev net_')
+
     for dev in devices:
         wan_if = fwglobals.g.router_cfg.get_interfaces(dev_id=dev, type='wan')
         qos_on_dev_id = True if (wan_if and (fwqos.has_qos_policy(dev_id=dev) == True)) else False
         dev_short = dev_id_to_short(dev)
         addr_type, addr_short = dev_id_parse(dev_short)
+        pppoe_if = fwpppoe.is_pppoe_interface(dev_id=dev)
 
         if addr_type == "pci":
             old_config_param = 'dev %s' % addr_short
-            if hqos_capable and qos_on_dev_id:
-                new_config_param = 'dev %s { hqos }' % addr_short
+
+            custom_config_param = ''
+            # For PPPoE interface, QoS is enabled on the corresponding tun interface
+            if hqos_capable and qos_on_dev_id and not pppoe_if:
+                custom_config_param +=' hqos'
+            if dev_id_is_vmxnet3(dev):
+                #for vmxnet3 we need to align value to supported numbers (pow of 2 and max is 16)
+                rx_queues = _vmxnet3_align_to_pow2_and_max_value(p.get_cpu_workers())
+                custom_config_param += ' num-rx-queues %s' % (rx_queues)
+
+            if custom_config_param:
+                new_config_param = "dev %s { %s }" % (addr_short, custom_config_param)
             else:
-                new_config_param = 'dev %s' % addr_short
+                new_config_param = "dev %s" % (addr_short)
+
             current_config_value = p.get_element(config['dpdk'],old_config_param)
             if (current_config_value != new_config_param):
                 p.remove_element(config['dpdk'], current_config_value)
                 tup = p.create_element(new_config_param)
                 config['dpdk'].append(tup)
+        elif addr_type == "usb":
+            iface_name = dev_id_to_linux_if(dev)
+            tap_linux_iface_name = generate_linux_interface_short_name("tap", iface_name)
+            tap_config_param = "vdev net_tap%d,iface=%s" % (tap_count, tap_linux_iface_name)
+            tap_config_param += ' { %s num-rx-queues 1 num-tx-queues 1 }' % \
+                ('hqos' if (hqos_capable and qos_on_dev_id) else '')
+            tup = p.create_element(tap_config_param)
+            config['dpdk'].append(tup)
+            tap_count += 1
+
+        if pppoe_if:
+            tun_linux_if_name,_ = fwglobals.g.pppoe.get_linux_and_vpp_tun_if_names(dev_id=dev)
+            tunnel_config_param = 'vdev net_tun%d,iface=%s' % (tun_count, tun_linux_if_name)
+            # If queues are not specified, DPDK tun interface init looks to be dynamically
+            # setting up queue numbers. Working compatibly with this dynamic queue setup may likely
+            # need corresponding changes from other configs (like tc) made in setting up PPPoE
+            tunnel_config_param += ' { %s num-rx-queues 1 num-tx-queues 1 }' % \
+                ('hqos' if (hqos_capable and qos_on_dev_id) else '')
+            tup = p.create_element(tunnel_config_param)
+            config['dpdk'].append(tup)
+            tun_count += 1
+
 
     p.dump(config, vpp_config_filename)
     return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
@@ -2179,43 +2258,33 @@ def get_lte_interfaces_names():
 
     return names
 
-def traffic_control_add_del_dev_ingress(dev_name, is_add):
+def traffic_control_add_del_qdisc(is_add, dev_name, class_name='ingress'):
+    add_delete = 'add' if is_add else 'del'
     try:
-        subprocess.check_call('sudo tc -force qdisc %s dev %s ingress handle ffff:' % ('add' if is_add else 'delete', dev_name), shell=True)
-        return (True, None)
-    except Exception:
-        return (True, None)
+        subprocess.check_call(f'sudo tc qdisc {add_delete} dev {dev_name} handle ffff: {class_name}', stderr=subprocess.STDOUT, shell=True)
+    except Exception as e:
+        fwglobals.log.error(f"traffic_control_add_del_qdisc({is_add}, {dev_name}, {class_name}): {str(e)}")
+        raise e
 
-def traffic_control_replace_dev_root(dev_name):
+def traffic_control_add_del_mirror_policy(is_add, from_ifc, to_ifc, set_dst_mac=None):
     try:
-        subprocess.check_call('sudo tc -force qdisc replace dev %s root handle 1: htb' % dev_name, shell=True)
-        return (True, None)
-    except Exception:
-        return (True, None)
-
-def traffic_control_remove_dev_root(dev_name):
-    try:
-        subprocess.check_call('sudo tc -force qdisc del dev %s root' % dev_name, shell=True)
-        return (True, None)
-    except Exception:
-        return (True, None)
+        cmd = f"tc filter {'add' if is_add  else 'del'} dev {from_ifc} parent ffff: \
+                protocol all prio 2 u32 \
+                match u32 0 0 flowid 1:1 \
+                {f'action pedit ex munge eth dst set {set_dst_mac}' if set_dst_mac else ''} \
+                pipe action mirred egress mirror dev {to_ifc} \
+                pipe action drop"
+        subprocess.check_call(cmd, stderr=subprocess.STDOUT, shell=True)
+    except Exception as e:
+        fwglobals.log.error(f"traffic_control_add_del_mirror_policy({is_add}, {from_ifc}, {to_ifc}, {set_dst_mac}): {str(e)}")
+        raise e
 
 def reset_traffic_control():
     fwglobals.log.debug('clean Linux traffic control settings')
-    search = []
-    lte_interfaces = get_lte_interfaces_names()
-
-    if lte_interfaces:
-        search.extend(lte_interfaces)
-
-    for term in search:
+    lte_interface_names = get_lte_interfaces_names()
+    for dev_name in lte_interface_names:
         try:
-            subprocess.check_call('sudo tc -force qdisc del dev %s root 2>/dev/null' % term, shell=True)
-        except:
-            pass
-
-        try:
-            subprocess.check_call('sudo tc -force qdisc del dev %s ingress handle ffff: 2>/dev/null' % term, shell=True)
+            subprocess.check_call(f'sudo tc -force qdisc del dev {dev_name} ingress handle ffff: 2>/dev/null', shell=True)
         except:
             pass
 
@@ -2692,15 +2761,19 @@ def fix_received_message(msg):
 
         return msg
 
-    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    # Order of functions is important, as the first one (_fix_aggregation_format())
-    # creates clone of the received message, so the rest functions can simply
-    # modify it as they wish!
-    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    msg = _fix_aggregation_format(msg)
-    msg = _fix_dhcp(msg)
-    msg = _fix_application(msg)
-    return msg
+    try:
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        # Order of functions is important, as the first one (_fix_aggregation_format())
+        # creates clone of the received message, so the rest functions can simply
+        # modify it as they wish!
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        msg = _fix_aggregation_format(msg)
+        msg = _fix_dhcp(msg)
+        msg = _fix_application(msg)
+        return msg
+    except Exception as e:
+        fwglobals.log.error(f"fix_received_message failed: {str(e)} {traceback.format_exc()}")
+        return None
 
 def decompress_params(params):
     """ Decompress parmas from base64 to object
@@ -3894,22 +3967,15 @@ def list_to_dict_by_key(list, key_name):
                 res[key] = item
     return res
 
-def get_lan_interfaces(type):
-    if getattr(fwglobals.g, 'router_cfg', False):
-        return fwglobals.g.router_cfg.get_interfaces(type=type)
-    else:
-        with FwRouterCfg(fwglobals.g.ROUTER_CFG_FILE) as router_cfg:
-            return router_cfg.get_interfaces(type=type)
-
 def get_device_networks_json(type=None):
     networks = set() # prevent duplication of bridged interfaces
 
-    interfaces = get_lan_interfaces(type)
+    interfaces = fwglobals.g.router_cfg.get_interfaces(type=type)
     for interface in interfaces:
         if interface['dhcp'] == 'yes':
             # take from interface itself
             linux_if_name = dev_id_to_linux_if_name_safe(interface['dev_id'])
-            network = get_interface_address(linux_if_name, log_on_failure=False)
+            network = get_interface_address(linux_if_name, log=False, log_on_failure=False)
             if network:
                 networks.add(network)
         else:
@@ -3919,11 +3985,10 @@ def get_device_networks_json(type=None):
 
 def shutdown_activate_bgp_peer_if_exists(neighbor_ip, shutdown):
     try:
-        bgp_requests = fwglobals.g.router_cfg.get_bgp()
-        if not bgp_requests:
+        bgp_config = fwglobals.g.router_cfg.get_bgp()
+        if not bgp_config:
             return (True, None)
 
-        bgp_config = bgp_requests[0]
         neighbors = bgp_config.get('neighbors', [])
 
         exists = False
@@ -3946,10 +4011,43 @@ def shutdown_activate_bgp_peer_if_exists(neighbor_ip, shutdown):
     except Exception as e:
         return (False, str(e))
 
+def exec_with_retrials(cmd, retrials = 30, expected_to_fail=False):
+    for _ in range(retrials):
+        try:
+            subprocess.check_output(cmd, shell=True).decode()
+            if not expected_to_fail:
+                return True
+        except:
+            if expected_to_fail:
+                return True
+        time.sleep(1)
+    return False
+
+def exec_to_file(cmd, file_name):
+    with open(file_name, 'w') as f:
+        try:
+            subprocess.call(cmd, stdout=f, shell=True)
+        except Exception as e:
+            fwglobals.log.excep(f"exec_to_file({cmd}, {file_name}) failed. error={str(e)}")
+            pass
+
+def build_tunnel_bgp_neighbor(tunnel):
+    loop0_ip         = tunnel['loopback-iface']['addr']
+    remote_loop0_ip  = build_tunnel_remote_loopback_ip(loop0_ip)
+    bgp_remote_asn   = tunnel['loopback-iface'].get('bgp-remote-asn')
+    return {
+        'ip': remote_loop0_ip,
+        'remoteAsn': bgp_remote_asn
+    }
+
 class FwJsonEncoder(json.JSONEncoder):
     '''Customization of the JSON encoder that is able to serialize simple
     Python objects, e.g. FwMultilinkLink. This encoder should be used within
     json.dump/json.dumps calls.
     '''
     def default(self, o):
-        return o.__dict__
+        try:
+            serialized = str(o)      # Firstly, probe the existence of __str__()
+        except:
+            serialized = o.__dict__  # As a last resort, assume complex object
+        return serialized

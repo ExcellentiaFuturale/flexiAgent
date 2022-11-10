@@ -389,6 +389,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             # In that case the cache becomes to be stale.
             #
             self._clear_monitor_interfaces()
+            fwpppoe.pppoe_reset()
 
             fwglobals.g.handle_request({'message': 'start-router'})
         except Exception as e:
@@ -564,14 +565,14 @@ class FWROUTER_API(FwCfgRequestHandler):
         try:
             req = request['message']
 
-            router_was_started = fwutils.vpp_does_run()
+            vpp_does_run = fwutils.vpp_does_run()
 
             # The 'add-application' and 'add-multilink-policy' requests should
             # be translated and executed only if VPP runs, as the translations
             # depends on VPP API-s output. Therefore if VPP does not run,
             # just save the requests in database and return.
             #
-            if router_was_started == False and \
+            if vpp_does_run == False and \
                 (req == 'add-application' or
                 req == 'add-multilink-policy' or
                 req == 'add-firewall-policy' or
@@ -599,13 +600,13 @@ class FWROUTER_API(FwCfgRequestHandler):
                 self.pending_cfg_db.remove(request)
                 if re.match('remove-',  req):
                     return {'ok':1}     # No further processing is needed for 'remove-X'.
-            if router_was_started and self.state_is_starting_stopping(): # For now enable pending requests on start-router only
+            if vpp_does_run and self.state_is_starting_stopping(): # For now enable pending requests on start-router only
                 if re.match('add-',  req) and self._is_pending_request(request):
                     self.pending_cfg_db.update(request)
                     self.cfg_db.remove(request)
                     return {'ok':1}
 
-            if router_was_started or req == 'start-router':
+            if vpp_does_run or req == 'start-router':
                 execute = True
             elif re.match('remove-',  req):
                 filter = 'must'
@@ -880,9 +881,6 @@ class FWROUTER_API(FwCfgRequestHandler):
                 reconnect_agent = True
             if modify_requests and self.state_is_started():
                 restart_dhcp_service = True
-            if (_should_restart_on_qos_policy(request) is True):
-                restart_router  = True
-                reconnect_agent = True
             return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
 
     def _preprocess_request(self, request):
@@ -1316,7 +1314,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         fwnetplan.load_netplan_filenames()
 
-        fwglobals.g.pppoe.stop(remove_tun=True)
+        fwglobals.g.pppoe.stop(reset_tun_if_params=True)
 
         self.multilink.db['links'] = {}
 
@@ -1378,7 +1376,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         with FwIKEv2() as ike:
             ike.clean()
         self._stop_threads()
-        fwglobals.g.pppoe.stop(remove_tun=True)
+        fwglobals.g.pppoe.stop(reset_tun_if_params=True)
         fwglobals.g.cache.dev_id_to_vpp_tap_name.clear()
         self.log.info("router is being stopped: vpp_pid=%s" % str(fwutils.vpp_pid()))
 

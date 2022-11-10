@@ -97,7 +97,7 @@ def add_firewall_policy(params):
                         rule_type, rule_index)
                     dest_rule_params = convert_dest_to_acl_rule_params(destination)
                     cmd_list.append(fw_acl_command_helpers.add_acl_rule(
-                        ingress_id, source, dest_rule_params, 0, 0, True, True, True))
+                        ingress_id, source, dest_rule_params, True, 0, 0, True, True))
 
                 if rule_type == InboundNatType.IDENTITY_MAPPING:
                     interface = destination.get('interface')

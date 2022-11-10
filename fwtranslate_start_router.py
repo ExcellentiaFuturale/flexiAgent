@@ -27,6 +27,7 @@ import fwnetplan
 import fwglobals
 import fwikev2
 import fwutils
+import fwlte
 import fw_nat_command_helpers
 
 # start_router
@@ -117,6 +118,9 @@ def start_router(params=None):
             # Non-dpdk interface should not appear in /etc/vpp/startup.conf because they don't have a pci address.
             # Additional spacial logic for these interfaces is at add_interface translator
             if fwutils.is_non_dpdk_interface(params['dev_id']):
+                # LTE interface requires startup conf entry for creating tap interface
+                if fwlte.is_lte_interface_by_dev_id(params['dev_id']):
+                    dev_id_list.append(params['dev_id'])
                 continue
             assigned_linux_interfaces.append(linux_if)
 

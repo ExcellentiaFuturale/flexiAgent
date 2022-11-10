@@ -101,12 +101,13 @@ class FwJobs(FwObject):
         if not job_id:
             return
 
+        self.current_job_id = job_id
+
         entry = self.db.get(job_id)
         if entry is not None:
-            self.log.debug("(start_record), job_id already added, nothing to do", job_id)
+            self.log.debug(f"start_recording(job_id={job_id}): job exists, return")
             return
 
-        self.current_job_id = job_id
         # pop the oldest item in the database, if max size exceeded
         if len(self.db) >= self.max_stored_jobs:
             self.db.pop(self.job_ids.pop(0))
@@ -120,6 +121,22 @@ class FwJobs(FwObject):
             'errors': [],
         }
         self.log.debug(f"(start_record), job_id {self.current_job_id} added, total number of recorded jobs {len(self.job_ids)}")
+
+    def add_record(self, job_id, err):
+        """Creates job record. Useful when the error occurred during pre-processing
+        of the request, but we still want to create a record of a failure
+
+        :param job_id:      The id of the job received from flexiManage.
+        :param error:       The error to be recorded.
+
+        :returns: None.
+        """
+        if not job_id:  # Take care of requests without 'job_id', like 'get-device-stats'
+            return
+
+        self.start_recording(job_id, { 'message': '' })
+        self.update_current_record(err)
+        self.stop_recording(job_id, { 'ok': 0})
 
     def update_current_record(self, error):
         """Updates current job record in case of an error. Uses stored current job id.
@@ -188,7 +205,7 @@ class FwJobs(FwObject):
         """
         jobs = []
         db_keys = (
-            list(filter(lambda job: job in job_ids, self.job_ids))
+            list(filter(lambda job_id: int(job_id) in job_ids, self.job_ids))
             if job_ids
             else self.job_ids
         )

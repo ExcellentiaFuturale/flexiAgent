@@ -23,12 +23,14 @@
 import json
 import os
 import glob
+import errno
 import ssl
 import socket
 import sys
 import time
 import random
 import signal
+import psutil
 import Pyro4
 import re
 import subprocess
@@ -377,6 +379,8 @@ class FwAgent(FwObject):
                 "User-Agent": "fwagent/%s" % (self.versions['components']['agent']['version'])
             }
 
+            fwthread.set_request_processing_thread()
+
             self.ws.connect(
                         url, headers = headers,
                         check_certificate=(not fwglobals.g.cfg.BYPASS_CERT))
@@ -400,6 +404,8 @@ class FwAgent(FwObject):
             self._mark_connection_failure(error)
             return False
 
+        finally:
+            fwthread.unset_request_processing_thread()
 
     def reconnect(self):
         """Closes and reestablishes the main WebSocket connection between
@@ -485,34 +491,49 @@ class FwAgent(FwObject):
         seq     = str(pmsg['seq'])              # Sequence number of the received message
         job_id  = str(pmsg.get('jobid',''))     # ID of job on flexiManage that sent this message
 
-        # In load simulator mode always reply ok on sync message
-        if fwglobals.g.loadsimulator and request["message"] == "sync-device":
-            reply = {"ok":1}
-        else:
-            default_route_before = fwutils.get_default_route()
+        try:
+            # In load simulator mode always reply ok on sync message
+            if fwglobals.g.loadsimulator and request["message"] == "sync-device":
+                reply = {"ok":1}
+            else:
+                default_route_before = fwutils.get_default_route()
 
-            msg_id = seq + " " if not job_id else seq + " job_id:" + job_id + " "
-            fwglobals.g.jobs.start_recording(job_id, request) # add a new job record
-            reply  = self.handle_received_request(request, log_prefix=msg_id)
-            fwglobals.g.jobs.stop_recording(job_id, reply)
+                msg_id = seq + " " if not job_id else seq + " job_id:" + job_id + " "
 
-            default_route_after = fwutils.get_default_route()
-            if default_route_before[2] != default_route_after[2]:  # reconnect the agent to avoid WebSocket timeout
-                self.log.debug(f"reconnect as default route was changed: '{default_route_before}' -> '{default_route_after}'")
-                self.reconnect()
+                msg = fwutils.fix_received_message(request)
+                if msg:
+                    fwglobals.g.jobs.start_recording(job_id, msg) # add a new job record
+                    reply  = self.handle_received_request(request, msg, log_prefix=msg_id)
+                    fwglobals.g.jobs.stop_recording(job_id, reply)
+                else:
+                    err_str = 'invalid message format'
+                    fwglobals.g.jobs.add_record(job_id, {'error': err_str})
+                    reply = {'ok':0, 'message': err_str}
 
-        # Messages that change the interfaces might break the existing connection
-        # (for example, if the WAN interface IP/mask has changed). Since sending
-        # the reply on a broken connection will not work, we close the connection
-        # before sending the reply and save the reply into pending queue.
-        # Later, when daemon re-opens the new connection by connection loop,
-        # we will pop the reply out of queue and will send it to the flexiManage.
-        #
-        if self.reconnecting == True:
-            self.log.info("_on_message: goes to reestablish connection, queue reply %s" % str(pmsg['seq']))
-            self.pending_msg_replies.append({'seq':pmsg['seq'], 'msg':reply})
-        else:
-            self.ws.send(json.dumps({'seq':pmsg['seq'], 'msg':reply}))
+                default_route_after = fwutils.get_default_route()
+                if default_route_before[2] != default_route_after[2]:  # reconnect the agent to avoid WebSocket timeout
+                    self.log.debug(f"reconnect as default route was changed: '{default_route_before}' -> '{default_route_after}'")
+                    self.reconnect()
+
+            # Messages that change the interfaces might break the existing connection
+            # (for example, if the WAN interface IP/mask has changed). Since sending
+            # the reply on a broken connection will not work, we close the connection
+            # before sending the reply and save the reply into pending queue.
+            # Later, when daemon re-opens the new connection by connection loop,
+            # we will pop the reply out of queue and will send it to the flexiManage.
+            #
+            if self.reconnecting == True:
+                self.log.info("_on_message: goes to reestablish connection, queue reply %s" % str(pmsg['seq']))
+                self.pending_msg_replies.append({'seq':pmsg['seq'], 'msg':reply})
+            else:
+                self.ws.send(json.dumps({'seq':pmsg['seq'], 'msg':reply}, cls=fwutils.FwJsonEncoder))
+
+        except Exception as e:
+            self.log.error(f"exception in _on_message(), reject received request ({str(e)})")
+            err_str = 'unknown error'
+            fwglobals.g.jobs.add_record(job_id, {'error': err_str})
+            reply = {'ok':0, 'message': err_str}
+            return json.dumps({'seq':pmsg['seq'], 'msg':reply})
 
     def disconnect(self):
         """Shutdowns the WebSocket connection.
@@ -522,7 +543,7 @@ class FwAgent(FwObject):
         if self.ws:
             self.ws.disconnect()
 
-    def handle_received_request(self, received_msg, log_prefix=''):
+    def handle_received_request(self, received_msg, msg=None, log_prefix=''):
         """Handles received request: invokes the global request handler
         while logging the request and the response returned by the global
         request handler. Note the global request handler is implemented
@@ -530,6 +551,7 @@ class FwAgent(FwObject):
         request handlers.
 
         :param received_msg:  the receive instance.
+        :param msg:           the normalized received message
         :param log_prefix:    the prefix to be added to the log line while printing message
 
         :returns: (reply, msg), where reply is reply to be sent back to server,
@@ -561,14 +583,14 @@ class FwAgent(FwObject):
                 reply_for_log = {"ok":1}
             else:
                 reply_for_log = reply
-            log_line = log_prefix + "handle_received_request:reply\n" + json.dumps(reply_for_log, sort_keys=True, indent=1)
+            log_line = log_prefix + "handle_received_request:reply\n" + json.dumps(reply_for_log, sort_keys=True, indent=1, cls=fwutils.FwJsonEncoder)
             self.log.debug(log_line)
             if logger:
                 logger.debug(log_line)
-
-
         try:
-            msg = fwutils.fix_received_message(received_msg)
+
+            if not msg:
+                msg = received_msg
 
             logger = log_request(msg, received_msg, log_prefix)
 
@@ -637,18 +659,24 @@ class FwAgent(FwObject):
             with open(filename, 'r') as f:
                 requests = json.loads(f.read())
 
+        fwthread.set_request_processing_thread()
+
         if type(requests) is list:   # Take care of file with list of requests
             for (idx, req) in enumerate(requests):
-                reply = self.handle_received_request(req)
+                msg = fwutils.fix_received_message(req)
+                reply = self.handle_received_request(req, msg)
                 if reply['ok'] == 0 and ignore_errors == False:
                     raise Exception('failed to inject request #%d in %s: %s' % \
                                     ((idx+1), filename, reply['message']))
+            fwthread.unset_request_processing_thread()
             return None
         else:   # Take care of file with single request
-            reply = self.handle_received_request(requests)
+            msg = fwutils.fix_received_message(requests)
+            reply = self.handle_received_request(requests, msg)
             if reply['ok'] == 0:
                 raise Exception('failed to inject request from within %s: %s' % \
                                 (filename, reply['message']))
+            fwthread.unset_request_processing_thread()
             return reply
 
 def version():
@@ -805,7 +833,7 @@ def show(agent, configuration, database, status, networks):
 
     if networks:
         networks_type = None if networks == 'all' else networks
-        out = fwutils.get_device_networks_json(type=networks_type)
+        out = daemon_rpc('show', what='networks', type=networks_type)
         if out:
             print(out)
 
@@ -1124,6 +1152,13 @@ def daemon(standalone=False):
     fwglobals.log.set_target(to_syslog=True, to_terminal=False)
     fwglobals.log.info("starting in daemon mode (standalone=%s)" % str(standalone))
 
+    # Ensure the IPC port is not in use
+    #
+    for c in psutil.net_connections():
+        if c.laddr.port == fwglobals.g.FWAGENT_DAEMON_PORT:
+            fwglobals.log.debug(f"port {c.laddr.port} is in use, try other port (fwagent_conf.yaml:daemon_socket)")
+            return
+
     with FwagentDaemon(standalone) as agent_daemon:
 
         # Start the FwagentDaemon main function in separate thread as it is infinite,
@@ -1185,7 +1220,7 @@ def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None,
                                 elements are api arguments.
                                 e.g. [ 'inject_requests', 'requests.json' ].
                                 If provided, no prompt loop will be run.
-    :param script_fname:        Shortcat for --api==inject_requests(<script_fname>)
+    :param script_fname:        Shortcut for --api==inject_requests(<script_fname>)
                                 command. Is kept for backward compatibility.
     :param template_fname:      Path to template file that includes variables to replace in the cli request.
     :returns: None.

@@ -1229,17 +1229,17 @@ class Checker:
             raise Exception(f'file not found: {networkd_filename}')
 
         try:
-            cmd = f"grep 'StartLimitInterval' {networkd_filename}"
+            cmd = f"systemctl show systemd-networkd | grep StartLimitInterval"
             out = subprocess.check_output(cmd, shell=True).decode().strip()
             match = re.search('=[ ]*([0-9]+)', out)
             if not match:
                 raise Exception(f"malformed StartLimitInterval line in {networkd_filename}: {out}")
             found_start_limit_interval = int(match.group(1))
         except subprocess.CalledProcessError:
-            return True  # restart limit does not appear in the file, so we are OK
+            return True   # restart limit is not configured at all, so we are OK
 
         try:
-            cmd = f"grep 'StartLimitBurst' {networkd_filename}"
+            cmd = f"systemctl show systemd-networkd | grep StartLimitBurst"
             out = subprocess.check_output(cmd, shell=True).decode().strip()
             match = re.search('=[ ]*([0-9]+)', out)
             if not match:
@@ -1248,11 +1248,11 @@ class Checker:
         except subprocess.CalledProcessError:
             found_start_limit_burst = 1
 
-        if not found_start_limit_interval:
+        if not found_start_limit_interval:  # If it is configured to '0', we are OK
             return True
 
         result = True if \
-            float(found_start_limit_interval)/float(found_start_limit_burst) < \
+            float(found_start_limit_interval)/float(found_start_limit_burst) <= \
             float(needed_start_limit_interval)/float(needed_start_limit_burst) else False
 
         if result or not fix:

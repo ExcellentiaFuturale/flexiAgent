@@ -50,6 +50,10 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         """
         FwCfgRequestHandler.__init__(self, fwsystem_translators, cfg, fwglobals.g.system_cfg)
         self.thread_lte_watchdog = None
+        self.lte_reconnect_interval_default = 10
+        self.lte_reconnect_interval_max = 120
+        self.lte_reconnect_interval = self.lte_reconnect_interval_default
+        self.lte_reconnect_retrials = 0
 
     def initialize(self):
         if self.thread_lte_watchdog is None:
@@ -73,6 +77,9 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         if  fwglobals.g.router_api.state_is_starting_stopping():
             return
 
+        is_all_lte_interfaces_connected = True
+        check_lte_disconnection = ticks % self.lte_reconnect_interval == 0
+
         wan_list = fwglobals.g.system_cfg.dump(types=['add-lte'])
         for wan in wan_list:
             dev_id = wan['params']['dev_id']
@@ -88,19 +95,21 @@ class FWSYSTEM_API(FwCfgRequestHandler):
             # Ensure that lte connection is opened.
             # Sometimes, the connection between modem and provider becomes disconnected
             #
-            if ticks % 10 == 0:
+            if check_lte_disconnection:
                 cmd = "fping 8.8.8.8 -C 1 -q -R -I %s > /dev/null 2>&1" % name
                 ok = not subprocess.call(cmd, shell=True)
                 if not ok:
                     connected = fwlte.mbim_is_connected(dev_id)
                     if not connected:
                         self.log.debug("lte modem is disconnected on %s" % dev_id)
-                        fwglobals.g.system_api.restore_configuration(types=['add-lte'])
-                        continue
 
-                    # Make sure that LTE Linux interface is up
-                    linux_ifc_name = fwutils.dev_id_to_linux_if(dev_id)
-                    os.system('ifconfig %s up' % linux_ifc_name)
+                        is_all_lte_interfaces_connected = False
+
+                        fwglobals.g.system_api.restore_configuration(types=['add-lte'])
+                    else:
+                        # Make sure that LTE Linux interface is up
+                        linux_ifc_name = fwutils.dev_id_to_linux_if(dev_id)
+                        os.system('ifconfig %s up' % linux_ifc_name)
 
             # Ensure that provider did not change IP provisioned to modem,
             # so the IP that we assigned to the modem interface is still valid.
@@ -130,9 +139,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                                 type='WAN',
                                 dnsServers=fwglobals.g.DEFAULT_DNS_SERVERS,
                                 dnsDomains=None,
-                                mtu=mtu,
-                                if_name=None,
-                                netplan_apply=True
+                                mtu=mtu
                             )
                         else:
                             fwlte.configure_interface({
@@ -142,6 +149,15 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
                         self.log.debug("%s: LTE IP was changed: %s -> %s" % (dev_id, iface_addr, modem_addr))
 
+        if check_lte_disconnection:
+            if is_all_lte_interfaces_connected:
+                self.lte_reconnect_interval = self.lte_reconnect_interval_default
+                self.lte_reconnect_retrials = 0
+            else:
+                self.lte_reconnect_retrials += 1
+                if self.lte_reconnect_retrials % 3 == 0:
+                    self.lte_reconnect_interval = min(self.lte_reconnect_interval_max, self.lte_reconnect_interval * 2)
+
     def sync_full(self, incoming_requests):
         if len(incoming_requests) == 0:
             self.log.info("sync_full: incoming_requests is empty, no need to full sync")
@@ -149,7 +165,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
         self.log.debug("sync_full: start system full sync")
 
-        fwutils.reset_system_cfg()
+        fwutils.reset_system_cfg(reset_lte_db=False)
         FwCfgRequestHandler.sync_full(self, incoming_requests)
 
         self.log.debug("sync_full: system full sync succeeded")

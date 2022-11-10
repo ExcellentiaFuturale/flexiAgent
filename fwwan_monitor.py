@@ -422,11 +422,11 @@ class FwWanMonitor(FwObject):
 
                 if 'vlan' in route.dev_id:
                     (success, err_str) = fwnetplan.add_remove_netplan_vlan(\
-                        True, route.dev_id, ip, via, new_metric, dhcp, 'WAN', netplan_apply=False)
+                        True, route.dev_id, ip, via, new_metric, dhcp, 'WAN')
                 else:
                     (success, err_str) = fwnetplan.add_remove_netplan_interface(\
                         True, route.dev_id, ip, via, new_metric, dhcp, 'WAN', dnsServers, dnsDomains,
-                        mtu, if_name=route.dev, netplan_apply=False)
+                        mtu, if_name=route.dev)
 
                 if not success:
                     route.ok = prev_ok
