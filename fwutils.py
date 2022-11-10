@@ -3734,11 +3734,10 @@ def send_udp_packet(src_ip, src_port, dst_ip, dst_port, dev_name, msg):
 def map_keys_to_acl_ids(acl_ids, arg):
     # arg carries command cache
     keys = acl_ids['keys']
-    i = 0
-    while i < len(keys):
-        keys[i] = arg[keys[i]]
-        i += 1
-    return keys
+    out_keys = []
+    for key in keys:
+        out_keys.append(arg[key])
+    return out_keys
 
 
 def build_timestamped_filename(filename, ext='', separator='_'):
