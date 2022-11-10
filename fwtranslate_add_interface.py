@@ -692,7 +692,7 @@ def add_interface(params):
     cmd['cmd']['object']  = "fwglobals.g.router_api"
     cmd['cmd']['descr']   = "postprocess add-interface"
     cmd['cmd']['params']  = {
-                    'type': 'switch-lan' if bridge_addr else str(int_type).lower(),
+                    'type': 'switch-lan' if bridge_addr else int_type,
                     'substs': [ { 'add_param':'sw_if_index', 'val_by_func':'dev_id_to_vpp_sw_if_index', 'arg':dev_id } ]
     }
     cmd['revert'] = {}
@@ -700,7 +700,7 @@ def add_interface(params):
     cmd['revert']['object'] = "fwglobals.g.router_api"
     cmd['revert']['descr']  = "preprocess remove-interface"
     cmd['revert']['params'] = {
-                    'type': 'switch-lan' if bridge_addr else str(int_type).lower(),
+                    'type': 'switch-lan' if bridge_addr else int_type,
                     'substs': [ { 'add_param':'sw_if_index', 'val_by_func':'dev_id_to_vpp_sw_if_index', 'arg':dev_id } ]
     }
     cmd_list.append(cmd)
