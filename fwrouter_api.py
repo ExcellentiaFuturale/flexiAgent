@@ -1417,6 +1417,9 @@ class FWROUTER_API(FwCfgRequestHandler):
         :param sw_if_index: vpp sw_if_index of the interface
         """
         self._update_cache_sw_if_index(sw_if_index, type, True)
+        if type == 'lan':
+            vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
+            fwutils.tunnel_change_postprocess(False, vpp_if_name)
 
     def _on_remove_interface_before(self, type, sw_if_index):
         """remove-interface preprocessing
@@ -1424,6 +1427,9 @@ class FWROUTER_API(FwCfgRequestHandler):
         :param type:        "wan"/"lan"
         :param sw_if_index: vpp sw_if_index of the interface
         """
+        if type == 'lan':
+            vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
+            fwutils.tunnel_change_postprocess(True, vpp_if_name)
         self._update_cache_sw_if_index(sw_if_index, type, False)
 
     def _on_add_tunnel_after(self, sw_if_index, params):
