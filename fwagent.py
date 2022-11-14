@@ -893,7 +893,7 @@ class FwagentDaemon(FwObject):
 
     The FwagentDaemon object is created by the 'fwagent daemon' command.
     """
-    def __init__(self):
+    def __init__(self, debug_conf_file=None):
         """Constructor method.
 
         """
@@ -902,6 +902,7 @@ class FwagentDaemon(FwObject):
         self.agent          = None
         self.active         = False
         self.thread_main    = None
+        globals.g.DEBUG_CONF_FILE = debug_conf_file
 
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT,  self._signal_handler)
@@ -1157,7 +1158,7 @@ def daemon(debug_conf_filename=None):
     # load configuration.
     fwglobals.g.load_debug_configuration_from_file(debug_conf_filename)
 
-    with FwagentDaemon() as agent_daemon:
+    with FwagentDaemon(debug_conf_filename) as agent_daemon:
 
         # Start the FwagentDaemon main function in separate thread as it is infinite,
         # and we need to get to Pyro4.Daemon.serveSimple() call to run rpc loop.

@@ -163,7 +163,7 @@ class Fwglobals(FwObject):
         :param filename:    YAML configuration file name.
         :param data_path:   Path to token file.
         """
-        def __init__(self, filename, debug_conf_filename, data_path, log=None):
+        def __init__(self, filename, data_path, log=None):
             """Constructor method
             """
             DEFAULT_BYPASS_CERT    = False
@@ -321,7 +321,7 @@ class Fwglobals(FwObject):
         self.is_gcp_vm                     = fwutils.detect_gcp_vm()
 
         # Load configuration from file
-        self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DEBUG_CONF_FILE, self.DATA_PATH, log=log)
+        self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
 
         self.FWAGENT_DAEMON_HOST = self.cfg.DAEMON_SOCKET_NAME.split(":")[0]
         self.FWAGENT_DAEMON_PORT = int(self.cfg.DAEMON_SOCKET_NAME.split(":")[1])
@@ -346,7 +346,7 @@ class Fwglobals(FwObject):
         :returns: None.
         """
         # Load configuration
-        self.cfg.__init__(self.FWAGENT_CONF_FILE, self.DEBUG_CONF_FILE, self.DATA_PATH)
+        self.cfg.__init__(self.FWAGENT_CONF_FILE, self.DATA_PATH)
         # Print loaded configuration into log
         if self.cfg.DEBUG:
             self.log.debug("Fwglobals configuration: " + self.__str__(), to_terminal=False)
