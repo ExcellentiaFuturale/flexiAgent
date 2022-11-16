@@ -379,7 +379,7 @@ class FwAgent(FwObject):
                 "User-Agent": "fwagent/%s" % (self.versions['components']['agent']['version'])
             }
 
-            fwglobals.g.router_threads.request_processing_thread_ident = threading.current_thread().ident
+            fwthread.set_request_processing_thread()
 
             self.ws.connect(
                         url, headers = headers,
@@ -405,8 +405,7 @@ class FwAgent(FwObject):
             return False
 
         finally:
-            fwglobals.g.router_threads.request_processing_thread_ident = None
-
+            fwthread.unset_request_processing_thread()
 
     def reconnect(self):
         """Closes and reestablishes the main WebSocket connection between
@@ -660,18 +659,24 @@ class FwAgent(FwObject):
             with open(filename, 'r') as f:
                 requests = json.loads(f.read())
 
+        fwthread.set_request_processing_thread()
+
         if type(requests) is list:   # Take care of file with list of requests
             for (idx, req) in enumerate(requests):
-                reply = self.handle_received_request(req)
+                msg = fwutils.fix_received_message(req)
+                reply = self.handle_received_request(req, msg)
                 if reply['ok'] == 0 and ignore_errors == False:
                     raise Exception('failed to inject request #%d in %s: %s' % \
                                     ((idx+1), filename, reply['message']))
+            fwthread.unset_request_processing_thread()
             return None
         else:   # Take care of file with single request
-            reply = self.handle_received_request(requests)
+            msg = fwutils.fix_received_message(requests)
+            reply = self.handle_received_request(requests, msg)
             if reply['ok'] == 0:
                 raise Exception('failed to inject request from within %s: %s' % \
                                 (filename, reply['message']))
+            fwthread.unset_request_processing_thread()
             return reply
 
 def version():

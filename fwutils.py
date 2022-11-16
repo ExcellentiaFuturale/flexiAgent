@@ -289,7 +289,7 @@ def get_interface_gateway(if_name, if_dev_id=None):
         return '', ''
 
     rip    = route.split('via ')[1].split(' ')[0]
-    metric = '' if not 'metric ' in route else route.split('metric ')[1].split(' ')[0]
+    metric = '0' if not 'metric ' in route else route.split('metric ')[1].split(' ')[0]
     return rip, metric
 
 
@@ -1609,10 +1609,10 @@ def reset_router_cfg():
     restore_dhcpd_files()
     reset_device_config_signature("empty_router_cfg", log=False)
 
-def reset_system_cfg():
+def reset_system_cfg(reset_lte_db=True):
     with FwSystemCfg(fwglobals.g.SYSTEM_CFG_FILE) as system_cfg:
         system_cfg.clean()
-    if 'lte' in fwglobals.g.db:
+    if 'lte' in fwglobals.g.db and reset_lte_db:
         fwglobals.g.db['lte'] = {}
     reset_device_config_signature("empty_system_cfg", log=False)
 
@@ -2048,6 +2048,32 @@ def vpp_startup_conf_remove_nopci(vpp_config_filename):
     p.dump(config, vpp_config_filename)
     return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
 
+def _vmxnet3_align_to_pow2_and_max_value(x):
+    """
+    vmxnet3 driver supports RX queues only values pow of 2 and the max value is 16
+    So we need to map configured value to supported as following:
+
+    1        -> 1
+    2,3      -> 2
+    4-7      -> 4
+    8-15     -> 8
+    >= 16    -> 16
+
+    :returns: Aligned value to closest which is supported.
+    """
+
+    if x//16:
+        pw = 16
+    elif x//8:
+        pw = 8
+    elif x//4:
+        pw = 4
+    elif x//2:
+        pw = 2
+    else:
+        pw = 1
+    return pw
+
 def vpp_startup_conf_add_devices(vpp_config_filename, devices):
     p = FwStartupConf(vpp_config_filename)
     hqos_capable = True if (p.get_cpu_hqos_workers() > 0) else False
@@ -2075,11 +2101,21 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
 
         if addr_type == "pci":
             old_config_param = 'dev %s' % addr_short
+
+            custom_config_param = ''
             # For PPPoE interface, QoS is enabled on the corresponding tun interface
             if hqos_capable and qos_on_dev_id and not pppoe_if:
-                new_config_param = 'dev %s { hqos }' % addr_short
+                custom_config_param +=' hqos'
+            if dev_id_is_vmxnet3(dev):
+                #for vmxnet3 we need to align value to supported numbers (pow of 2 and max is 16)
+                rx_queues = _vmxnet3_align_to_pow2_and_max_value(p.get_cpu_workers())
+                custom_config_param += ' num-rx-queues %s' % (rx_queues)
+
+            if custom_config_param:
+                new_config_param = "dev %s { %s }" % (addr_short, custom_config_param)
             else:
-                new_config_param = 'dev %s' % addr_short
+                new_config_param = "dev %s" % (addr_short)
+
             current_config_value = p.get_element(config['dpdk'],old_config_param)
             if (current_config_value != new_config_param):
                 p.remove_element(config['dpdk'], current_config_value)
@@ -3698,11 +3734,10 @@ def send_udp_packet(src_ip, src_port, dst_ip, dst_port, dev_name, msg):
 def map_keys_to_acl_ids(acl_ids, arg):
     # arg carries command cache
     keys = acl_ids['keys']
-    i = 0
-    while i < len(keys):
-        keys[i] = arg[keys[i]]
-        i += 1
-    return keys
+    out_keys = []
+    for key in keys:
+        out_keys.append(arg[key])
+    return out_keys
 
 
 def build_timestamped_filename(filename, ext='', separator='_'):

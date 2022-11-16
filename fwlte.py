@@ -475,7 +475,7 @@ def connect(params):
             time.sleep(1)
             inserted = is_sim_inserted(dev_id)
             if not inserted:
-                raise Exception("Sim is not presented")
+                raise Exception("SIM not present")
 
         # check PIN status
         pin_state = get_pin_state(dev_id).get('pin1_status', 'disabled')
@@ -489,7 +489,7 @@ def connect(params):
             # and we will not try again with this wrong one.
             wrong_pin = get_db_entry(dev_id, 'wrong_pin')
             if wrong_pin and wrong_pin == pin:
-                raise Exception("PIN is wrong")
+                raise Exception("Wrong PIN provisioned")
 
             _, err = qmi_verify_pin(dev_id, pin)
             if err:

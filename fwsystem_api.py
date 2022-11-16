@@ -139,9 +139,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                                 type='WAN',
                                 dnsServers=fwglobals.g.DEFAULT_DNS_SERVERS,
                                 dnsDomains=None,
-                                mtu=mtu,
-                                if_name=None,
-                                netplan_apply=True
+                                mtu=mtu
                             )
                         else:
                             fwlte.configure_interface({
@@ -167,7 +165,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
         self.log.debug("sync_full: start system full sync")
 
-        fwutils.reset_system_cfg()
+        fwutils.reset_system_cfg(reset_lte_db=False)
         FwCfgRequestHandler.sync_full(self, incoming_requests)
 
         self.log.debug("sync_full: system full sync succeeded")

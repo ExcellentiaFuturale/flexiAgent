@@ -141,10 +141,7 @@ class FwQoS(FwObject):
         self.__qos_db['traffic-map'] = get_default_qos_traffic_map()
 
 
-    def __del__(self):
-        """
-        Destructor - Close SqliteDict
-        """
+    def finalize(self):
         self.__qos_db.close()
 
 
@@ -691,43 +688,6 @@ class FwQoS(FwObject):
             cmd_list.append(cmd)
 
 
-    def __get_enable_classification_acls_commands(self, sw_if_index, cmd_list):
-        """
-        The traffic classification ACLs are added while processing add-application message.
-        But the classification shall not be enabled till QoS policy is applied. This
-        function enables the already configured classification-ACLs on the given interface
-
-        :param sw_if_index: VPP identifier for given dev_id
-        :type sw_if_index: Integer
-        :param cmd_list: Command array to be updated with commands
-        :type cmd_list: Array
-        """
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']      = "call_vpp_api"
-        cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
-        cmd['cmd']['descr']     = "Enable ACL based classification on LAN sw_if_index: %d" % sw_if_index
-        cmd['cmd']['params']    =   {
-            'api'  : "classifier_acls_enable_disable",
-            'args' : {
-                'sw_if_index'   : sw_if_index,
-                'enable_disable': True
-            }
-        }
-        cmd['revert'] = {}
-        cmd['revert']['func']      = "call_vpp_api"
-        cmd['revert']['object']    = "fwglobals.g.router_api.vpp_api"
-        cmd['revert']['descr']     = "Enable ACL based classification on LAN sw_if_index: %d" % sw_if_index
-        cmd['revert']['params']    =   {
-            'api'  : "classifier_acls_enable_disable",
-            'args' : {
-                'sw_if_index'   : sw_if_index,
-                'enable_disable': False
-            }
-        }
-        cmd_list.append(cmd)
-
-
     def update_hqos_worker_state(self, hqos_core_enabled, num_worker_cores):
         """
         Maintain context on if hqos core is enabled and the number of available total cpu workers.
@@ -935,14 +895,19 @@ class FwQoS(FwObject):
         :type params: dict
         :param cmd_list: Command array to be updated with commands
         :type cmd_list: Array
-        :return: Array of commands generated
-        :rtype: Array
         """
+        if (not self.__hqos_core_enabled):
+            self.log.debug('Add-Interface : QoS is not enabled in device')
+            return
         dev_id = params.get('dev_id')
+        sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
+        get_interface_classification_attach_command(sw_if_index, cmd_list)
+        get_interface_classification_enable_command(sw_if_index, cmd_list)
+
         qos_policy = self.__get_qos_policy(dev_id)
-        if (self.__hqos_core_enabled is False) or qos_policy is None:
-            self.log.debug('Add-Interface : QoS is not supported/configured: %s' % dev_id)
-            return cmd_list
+        if qos_policy is None:
+            self.log.debug('Add-Interface : QoS is not supported on the interface: %s' % dev_id)
+            return
 
         tx_Bps = 0
         bandwidth_mbps = params.get('bandwidthMbps')
@@ -951,7 +916,6 @@ class FwQoS(FwObject):
         if tx_Bps == 0:
             tx_Bps = self.__INTERFACE_BANDWIDTH_DEFAULT_BPS
         scheduling_params = qos_policy['outbound']['scheduling']
-        sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
 
         if self.__qos_db['interfaces'].get(dev_id) is None:
             # IF-Path: Flow of add-interface during VPP startup
@@ -993,14 +957,12 @@ class FwQoS(FwObject):
         :type params: dict
         :param cmd_list: Command array to be updated with commands
         :type cmd_list: Array
-        :return: Array of commands generated
-        :rtype: Array
         """
         dev_id = params.get('dev_id')
         qos_policy = self.__get_qos_policy(dev_id)
-        if (self.__hqos_core_enabled is False) or qos_policy is None:
+        if (not self.__hqos_core_enabled) or qos_policy is None:
             self.log.debug('Add-Tunnel : QoS is not supported/configured: %s' % dev_id)
-            return cmd_list
+            return
 
         tx_Bps = self.__get_tunnel_tx_bandwidth_Bps (params)
         scheduling_params = qos_policy['outbound']['scheduling']
@@ -1023,14 +985,12 @@ class FwQoS(FwObject):
         :type previous_params: dict
         :param cmd_list: Command array to be updated with commands
         :type cmd_list: Array
-        :return: Array of commands generated
-        :rtype: Array
         """
         dev_id = params.get('dev_id')
         qos_policy = self.__get_qos_policy(dev_id)
-        if (self.__hqos_core_enabled is False) or qos_policy is None:
+        if (not self.__hqos_core_enabled) or qos_policy is None:
             self.log.debug('Modify-Tunnel : QoS is not supported/configured: %s' % dev_id)
-            return cmd_list
+            return
 
         tx_Bps = self.__get_tunnel_tx_bandwidth_Bps (params)
         previous_tx_Bps = self.__get_tunnel_tx_bandwidth_Bps (previous_params)
@@ -1040,7 +1000,7 @@ class FwQoS(FwObject):
             #No change detected
             self.log.debug('QoS(Interface: %s) - No bandwidth change detected on \
                 modify tunnel-id : %d' % (dev_id, tunnel_id))
-            return cmd_list
+            return
 
         scheduling_params = qos_policy['outbound']['scheduling']
         sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
@@ -1049,6 +1009,41 @@ class FwQoS(FwObject):
         self.__get_tunnel_bandwidth_update_command\
             (dev_id, sw_if_index, scheduling_params, tunnel_id,
             qos_hierarchy_id, tx_Bps, previous_tx_Bps, cmd_list)
+
+
+    def get_tunnel_classification_setup_commands (self, params, tun_sw_if_index_key, cmd_list):
+        """
+        Get commands to enable classification on tunnel interface
+
+        :param params: Tunnel configuration parameters
+        :type params: dict
+        :param tun_sw_if_index_key: It can either be an integer representing the VPP interface or
+        a key to be used to lookup the actual sw_if_index from command cache
+        :type tun_sw_if_index_key: Integer or String
+        :param cmd_list: Array of generated configuration commands
+        :type cmd_list: Array
+        """
+        dev_id = params.get('dev_id')
+        qos_policy = self.__get_qos_policy(dev_id)
+        # Enable if QoS is enabled and policy is applied on the WAN interface
+        if self.__hqos_core_enabled and qos_policy:
+            get_interface_classification_attach_command(tun_sw_if_index_key, cmd_list)
+            get_interface_classification_enable_command(tun_sw_if_index_key, cmd_list)
+
+
+    def get_bvi_classification_setup_commands (self, bvi_sw_if_index_key, cmd_list):
+        """
+        Get commands to enable classification on Bidge interface
+
+        :param bvi_sw_if_index_key: It can either be an integer representing the VPP interface or
+        a key to be used to lookup the actual sw_if_index from command cache
+        :type bvi_sw_if_index_key: Integer or String
+        :param cmd_list: Array of generated configuration commands
+        :type cmd_list: Array
+        """
+        if (self.__hqos_core_enabled):
+            get_interface_classification_attach_command(bvi_sw_if_index_key, cmd_list)
+            get_interface_classification_enable_command(bvi_sw_if_index_key, cmd_list)
 
 
     def add_qos_policy (self, params):
@@ -1063,7 +1058,7 @@ class FwQoS(FwObject):
         :rtype: Array
         """
         cmd_list = []
-        if (self.__hqos_core_enabled is False):
+        if (not self.__hqos_core_enabled):
             self.log.warning('No Op - QoS policy - HQoS not enabled')
             return cmd_list
 
@@ -1083,15 +1078,6 @@ class FwQoS(FwObject):
                 # Update traffic map and DSCP marking based on policy
                 self.__get_interface_traffic_map_update_commands\
                     (dev_id, sw_if_index, scheduling_params, False, cmd_list)
-
-                # Enable ACL based classification on the WAN interfaces
-                self.__get_enable_classification_acls_commands(sw_if_index, cmd_list)
-
-        # Enable ACL based classification on all LAN interfaces
-        lan_if_list = fwglobals.g.router_cfg.get_interfaces(type='lan')
-        for lan_if in lan_if_list:
-            lan_sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(lan_if['dev_id'])
-            self.__get_enable_classification_acls_commands(lan_sw_if_index, cmd_list)
 
         return cmd_list
 
@@ -1268,3 +1254,106 @@ def qos_db_dumps():
         db_keys = sorted(qos_db.keys())
         dump = [ { key: qos_db[key] } for key in db_keys ]
         return json.dumps(dump, indent=2, sort_keys=True)
+
+
+def get_interface_classification_attach_command(sw_if_index_key, cmd_list):
+    """
+    Generate commands to attach classification ACLs to the given interface
+
+    :param sw_if_index_key: It can either be an integer representing the VPP interface or a key
+    to be used to lookup the actual sw_if_index from command cache
+    :type sw_if_index_key: Integer or String
+    :param cmd_list: Array of generated configuration commands
+    :type cmd_list: Array
+    """
+    add_param_sw_if_index = False if isinstance(sw_if_index_key, int) else True
+
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']  = "call_vpp_api"
+    cmd['cmd']['descr'] = "Attach classification ACLs to sw_if_index key : %s" % sw_if_index_key
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params'] = {
+        'api':  "classifier_acls_set_interface",
+        'args': {
+            'is_add': True
+        }
+    }
+    args = cmd['cmd']['params']['args']
+    if add_param_sw_if_index:
+        args['substs'] = [
+                { 'add_param': 'sw_if_index', 'val_by_key': sw_if_index_key }
+            ]
+    else:
+        args['sw_if_index'] = sw_if_index_key
+
+    cmd['revert'] = {}
+    cmd['revert']['func']  = "call_vpp_api"
+    cmd['revert']['descr'] = "Detach classification ACLs to sw_if_index key : %s" % sw_if_index_key
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['params'] = {
+        'api': "classifier_acls_set_interface",
+        'args': {
+            'is_add': False,
+        }
+    }
+    args = cmd['revert']['params']['args']
+    if add_param_sw_if_index:
+        args['substs'] = [
+            { 'add_param': 'sw_if_index', 'val_by_key': sw_if_index_key }
+        ]
+    else:
+        args['sw_if_index'] = sw_if_index_key
+
+    cmd_list.append(cmd)
+
+
+def get_interface_classification_enable_command(sw_if_index_key, cmd_list):
+    """
+    Enables the classification-ACLs on the given interface
+
+    :param sw_if_index_key: It can either be an integer representing the VPP interface or a key
+    to be used to lookup the actual sw_if_index from command cache
+    :type sw_if_index_key: Integer or String
+    :param cmd_list: Array of generated configuration commands
+    :type cmd_list: Array
+    """
+    add_param_sw_if_index = False if isinstance(sw_if_index_key, int) else True
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']      = "call_vpp_api"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['descr']     = "Enable ACL based classification on LAN sw_if_index key: %s" % sw_if_index_key
+    cmd['cmd']['params']    = {
+        'api'  : "classifier_acls_enable_disable",
+        'args' : {
+            'enable_disable': True
+        }
+    }
+    args = cmd['cmd']['params']['args']
+    if add_param_sw_if_index:
+        args['substs'] = [
+                { 'add_param': 'sw_if_index', 'val_by_key': sw_if_index_key }
+            ]
+    else:
+        args['sw_if_index'] = sw_if_index_key
+
+    cmd['revert'] = {}
+    cmd['revert']['func']      = "call_vpp_api"
+    cmd['revert']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['descr']     = "Enable ACL based classification on sw_if_index key: %s" % sw_if_index_key
+    cmd['revert']['params']    =   {
+        'api'  : "classifier_acls_enable_disable",
+        'args' : {
+            'enable_disable': False
+        }
+    }
+    args = cmd['revert']['params']['args']
+    if add_param_sw_if_index:
+        args['substs'] = [
+            { 'add_param': 'sw_if_index', 'val_by_key': sw_if_index_key }
+        ]
+    else:
+        args['sw_if_index'] = sw_if_index_key
+
+    cmd_list.append(cmd)

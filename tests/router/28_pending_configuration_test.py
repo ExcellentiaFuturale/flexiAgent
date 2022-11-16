@@ -115,10 +115,13 @@ def flow_01():
 
 ################################################################################
 # This flow is pretty same as the flow_01, but:
-# 1. It firstly applies configuration and then starts router
+# 1. It firstly starts router and then applies configuration
 # 2. The 'remove-X' is injected after router was stopped and not before
+#
+# NOTE: THIS FLOW IS NOT SUPPORTED ANYMORE AS IT WAS DECIDED TO USE PENDING
+#       MECHANISM ON ROUTER STARTING ONLY !!!
 ################################################################################
-def flow_02():
+def flow_02___not_supported_anymore():
     with fwtests.TestFwagent() as agent:
 
         # Check no failure on 'start-router' and storing pending requests
@@ -169,7 +172,7 @@ def flow_02():
 # 3. It tests recovery from pending condition (using 'modify-interface' to assing
 #    IP to the WAN interface that was without IP).
 ################################################################################
-def flow_03():
+def flow_02():
     with fwtests.TestFwagent() as agent:
 
         # Check no failure on 'start-router' and storing pending requests
@@ -206,8 +209,11 @@ def flow_03():
 ################################################################################
 # This flow is pretty same as the flow_03, but:
 # 1. It firstly applies configuration and then starts router
+#
+# NOTE: THIS FLOW IS NOT SUPPORTED ANYMORE AS IT WAS DECIDED TO USE PENDING
+#       MECHANISM ON ROUTER STARTING ONLY !!!
 ################################################################################
-def flow_04():
+def flow_04___not_supported_anymore():
     with fwtests.TestFwagent() as agent:
 
         # Check no failure on 'start-router' and storing pending requests
@@ -247,10 +253,10 @@ def flow_04():
 # database and than starts synchronization. As a result,
 # 1. If pending condition still exists, the pending database should be recreated
 #    as it was before 'sync-device' was received.
-# 2. If pending condition was removed, the peding database should become empty
+# 2. If pending condition was removed, the pending database should become empty
 #    after the 'sync-device' handling was finished.
 ################################################################################
-def flow_05():
+def flow_05___not_supported_anymore():
     with fwtests.TestFwagent() as agent:
 
         # Start router under the peding condition.
@@ -291,7 +297,7 @@ def flow_05():
 # This flow is pretty same as the flow_05, but it tests 'sync-device' when VPP
 # does not run.
 ################################################################################
-def flow_06():
+def flow_03():
     with fwtests.TestFwagent() as agent:
 
         # Start router under the peding condition and stop it.
@@ -326,6 +332,7 @@ def flow_06():
 
 
 def test():
+
     print("")
     print("    flow_01")
     flow_01()
@@ -333,12 +340,6 @@ def test():
     flow_02()
     print("    flow_03")
     flow_03()
-    print("    flow_04")
-    flow_04()
-    print("    flow_05")
-    flow_05()
-    print("    flow_06")
-    flow_06()
 
 if __name__ == '__main__':
     test()

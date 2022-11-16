@@ -465,6 +465,7 @@ class Fwglobals(FwObject):
         self.router_threads.teardown = True   # Stop all threads in parallel to speedup gracefull exit
 
         try:
+            self.qos.finalize()
             self.routes.finalize()
             self.pppoe.finalize()
             self.wan_monitor.finalize()
