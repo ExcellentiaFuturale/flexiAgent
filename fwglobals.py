@@ -63,8 +63,7 @@ from fw_traffic_identification import FwTrafficIdentifications
 # VXLAN UDP default, source and destination ports
 global VXLAN_PORTS
 VXLAN_PORTS = {
-    "src_port": 4789,            # UDP VXLAN local listening port
-    "dst_port": 4789,            # UDP VXLAN remote listening port
+    "port": 4789,                # UDP VXLAN port
     "default_port": 4789,        # UDP VXLAN 4789 default port
 }
 
@@ -73,7 +72,7 @@ global WAN_INTERFACE_SERVICES
 WAN_INTERFACE_SERVICES = {
   "VXLAN Tunnel":
     {
-        "port": VXLAN_PORTS['src_port'],
+        "port": VXLAN_PORTS['port'],
         "protocol": "udp"
     }
 }
@@ -208,9 +207,9 @@ class Fwglobals(FwObject):
                 global VXLAN_PORTS
                 if conf.get('vxlan', {}):
                     VXLAN_PORTS = {**VXLAN_PORTS, **conf.get('vxlan', {})}  # merge both dictionaries
-                    if VXLAN_PORTS["src_port"]:
+                    if VXLAN_PORTS["port"]:
                         global WAN_INTERFACE_SERVICES
-                        WAN_INTERFACE_SERVICES["VXLAN Tunnel"]["port"] = VXLAN_PORTS["src_port"]
+                        WAN_INTERFACE_SERVICES["VXLAN Tunnel"]["port"] = VXLAN_PORTS["port"]
                 self.DAEMON_SOCKET_NAME  = agent_conf.get('daemon_socket',  DEFAULT_DAEMON_SOCKET_NAME)
             except Exception as e:
                 if log:

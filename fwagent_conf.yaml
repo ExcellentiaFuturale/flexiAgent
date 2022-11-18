@@ -12,5 +12,4 @@ edgeui:
   enabled: true                         # default or omit: true
 
 vxlan:
-  src_port: 4789                        # VXLAN UDP local listening port
-  dst_port: 4789                        # VXLAN UDP remote listening port
+  port: 4789                            # VXLAN UDP port

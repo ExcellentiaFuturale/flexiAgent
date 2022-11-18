@@ -775,8 +775,8 @@ def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
             'dst_address'          : dst_addr,
             'vni'                  : bridge_id,
             # 'dest_port'            : int(params.get('dstPort', 4789)),
-            'src_port'             : int(params.get('srcPort')) if 'srcPort' in params else fwglobals.VXLAN_PORTS['src_port'],
-            'dst_port'             : int(params.get('dstPort', fwglobals.VXLAN_PORTS['dst_port'])),
+            'src_port'             : int(params.get('srcPort')) if 'srcPort' in params else fwglobals.VXLAN_PORTS['port'],
+            'dst_port'             : int(params.get('dstPort', fwglobals.VXLAN_PORTS['port'])),
             'substs': [{'add_param': 'next_hop_sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': params['dev_id']},
                        {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [dst, dev_id]},
                        {'add_param': 'qos_hierarchy_id',
@@ -787,8 +787,8 @@ def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
     }
 
     # Verify if the port sent from fleximanage is 4789. If so, change it with the local ports
-    if cmd_params['src_port'] == fwglobals.VXLAN_PORTS['default_port']: cmd_params['src_port'] = fwglobals.VXLAN_PORTS['src_port']
-    if cmd_params['dst_port'] == fwglobals.VXLAN_PORTS['default_port']: cmd_params['dst_port'] = fwglobals.VXLAN_PORTS['dst_port']
+    if cmd_params['src_port'] == fwglobals.VXLAN_PORTS['default_port']: cmd_params['src_port'] = fwglobals.VXLAN_PORTS['port']
+    if cmd_params['dst_port'] == fwglobals.VXLAN_PORTS['default_port']: cmd_params['dst_port'] = fwglobals.VXLAN_PORTS['port']
 
     cmd = {}
     cmd['cmd'] = {}
