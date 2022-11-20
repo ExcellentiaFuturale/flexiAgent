@@ -173,6 +173,7 @@ def _get_neighbor_address_family_frr_commands(neighbor):
     ip = neighbor.get('ip')
     inbound_filter = neighbor.get('inboundFilter')
     outbound_filter = neighbor.get('outboundFilter')
+    send_community = neighbor.get('sendCommunity')
 
     commands = [
         f'neighbor {ip} activate',
@@ -183,6 +184,19 @@ def _get_neighbor_address_family_frr_commands(neighbor):
 
     if outbound_filter:
         commands.append(f'neighbor {ip} route-map {outbound_filter} out')
+
+    if send_community:
+        # There are several types of community: Standard, Extended and Large.
+        # By default, all of them are enabled.
+        # Large includes Extended and Standard.
+        # Extended includes Standard.
+        # To send only one/few of them, it is necessary to run first "no neighbor x.x.x.x send-community all".
+        # Only then, we can decide which of the types to enable.
+        if send_community != 'all':
+            commands.append(f'no neighbor {ip} send-community all')
+        commands.append(f'neighbor {ip} send-community {send_community}')
+    else:
+        commands.append(f'no neighbor {ip} send-community all')
 
     return commands
 
