@@ -148,7 +148,7 @@ class FwJobs(FwObject):
 
         self.update_job_record(self.current_job_id, error)
 
-    def update_job_record(self, job_id, error):
+    def update_record(self, job_id, error):
         """Updates job record in case of an error.
 
         :param job_id:      The id of the job to update.
@@ -247,3 +247,33 @@ class FwJobs(FwObject):
         if not job_id:
             job_id = self.current_job_id
         return self.db.get(job_id, {}).get('errors', [])
+
+if __name__ == '__main__':
+    import argparse
+
+    jobs_file = '/etc/flexiwan/agent/.jobs.sqlite'
+    jobs = FwJobs(jobs_file)
+    command_functions = {
+                    'show': lambda _: print(jobs.dumps()),
+                    'update': lambda args: jobs.update_record(args.job_id, {'request': args.request, 'command': args.command, 'error': args.job_error}) }
+
+    parser = argparse.ArgumentParser(
+        description="fwjobs command line interface",
+        formatter_class=argparse.RawTextHelpFormatter)
+    subparsers = parser.add_subparsers(help='Jobs commands', dest='jobs_commands')
+    subparsers.required = True
+
+    parser_show = subparsers.add_parser('show', help='Prints job information to stdout')
+
+    parser_update = subparsers.add_parser('update', help='Updates job information')
+    parser_update.add_argument('-p', '--job_id', dest='job_id', default=None,
+                        help="job id")
+    parser_update.add_argument('-r', '--request', dest='request', default=None,
+                        help="failed job request")
+    parser_update.add_argument('-c', '--command', dest='command', default=None,
+                        help="failed job command")
+    parser_update.add_argument('-e', '--job_error', dest='job_error', default=None,
+                        help="job error")
+
+    args = parser.parse_args()
+    command_functions[args.jobs_commands](args)

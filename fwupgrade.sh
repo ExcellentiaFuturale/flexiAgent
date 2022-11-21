@@ -31,30 +31,38 @@ TARGET_VERSION="$1"
 VERSIONS_FILE="$2"
 UPGRADE_FAILURE_FILE="$3"
 AGENT_LOG_FILE="$4"
+JOB_ID="$5"
 
 # Globals
 prev_ver=''
 
 log() {
-    echo `date +'%b %e %R:%S'`" $HOSTNAME: fwagent:" "$@" >> "$AGENT_LOG_FILE" 2>&1
+    echo `date +'%b %e %R:%S'`" $HOSTNAME fwagent:" "$@" >> "$AGENT_LOG_FILE" 2>&1
+}
+
+#######################################
+# Updates job status in case of a failure
+# Arguments:
+#   Failed command
+#   Error
+#######################################
+update_job() {
+    log 'Updating job details ' $JOB_ID
+    python3 /usr/share/flexiwan/agent/fwjobs.py update --job_id $JOB_ID --request 'upgrade-device-sw' --command "$1" --job_error "$2"
 }
 
 #######################################
 # Handles upgrade failure routine
 # Arguments:
-#   Failure reason.
 #   Revert flag.
 # Returns:
 #   Exit status
 #######################################
 handle_upgrade_failure() {
-    # we send an echo here, so it will be captured at stdout, for error
-    # handling
-    echo 'Software upgrade failed:' $1
-    log 'Software upgrade failed:' $1
+    log 'Software upgrade failed'
 
     # Revert back to previous version if required
-    if [ "$2" == 'revert' ]; then
+    if [ "$1" == 'revert' ]; then
         log 'Reverting to previous version ('"$prev_ver"')...'
         res=$(apt-get -y install --allow-downgrades "$AGENT_SERVICE"="$prev_ver")
         ret=${PIPESTATUS[0]}
@@ -66,6 +74,7 @@ handle_upgrade_failure() {
             # it will remain stopped.
             systemctl restart "$AGENT_SERVICE"
             log 'handle_upgrade_failure: failed to downgrade ${ret}: exit 1'
+            update_job 'revert' 'Failed to downgrade'
             exit 1
         fi
 
@@ -145,14 +154,16 @@ rm "$UPGRADE_FAILURE_FILE" >> /dev/null 2>&1
 # Save previous version for revert in case the upgrade process fails
 get_prev_version
 if [ -z "$prev_ver" ]; then
-    reason='Failed to extract previous version from' "$VERSIONS_FILE"
-    handle_upgrade_failure $reason
+    reason = 'Failed to extract previous version from' "$VERSIONS_FILE"
+    log $reason
+    update_job 'extract previous version' "$reason"
+    handle_upgrade_failure
 fi
 
 # Quit upgrade process if device is already running the latest version
 dpkg --compare-versions "$TARGET_VERSION" le "$prev_ver"
 if [ $? == 0 ]; then
-    log 'Device already running latest version. Quiting upgrade process'
+    log 'Device is already running the latest version. Quitting upgrade process'
     exit 0
 fi
 
@@ -162,7 +173,9 @@ log 'Closing connection to MGMT...'
 res=$(fwagent stop --dont_stop_vpp --dont_stop_applications)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
-    handle_upgrade_failure 'Failed to stop agent connection to management'
+    log 'Failed to stop agent connection to management'
+    update_job 'stop agent connection' 'Failed to stop agent connection to management'
+    handle_upgrade_failure
 fi
 
 log 'Installing new software...'
@@ -173,14 +186,18 @@ log 'Installing new software...'
 check_connection_to_sw_repo
 if [ ${PIPESTATUS[0]} != 0 ]; then
     reason='Failed to connect to software repository ' "$SW_REPOSITORY"
-    handle_upgrade_failure $reason
+    log $reason
+    update_job 'check connection to repository' "$reason"
+    handle_upgrade_failure
 fi
 
 # Update debian repositories
 res=$(apt-get update)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
-    handle_upgrade_failure 'Failed to update debian repositores'
+    log 'Failed to update debian repositores'
+    update_job 'update debian repositories' 'Failed to update debian repositores'
+    handle_upgrade_failure
 fi
 
 # Upgrade device package. From this stage on, we should
@@ -190,12 +207,16 @@ fi
 # doesn't kill the upgrade process when the process is stopped
 update_service_conf_file
 if [ ${PIPESTATUS[0]} != 0 ]; then
-    handle_upgrade_failure 'Failed to update service configuration file'
+    log 'Failed to update service configuration file'
+    update_job 'update service configuration file' 'Failed to update service configuration file'
+    handle_upgrade_failure
 fi
 
 res=$(apt-get -o Dpkg::Options::="--force-confold" install -y "$AGENT_SERVICE")
 if [ ${PIPESTATUS[0]} != 0 ]; then
-    handle_upgrade_failure $res 'revert'
+    log $res
+    update_job 'install' "$res"
+    handle_upgrade_failure 'revert'
 fi
 
 # Reopen the connection loop in case it is closed
@@ -210,7 +231,9 @@ log 'Finished installing new software. waiting for agent check ('"$AGENT_CHECK_T
 sleep "$AGENT_CHECK_TIMEOUT"
 
 if [ -f "$UPGRADE_FAILURE_FILE" ]; then
-    handle_upgrade_failure 'Agent checks failed' 'revert'
+    log 'Agent checks failed'
+    update_job 'agent check' 'Agent checks failed'
+    handle_upgrade_failure 'revert'
 fi
 
 log 'Software upgrade process finished successfully'
