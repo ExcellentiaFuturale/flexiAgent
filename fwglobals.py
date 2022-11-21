@@ -364,19 +364,16 @@ class Fwglobals(FwObject):
 
         :returns: None.
         """
-        try:
-            # Load configured values if configuration file exists
-            with open(debug_conf_file, 'r') as debug_conf_file:
-                self.cfg.debug = yaml.load(debug_conf_file, Loader=yaml.SafeLoader)
-
-        except Exception as e:
+        if not os.path.isfile(debug_conf_file):
+            # The default file might not exist - we do not expose it to users.
             if debug_conf_file != self.DEBUG_CONF_FILE:
-                if log:
-                  log.error("load_debug_configuration_from_file() failed: %s" % str(e))
-                raise e
-        # Print loaded configuration into log
-        if self.cfg.DEBUG:
-            self.log.debug("Fwglobals debug configuration: \n" + json.dumps(self.cfg.debug, indent=2))
+                raise Exception(f"load_debug_configuration_from_file: {debug_conf_file} not found")
+            return
+
+        with open(debug_conf_file, 'r') as debug_conf_file:
+            self.cfg.debug = yaml.load(debug_conf_file, Loader=yaml.SafeLoader)
+            if self.cfg.DEBUG:
+                self.log.debug("load_debug_configuration_from_file: \n" + json.dumps(self.cfg.debug, indent=2))
 
 
     def initialize_agent(self):
