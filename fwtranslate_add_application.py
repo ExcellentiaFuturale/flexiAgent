@@ -20,16 +20,9 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import os
-import re
-import ctypes
-import copy
 from fw_traffic_identification import TRAFFIC_IMPORTANCE_VALUES, TRAFFIC_SERVICE_CLASS_VALUES
-
 import fwglobals
-import fwutils
 import fw_acl_command_helpers
-
 
 
 # add-application
@@ -53,8 +46,16 @@ import fw_acl_command_helpers
 #              "ports":"53"}]
 #            }]
 # }
-def _add_traffic_identification(params, cmd_list):
 
+def _add_traffic_identification(params, cmd_list):
+    """
+    Add traffic/application identification to the internal sqldict context
+
+    :param params: add-application message from carrying the traffic/app match definitions
+    :type params: dict
+    :param cmd_list: Command array to be updated with corresponding commands
+    :type cmd_list: Array
+    """
     cmd = {}
 
     cmd['cmd'] = {}
@@ -64,7 +65,7 @@ def _add_traffic_identification(params, cmd_list):
     cmd['cmd']['params'] = { 'traffic': params }
 
     cmd['revert'] = {}
-    cmd['revert']['func']   = "add_traffic_identification"
+    cmd['revert']['func']   = "remove_traffic_identification"
     cmd['revert']['object'] = "fwglobals.g.traffic_identifications"
     cmd['revert']['descr'] = "Delete Traffic Identification %s" % (params['id'])
     cmd['revert']['params'] = { 'traffic': params }
@@ -105,57 +106,52 @@ def _add_traffic_identification_acl(traffic, acl_key_list, cmd_list):
         fwglobals.log.error('Application ACLs : ACL generate failed - Index %s' % (traffic_id))
 
 
-def _attach_classification_acls(acl_ids, cmd_list):
+def _get_classification_setup_command(app_acl_ids, cmd_list):
     """
-    Generate commands to attach Traffic/Application Identification ACLs to the
-    LAN and WAN interfaces of the device
+    Generate commands to attach classification ACLs to the given interface
 
-    :param acl_ids: Array of ACL keys that shall be used to lookup actual ACL index
-    :type acl_ids: Array
-    :param cmd_list: Array to store the generated configuration commands
+    :param app_acl_ids: It can either be an integer representing the ACL index or a key
+    to be used to lookup the actual acl_index from the command cache
+    :type app_acl_ids: Array
+    :param cmd_list: Array of generated configuration commands
     :type cmd_list: Array
     """
-    interfaces = fwglobals.g.router_cfg.get_interfaces()
-    for interface in interfaces:
-        interface_type = interface['type'].lower()
-        dev_id = interface['dev_id']
-        sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
-        if interface_type == 'lan' or interface_type == 'wan':
-            add_params = {
-                'sw_if_index': sw_if_index,
-                'count': len(acl_ids),
-                'substs': [
-                    {
-                        'add_param':            'acls',
-                        'val_by_func':          'map_keys_to_acl_ids',
-                        'arg':                  {'keys': copy.deepcopy(acl_ids)},
-                        'func_uses_cmd_cache':  True
-                    }
-                ]
-            }
-            cmd = {}
-            cmd['cmd'] = {}
-            cmd['cmd']['func']  = "call_vpp_api"
-            cmd['cmd']['descr'] = "Attach classification ACLs to interface: %s" % dev_id
-            cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
-            cmd['cmd']['params'] = {
-                'api':  "classifier_acls_set_interface_acl_list",
-                'args': add_params,
-            }
-            cmd['revert'] = {}
-            cmd['revert']['func']  = "call_vpp_api"
-            cmd['revert']['descr'] = "Detach classification ACLs to interface: %s" % dev_id
-            cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
-            cmd['revert']['params'] = {
-                'api': "classifier_acls_set_interface_acl_list",
-                'args': {
-                    'sw_if_index': sw_if_index,
-                    'count': 0,
-                    'acls': []
-                }
-            }
-            cmd_list.append(cmd)
+    add_param_acl_ids = False if isinstance(app_acl_ids[0], int) else True
 
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']  = "call_vpp_api"
+    cmd['cmd']['descr'] = "Setup classification ACLs"
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params'] = {
+        'api':  "classifier_acls_set_acl_list",
+        'args': {
+            'count' : len(app_acl_ids),
+        }
+    }
+    args = cmd['cmd']['params']['args']
+    if add_param_acl_ids:
+        args['substs'] = [{
+            'add_param':            'acls',
+            'val_by_func':          'map_keys_to_acl_ids',
+            'arg':                  {'keys': app_acl_ids},
+            'func_uses_cmd_cache':  True
+        }]
+    else:
+        args['acls'] = app_acl_ids
+
+    cmd['revert'] = {}
+    cmd['revert']['func']  = "call_vpp_api"
+    cmd['revert']['descr'] = "Clear classification ACLs"
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['params'] = {
+        'api': "classifier_acls_set_acl_list",
+        'args': {
+            'count': 0,
+            'acls': [],
+        }
+    }
+    cmd_list.append(cmd)
 
 def add_application(params):
     """Generate App commands.
@@ -170,9 +166,9 @@ def add_application(params):
     for app in params['applications']:
         _add_traffic_identification(app, cmd_list)
         _add_traffic_identification_acl(app, acl_key_list, cmd_list)
-    _attach_classification_acls(acl_key_list, cmd_list)
-
+    _get_classification_setup_command(acl_key_list, cmd_list)
     return cmd_list
+
 
 def get_request_key(params):
     """Return app key.
