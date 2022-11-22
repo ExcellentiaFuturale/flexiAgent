@@ -199,12 +199,25 @@ class Fwglobals(FwObject):
                 self.DAEMON_SOCKET_NAME  = DEFAULT_DAEMON_SOCKET_NAME
             if self.DEBUG and log:
                 log.set_level(FWLOG_LEVEL_DEBUG)
-            # Load default values
-            self.cfg.debug['daemon']['standalone'] = False
-            self.cfg.debug['agent']['features']['wan_monitor']['enabled'] = True
-            self.cfg.debug['agent']['features']['stun']['enabled'] = True
-            self.cfg.debug['agent']['features']['pppoe']['enabled'] = True
-            self.load_debug_configuration_from_file(self.DEBUG_CONF_FILE)
+            self.debug = {
+                'daemon': {
+                    'standalone': False,
+                },
+                'agent': {
+                    'features': {
+                        'pppoe': {
+                            'enabled': True
+                        },
+                        'stun': {
+                            'enabled': True
+                        },
+                        'wan_monitor': {
+                            'enabled': True
+                        },
+                    },
+                },
+            }
+
 
     class FwCache:
         """Storage for data that is valid during one FwAgent lifecycle only.
@@ -322,6 +335,7 @@ class Fwglobals(FwObject):
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
+        self.load_debug_configuration_from_file(self.DEBUG_CONF_FILE)
 
         self.FWAGENT_DAEMON_HOST = self.cfg.DAEMON_SOCKET_NAME.split(":")[0]
         self.FWAGENT_DAEMON_PORT = int(self.cfg.DAEMON_SOCKET_NAME.split(":")[1])

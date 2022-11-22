@@ -6,5 +6,5 @@ agent:
       enabled: true
     wan_monitor:
       enabled: true
-    pppoe_client:
+    pppoe:
       enabled: true
