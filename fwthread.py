@@ -150,3 +150,9 @@ class FwRouterThread(FwThread):
             self.join_called = True
         else:
             FwThread.join(self)
+
+def set_request_processing_thread():
+    fwglobals.g.router_threads.request_processing_thread_ident = threading.current_thread().ident
+
+def unset_request_processing_thread():
+    fwglobals.g.router_threads.request_processing_thread_ident = None

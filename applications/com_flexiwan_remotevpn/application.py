@@ -119,8 +119,6 @@ class Application(FwApplicationInterface):
         try:
             self.log.info(f"remote vpn configurations: {str(cfg)}")
 
-            escaped_url = re.escape(params['vpnPortalServer'])
-
             commands = [
                 'echo "%s" > /etc/openvpn/server/ca.crt' % params['caCrt'],
                 'echo "%s" > /etc/openvpn/server/server.key' % params['serverKey'],
@@ -129,8 +127,6 @@ class Application(FwApplicationInterface):
                 'echo "%s" > /etc/openvpn/server/dh.pem' % params['dhKey'],
 
                 'chmod 600 /etc/openvpn/server/server.key',
-
-                "sed -i 's/__VPN_SERVER__/%s/g' /etc/openvpn/server/auth-script.py" % escaped_url
             ]
 
             fwapplication_utils.run_linux_commands(commands)
@@ -164,6 +160,8 @@ class Application(FwApplicationInterface):
     def _configure_server_file(self, params):
         try:
             ip = IPNetwork(params['vpnNetwork'])
+
+            vpn_portal_urls = params.get('vpnPortalServer', [])
 
             commands = [
                 # Which TCP/UDP port should OpenVPN listen on?
@@ -252,7 +250,10 @@ class Application(FwApplicationInterface):
 
                 # call these scripts once OpenVPN starts and stops
                 'up /etc/openvpn/server/up-script.py',
-                'down /etc/openvpn/server/down-script.py'
+                'down /etc/openvpn/server/down-script.py',
+
+                # set the allowed servers as env variable for the scripts
+                f'setenv AUTH_SCRIPT_ALLOWED_SERVERS {",".join(vpn_portal_urls)}'
             ]
 
             # Split tunnel

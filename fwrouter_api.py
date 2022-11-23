@@ -389,6 +389,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             # In that case the cache becomes to be stale.
             #
             self._clear_monitor_interfaces()
+            fwpppoe.pppoe_reset()
 
             fwglobals.g.handle_request({'message': 'start-router'})
         except Exception as e:
@@ -564,14 +565,14 @@ class FWROUTER_API(FwCfgRequestHandler):
         try:
             req = request['message']
 
-            router_was_started = fwutils.vpp_does_run()
+            vpp_does_run = fwutils.vpp_does_run()
 
             # The 'add-application' and 'add-multilink-policy' requests should
             # be translated and executed only if VPP runs, as the translations
             # depends on VPP API-s output. Therefore if VPP does not run,
             # just save the requests in database and return.
             #
-            if router_was_started == False and \
+            if vpp_does_run == False and \
                 (req == 'add-application' or
                 req == 'add-multilink-policy' or
                 req == 'add-firewall-policy' or
@@ -599,13 +600,13 @@ class FWROUTER_API(FwCfgRequestHandler):
                 self.pending_cfg_db.remove(request)
                 if re.match('remove-',  req):
                     return {'ok':1}     # No further processing is needed for 'remove-X'.
-            if router_was_started and self.state_is_starting_stopping(): # For now enable pending requests on start-router only
+            if vpp_does_run and self.state_is_starting_stopping(): # For now enable pending requests on start-router only
                 if re.match('add-',  req) and self._is_pending_request(request):
                     self.pending_cfg_db.update(request)
                     self.cfg_db.remove(request)
                     return {'ok':1}
 
-            if router_was_started or req == 'start-router':
+            if vpp_does_run or req == 'start-router':
                 execute = True
             elif re.match('remove-',  req):
                 filter = 'must'

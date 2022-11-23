@@ -199,7 +199,7 @@ class FwPppoeConnection(FwObject):
     def get_linux_and_vpp_tun_if_names(self):
         """Return TUN interface names in Linux and VPP
         """
-        return 'pppoe%u' % self.id, 'tun%u' % self.id
+        return 'pppoe%u' % self.id, 'dpdk-tun%u' % self.id
 
     def reset_tun_if_params(self):
         """Reset TUN interface params
@@ -386,14 +386,14 @@ class FwPppoeClient(FwObject):
     It is used as a high level API from Flexiagent and EdgeUI.
     It aggregates all the PPPoE client configuration and management.
     """
-    def __init__(self, db_file=None, path=None, filename=None, standalone=True):
+    def __init__(self, db_file=None, path=None, filename=None):
         FwObject.__init__(self)
         db_file = db_file if db_file else fwglobals.g.PPPOE_DB_FILE
         self.filename = filename if filename else fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE
         path = path if path else fwglobals.g.PPPOE_CONFIG_PATH
         self.path = path + 'peers/'
         self.resolv_path = path + 'resolv/'
-        self.standalone = standalone
+        self.standalone = not fwglobals.g.cfg.debug['agent']['features']['pppoe']['enabled']
         self.thread_pppoec = None
         self.interfaces = SqliteDict(db_file, 'interfaces', autocommit=True)
         self.connections = SqliteDict(db_file, 'connections', autocommit=True)
@@ -513,8 +513,16 @@ class FwPppoeClient(FwObject):
         self.chap_config.save()
         self.pap_config.save()
         for dev_id, conn in self.connections.items():
+            conn.addr = ''
+            conn.gw = ''
             conn.save()
             self.connections[dev_id] = conn
+
+        for dev_id, pppoe_iface in self.interfaces.items():
+            pppoe_iface.is_connected = False
+            pppoe_iface.addr = ''
+            pppoe_iface.gw = ''
+            self.interfaces[dev_id] = pppoe_iface
 
     def _parse_resolv_conf(self, filename):
         nameservers = []
@@ -754,6 +762,8 @@ class FwPppoeClient(FwObject):
             conn.close()
             self.connections[dev_id] = conn
             pppoe_iface.is_connected = False
+            pppoe_iface.addr = ''
+            pppoe_iface.gw = ''
             self.interfaces[dev_id] = pppoe_iface
 
         return (True, None)

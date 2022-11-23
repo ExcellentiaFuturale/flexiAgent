@@ -156,11 +156,12 @@ class FwRoutes(FwObject):
             via = route['via']
             metric = str(route.get('metric', '0'))
             dev_id = route.get('dev_id')
+            on_link = route.get('onLink', False)
             exist_in_linux = routes_linux.exist(addr, metric, via)
 
             if tunnel_addresses.get(via) == 'down':
                 if exist_in_linux:
-                    success, err_str = add_remove_route(addr, via, metric, True, dev_id, 'static')
+                    success, err_str = add_remove_route(addr, via, metric, True, dev_id, 'static', on_link=on_link)
                     if success:
                         fwglobals.log.debug(f"remove static route through the broken tunnel: {str(route)}")
                     else:
@@ -168,7 +169,7 @@ class FwRoutes(FwObject):
                 continue
 
             if not exist_in_linux:
-                success, err_str = add_remove_route(addr, via, metric, False, dev_id, 'static')
+                success, err_str = add_remove_route(addr, via, metric, False, dev_id, 'static', on_link=on_link)
                 if success:
                     fwglobals.log.debug(f"restore static route: {str(route)}")
                 else:
@@ -389,9 +390,10 @@ def add_remove_static_routes(via, is_add):
         addr = route['addr']
         metric = str(route.get('metric', '0'))
         dev_id = route.get('dev_id')
+        on_link = route.get('onLink', False)
         via = route['via']
 
-        success, err_str = add_remove_route(addr, via, metric, not is_add, dev_id, 'static')
+        success, err_str = add_remove_route(addr, via, metric, not is_add, dev_id, 'static', on_link=on_link)
         if not success:
             fwglobals.log.error(f"failed to add/remove static route ({str(route)}): {err_str}")
 

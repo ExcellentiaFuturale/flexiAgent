@@ -379,7 +379,7 @@ class FwAgent(FwObject):
                 "User-Agent": "fwagent/%s" % (self.versions['components']['agent']['version'])
             }
 
-            fwglobals.g.router_threads.request_processing_thread_ident = threading.current_thread().ident
+            fwthread.set_request_processing_thread()
 
             self.ws.connect(
                         url, headers = headers,
@@ -405,8 +405,7 @@ class FwAgent(FwObject):
             return False
 
         finally:
-            fwglobals.g.router_threads.request_processing_thread_ident = None
-
+            fwthread.unset_request_processing_thread()
 
     def reconnect(self):
         """Closes and reestablishes the main WebSocket connection between
@@ -492,41 +491,49 @@ class FwAgent(FwObject):
         seq     = str(pmsg['seq'])              # Sequence number of the received message
         job_id  = str(pmsg.get('jobid',''))     # ID of job on flexiManage that sent this message
 
-        # In load simulator mode always reply ok on sync message
-        if fwglobals.g.loadsimulator and request["message"] == "sync-device":
-            reply = {"ok":1}
-        else:
-            default_route_before = fwutils.get_default_route()
-
-            msg_id = seq + " " if not job_id else seq + " job_id:" + job_id + " "
-
-            msg = fwutils.fix_received_message(request)
-            if msg:
-                fwglobals.g.jobs.start_recording(job_id, msg) # add a new job record
-                reply  = self.handle_received_request(request, msg, log_prefix=msg_id)
-                fwglobals.g.jobs.stop_recording(job_id, reply)
+        try:
+            # In load simulator mode always reply ok on sync message
+            if fwglobals.g.loadsimulator and request["message"] == "sync-device":
+                reply = {"ok":1}
             else:
-                err_str = 'Invalid message format'
-                fwglobals.g.jobs.add_record(job_id, {'error': err_str})
-                reply = {'ok':0, 'message': err_str}
+                default_route_before = fwutils.get_default_route()
 
-            default_route_after = fwutils.get_default_route()
-            if default_route_before[2] != default_route_after[2]:  # reconnect the agent to avoid WebSocket timeout
-                self.log.debug(f"reconnect as default route was changed: '{default_route_before}' -> '{default_route_after}'")
-                self.reconnect()
+                msg_id = seq + " " if not job_id else seq + " job_id:" + job_id + " "
 
-        # Messages that change the interfaces might break the existing connection
-        # (for example, if the WAN interface IP/mask has changed). Since sending
-        # the reply on a broken connection will not work, we close the connection
-        # before sending the reply and save the reply into pending queue.
-        # Later, when daemon re-opens the new connection by connection loop,
-        # we will pop the reply out of queue and will send it to the flexiManage.
-        #
-        if self.reconnecting == True:
-            self.log.info("_on_message: goes to reestablish connection, queue reply %s" % str(pmsg['seq']))
-            self.pending_msg_replies.append({'seq':pmsg['seq'], 'msg':reply})
-        else:
-            self.ws.send(json.dumps({'seq':pmsg['seq'], 'msg':reply}))
+                msg = fwutils.fix_received_message(request)
+                if msg:
+                    fwglobals.g.jobs.start_recording(job_id, msg) # add a new job record
+                    reply  = self.handle_received_request(request, msg, log_prefix=msg_id)
+                    fwglobals.g.jobs.stop_recording(job_id, reply)
+                else:
+                    err_str = 'invalid message format'
+                    fwglobals.g.jobs.add_record(job_id, {'error': err_str})
+                    reply = {'ok':0, 'message': err_str}
+
+                default_route_after = fwutils.get_default_route()
+                if default_route_before[2] != default_route_after[2]:  # reconnect the agent to avoid WebSocket timeout
+                    self.log.debug(f"reconnect as default route was changed: '{default_route_before}' -> '{default_route_after}'")
+                    self.reconnect()
+
+            # Messages that change the interfaces might break the existing connection
+            # (for example, if the WAN interface IP/mask has changed). Since sending
+            # the reply on a broken connection will not work, we close the connection
+            # before sending the reply and save the reply into pending queue.
+            # Later, when daemon re-opens the new connection by connection loop,
+            # we will pop the reply out of queue and will send it to the flexiManage.
+            #
+            if self.reconnecting == True:
+                self.log.info("_on_message: goes to reestablish connection, queue reply %s" % str(pmsg['seq']))
+                self.pending_msg_replies.append({'seq':pmsg['seq'], 'msg':reply})
+            else:
+                self.ws.send(json.dumps({'seq':pmsg['seq'], 'msg':reply}, cls=fwutils.FwJsonEncoder))
+
+        except Exception as e:
+            self.log.error(f"exception in _on_message(), reject received request ({str(e)})")
+            err_str = 'unknown error'
+            fwglobals.g.jobs.add_record(job_id, {'error': err_str})
+            reply = {'ok':0, 'message': err_str}
+            return json.dumps({'seq':pmsg['seq'], 'msg':reply})
 
     def disconnect(self):
         """Shutdowns the WebSocket connection.
@@ -576,7 +583,7 @@ class FwAgent(FwObject):
                 reply_for_log = {"ok":1}
             else:
                 reply_for_log = reply
-            log_line = log_prefix + "handle_received_request:reply\n" + json.dumps(reply_for_log, sort_keys=True, indent=1)
+            log_line = log_prefix + "handle_received_request:reply\n" + json.dumps(reply_for_log, sort_keys=True, indent=1, cls=fwutils.FwJsonEncoder)
             self.log.debug(log_line)
             if logger:
                 logger.debug(log_line)
@@ -652,18 +659,24 @@ class FwAgent(FwObject):
             with open(filename, 'r') as f:
                 requests = json.loads(f.read())
 
+        fwthread.set_request_processing_thread()
+
         if type(requests) is list:   # Take care of file with list of requests
             for (idx, req) in enumerate(requests):
-                reply = self.handle_received_request(req)
+                msg = fwutils.fix_received_message(req)
+                reply = self.handle_received_request(req, msg)
                 if reply['ok'] == 0 and ignore_errors == False:
                     raise Exception('failed to inject request #%d in %s: %s' % \
                                     ((idx+1), filename, reply['message']))
+            fwthread.unset_request_processing_thread()
             return None
         else:   # Take care of file with single request
-            reply = self.handle_received_request(requests)
+            msg = fwutils.fix_received_message(requests)
+            reply = self.handle_received_request(requests, msg)
             if reply['ok'] == 0:
                 raise Exception('failed to inject request from within %s: %s' % \
                                 (filename, reply['message']))
+            fwthread.unset_request_processing_thread()
             return reply
 
 def version():
@@ -880,19 +893,15 @@ class FwagentDaemon(FwObject):
 
     The FwagentDaemon object is created by the 'fwagent daemon' command.
     """
-    def __init__(self, standalone=False):
+    def __init__(self):
         """Constructor method.
 
-        :param standalone: if True, the agent will be not connected to flexiManage,
-                           hence no need in network activity, like STUN.
-                           The standalone mode is used by CLI-based tests.
         """
         FwObject.__init__(self)
 
         self.agent          = None
         self.active         = False
         self.thread_main    = None
-        self.standalone     = standalone
 
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT,  self._signal_handler)
@@ -902,7 +911,7 @@ class FwagentDaemon(FwObject):
         exit(1)
 
     def __enter__(self):
-        self.agent = fwglobals.g.initialize_agent(standalone=self.standalone)
+        self.agent = fwglobals.g.initialize_agent()
         return self
 
     def __exit__(self, exc_type, exc_value, tb):
@@ -1125,20 +1134,19 @@ class FwagentDaemon(FwObject):
                 ret = api_func()
             return ret
 
-def daemon(standalone=False):
+def daemon(debug_conf_filename=None):
     """Handles 'fwagent daemon' command.
     This command runs Fwagent in daemon mode. It creates the wrapping
     FwagentDaemon object that manages the instance of the Fwagent class and
     keeps it registered and connected to flexiManage.
     For more info See documentation on FwagentDaemon class.
 
-    :param standalone: if False the register-and-connect loop will not be started.
+    :param debug_conf_filename: if False the register-and-connect loop will not be started.
 
     :returns: None.
     """
     fwglobals.log.set_target(to_syslog=True, to_terminal=False)
-    fwglobals.log.info("starting in daemon mode (standalone=%s)" % str(standalone))
-
+    fwglobals.log.info("starting in daemon mode")
     # Ensure the IPC port is not in use
     #
     for c in psutil.net_connections():
@@ -1146,11 +1154,14 @@ def daemon(standalone=False):
             fwglobals.log.debug(f"port {c.laddr.port} is in use, try other port (fwagent_conf.yaml:daemon_socket)")
             return
 
-    with FwagentDaemon(standalone) as agent_daemon:
+    if debug_conf_filename:
+        fwglobals.g.load_debug_configuration_from_file(debug_conf_filename)
+
+    with FwagentDaemon() as agent_daemon:
 
         # Start the FwagentDaemon main function in separate thread as it is infinite,
         # and we need to get to Pyro4.Daemon.serveSimple() call to run rpc loop.
-        if not standalone:
+        if not fwglobals.g.cfg.debug['daemon']['standalone']:
             agent_daemon.start()
 
         # Register FwagentDaemon object with Pyro framework and start Pyro request loop:
@@ -1271,7 +1282,7 @@ if __name__ == '__main__':
                     'reset': lambda args: reset(soft=args.soft, quiet=args.quiet, pppoe=args.pppoe),
                     'stop': lambda args: stop(reset_device_config=args.reset_softly, stop_router=(not args.dont_stop_vpp)),
                     'start': lambda args: start(start_router=args.start_router),
-                    'daemon': lambda args: daemon(standalone=args.dont_connect),
+                    'daemon': lambda args: daemon(debug_conf_filename=args.debug_conf_filename),
                     'simulate': lambda args: loadsimulator.simulate(count=int(args.count)),
                     'dump': lambda args: dump(filename=args.filename, path=args.path, clean_log=args.clean_log),
                     'show': lambda args: show(
@@ -1315,8 +1326,8 @@ if __name__ == '__main__':
     parser_start.add_argument('-r', '--start_router', action='store_true',
                         help="start router before loop is started")
     parser_daemon = subparsers.add_parser('daemon', help='Run agent in daemon mode: infinite register-connect loop')
-    parser_daemon.add_argument('-d', '--dont_connect', action='store_true',
-                        help="Don't start connection loop on daemon start")
+    parser_daemon.add_argument('-d', '--debug_conf', dest='debug_conf_filename', default=None,
+                        help="Path to debug_conf.yaml file, includes filename")
     parser_simulate = subparsers.add_parser('simulate', help='register and connect many fake devices with flexiManage')
     parser_simulate.add_argument('-c', '--count', dest='count',
                         help="How many devices to simulate")

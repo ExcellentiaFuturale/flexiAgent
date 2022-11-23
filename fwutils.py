@@ -289,7 +289,7 @@ def get_interface_gateway(if_name, if_dev_id=None):
         return '', ''
 
     rip    = route.split('via ')[1].split(' ')[0]
-    metric = '' if not 'metric ' in route else route.split('metric ')[1].split(' ')[0]
+    metric = '0' if not 'metric ' in route else route.split('metric ')[1].split(' ')[0]
     return rip, metric
 
 
@@ -948,6 +948,7 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
             fwglobals.g.cache.dev_id_to_vpp_if_name[bus] = vpp_tap
             fwglobals.g.cache.vpp_if_name_to_dev_id[vpp_tap] = bus
 
+    lte_dev_id_dict = None
     shif = _vppctl_read('show hardware-interfaces')
     if shif == None:
         fwglobals.log.debug("_build_dev_id_to_vpp_if_name_maps: Error reading interface info")
@@ -963,6 +964,19 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
             full_addr = dev_id_to_full(k)
             fwglobals.g.cache.dev_id_to_vpp_if_name[full_addr] = v
             fwglobals.g.cache.vpp_if_name_to_dev_id[v] = full_addr
+        else:
+            # Non PCI cases - LTE tap interfaces initialized by DPDK
+            lte_vpp_if_name = data.split(' ', 1)[0]
+            if 'dpdk-tap' in lte_vpp_if_name: #VPP LTE tap name starts with dpdk-tap
+                if lte_dev_id_dict is None:
+                    lte_dev_id_dict = fwlte.get_lte_interfaces_dev_ids()
+                for _, linux_dev_name in lte_dev_id_dict.items():
+                    # For LTE tap interfaces, data would have device args as 'iface=tap_wwan0'
+                    lte_dev_args = 'iface=' + generate_linux_interface_short_name("tap", linux_dev_name)
+                    if lte_dev_args in data:
+                        lte_dev_bus = build_interface_dev_id(linux_dev_name)
+                        fwglobals.g.cache.dev_id_to_vpp_if_name[lte_dev_bus] = lte_vpp_if_name
+                        fwglobals.g.cache.vpp_if_name_to_dev_id[lte_vpp_if_name] = lte_dev_bus
 
     vmxnet3hw = fwglobals.g.router_api.vpp_api.vpp.call('vmxnet3_dump')
     for hw_if in vmxnet3hw:
@@ -1595,10 +1609,10 @@ def reset_router_cfg():
     restore_dhcpd_files()
     reset_device_config_signature("empty_router_cfg", log=False)
 
-def reset_system_cfg():
+def reset_system_cfg(reset_lte_db=True):
     with FwSystemCfg(fwglobals.g.SYSTEM_CFG_FILE) as system_cfg:
         system_cfg.clean()
-    if 'lte' in fwglobals.g.db:
+    if 'lte' in fwglobals.g.db and reset_lte_db:
         fwglobals.g.db['lte'] = {}
     reset_device_config_signature("empty_system_cfg", log=False)
 
@@ -2034,9 +2048,37 @@ def vpp_startup_conf_remove_nopci(vpp_config_filename):
     p.dump(config, vpp_config_filename)
     return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
 
+def _vmxnet3_align_to_pow2_and_max_value(x):
+    """
+    vmxnet3 driver supports RX queues only values pow of 2 and the max value is 16
+    So we need to map configured value to supported as following:
+
+    1        -> 1
+    2,3      -> 2
+    4-7      -> 4
+    8-15     -> 8
+    >= 16    -> 16
+
+    :returns: Aligned value to closest which is supported.
+    """
+
+    if x//16:
+        pw = 16
+    elif x//8:
+        pw = 8
+    elif x//4:
+        pw = 4
+    elif x//2:
+        pw = 2
+    else:
+        pw = 1
+    return pw
+
 def vpp_startup_conf_add_devices(vpp_config_filename, devices):
     p = FwStartupConf(vpp_config_filename)
     hqos_capable = True if (p.get_cpu_hqos_workers() > 0) else False
+    tap_count = 0
+    tun_count = 0
 
     config = p.get_root_element()
 
@@ -2044,11 +2086,11 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
         tup = p.create_element('dpdk')
         config.append(tup)
 
-    # Ensure no stale tunnel interfaces created as part of PPPoE setup is left behind
-    tun_config_param = p.get_element(config['dpdk'], 'vdev net_tun')
+    # Ensure no stale tuntap interfaces created as part of PPPoE setup is left behind
+    tun_config_param = p.get_element(config['dpdk'], 'vdev net_')
     while (tun_config_param):
         p.remove_element(config['dpdk'], tun_config_param)
-        tun_config_param = p.get_element(config['dpdk'], 'vdev net_tun')
+        tun_config_param = p.get_element(config['dpdk'], 'vdev net_')
 
     for dev in devices:
         wan_if = fwglobals.g.router_cfg.get_interfaces(dev_id=dev, type='wan')
@@ -2059,21 +2101,39 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
 
         if addr_type == "pci":
             old_config_param = 'dev %s' % addr_short
+
+            custom_config_param = ''
             # For PPPoE interface, QoS is enabled on the corresponding tun interface
             if hqos_capable and qos_on_dev_id and not pppoe_if:
-                new_config_param = 'dev %s { hqos }' % addr_short
+                custom_config_param +=' hqos'
+            if dev_id_is_vmxnet3(dev):
+                #for vmxnet3 we need to align value to supported numbers (pow of 2 and max is 16)
+                rx_queues = _vmxnet3_align_to_pow2_and_max_value(p.get_cpu_workers())
+                custom_config_param += ' num-rx-queues %s' % (rx_queues)
+
+            if custom_config_param:
+                new_config_param = "dev %s { %s }" % (addr_short, custom_config_param)
             else:
-                new_config_param = 'dev %s' % addr_short
+                new_config_param = "dev %s" % (addr_short)
+
             current_config_value = p.get_element(config['dpdk'],old_config_param)
             if (current_config_value != new_config_param):
                 p.remove_element(config['dpdk'], current_config_value)
                 tup = p.create_element(new_config_param)
                 config['dpdk'].append(tup)
+        elif addr_type == "usb":
+            iface_name = dev_id_to_linux_if(dev)
+            tap_linux_iface_name = generate_linux_interface_short_name("tap", iface_name)
+            tap_config_param = "vdev net_tap%d,iface=%s" % (tap_count, tap_linux_iface_name)
+            tap_config_param += ' { %s num-rx-queues 1 num-tx-queues 1 }' % \
+                ('hqos' if (hqos_capable and qos_on_dev_id) else '')
+            tup = p.create_element(tap_config_param)
+            config['dpdk'].append(tup)
+            tap_count += 1
 
         if pppoe_if:
-            tun_linux_if_name, tun_vpp_if_name = \
-                fwglobals.g.pppoe.get_linux_and_vpp_tun_if_names(dev_id=dev)
-            tunnel_config_param = 'vdev net_%s,iface=%s' % (tun_vpp_if_name, tun_linux_if_name)
+            tun_linux_if_name,_ = fwglobals.g.pppoe.get_linux_and_vpp_tun_if_names(dev_id=dev)
+            tunnel_config_param = 'vdev net_tun%d,iface=%s' % (tun_count, tun_linux_if_name)
             # If queues are not specified, DPDK tun interface init looks to be dynamically
             # setting up queue numbers. Working compatibly with this dynamic queue setup may likely
             # need corresponding changes from other configs (like tc) made in setting up PPPoE
@@ -2081,6 +2141,7 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
                 ('hqos' if (hqos_capable and qos_on_dev_id) else '')
             tup = p.create_element(tunnel_config_param)
             config['dpdk'].append(tup)
+            tun_count += 1
 
 
     p.dump(config, vpp_config_filename)
@@ -3673,11 +3734,10 @@ def send_udp_packet(src_ip, src_port, dst_ip, dst_port, dev_name, msg):
 def map_keys_to_acl_ids(acl_ids, arg):
     # arg carries command cache
     keys = acl_ids['keys']
-    i = 0
-    while i < len(keys):
-        keys[i] = arg[keys[i]]
-        i += 1
-    return keys
+    out_keys = []
+    for key in keys:
+        out_keys.append(arg[key])
+    return out_keys
 
 
 def build_timestamped_filename(filename, ext='', separator='_'):
@@ -3945,4 +4005,8 @@ class FwJsonEncoder(json.JSONEncoder):
     json.dump/json.dumps calls.
     '''
     def default(self, o):
-        return o.__dict__
+        try:
+            serialized = str(o)      # Firstly, probe the existence of __str__()
+        except:
+            serialized = o.__dict__  # As a last resort, assume complex object
+        return serialized
