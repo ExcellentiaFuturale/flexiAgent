@@ -2179,7 +2179,7 @@ def vpp_startup_conf_hqos(vpp_config_filename, is_add):
         hqos_enabled = False
         if fwqos.has_qos_policy() is True:
             hqos_enabled = True if ((num_worker_cores > 1) and (is_add is True)) else False
-            startup_conf.set_cpu_workers(num_worker_cores, hqos_enabled=hqos_enabled)
+        startup_conf.set_cpu_workers(num_worker_cores, hqos_enabled=hqos_enabled)
         fwglobals.g.qos.update_hqos_worker_state(hqos_enabled, num_worker_cores)
 
 
