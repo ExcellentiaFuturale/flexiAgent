@@ -24,6 +24,7 @@ Helper functions to convert NAT configurations into VPP NAT commands
 
 import copy
 import fwutils
+import fwglobals
 
 # Services enabled for access on WAN interface
 WAN_INTERFACE_SERVICES = {
@@ -369,5 +370,36 @@ def get_nat_identity_config(sw_if_index, protocols, ports):
             }
 
             cmd_list.append(cmd)
+
+    return cmd_list
+
+def run_nat_identity_config(is_add, sw_if_index, protocols, ports):
+    """
+    Executes command for NAT identity mapping configuration
+
+    :param sw_if_index: device identifier of the WAN interface
+    :type sw_if_index: String
+    :param protocols: protocols for which the port forward is applied
+    :type protocols: list
+    :param ports: ports for which forwarding is applied
+    :type ports: list
+    :raises Exception: If protocol value is unsupported
+    """
+    cmd_list = []
+    port_from, port_to = fwutils.ports_str_to_range(ports)
+
+    for port in range(port_from, (port_to + 1)):
+
+        if not protocols:
+            protocols = ['tcp', 'udp']
+        for proto in protocols:
+
+            if (fwutils.proto_map[proto] != fwutils.proto_map['tcp'] and
+                    fwutils.proto_map[proto] != fwutils.proto_map['udp']):
+                raise Exception(
+                    'Invalid input : NAT Protocol input is wrong %s' % (proto))
+
+            fwglobals.g.router_api.vpp_api.vpp.call('nat44_add_del_identity_mapping',
+                is_add=is_add, sw_if_index=sw_if_index, protocol=fwutils.proto_map[proto], port=port)
 
     return cmd_list

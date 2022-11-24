@@ -51,6 +51,7 @@ import fwlte
 import fwwifi
 import fwqos
 import fwtranslate_add_switch
+import fw_nat_command_helpers
 
 from fwapplications_api import call_applications_hook, FWAPPLICATIONS_API
 from fwfrr          import FwFrr
@@ -4051,3 +4052,13 @@ class FwJsonEncoder(json.JSONEncoder):
         except:
             serialized = o.__dict__  # As a last resort, assume complex object
         return serialized
+
+def add_nat_rules_intf(is_add, sw_if_index):
+    firewall_policy_params = fwglobals.g.router_cfg.get_firewall_policy()
+    inbound_rules = firewall_policy_params.get('inbound')
+    for rule_name, rules in inbound_rules.items():
+        if rule_name == "edgeAccess":
+            for rule_index, rule in enumerate(rules['rules']):
+                classification = rule.get('classification')
+                destination = classification.get('destination')
+                fw_nat_command_helpers.run_nat_identity_config(is_add, sw_if_index, destination.get('protocols'), destination['ports'])
