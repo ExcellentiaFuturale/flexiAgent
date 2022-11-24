@@ -875,6 +875,27 @@ def show(agent, configuration, database, status, networks):
         elif status == 'router':
             fwglobals.log.info('Router state: %s (%s)' % (fwutils.get_router_status()[0], fwutils.get_router_status()[1]))
 
+def configure_router(args):
+    """Handles 'fwagent configure' command.
+
+    :returns: None.
+    """
+    args_dict = vars(args) # args is NameSpace and is not iterable
+
+    def _extract_rpc_params(_args):
+        out = {}
+        for key in _args:
+            if key.startswith('params.'):
+                out[key.split('.')[-1]] = _args[key]
+        return out
+    rpc_params = _extract_rpc_params(args_dict)
+
+    if 'interfaces' in args_dict:
+        call = f'{args_dict["interfaces"]}_interface'
+        out = daemon_rpc('configure', call=call, params=rpc_params)
+        if out:
+            print(out)
+
 @Pyro4.expose
 class FwagentDaemon(FwObject):
     """This class implements abstraction of Fwagent that runs in daemon mode.
@@ -1042,6 +1063,13 @@ class FwagentDaemon(FwObject):
         if what == 'networks':
             return fwutils.get_device_networks_json(**args)
 
+    def configure(self, call, params):
+        if call == 'create_interface':
+            out = fwutils.add_vpp_interface(**params)
+            return json.dumps(out, indent=2, sort_keys=True)
+        elif call == 'delete_interface':
+            return fwutils.remove_vpp_interface(**params)
+        return False
 
     def main(self):
         """Implementation of the main daemon loop.
@@ -1298,7 +1326,9 @@ if __name__ == '__main__':
                         clean_request_db=args.clean,
                         api=args.api,
                         template_fname=args.template_fname,
-                        ignore_errors=args.ignore_errors)}
+                        ignore_errors=args.ignore_errors),
+                    'configure': lambda args: configure_router(args=args),
+    }
 
     parser = argparse.ArgumentParser(
         description="Device Agent for FlexiWan orchestrator\n" + \
@@ -1307,7 +1337,7 @@ if __name__ == '__main__':
         formatter_class=argparse.RawTextHelpFormatter)
     subparsers = parser.add_subparsers(help='Agent commands', dest='command')
     subparsers.required = True
-    parser_version = subparsers.add_parser('version', help='show components and their versions')
+    parser_version = subparsers.add_parser('version', help='Show components and their versions')
     parser_reset = subparsers.add_parser('reset', help='Reset device: clear router configuration and remove device registration')
     parser_reset.add_argument('-s', '--soft', action='store_true',
                         help="clean router configuration only, device remains registered")
@@ -1347,7 +1377,8 @@ if __name__ == '__main__':
                         help="show whole flexiEdge database")
     parser_show.add_argument('--status', choices=['daemon', 'router'],
                         help="show flexiEdge status")
-    parser_cli = subparsers.add_parser('cli', help='runs agent in CLI mode: read flexiManage requests from command line')
+
+    parser_cli = subparsers.add_parser('cli', help='Runs agent in CLI mode: read flexiManage requests from command line')
     parser_cli.add_argument('-f', '--script_file', dest='script_fname', default=None,
                         help="File with requests to be executed")
     parser_cli.add_argument('-t', '--template', dest='template_fname', default=None,
@@ -1361,6 +1392,26 @@ if __name__ == '__main__':
                         # If arguments include spaces escape them with slash, e.g. "--api inject_requests my\ request.json"
                         # or surround argument with single quotes, e.g. "--api inject_requests 'my request.json'"
                         # Note we don't use circle brackets, e.g. "--api inject_requests(request.json)" to avoid bash confuse
+
+
+    router_parser = subparsers.add_parser('configure', help='Configure router')
+    router_subparsers = router_parser.add_subparsers()
+
+    interfaces_parser = router_subparsers.add_parser('interfaces', help='Configure interfaces')
+    router_interfaces_subparsers = interfaces_parser.add_subparsers(dest='interfaces')
+
+    create_interfaces_cli = router_interfaces_subparsers.add_parser('create', help='Create VPP interface')
+    # create_interfaces_cli.add_argument('-n', '--name', dest='params.linux_interface_name', metavar='INTERFACE_NAME', help="Existing Linux Interface name", required=True)
+    create_interfaces_cli.add_argument('--type', dest='params.type', choices=['tun'], metavar='INTERFACE_TYPE', help="Type of VPP interface to create", required=True)
+    create_interfaces_cli.add_argument('--ipv4', dest='params.ipv4', metavar='INTERFACE_IP', help="The IPv4 of VPP interface to create", required=True)
+    create_interfaces_cli.add_argument('--host_if_name', dest='params.host_if_name', metavar='INTERFACE_TYPE', help="The name of the interface that will be created in Linux", required=True)
+
+    remove_interfaces_cli = router_interfaces_subparsers.add_parser('delete', help='Remove VPP interface')
+    remove_interfaces_cli.add_argument('--type', dest='params.type', choices=['tun'], metavar='INTERFACE_TYPE', help="Type of VPP interface to remove", required=True)
+    remove_interfaces_cli.add_argument('--ipv4', dest='params.ipv4', metavar='INTERFACE_IP', help="The IPv4 of VPP interface to remove", required=True)
+    remove_interfaces_cli.add_argument('--vpp_if_name', dest='params.vpp_if_name', metavar='VPP_INTERFACE_NAME', help="VPP interface name", required=True)
+    remove_interfaces_cli.add_argument('--ignore_errors', dest='params.ignore_errors', help="Ignore exceptions during removal", action='store_true')
+
     parser_dump = subparsers.add_parser('dump', help='Dump various system info into x.tar.gz file')
     parser_dump.add_argument('-f', '--file', dest='filename', default=None,
                         help="The name of the result archive file. Can be full path. The default is 'fwdump_<hostname>_<YYYYMMDD>_<HHMMSS>.tar.gz")

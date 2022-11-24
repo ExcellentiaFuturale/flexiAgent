@@ -9,7 +9,8 @@
             "type": "python",
             "request": "launch",
             "program": "${file}",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "args": ["t_remotevpn", "1500", "1621", "78.78.78.1", "255.255.255.192", "init"]
         },
         {
             "name": "fwagent daemon",
@@ -21,6 +22,7 @@
             ],
             "subProcess": true,
             "sudo": true,
+            "justMyCode": false,
             "cwd": "${workspaceRoot}",
             "env": {
                 "PYTHONPATH": "${workspaceRoot}/flexiagent"
@@ -91,6 +93,34 @@
                 "show", "${input:showCli}", "${input:showCli1}",
             ],
             "cwd": "${workspaceRoot}",
+            "env": {
+                "PYTHONPATH": "${workspaceRoot}/flexiagent"
+            }
+        },
+        {
+            "name": "fwagent configure CLI",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/fwagent.py",
+            "args": [
+                "configure", "interfaces", "create", "--type", "tun", "--host_if_name", "${input:showCli}", "--ip", "${input:showCli1}"
+            ],
+            "cwd": "${workspaceRoot}",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceRoot}/flexiagent"
+            }
+        },
+        {
+            "name": "fwagent configure delete CLI",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/fwagent.py",
+            "args": [
+                "configure", "interfaces", "delete", "--ignore_errors", "--type", "tun", "--vpp_if_name", "${input:showCli}", "--ip", "${input:showCli1}", 
+            ],
+            "cwd": "${workspaceRoot}",
+            "justMyCode": false,
             "env": {
                 "PYTHONPATH": "${workspaceRoot}/flexiagent"
             }
