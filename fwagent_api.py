@@ -185,7 +185,7 @@ class FWAGENT_API(FwObject):
         return reply
 
     def _upgrade_device_sw(self, params):
-        """Upgrade device SW handler.
+        """Upgrade device SW.
 
         :param params: Parameters from flexiManage.
 

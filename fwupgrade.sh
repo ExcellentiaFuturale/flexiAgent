@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2022  flexiWAN Ltd.
+# Copyright (C) 2019  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -40,15 +40,9 @@ log() {
     echo `date +'%b %e %R:%S'`" $HOSTNAME fwagent:" "$@" >> "$AGENT_LOG_FILE" 2>&1
 }
 
-#######################################
-# Updates job status in case of a failure
-# Arguments:
-#   Failed command
-#   Error
-#######################################
-update_job() {
+update_fwjob() {
     log 'Updating job details ' $JOB_ID
-    python3 /usr/share/flexiwan/agent/fwjobs.py update --job_id $JOB_ID --request 'upgrade-device-sw' --command "$1" --job_error "$2"
+    python3 /usr/share/flexiwan/agent/tools/common/fw_jobs.py update --job_id $JOB_ID --request 'upgrade-device-sw' --command "$1" --job_error "$2"
 }
 
 #######################################
@@ -74,7 +68,7 @@ handle_upgrade_failure() {
             # it will remain stopped.
             systemctl restart "$AGENT_SERVICE"
             log 'handle_upgrade_failure: failed to downgrade ${ret}: exit 1'
-            update_job 'revert' 'Failed to downgrade'
+            update_fwjob 'revert' 'Failed to downgrade'
             exit 1
         fi
 
@@ -156,7 +150,7 @@ get_prev_version
 if [ -z "$prev_ver" ]; then
     reason = 'Failed to extract previous version from' "$VERSIONS_FILE"
     log $reason
-    update_job 'extract previous version' "$reason"
+    update_fwjob 'extract previous version' "$reason"
     handle_upgrade_failure
 fi
 
@@ -174,7 +168,7 @@ res=$(fwagent stop --dont_stop_vpp --dont_stop_applications)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
     log 'Failed to stop agent connection to management'
-    update_job 'stop agent connection' 'Failed to stop agent connection to management'
+    update_fwjob 'stop agent connection' 'Failed to stop agent connection to management'
     handle_upgrade_failure
 fi
 
@@ -187,7 +181,7 @@ check_connection_to_sw_repo
 if [ ${PIPESTATUS[0]} != 0 ]; then
     reason='Failed to connect to software repository ' "$SW_REPOSITORY"
     log $reason
-    update_job 'check connection to repository' "$reason"
+    update_fwjob 'check connection to repository' "$reason"
     handle_upgrade_failure
 fi
 
@@ -196,7 +190,7 @@ res=$(apt-get update)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
     log 'Failed to update debian repositores'
-    update_job 'update debian repositories' 'Failed to update debian repositores'
+    update_fwjob 'update debian repositories' 'Failed to update debian repositores'
     handle_upgrade_failure
 fi
 
@@ -208,14 +202,14 @@ fi
 update_service_conf_file
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log 'Failed to update service configuration file'
-    update_job 'update service configuration file' 'Failed to update service configuration file'
+    update_fwjob 'update service configuration file' 'Failed to update service configuration file'
     handle_upgrade_failure
 fi
 
 res=$(apt-get -o Dpkg::Options::="--force-confold" install -y "$AGENT_SERVICE")
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
-    update_job 'install' "$res"
+    update_fwjob 'install' "$res"
     handle_upgrade_failure 'revert'
 fi
 
@@ -232,7 +226,7 @@ sleep "$AGENT_CHECK_TIMEOUT"
 
 if [ -f "$UPGRADE_FAILURE_FILE" ]; then
     log 'Agent checks failed'
-    update_job 'agent check' 'Agent checks failed'
+    update_fwjob 'agent check' 'Agent checks failed'
     handle_upgrade_failure 'revert'
 fi
 
