@@ -56,6 +56,7 @@ import fwutils
 import fwwebsocket
 import loadsimulator
 import fwqos
+import fwapi_router
 
 from fwapplications_api import FWAPPLICATIONS_API
 from fwfrr import FwFrr
@@ -1065,10 +1066,10 @@ class FwagentDaemon(FwObject):
 
     def configure(self, call, params):
         if call == 'create_interface':
-            out = fwutils.add_vpp_interface(**params)
+            out = fwapi_router.api_add_interface(**params)
             return json.dumps(out, indent=2, sort_keys=True)
         elif call == 'delete_interface':
-            return fwutils.remove_vpp_interface(**params)
+            return fwapi_router.api_remove_interface(**params)
         return False
 
     def main(self):
@@ -1402,13 +1403,13 @@ if __name__ == '__main__':
 
     create_interfaces_cli = router_interfaces_subparsers.add_parser('create', help='Create VPP interface')
     # create_interfaces_cli.add_argument('-n', '--name', dest='params.linux_interface_name', metavar='INTERFACE_NAME', help="Existing Linux Interface name", required=True)
-    create_interfaces_cli.add_argument('--type', dest='params.type', choices=['tun'], metavar='INTERFACE_TYPE', help="Type of VPP interface to create", required=True)
-    create_interfaces_cli.add_argument('--ipv4', dest='params.ipv4', metavar='INTERFACE_IP', help="The IPv4 of VPP interface to create", required=True)
-    create_interfaces_cli.add_argument('--host_if_name', dest='params.host_if_name', metavar='INTERFACE_TYPE', help="The name of the interface that will be created in Linux", required=True)
+    create_interfaces_cli.add_argument('--type', dest='params.type', choices=['wan', 'lan'], metavar='INTERFACE_TYPE', help="Indicates if interface will be use to go to the internet", required=True)
+    create_interfaces_cli.add_argument('--addr', dest='params.addr', metavar='ADDRESS', help="The IPv4 to configure on the VPP interface", required=True)
+    create_interfaces_cli.add_argument('--host_if_name', dest='params.host_if_name', metavar='INTERFACE_TYPE', help="The name of the interface that will be created in Linux side", required=True)
 
     remove_interfaces_cli = router_interfaces_subparsers.add_parser('delete', help='Remove VPP interface')
-    remove_interfaces_cli.add_argument('--type', dest='params.type', choices=['tun'], metavar='INTERFACE_TYPE', help="Type of VPP interface to remove", required=True)
-    remove_interfaces_cli.add_argument('--ipv4', dest='params.ipv4', metavar='INTERFACE_IP', help="The IPv4 of VPP interface to remove", required=True)
+    remove_interfaces_cli.add_argument('--type', dest='params.type', choices=['wan', 'lan'], metavar='INTERFACE_TYPE', help="Indicates if interface is used to go to the internet", required=True)
+    remove_interfaces_cli.add_argument('--addr', dest='params.addr', metavar='INTERFACE_IP', help="The IPv4 of VPP interface to remove", required=True)
     remove_interfaces_cli.add_argument('--vpp_if_name', dest='params.vpp_if_name', metavar='VPP_INTERFACE_NAME', help="VPP interface name", required=True)
     remove_interfaces_cli.add_argument('--ignore_errors', dest='params.ignore_errors', help="Ignore exceptions during removal", action='store_true')
 

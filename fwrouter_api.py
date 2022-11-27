@@ -1410,17 +1410,15 @@ class FWROUTER_API(FwCfgRequestHandler):
         """
         self._update_cache_sw_if_index(sw_if_index, type, True)
 
-    def apply_features_on_interface(self, add, vpp_if_name):
+    def apply_features_on_interface(self, add, vpp_if_name, type):
         # apply firewall
         # TODO: Waiting for extracting firewall rules from translations to on the fly
 
-        # apply multilink
-        policies = fwglobals.g.policies.policies_get()
-        op = 'add' if add else 'del'
+        # apply qos
+        # TODO: Waiting for qos implementation
 
-        for policy_id, priority in list(policies.items()):
-            vppctl_cmd = f'fwabf attach ip4 {op} policy {int(policy_id)} priority {priority} {vpp_if_name}'
-            fwutils.vpp_cli_execute([vppctl_cmd])
+        # apply multilink
+        fwglobals.g.policies.attach_detach_interface_to_policies(add, vpp_if_name)
 
     def _on_remove_interface_before(self, type, sw_if_index):
         """remove-interface preprocessing

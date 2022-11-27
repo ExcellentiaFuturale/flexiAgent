@@ -22,6 +22,7 @@
 
 from sqlitedict import SqliteDict
 
+import fwutils
 from fwobject import FwObject
 
 class FwPolicies(FwObject):
@@ -78,3 +79,20 @@ class FwPolicies(FwObject):
         :returns: Dictionary.
         """
         return self.policies
+
+    def attach_detach_interface_to_policies(self, attach, vpp_if_name):
+        """Attach interface to policy policies dictionary.
+
+        :param attach: A boolean indicates if to attach or detach.
+        :param vpp_if_name: VPP interface name to attach to policies on.
+
+        """
+        policies = self.policies_get()
+        if len(policies) == 0:
+            return
+
+        op = 'add' if attach else 'del'
+
+        for policy_id, priority in list(policies.items()):
+            vppctl_cmd = f'fwabf attach ip4 {op} policy {int(policy_id)} priority {priority} {vpp_if_name}'
+            fwutils.vpp_cli_execute([vppctl_cmd])

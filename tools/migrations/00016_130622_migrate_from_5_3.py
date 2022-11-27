@@ -36,7 +36,7 @@ from fwapplications_cfg import FwApplicationsCfg
 from fwrouter_api import fwrouter_translators
 from fwrouter_cfg import FwRouterCfg
 
-def _migrate_vpn_auth_script():
+def _migrate_vpn_script():
     application_db_path = "/etc/flexiwan/agent/.applications.sqlite"
     if os.path.exists(application_db_path):
         with FwApplicationsCfg(application_db_path) as application_cfg:
@@ -49,6 +49,9 @@ def _migrate_vpn_auth_script():
 
                 path = '/usr/share/flexiwan/agent/applications/com_flexiwan_remotevpn/scripts'
                 shutil.copyfile('{}/auth.py'.format(path), '/etc/openvpn/server/auth-script.py')
+                shutil.copyfile('{}/up.py'.format(path), '/etc/openvpn/server/up-script.py')
+                shutil.copyfile('{}/down.py'.format(path), '/etc/openvpn/server/down-script.py')
+                shutil.copyfile('{}/script_utils.py'.format(path), '/etc/openvpn/server/script_utils.py')
                 os.system('killall openvpn') # it will be start again by our application watchdog
 
 
@@ -123,8 +126,8 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
     # upgrade from any version before 6:
     if upgrade == 'upgrade' and prev_major_version < 6:
         try:
-            print("* Migrating OpenVPN auth script ...")
-            _migrate_vpn_auth_script()
+            print("* Migrating OpenVPN scripts ...")
+            _migrate_vpn_script()
 
         except Exception as e:
             print("Migration error: %s : %s" % (__file__, str(e)))

@@ -91,7 +91,8 @@ def get_saved_vpp_interface_name():
 
 def create_tun_in_vpp(addr):
     try:
-        out = run_agent_api(f'fwagent configure interfaces create --type tun --host_if_name t_vpp_remotevpn --ipv4 {addr}')
+        cmd = f'fwagent configure interfaces create --type lan --host_if_name t_vpp_remotevpn --addr {addr}'
+        out = subprocess.check_output(cmd, shell=True).decode()
         response_data = json.loads(out)
         tun_vpp_if_name = response_data.get('tun_vpp_if_name')
         if not tun_vpp_if_name:
@@ -104,14 +105,6 @@ def create_tun_in_vpp(addr):
         logger.error(f'create_tun_in_vpp({addr}): {str(e)}')
         raise e
 
-def run_agent_api(cmd):
-    p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-    (out, err) = p.communicate()
-    out = out.decode().strip()
-    if p.returncode != 0:
-        raise Exception(err)
-    return out
-
 def remove_tun_from_vpp(addr):
     try:
         data = None
@@ -121,7 +114,8 @@ def remove_tun_from_vpp(addr):
             if not tun_vpp_if_name:
                 raise Exception('remove_tun_from_vpp(): Failed to find the VPP tun interface')
 
-            run_agent_api(f'fwagent configure interfaces delete --type tun --vpp_if_name {tun_vpp_if_name} --ipv4 {addr}')
+            cmd = f'fwagent configure interfaces delete --type lan --vpp_if_name {tun_vpp_if_name} --addr {addr}'
+            subprocess.check_output(cmd, shell=True).decode()
 
         # update
         with open(app_database_file, 'w+') as json_file:

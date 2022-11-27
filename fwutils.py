@@ -2548,15 +2548,7 @@ def tunnel_change_postprocess(remove, vpp_if_name):
     :param remove:      True if tunnel is removed, False if added
     :param vpp_if_name: name of the vpp software interface, e.g. "loop4"
     """
-    policies = fwglobals.g.policies.policies_get()
-    if len(policies) == 0:
-        return
-
-    op = 'del' if remove else 'add'
-
-    for policy_id, priority in list(policies.items()):
-        vppctl_cmd = 'fwabf attach ip4 %s policy %d priority %d %s' % (op, int(policy_id), priority, vpp_if_name)
-        vpp_cli_execute([vppctl_cmd])
+    fwglobals.g.policies.attach_detach_interface_to_policies(False if remove else True, vpp_if_name)
 
 
 # The messages received from flexiManage are not perfect :)
@@ -3998,93 +3990,6 @@ def build_tunnel_bgp_neighbor(tunnel):
         'ip': remote_loop0_ip,
         'remoteAsn': bgp_remote_asn
     }
-
-def add_vpp_interface(type, ipv4, host_if_name, ospf=True, bgp=True):
-    if not vpp_does_run():
-        return
-
-    revert_ospf = False
-    revert_bgp = False
-
-    try:
-        response = {}
-        if ospf:
-            ret, err_str = fwglobals.g.router_api.frr.run_ospf_add(ipv4, '0.0.0.0')
-            if not ret:
-                raise Exception(f'add_vpp_interface(): Failed to add {ipv4} network to ospf. err_str={str(err_str)}')
-            revert_ospf = True
-
-        if bgp and fwglobals.g.router_cfg.get_bgp(): # check if BGP exists
-            ret, err_str = fwglobals.g.router_api.frr.run_bgp_add_network(ipv4)
-            if not ret:
-                raise Exception(f'add_vpp_interface(): Failed to add {ipv4} network to bgp. err_str={str(err_str)}')
-            revert_bgp = True
-
-        if type == 'tun':
-            tun_vpp_if_name = create_tun_in_vpp(ipv4, host_if_name=host_if_name, recreate_if_exists=True)
-            response['tun_vpp_if_name'] = tun_vpp_if_name
-
-            fwglobals.g.router_api.apply_features_on_interface(True, tun_vpp_if_name)
-
-        return response
-    except Exception as e:
-        if revert_bgp:
-            fwglobals.g.router_api.frr.run_bgp_remove_network(ipv4)
-
-        if revert_ospf:
-            fwglobals.g.router_api.frr.run_ospf_remove(ipv4, '0.0.0.0')
-
-        raise e
-
-def remove_vpp_interface(vpp_if_name, type, ipv4, ospf=True, bgp=True, ignore_errors=False):
-    if not vpp_does_run():
-        return
-
-    if ospf:
-        ret, err_str = fwglobals.g.router_api.frr.run_ospf_remove(ipv4, '0.0.0.0')
-        if not ret and not ignore_errors:
-            raise Exception(f'remove_vpp_interface(): Failed to remove {ipv4} network from ospf. err_str={str(err_str)}')
-
-    if bgp:
-        ret, err_str = fwglobals.g.router_api.frr.run_bgp_remove_network(ipv4)
-        if not ret and not ignore_errors:
-            raise Exception(f'remove_vpp_interface(): Failed to remove {ipv4} network from bgp. err_str={str(err_str)}')
-
-    if type == 'tun' or type == 'tap':
-        fwglobals.g.router_api.apply_features_on_interface(False, vpp_if_name)
-        delete_tun_tap_from_vpp(vpp_if_name, ignore_errors)
-
-def delete_tun_tap_from_vpp(vpp_if_name, ignore_errors):
-    vpp_cli_execute([f'delete tap {vpp_if_name}'], raise_exception_on_error=(not ignore_errors))
-
-def create_tun_in_vpp(ipv4, host_if_name, recreate_if_exists=False):
-    # ensure that tun is not exists in case of down-script failed
-    tun_exists = os.popen(f'sudo vppctl show tun | grep -B 1 "{host_if_name}"').read().strip()
-    if tun_exists:
-        if not recreate_if_exists:
-            raise Exception(f'The tun "{host_if_name}" already exists in VPP. tun_exists={str(tun_exists)}')
-
-        # root@flexiwan-zn1:/home/shneorp# sudo vppctl show tun | grep -B 1 "t_vpp_remotevpn"
-        # Interface: tun0 (ifindex 7)
-        #   name "t_vpp_remotevpn"
-        tun_name = tun_exists.splitlines()[0].split(' ')[1]
-        os.system(f'sudo vppctl delete tap {tun_name}')
-
-    # configure the vpp interface
-    tun_vpp_if_name = os.popen(f'sudo vppctl create tap host-if-name {host_if_name} tun').read().strip()
-    if not tun_vpp_if_name:
-        raise Exception('Cannot create tun device in vpp')
-
-    fwglobals.log.info(f'create_tun_in_vpp(): TUN created in vpp. vpp_if_name={tun_vpp_if_name}')
-
-    vpp_cmds = [
-        f'set interface ip address {tun_vpp_if_name} {ipv4}',
-        f'set interface state {tun_vpp_if_name} up'
-    ]
-
-    vpp_cli_execute(vpp_cmds)
-
-    return tun_vpp_if_name
 
 class FwJsonEncoder(json.JSONEncoder):
     '''Customization of the JSON encoder that is able to serialize simple
