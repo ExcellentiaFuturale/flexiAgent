@@ -4060,4 +4060,8 @@ def add_nat_rules_intf(is_add, sw_if_index):
             for rule_index, rule in enumerate(rules['rules']):
                 classification = rule.get('classification')
                 destination = classification.get('destination')
-                fw_nat_command_helpers.run_nat_identity_config(is_add, sw_if_index, destination.get('protocols'), destination['ports'])
+                interface = destination.get('interface')
+                if interface:
+                    continue
+                fw_nat_command_helpers.run_nat_identity_config(is_add, sw_if_index,
+                            destination.get('protocols'), destination['ports'])
