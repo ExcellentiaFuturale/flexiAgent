@@ -31,6 +31,7 @@ import traceback
 
 from netaddr import IPAddress, IPNetwork
 
+import fw_nat_command_helpers
 import fw_vpp_coredump_utils
 import fwglobals
 import fwlte
@@ -1422,7 +1423,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             fwutils.tunnel_change_postprocess(False, vpp_if_name)
 
         if type == 'wan':
-            fwutils.add_nat_rules_intf(True, sw_if_index)
+            fw_nat_command_helpers.add_nat_rules_intf(True, sw_if_index)
 
     def _on_remove_interface_before(self, type, sw_if_index):
         """remove-interface preprocessing
@@ -1431,7 +1432,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         :param sw_if_index: vpp sw_if_index of the interface
         """
         if type == 'wan':
-            fwutils.add_nat_rules_intf(False, sw_if_index)
+            fw_nat_command_helpers.add_nat_rules_intf(False, sw_if_index)
 
         if type == 'lan':
             vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)

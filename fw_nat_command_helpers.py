@@ -383,3 +383,23 @@ def run_nat_identity_config(is_add, sw_if_index, protocols, ports):
 
             fwglobals.g.router_api.vpp_api.vpp.call('nat44_add_del_identity_mapping',
                 is_add=is_add, sw_if_index=sw_if_index, protocol=fwutils.proto_map[proto], port=port)
+
+def add_nat_rules_intf(is_add, sw_if_index):
+    """
+    Add/remove NAT identity mapping on the interface
+
+    :param is_add: add or remove
+    :param sw_if_index: device identifier of the interface
+    """
+    firewall_policy_params = fwglobals.g.router_cfg.get_firewall_policy()
+    inbound_rules = firewall_policy_params.get('inbound')
+    for rule_name, rules in inbound_rules.items():
+        if rule_name == "edgeAccess":
+            for rule_index, rule in enumerate(rules['rules']):
+                classification = rule.get('classification')
+                destination = classification.get('destination')
+                interface = destination.get('interface')
+                if interface:
+                    continue
+                run_nat_identity_config(is_add, sw_if_index,
+                            destination.get('protocols'), destination['ports'])
