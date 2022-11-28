@@ -392,6 +392,9 @@ def add_nat_rules_intf(is_add, sw_if_index):
     :param sw_if_index: device identifier of the interface
     """
     firewall_policy_params = fwglobals.g.router_cfg.get_firewall_policy()
+    if not firewall_policy_params:
+        return
+
     inbound_rules = firewall_policy_params.get('inbound')
     for rule_name, rules in inbound_rules.items():
         if rule_name == "edgeAccess":
