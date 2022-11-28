@@ -31,6 +31,7 @@ import traceback
 
 from netaddr import IPAddress, IPNetwork
 
+import fw_acl_command_helpers
 import fw_nat_command_helpers
 import fw_vpp_coredump_utils
 import fwglobals
@@ -1324,6 +1325,8 @@ class FWROUTER_API(FwCfgRequestHandler):
         # Reset FlexiWAN QoS contexts on VPP start
         fwglobals.g.qos.reset()
 
+        fwglobals.g.acl_cache.clear()
+
     def _sync_after_start(self):
         """Resets signature once interface got IP during router starting.
         :returns: None.
@@ -1418,9 +1421,11 @@ class FWROUTER_API(FwCfgRequestHandler):
         :param sw_if_index: vpp sw_if_index of the interface
         """
         self._update_cache_sw_if_index(sw_if_index, type, True)
+
         if type == 'lan':
             vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
             fwutils.tunnel_change_postprocess(False, vpp_if_name)
+            fw_acl_command_helpers.add_acl_rules_intf(True, sw_if_index)
 
         if type == 'wan':
             fw_nat_command_helpers.add_nat_rules_intf(True, sw_if_index)
@@ -1435,8 +1440,10 @@ class FWROUTER_API(FwCfgRequestHandler):
             fw_nat_command_helpers.add_nat_rules_intf(False, sw_if_index)
 
         if type == 'lan':
+            fw_acl_command_helpers.add_acl_rules_intf(False, sw_if_index)
             vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
             fwutils.tunnel_change_postprocess(True, vpp_if_name)
+
         self._update_cache_sw_if_index(sw_if_index, type, False)
 
     def _on_add_tunnel_after(self, sw_if_index, params):

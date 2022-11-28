@@ -178,6 +178,8 @@ def add_firewall_policy(params):
             if cmd1 and cmd2:
                 cmd_list.append(cmd1)
                 cmd_list.append(cmd2)
+                cmd_list.append(fw_acl_command_helpers.cache_acl_rule('ingress', ingress_id))
+                cmd_list.append(fw_acl_command_helpers.cache_acl_rule('egress', egress_id))
             else:
                 fwglobals.log.warning('Outbound firewall: Match conditions ' +
                     'do not exist for rule index: %d' % rule_index)
@@ -244,6 +246,9 @@ def add_firewall_policy(params):
             # Add last default ACL as allow ALL
             value['ingress'].append(DEFAULT_ALLOW_ID)
             value['egress'].append(DEFAULT_ALLOW_ID)
+
+            cmd_list.append(fw_acl_command_helpers.cache_acl_rule('ingress', DEFAULT_ALLOW_ID))
+            cmd_list.append(fw_acl_command_helpers.cache_acl_rule('egress', DEFAULT_ALLOW_ID))
 
             cmd_list.append(fw_acl_command_helpers.add_interface_attachment(
                 sw_if_index, value['ingress'], value['egress']))

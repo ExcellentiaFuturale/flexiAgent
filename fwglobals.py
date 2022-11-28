@@ -32,6 +32,7 @@ import yaml
 from fwqos import FwQoS
 import fwutils
 import threading
+import fw_acl_command_helpers
 import fw_vpp_coredump_utils
 import fwlte
 
@@ -332,6 +333,7 @@ class Fwglobals(FwObject):
         self.router_threads                = FwRouterThreading() # Primitives used for synchronization of router configuration and monitoring threads
         self.handle_request_lock           = threading.RLock()
         self.is_gcp_vm                     = fwutils.detect_gcp_vm()
+        self.acl_cache                     = fw_acl_command_helpers.FwAclCache()
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)

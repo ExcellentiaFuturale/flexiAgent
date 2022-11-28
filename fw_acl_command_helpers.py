@@ -305,3 +305,87 @@ def add_interface_attachment(sw_if_index, ingress_acl_ids, egress_acl_ids):
     }
 
     return cmd
+
+class FwAclCache():
+    def __init__(self):
+        self.ingress_rules = set()
+        self.egress_rules = set()
+
+    def add(self, direction, acl_id):
+        if direction == 'ingress':
+            self.ingress_rules.add(acl_id)
+        else:
+            self.egress_rules.add(acl_id)
+
+    def remove(self, direction, acl_id):
+        if direction == 'ingress':
+            self.ingress_rules.remove(acl_id)
+        else:
+            self.egress_rules.remove(acl_id)
+
+    def get(self, direction):
+        if direction == 'ingress':
+            return list(self.ingress_rules)
+        else:
+            return list(self.egress_rules)
+
+    def clear(self):
+        self.ingress_rules.clear()
+        self.egress_rules.clear()
+
+def cache_acl_rule(direction, acl_id):
+    """ Cache ACL rule
+
+    :param direction: Inbound/outbound
+    :param acl_id: ACL identifier
+    """
+    cmd = {}
+
+    cmd['cmd'] = {}
+    cmd['cmd']['func']   = "update_firewall_cache"
+    cmd['cmd']['module'] = "fw_acl_command_helpers"
+    cmd['cmd']['descr']  = "Add Firewall ACL into cache"
+    cmd['cmd']['params'] = {
+            'is_add': True,
+            'direction': direction,
+            'substs': [ { 'add_param': 'acl_index', 'val_by_key': acl_id } ]
+    }
+    cmd['revert'] = {}
+    cmd['revert']['func']   = "update_firewall_cache"
+    cmd['revert']['module'] = "fw_acl_command_helpers"
+    cmd['revert']['descr']  = "Remove Firewall ACL from cache"
+    cmd['revert']['params'] = {
+            'is_add': False,
+            'direction': direction,
+            'substs': [ { 'add_param': 'acl_index', 'val_by_key': acl_id } ]
+    }
+
+    return cmd
+
+def update_firewall_cache(is_add, direction, acl_index):
+    """Update cache of firewall rules
+
+    :param is_add: Indicate if to add or remove.
+    :param direction: ingress or egress.
+    :param acl_index: ACL identifier
+
+    :returns: (True, None) tuple on success, (False, <error string>) on failure.
+    """
+    if is_add:
+        fwglobals.g.acl_cache.add(direction, acl_index)
+    else:
+        fwglobals.g.acl_cache.remove(direction, acl_index)
+
+    return (True, None)
+
+def add_acl_rules_intf(is_add, sw_if_index):
+    """
+    Add/remove ACL rules on the interface
+
+    :param is_add: add or remove
+    :param sw_if_index: device identifier of the interface
+    """
+    inbound_rules = fwglobals.g.acl_cache.get('inbound')
+    outbound_rules = fwglobals.g.acl_cache.get('outbound')
+    fwglobals.log.debug(f'inbound_rules: {inbound_rules}')
+    fwglobals.log.debug(f'outbound_rules: {outbound_rules}')
