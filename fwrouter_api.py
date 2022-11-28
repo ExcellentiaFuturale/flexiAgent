@@ -1410,15 +1410,16 @@ class FWROUTER_API(FwCfgRequestHandler):
         """
         self._update_cache_sw_if_index(sw_if_index, type, True)
 
-    def apply_features_on_interface(self, add, vpp_if_name, type):
+    def apply_features_on_interface(self, add, vpp_if_name, if_type=None):
         # apply firewall
-        # TODO: Waiting for extracting firewall rules from translations to on the fly
+        # TODO: Should be implemented in the next release.
+        # For RemoteVPN, we rely temporarily on the add-firewall-policy job that expected to arrive after add-app-install.
 
         # apply qos
         # TODO: Waiting for qos implementation
 
         # apply multilink
-        fwglobals.g.policies.attach_detach_interface_to_policies(add, vpp_if_name)
+        fwglobals.g.policies.attach_detach_interface_to_policies(add, vpp_if_name, if_type)
 
     def _on_remove_interface_before(self, type, sw_if_index):
         """remove-interface preprocessing

@@ -22,6 +22,7 @@
 
 from sqlitedict import SqliteDict
 
+import fwglobals
 import fwutils
 from fwobject import FwObject
 
@@ -80,16 +81,24 @@ class FwPolicies(FwObject):
         """
         return self.policies
 
-    def attach_detach_interface_to_policies(self, attach, vpp_if_name):
+    def attach_detach_interface_to_policies(self, attach, vpp_if_name, if_type=None):
         """Attach interface to policy policies dictionary.
 
         :param attach: A boolean indicates if to attach or detach.
         :param vpp_if_name: VPP interface name to attach to policies on.
+        :param if_type: LAN or WAN.
 
         """
         policies = self.policies_get()
         if len(policies) == 0:
             return
+
+        if if_type == 'wan':
+            policy = fwglobals.g.router_cfg.get_multilink_policy()
+            rules = policy.get('rules', [])
+            attach_to_wan = rules[0].get('apply-on-wan-rx', False) if len(rules) > 0 else False
+            if not attach_to_wan:
+                return
 
         op = 'add' if attach else 'del'
 
