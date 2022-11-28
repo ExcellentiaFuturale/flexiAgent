@@ -265,7 +265,7 @@ class FwQoS(FwObject):
         return tc_period, tb_size
 
 
-    def __get_interface_bandwidth_update_command(self, dev_id, sw_if_index, tx_Bps, cmd_list):
+    def __get_interface_bandwidth_update_command(self, dev_id, tx_Bps, cmd_list):
         """
         Generate commands to update interface bandwidth value. In our WAN-QoS model, the subport
         level in DPDK HQOS hierarchy represents the interface WAN bandwidth. This function updates
@@ -273,8 +273,6 @@ class FwQoS(FwObject):
 
         :param dev_id: Device identifier
         :type dev_id: String
-        :param sw_if_index: VPP identifier for given dev_id
-        :type sw_if_index: Integer
         :param tx_Bps: TX bandwidth of the interface in Bytes Per Second
         :type tx_Bps: Integer
         :param cmd_list: Command array to be updated with commands
@@ -290,12 +288,18 @@ class FwQoS(FwObject):
         cmd['cmd']['params']    =   {
             'api' : 'sw_interface_set_dpdk_hqos_subport_profile',
             'args': {
-                'sw_if_index' : sw_if_index,
                 'profile'     : self.__QOS_SCHED_DEFAULT_SUB_PORT_PROFILE_ID,
                 'tb_rate'     : tx_Bps,
                 'tc_rate'     : tc_rate,
                 'tc_period'   : tc_period,
                 'tb_size'     : tb_size,
+                'substs': [
+                    {
+                        'add_param': 'sw_if_index',
+                        'val_by_func': 'dev_id_to_vpp_sw_if_index',
+                        'arg': dev_id
+                    }
+                ]
             }
         }
         revert_tc_rate = [self.__INTERFACE_BANDWIDTH_DEFAULT_BPS] * self.__QOS_SCHED_MAX_TRAFFIC_CLASSES
@@ -308,19 +312,25 @@ class FwQoS(FwObject):
         cmd['revert']['params']    =   {
             'api' : 'sw_interface_set_dpdk_hqos_subport_profile',
             'args': {
-                'sw_if_index' : sw_if_index,
                 'profile'     : self.__QOS_SCHED_DEFAULT_SUB_PORT_PROFILE_ID,
                 'tb_rate'     : self.__INTERFACE_BANDWIDTH_DEFAULT_BPS,
                 'tc_rate'     : revert_tc_rate,
                 'tc_period'   : revert_tc_period,
                 'tb_size'     : revert_tb_size,
+                'substs': [
+                    {
+                        'add_param': 'sw_if_index',
+                        'val_by_func': 'dev_id_to_vpp_sw_if_index',
+                        'arg': dev_id
+                    }
+                ]
             }
         }
         cmd_list.append(cmd)
 
 
-    def __get_tunnel_bandwidth_update_command(self, dev_id, sw_if_index,
-        scheduling_params, tunnel_id, qos_hierarchy_id, tx_Bps, previous_tx_Bps, cmd_list):
+    def __get_tunnel_bandwidth_update_command(self, dev_id, scheduling_params, tunnel_id,
+                                              qos_hierarchy_id, tx_Bps, previous_tx_Bps, cmd_list):
         """
         Generate commands to update tunnel bandwidth value. In our WAN-QoS model, the pipe
         level in DPDK HQOS hierarchy represents the tunnel bandwidth. This function updates
@@ -330,8 +340,6 @@ class FwQoS(FwObject):
 
         :param dev_id: Device identifier
         :type dev_id: String
-        :param sw_if_index: VPP identifier for given dev_id
-        :type sw_if_index: Integer
         :param scheduling_params: Scheduling param for the given device identifier
         :type scheduling_params: dict
         :param tunnel_id: Tunnel identifier received in add-tunnel message
@@ -367,13 +375,19 @@ class FwQoS(FwObject):
         cmd['cmd']['params']    =   {
             'api'         : 'sw_interface_set_dpdk_hqos_pipe_profile',
             'args'        : {
-                'sw_if_index' : sw_if_index,
                 'subport_id'  : self.__QOS_SCHED_DEFAULT_SUB_PORT_ID,
                 'tb_rate'     : tx_Bps,
                 'tc_rate'     : apply_tc_rate,
                 'wrr'         : wrr,
                 'tc_period'   : min(tc_period, realtime_tc_period),
-                'tb_size'     : max(tb_size, realtime_tb_size)
+                'tb_size'     : max(tb_size, realtime_tb_size),
+                'substs': [
+                    {
+                        'add_param': 'sw_if_index',
+                        'val_by_func': 'dev_id_to_vpp_sw_if_index',
+                        'arg': dev_id
+                    }
+                ]
             }
         }
         if (tunnel_id == self.__QOS_SCHED_DEFAULT_TUNNEL_ID):
@@ -381,9 +395,9 @@ class FwQoS(FwObject):
         else:
             if (qos_hierarchy_id is None):
                 tunnel_id_key = self.__TUNNEL_ID_KEY_PREFIX % tunnel_id
-                cmd['cmd']['params']['args']['substs'] = [
+                cmd['cmd']['params']['args']['substs'].append(
                     { 'add_param': 'profile', 'val_by_key': tunnel_id_key }
-                ]
+                )
             else:
                 cmd['cmd']['params']['args']['profile'] = qos_hierarchy_id
 
@@ -408,13 +422,19 @@ class FwQoS(FwObject):
         cmd['revert']['params']    =   {
             'api'         : 'sw_interface_set_dpdk_hqos_pipe_profile',
             'args'        : {
-                'sw_if_index' : sw_if_index,
                 'subport_id'  : self.__QOS_SCHED_DEFAULT_SUB_PORT_ID,
                 'tb_rate'     : revert_tx_Bps,
                 'tc_rate'     : revert_tc_rate,
                 'wrr'         : revert_wrr,
                 'tc_period'   : min(revert_tc_period, realtime_revert_tc_period),
                 'tb_size'     : max(revert_tb_size, realtime_revert_tb_size),
+                'substs': [
+                    {
+                        'add_param': 'sw_if_index',
+                        'val_by_func': 'dev_id_to_vpp_sw_if_index',
+                        'arg': dev_id
+                    }
+                ]
             }
         }
         if (tunnel_id == self.__QOS_SCHED_DEFAULT_TUNNEL_ID):
@@ -422,9 +442,9 @@ class FwQoS(FwObject):
         else:
             if (qos_hierarchy_id is None):
                 tunnel_id_key = self.__TUNNEL_ID_KEY_PREFIX % tunnel_id
-                cmd['revert']['params']['args']['substs'] = [
+                cmd['revert']['params']['args']['substs'].append(
                     { 'add_param': 'profile', 'val_by_key': tunnel_id_key }
-                ]
+                )
             else:
                 cmd['revert']['params']['args']['profile'] = qos_hierarchy_id
 
@@ -439,8 +459,14 @@ class FwQoS(FwObject):
         cmd['cmd']['params']    =   {
             'api'         : 'sw_interface_set_dpdk_hqos_pipe',
             'args'        : {
-                'sw_if_index' : sw_if_index,
-                'subport_id'  : self.__QOS_SCHED_DEFAULT_SUB_PORT_ID
+                'subport_id'  : self.__QOS_SCHED_DEFAULT_SUB_PORT_ID,
+                'substs': [
+                    {
+                        'add_param': 'sw_if_index',
+                        'val_by_func': 'dev_id_to_vpp_sw_if_index',
+                        'arg': dev_id
+                    }
+                ]
             }
         }
         if (tunnel_id == self.__QOS_SCHED_DEFAULT_TUNNEL_ID):
@@ -450,18 +476,18 @@ class FwQoS(FwObject):
             tunnel_id_key = self.__TUNNEL_ID_KEY_PREFIX % tunnel_id
             if (qos_hierarchy_id is None):
                 tunnel_id_key = self.__TUNNEL_ID_KEY_PREFIX % tunnel_id
-                cmd['cmd']['params']['args']['substs'] = [
+                cmd['cmd']['params']['args']['substs'].extend([
                     { 'add_param': 'pipe_id', 'val_by_key': tunnel_id_key },
                     { 'add_param': 'profile', 'val_by_key': tunnel_id_key }
-                ]
+                ])
             else:
                 cmd['cmd']['params']['args']['pipe_id'] = qos_hierarchy_id
                 cmd['cmd']['params']['args']['profile'] = qos_hierarchy_id
         cmd_list.append(cmd)
 
 
-    def __get_tunnel_bandwidth_add_command(self, dev_id, sw_if_index,
-        scheduling_params, tunnel_id, tx_Bps, cmd_list):
+    def __get_tunnel_bandwidth_add_command(self, dev_id, scheduling_params,
+                                           tunnel_id, tx_Bps, cmd_list):
         """
         Generate commands to setup tunnel in QoS hierarchy. In our WAN-QoS model, the pipe
         level in DPDK HQOS hierarchy represents the WAN tunnels. In this function, a unique
@@ -470,8 +496,6 @@ class FwQoS(FwObject):
 
         :param dev_id: Device identifier
         :type dev_id: String
-        :param sw_if_index: VPP identifier for given dev_id
-        :type sw_if_index: Integer
         :param scheduling_params: Scheduling param for the given device identifier
         :type scheduling_params: dict
         :param tunnel_id: Tunnel identifier received in add-tunnel message
@@ -507,12 +531,12 @@ class FwQoS(FwObject):
             }
             cmd_list.append(cmd)
 
-        self.__get_tunnel_bandwidth_update_command(dev_id, sw_if_index, scheduling_params, \
+        self.__get_tunnel_bandwidth_update_command(dev_id, scheduling_params, \
             tunnel_id, None, tx_Bps, None, cmd_list)
 
 
-    def __get_interface_tunnel_bandwidth_update_command(self, dev_id, sw_if_index,
-        scheduling_params, tx_Bps, cmd_list):
+    def __get_interface_tunnel_bandwidth_update_command(self, dev_id, scheduling_params,
+                                                        tx_Bps, cmd_list):
         """
         On change of interface bandwidth, all tunnels under the interface need to be
         reconfigured. The reconfiguration checks both the new interface bandwidth
@@ -521,8 +545,6 @@ class FwQoS(FwObject):
 
         :param dev_id: Device identifier
         :type dev_id: String
-        :param sw_if_index: VPP identifier for given dev_id
-        :type sw_if_index: Integer
         :param scheduling_params: Scheduling param for the given device identifier
         :type scheduling_params: dict
         :param tx_Bps: TX bandwidth of the tunnel in Bytes Per Second
@@ -539,8 +561,7 @@ class FwQoS(FwObject):
                 tx_Bps = self.__get_tunnel_tx_bandwidth_Bps(tunnel_params, interface_tx_Bps=tx_Bps)
 
             self.__get_tunnel_bandwidth_update_command\
-                (dev_id, sw_if_index, scheduling_params, \
-                    tunnel_id, tunnel_value, tx_Bps, None, cmd_list)
+                (dev_id, scheduling_params, tunnel_id, tunnel_value, tx_Bps, None, cmd_list)
 
 
     def __get_interface_traffic_map_update_commands(self, dev_id, sw_if_index,
@@ -686,43 +707,6 @@ class FwQoS(FwObject):
                 }
             }
             cmd_list.append(cmd)
-
-
-    def __get_enable_classification_acls_commands(self, sw_if_index, cmd_list):
-        """
-        The traffic classification ACLs are added while processing add-application message.
-        But the classification shall not be enabled till QoS policy is applied. This
-        function enables the already configured classification-ACLs on the given interface
-
-        :param sw_if_index: VPP identifier for given dev_id
-        :type sw_if_index: Integer
-        :param cmd_list: Command array to be updated with commands
-        :type cmd_list: Array
-        """
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']      = "call_vpp_api"
-        cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
-        cmd['cmd']['descr']     = "Enable ACL based classification on LAN sw_if_index: %d" % sw_if_index
-        cmd['cmd']['params']    =   {
-            'api'  : "classifier_acls_enable_disable",
-            'args' : {
-                'sw_if_index'   : sw_if_index,
-                'enable_disable': True
-            }
-        }
-        cmd['revert'] = {}
-        cmd['revert']['func']      = "call_vpp_api"
-        cmd['revert']['object']    = "fwglobals.g.router_api.vpp_api"
-        cmd['revert']['descr']     = "Enable ACL based classification on LAN sw_if_index: %d" % sw_if_index
-        cmd['revert']['params']    =   {
-            'api'  : "classifier_acls_enable_disable",
-            'args' : {
-                'sw_if_index'   : sw_if_index,
-                'enable_disable': False
-            }
-        }
-        cmd_list.append(cmd)
 
 
     def update_hqos_worker_state(self, hqos_core_enabled, num_worker_cores):
@@ -932,14 +916,17 @@ class FwQoS(FwObject):
         :type params: dict
         :param cmd_list: Command array to be updated with commands
         :type cmd_list: Array
-        :return: Array of commands generated
-        :rtype: Array
         """
+        if (not self.__hqos_core_enabled):
+            self.log.debug('Add-Interface : QoS is not enabled in device')
+            return
         dev_id = params.get('dev_id')
+        get_interface_classification_setup_commands(dev_id, None, cmd_list)
+
         qos_policy = self.__get_qos_policy(dev_id)
-        if (self.__hqos_core_enabled is False) or qos_policy is None:
-            self.log.debug('Add-Interface : QoS is not supported/configured: %s' % dev_id)
-            return cmd_list
+        if qos_policy is None:
+            self.log.debug('Add-Interface : QoS is not supported on the interface: %s' % dev_id)
+            return
 
         tx_Bps = 0
         bandwidth_mbps = params.get('bandwidthMbps')
@@ -948,7 +935,6 @@ class FwQoS(FwObject):
         if tx_Bps == 0:
             tx_Bps = self.__INTERFACE_BANDWIDTH_DEFAULT_BPS
         scheduling_params = qos_policy['outbound']['scheduling']
-        sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
 
         if self.__qos_db['interfaces'].get(dev_id) is None:
             # IF-Path: Flow of add-interface during VPP startup
@@ -970,14 +956,14 @@ class FwQoS(FwObject):
         else:
             # ELSE-Path: Flow of add-interface due to interface parameter change(bandwidth)
             self.__get_interface_tunnel_bandwidth_update_command\
-                (dev_id, sw_if_index, scheduling_params, tx_Bps, cmd_list)
+                (dev_id, scheduling_params, tx_Bps, cmd_list)
 
         #Setup default QoS node (pipe) to carry internet traffic
         self.__get_tunnel_bandwidth_add_command\
-            (dev_id, sw_if_index, scheduling_params, 0, tx_Bps, cmd_list)
+            (dev_id, scheduling_params, 0, tx_Bps, cmd_list)
 
         # Setup Device bandwidth limit at DPDK sub-port hierarchy
-        self.__get_interface_bandwidth_update_command(dev_id, sw_if_index, tx_Bps, cmd_list)
+        self.__get_interface_bandwidth_update_command(dev_id, tx_Bps, cmd_list)
 
 
     def get_add_tunnel_qos_commands (self, params, cmd_list):
@@ -990,22 +976,19 @@ class FwQoS(FwObject):
         :type params: dict
         :param cmd_list: Command array to be updated with commands
         :type cmd_list: Array
-        :return: Array of commands generated
-        :rtype: Array
         """
         dev_id = params.get('dev_id')
         qos_policy = self.__get_qos_policy(dev_id)
-        if (self.__hqos_core_enabled is False) or qos_policy is None:
+        if (not self.__hqos_core_enabled) or qos_policy is None:
             self.log.debug('Add-Tunnel : QoS is not supported/configured: %s' % dev_id)
-            return cmd_list
+            return
 
         tx_Bps = self.__get_tunnel_tx_bandwidth_Bps (params)
         scheduling_params = qos_policy['outbound']['scheduling']
-        sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
         tunnel_id = params.get('tunnel-id')
 
         self.__get_tunnel_bandwidth_add_command\
-            (dev_id, sw_if_index, scheduling_params, tunnel_id, tx_Bps, cmd_list)
+            (dev_id, scheduling_params, tunnel_id, tx_Bps, cmd_list)
 
 
     def get_modify_tunnel_qos_commands (self, params, previous_params, cmd_list):
@@ -1020,14 +1003,12 @@ class FwQoS(FwObject):
         :type previous_params: dict
         :param cmd_list: Command array to be updated with commands
         :type cmd_list: Array
-        :return: Array of commands generated
-        :rtype: Array
         """
         dev_id = params.get('dev_id')
         qos_policy = self.__get_qos_policy(dev_id)
-        if (self.__hqos_core_enabled is False) or qos_policy is None:
+        if (not self.__hqos_core_enabled) or qos_policy is None:
             self.log.debug('Modify-Tunnel : QoS is not supported/configured: %s' % dev_id)
-            return cmd_list
+            return
 
         tx_Bps = self.__get_tunnel_tx_bandwidth_Bps (params)
         previous_tx_Bps = self.__get_tunnel_tx_bandwidth_Bps (previous_params)
@@ -1037,15 +1018,47 @@ class FwQoS(FwObject):
             #No change detected
             self.log.debug('QoS(Interface: %s) - No bandwidth change detected on \
                 modify tunnel-id : %d' % (dev_id, tunnel_id))
-            return cmd_list
+            return
 
         scheduling_params = qos_policy['outbound']['scheduling']
-        sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
 
         qos_hierarchy_id = self.__qos_db['interfaces'][dev_id]['tunnels'][tunnel_id]
         self.__get_tunnel_bandwidth_update_command\
-            (dev_id, sw_if_index, scheduling_params, tunnel_id,
+            (dev_id, scheduling_params, tunnel_id,
             qos_hierarchy_id, tx_Bps, previous_tx_Bps, cmd_list)
+
+
+    def get_tunnel_classification_setup_commands (self, params, tun_sw_if_index_key, cmd_list):
+        """
+        Get commands to enable classification on tunnel interface
+
+        :param params: Tunnel configuration parameters
+        :type params: dict
+        :param tun_sw_if_index_key: It can either be an integer representing the VPP interface or
+        a key to be used to lookup the actual sw_if_index from command cache
+        :type tun_sw_if_index_key: Integer or String
+        :param cmd_list: Array of generated configuration commands
+        :type cmd_list: Array
+        """
+        dev_id = params.get('dev_id')
+        qos_policy = self.__get_qos_policy(dev_id)
+        # Enable if QoS is enabled and policy is applied on the WAN interface
+        if self.__hqos_core_enabled and qos_policy:
+            get_interface_classification_setup_commands(None, tun_sw_if_index_key, cmd_list)
+
+
+    def get_bvi_classification_setup_commands (self, bvi_sw_if_index_key, cmd_list):
+        """
+        Get commands to enable classification on Bidge interface
+
+        :param bvi_sw_if_index_key: It can either be an integer representing the VPP interface or
+        a key to be used to lookup the actual sw_if_index from command cache
+        :type bvi_sw_if_index_key: Integer or String
+        :param cmd_list: Array of generated configuration commands
+        :type cmd_list: Array
+        """
+        if (self.__hqos_core_enabled):
+            get_interface_classification_setup_commands(None, bvi_sw_if_index_key, cmd_list)
 
 
     def add_qos_policy (self, params):
@@ -1060,7 +1073,7 @@ class FwQoS(FwObject):
         :rtype: Array
         """
         cmd_list = []
-        if (self.__hqos_core_enabled is False):
+        if (not self.__hqos_core_enabled):
             self.log.warning('No Op - QoS policy - HQoS not enabled')
             return cmd_list
 
@@ -1075,20 +1088,11 @@ class FwQoS(FwObject):
 
                 # Update all tunnels with QoS policy
                 self.__get_interface_tunnel_bandwidth_update_command\
-                    (dev_id, sw_if_index, scheduling_params, tx_Bps, cmd_list)
+                    (dev_id, scheduling_params, tx_Bps, cmd_list)
 
                 # Update traffic map and DSCP marking based on policy
                 self.__get_interface_traffic_map_update_commands\
                     (dev_id, sw_if_index, scheduling_params, False, cmd_list)
-
-                # Enable ACL based classification on the WAN interfaces
-                self.__get_enable_classification_acls_commands(sw_if_index, cmd_list)
-
-        # Enable ACL based classification on all LAN interfaces
-        lan_if_list = fwglobals.g.router_cfg.get_interfaces(type='lan')
-        for lan_if in lan_if_list:
-            lan_sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(lan_if['dev_id'])
-            self.__get_enable_classification_acls_commands(lan_sw_if_index, cmd_list)
 
         return cmd_list
 
@@ -1265,3 +1269,129 @@ def qos_db_dumps():
         db_keys = sorted(qos_db.keys())
         dump = [ { key: qos_db[key] } for key in db_keys ]
         return json.dumps(dump, indent=2, sort_keys=True)
+
+
+def get_interface_classification_setup_commands(dev_id, sw_if_index_key, cmd_list):
+    """
+    Generate commands to attach classification ACLs to the given interface
+
+    :param dev_id: Device identifier
+    :type dev_id: String
+    :param sw_if_index_key: key to be used to lookup the actual sw_if_index from command cache
+    :type sw_if_index_key: String
+    :param cmd_list: Array of generated configuration commands
+    :type cmd_list: Array
+    """
+    sw_if_index_by_key = False if dev_id else True
+
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']  = "call_vpp_api"
+    cmd['cmd']['descr'] = "Attach classification ACLs to interface : %s" %\
+        (sw_if_index_key if sw_if_index_by_key else dev_id)
+    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params'] = {
+        'api':  "classifier_acls_set_interface",
+        'args': {
+            'is_add': True,
+        }
+    }
+    if sw_if_index_by_key:
+        cmd['cmd']['params']['args']['substs'] = [
+            {
+                'add_param': 'sw_if_index',
+                'val_by_key': sw_if_index_key
+            }
+        ]
+    else:
+        cmd['cmd']['params']['args']['substs'] = [
+            {
+                'add_param': 'sw_if_index',
+                'val_by_func': 'dev_id_to_vpp_sw_if_index',
+                'arg': dev_id
+            }
+        ]
+
+    cmd['revert'] = {}
+    cmd['revert']['func']  = "call_vpp_api"
+    cmd['revert']['descr'] = "Detach classification ACLs to interface : %s" %\
+        (sw_if_index_key if sw_if_index_by_key else dev_id)
+    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['params'] = {
+        'api': "classifier_acls_set_interface",
+        'args': {
+            'is_add': False,
+        }
+    }
+    if sw_if_index_by_key:
+        cmd['revert']['params']['args']['substs'] = [
+            {
+                'add_param': 'sw_if_index',
+                'val_by_key': sw_if_index_key
+            }
+        ]
+    else:
+        cmd['revert']['params']['args']['substs'] = [
+            {
+                'add_param': 'sw_if_index',
+                'val_by_func': 'dev_id_to_vpp_sw_if_index',
+                'arg': dev_id
+            }
+        ]
+    cmd_list.append(cmd)
+
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']      = "call_vpp_api"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['descr']     = "Enable ACL based classification on interface: %s" %\
+        (sw_if_index_key if sw_if_index_by_key else dev_id)
+    cmd['cmd']['params']    = {
+        'api'  : "classifier_acls_enable_disable",
+        'args' : {
+            'enable_disable': True
+        }
+    }
+    if sw_if_index_by_key:
+        cmd['cmd']['params']['args']['substs'] = [
+            {
+                'add_param': 'sw_if_index',
+                'val_by_key': sw_if_index_key
+            }
+        ]
+    else:
+        cmd['cmd']['params']['args']['substs'] = [
+            {
+                'add_param': 'sw_if_index',
+                'val_by_func': 'dev_id_to_vpp_sw_if_index',
+                'arg': dev_id
+            }
+        ]
+
+    cmd['revert'] = {}
+    cmd['revert']['func']      = "call_vpp_api"
+    cmd['revert']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['descr']     = "Enable ACL based classification on interface: %s" %\
+        (sw_if_index_key if sw_if_index_by_key else dev_id)
+    cmd['revert']['params']    =   {
+        'api'  : "classifier_acls_enable_disable",
+        'args' : {
+            'enable_disable': False,
+        }
+    }
+    if sw_if_index_by_key:
+        cmd['revert']['params']['args']['substs'] = [
+            {
+                'add_param': 'sw_if_index',
+                'val_by_key': sw_if_index_key
+            }
+        ]
+    else:
+        cmd['revert']['params']['args']['substs'] = [
+            {
+                'add_param': 'sw_if_index',
+                'val_by_func': 'dev_id_to_vpp_sw_if_index',
+                'arg': dev_id
+            }
+        ]
+    cmd_list.append(cmd)

@@ -87,7 +87,7 @@ class TestFwagent:
         time.sleep(1)   # Ensure that all further log times are greater than now()
                         # The now() uses microseconds, when log uses seconds only.
 
-    def cli(self, args, daemon=False, expected_vpp_cfg=None, expected_router_cfg=None, check_log=False):
+    def cli(self, args, daemon=False, debug_conf_file=None, expected_vpp_cfg=None, expected_router_cfg=None, check_log=False):
         '''Invokes fwagent API.
 
         :param args:   the API function name and parameters to be invoked.
@@ -148,7 +148,8 @@ class TestFwagent:
         # Create instance of background fwagent if asked.
         if daemon:
             try:
-                cmd = '%s daemon --dont_connect &' % (self.fwagent_py)
+                debug_conf = f"--debug_conf={debug_conf_file}" if debug_conf_file else ''
+                cmd = f'{self.fwagent_py} daemon {debug_conf} &'
                 os.system(cmd)
 
                 # Poll daemon status until it becomes 'running'

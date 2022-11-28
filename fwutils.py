@@ -2221,7 +2221,7 @@ def vpp_startup_conf_hqos(vpp_config_filename, is_add):
         hqos_enabled = False
         if fwqos.has_qos_policy() is True:
             hqos_enabled = True if ((num_worker_cores > 1) and (is_add is True)) else False
-            startup_conf.set_cpu_workers(num_worker_cores, hqos_enabled=hqos_enabled)
+        startup_conf.set_cpu_workers(num_worker_cores, hqos_enabled=hqos_enabled)
         fwglobals.g.qos.update_hqos_worker_state(hqos_enabled, num_worker_cores)
 
 
@@ -3775,11 +3775,10 @@ def send_udp_packet(src_ip, src_port, dst_ip, dst_port, dev_name, msg):
 def map_keys_to_acl_ids(acl_ids, arg):
     # arg carries command cache
     keys = acl_ids['keys']
-    i = 0
-    while i < len(keys):
-        keys[i] = arg[keys[i]]
-        i += 1
-    return keys
+    out_keys = []
+    for key in keys:
+        out_keys.append(arg[key])
+    return out_keys
 
 
 def build_timestamped_filename(filename, ext='', separator='_'):
