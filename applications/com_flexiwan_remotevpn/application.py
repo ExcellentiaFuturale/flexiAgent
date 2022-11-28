@@ -312,15 +312,16 @@ class Application(FwApplicationInterface):
 
         os.system(f'sudo openvpn --config {cfg["openvpn_server_conf_file"]} --daemon')
 
-        timeout, pid = 5, None
+        timeout, completed = 30, False
         while timeout >= 0:
             try:
-                pid = subprocess.check_output(['pidof', 'openvpn'])
+                subprocess.check_call(f'grep "Initialization Sequence Completed" {cfg["openvpn_log_file"]}', shell=True)
+                completed = True
                 break
             except:
                 timeout -= 1
                 time.sleep(1)
-        if not pid:
+        if not completed:
             raise Exception('removeVPN failed to start')
 
         self.log.info("remoteVPN server is running")
