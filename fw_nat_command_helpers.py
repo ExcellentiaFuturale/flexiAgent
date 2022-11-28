@@ -323,53 +323,36 @@ def get_nat_identity_config(sw_if_index, protocols, ports):
     :type protocols: list
     :param ports: ports for which forwarding is applied
     :type ports: list
-    :raises Exception: If protocol value is unsupported
     :return: Command params carrying the generated config
     :rtype: list
     """
     cmd_list = []
-    port_from, port_to = fwutils.ports_str_to_range(ports)
 
-    for port in range(port_from, (port_to + 1)):
+    cmd = {}
 
-        if not protocols:
-            protocols = ['tcp', 'udp']
-        for proto in protocols:
+    cmd['cmd'] = {}
+    cmd['cmd']['func']   = "run_nat_identity_config"
+    cmd['cmd']['module'] = "fw_nat_command_helpers"
+    cmd['cmd']['descr'] = "Add NAT identity mapping rule"
+    cmd['cmd']['params'] = {
+        'is_add': 1,
+        'sw_if_index': sw_if_index,
+        'protocols': protocols,
+        'ports': ports
+    }
 
-            if (fwutils.proto_map[proto] != fwutils.proto_map['tcp'] and
-                    fwutils.proto_map[proto] != fwutils.proto_map['udp']):
-                raise Exception(
-                    'Invalid input : NAT Protocol input is wrong %s' % (proto))
+    cmd['revert'] = {}
+    cmd['revert']['func']   = "run_nat_identity_config"
+    cmd['revert']['module'] = "fw_nat_command_helpers"
+    cmd['revert']['descr'] = "Delete NAT identity mapping rule"
+    cmd['revert']['params'] = {
+        'is_add': 0,
+        'sw_if_index': sw_if_index,
+        'protocols': protocols,
+        'ports': ports
+    }
 
-            cmd = {}
-            add_params = {
-                'is_add': 1,
-                'sw_if_index': sw_if_index,
-                'protocol': fwutils.proto_map[proto],
-                'port': port
-            }
-            revert_params = copy.deepcopy(add_params)
-            revert_params['is_add'] = 0
-
-            cmd['cmd'] = {}
-            cmd['cmd']['func']   = "call_vpp_api"
-            cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
-            cmd['cmd']['descr'] = "Add NAT identity mapping rule"
-            cmd['cmd']['params'] = {
-                            'api': "nat44_add_del_identity_mapping",
-                            'args': add_params
-            }
-
-            cmd['revert'] = {}
-            cmd['revert']['func']   = "call_vpp_api"
-            cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
-            cmd['revert']['descr'] = "Delete NAT identity mapping rule"
-            cmd['revert']['params'] = {
-                            'api': "nat44_add_del_identity_mapping",
-                            'args': revert_params
-            }
-
-            cmd_list.append(cmd)
+    cmd_list.append(cmd)
 
     return cmd_list
 
@@ -385,7 +368,6 @@ def run_nat_identity_config(is_add, sw_if_index, protocols, ports):
     :type ports: list
     :raises Exception: If protocol value is unsupported
     """
-    cmd_list = []
     port_from, port_to = fwutils.ports_str_to_range(ports)
 
     for port in range(port_from, (port_to + 1)):
@@ -401,5 +383,3 @@ def run_nat_identity_config(is_add, sw_if_index, protocols, ports):
 
             fwglobals.g.router_api.vpp_api.vpp.call('nat44_add_del_identity_mapping',
                 is_add=is_add, sw_if_index=sw_if_index, protocol=fwutils.proto_map[proto], port=port)
-
-    return cmd_list
