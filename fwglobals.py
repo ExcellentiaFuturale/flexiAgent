@@ -168,7 +168,6 @@ class Fwglobals(FwObject):
             """
             DEFAULT_BYPASS_CERT    = False
             DEFAULT_DEBUG          = False
-            DEFAULT_DISABLE_STUN   = False
             DEFAULT_MANAGEMENT_URL = 'https://manage.flexiwan.com:443'
             DEFAULT_TOKEN_FILE     = data_path + 'token.txt'
             DEFAULT_UUID           = None
@@ -181,7 +180,6 @@ class Fwglobals(FwObject):
                 agent_conf = conf.get('agent', {})
                 self.BYPASS_CERT    = agent_conf.get('bypass_certificate', DEFAULT_BYPASS_CERT)
                 self.DEBUG          = agent_conf.get('debug',  DEFAULT_DEBUG)
-                self.DISABLE_STUN   = agent_conf.get('disable_stun',  DEFAULT_DISABLE_STUN)
                 self.MANAGEMENT_URL = agent_conf.get('server', DEFAULT_MANAGEMENT_URL)
                 self.TOKEN_FILE     = agent_conf.get('token',  DEFAULT_TOKEN_FILE)
                 self.UUID           = agent_conf.get('uuid',   DEFAULT_UUID)
@@ -193,7 +191,6 @@ class Fwglobals(FwObject):
                     log.excep("%s, set defaults" % str(e))
                 self.BYPASS_CERT    = DEFAULT_BYPASS_CERT
                 self.DEBUG          = DEFAULT_DEBUG
-                self.DISABLE_STUN   = DEFAULT_DISABLE_STUN
                 self.MANAGEMENT_URL = DEFAULT_MANAGEMENT_URL
                 self.TOKEN_FILE     = DEFAULT_TOKEN_FILE
                 self.UUID           = DEFAULT_UUID
@@ -202,6 +199,25 @@ class Fwglobals(FwObject):
                 self.DAEMON_SOCKET_NAME  = DEFAULT_DAEMON_SOCKET_NAME
             if self.DEBUG and log:
                 log.set_level(FWLOG_LEVEL_DEBUG)
+            self.debug = {
+                'daemon': {
+                    'standalone': False,
+                },
+                'agent': {
+                    'features': {
+                        'pppoe': {
+                            'enabled': True
+                        },
+                        'stun': {
+                            'enabled': True
+                        },
+                        'wan_monitor': {
+                            'enabled': True
+                        },
+                    },
+                },
+            }
+
 
     class FwCache:
         """Storage for data that is valid during one FwAgent lifecycle only.
@@ -247,6 +263,7 @@ class Fwglobals(FwObject):
         self.RETRY_INTERVAL_LONG_MAX = 70
         self.DATA_PATH           = '/etc/flexiwan/agent/'
         self.FWAGENT_CONF_FILE   = self.DATA_PATH + 'fwagent_conf.yaml'  # Optional, if not present, defaults are taken
+        self.DEBUG_CONF_FILE     = self.DATA_PATH + 'debug_conf.yaml'
         self.DEVICE_TOKEN_FILE   = self.DATA_PATH + 'fwagent_info.txt'
         self.VERSIONS_FILE       = self.DATA_PATH + '.versions.yaml'
         self.ROUTER_CFG_FILE     = self.DATA_PATH + '.requests.sqlite'
@@ -318,6 +335,7 @@ class Fwglobals(FwObject):
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
+        self.load_debug_configuration_from_file(self.DEBUG_CONF_FILE)
 
         self.FWAGENT_DAEMON_HOST = self.cfg.DAEMON_SOCKET_NAME.split(":")[0]
         self.FWAGENT_DAEMON_PORT = int(self.cfg.DAEMON_SOCKET_NAME.split(":")[1])
@@ -355,12 +373,26 @@ class Fwglobals(FwObject):
             #     if isinstance(val, (int, float, str, unicode)):
             #         log.debug("  %s: %s" % (a, str(val)), to_terminal=False)
 
-    def initialize_agent(self, standalone=False):
+    def load_debug_configuration_from_file(self, debug_conf_file):
+        """Load debug configuration from YAML file.
+
+        :returns: None.
+        """
+        if not os.path.isfile(debug_conf_file):
+            # The default file might not exist - we do not expose it to users.
+            if debug_conf_file != self.DEBUG_CONF_FILE:
+                raise Exception(f"load_debug_configuration_from_file: {debug_conf_file} not found")
+            return
+
+        with open(debug_conf_file, 'r') as debug_conf_file:
+            self.cfg.debug = yaml.load(debug_conf_file, Loader=yaml.SafeLoader)
+            if self.cfg.DEBUG:
+                self.log.debug("load_debug_configuration_from_file: \n" + json.dumps(self.cfg.debug, indent=2))
+
+
+    def initialize_agent(self):
         """Initialize singleton object. Restore VPP if needed.
 
-        :param standalone: if True, the agent will be not connected to flexiManage,
-                           hence no need in network activity, like STUN.
-                           The standalone mode is used by CLI-based tests.
         """
         if self.fwagent:
             self.log.warning('Fwglobals.initialize_agent: agent exists')
@@ -393,10 +425,10 @@ class Fwglobals(FwObject):
         self.applications_api = FWAPPLICATIONS_API(start_application_stats=True)
         self.os_api           = OS_API()
         self.policies         = FwPolicies(self.POLICY_REC_DB_FILE)
-        self.wan_monitor      = FwWanMonitor(standalone)
-        self.stun_wrapper     = FwStunWrap(standalone or self.cfg.DISABLE_STUN)
+        self.wan_monitor      = FwWanMonitor()
+        self.stun_wrapper     = FwStunWrap()
         self.ikev2            = FwIKEv2()
-        self.pppoe            = FwPppoeClient(standalone=standalone)
+        self.pppoe            = FwPppoeClient()
         self.routes           = FwRoutes()
         self.qos              = FwQoS()
 
