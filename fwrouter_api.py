@@ -1425,7 +1425,9 @@ class FWROUTER_API(FwCfgRequestHandler):
         if type == 'lan':
             vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
             fwutils.tunnel_change_postprocess(False, vpp_if_name)
-            fw_acl_command_helpers.add_acl_rules_intf(True, sw_if_index)
+            ingress_acls = fwglobals.g.acl_cache.get('ingress')
+            egress_acls = fwglobals.g.acl_cache.get('egress')
+            fw_acl_command_helpers.add_acl_rules_intf(True, sw_if_index, ingress_acls, egress_acls)
 
         if type == 'wan':
             fw_nat_command_helpers.add_nat_rules_intf(True, sw_if_index)
@@ -1440,7 +1442,9 @@ class FWROUTER_API(FwCfgRequestHandler):
             fw_nat_command_helpers.add_nat_rules_intf(False, sw_if_index)
 
         if type == 'lan':
-            fw_acl_command_helpers.add_acl_rules_intf(False, sw_if_index)
+            ingress_acls = fwglobals.g.acl_cache.get('ingress')
+            egress_acls = fwglobals.g.acl_cache.get('egress')
+            fw_acl_command_helpers.add_acl_rules_intf(False, sw_if_index, ingress_acls, egress_acls)
             vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
             fwutils.tunnel_change_postprocess(True, vpp_if_name)
 

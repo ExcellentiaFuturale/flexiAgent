@@ -266,6 +266,7 @@ def add_interface_attachment(sw_if_index, ingress_acl_ids, egress_acl_ids):
     cmd = {}
     acl_ids = []
     ingress_count = 0
+
     if ingress_acl_ids:
         acl_ids.extend(ingress_acl_ids)
         ingress_count = len(ingress_acl_ids)
@@ -378,16 +379,13 @@ def update_firewall_cache(is_add, direction, acl_index):
 
     return (True, None)
 
-def add_acl_rules_intf(is_add, sw_if_index):
+def add_acl_rules_intf(is_add, sw_if_index, ingress_acls, egress_acls):
     """
     Add/remove ACL rules on the interface
 
     :param is_add: add or remove
     :param sw_if_index: device identifier of the interface
     """
-    ingress_acls = fwglobals.g.acl_cache.get('ingress')
-    egress_acls = fwglobals.g.acl_cache.get('egress')
-
     for acl_id in ingress_acls:
         fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_add_del',
             is_add=is_add, sw_if_index=sw_if_index, is_input=True, acl_index=acl_id)
