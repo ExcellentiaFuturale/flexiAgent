@@ -35,7 +35,6 @@ if __name__ == '__main__':
     g = fwglobals.Fwglobals()
     fwglobals.initialize()
 
-    print(g.JOBS_FILE)
     jobs = FwJobs(g.JOBS_FILE)
     command_functions = {
                     'show': lambda _: print(jobs.dumps()),
@@ -50,10 +49,10 @@ if __name__ == '__main__':
     parser_show = subparsers.add_parser('show', help='Prints job information to stdout')
 
     parser_update = subparsers.add_parser('update', help='Updates job information')
-    parser_update.add_argument('-p', '--job_id', dest='job_id', default=None,
+    parser_update.add_argument('-j', '--job_id', dest='job_id', default=None,
                         help="job id")
     parser_update.add_argument('-r', '--request', dest='request', default=None,
-                        help="failed job request")
+                        help="job request")
     parser_update.add_argument('-c', '--command', dest='command', default=None,
                         help="failed job command")
     parser_update.add_argument('-e', '--job_error', dest='job_error', default=None,

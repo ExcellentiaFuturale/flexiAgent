@@ -152,7 +152,8 @@ class FwJobs(FwObject):
         """Updates job record in case of an error.
 
         :param job_id:      The id of the job to update.
-        :param error:       The error which occurred while processing the job.
+        :param error:       The dictionary with error which occurred while processing the job. Example:
+        :{'request': 'upgrade-device-sw', 'command': 'extract previous version', 'error': 'failed to extract previous version'}
 
         :returns: None.
         """

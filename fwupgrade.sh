@@ -41,7 +41,7 @@ log() {
 }
 
 update_fwjob() {
-    log 'Updating job details ' $JOB_ID
+    log $1: $2
     python3 /usr/share/flexiwan/agent/tools/common/fw_jobs.py update --job_id $JOB_ID --request 'upgrade-device-sw' --command "$1" --job_error "$2"
 }
 
@@ -67,8 +67,7 @@ handle_upgrade_failure() {
             # Agent must be restarted if revert fails, or otherwise
             # it will remain stopped.
             systemctl restart "$AGENT_SERVICE"
-            log 'handle_upgrade_failure: failed to downgrade ${ret}: exit 1'
-            update_fwjob 'revert' 'Failed to downgrade'
+            update_fwjob 'revert to previous version' "handle_upgrade_failure: failed to downgrade ${ret}: exit 1"
             exit 1
         fi
 
@@ -148,9 +147,7 @@ rm "$UPGRADE_FAILURE_FILE" >> /dev/null 2>&1
 # Save previous version for revert in case the upgrade process fails
 get_prev_version
 if [ -z "$prev_ver" ]; then
-    reason = 'Failed to extract previous version from' "$VERSIONS_FILE"
-    log $reason
-    update_fwjob 'extract previous version' "$reason"
+    update_fwjob 'extract previous version' "Failed to extract previous version from $VERSIONS_FILE"
     handle_upgrade_failure
 fi
 
@@ -167,7 +164,6 @@ log 'Closing connection to MGMT...'
 res=$(fwagent stop --dont_stop_vpp --dont_stop_applications)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
-    log 'Failed to stop agent connection to management'
     update_fwjob 'stop agent connection' 'Failed to stop agent connection to management'
     handle_upgrade_failure
 fi
@@ -179,9 +175,7 @@ log 'Installing new software...'
 # command returns success status code even if the connection fails.
 check_connection_to_sw_repo
 if [ ${PIPESTATUS[0]} != 0 ]; then
-    reason='Failed to connect to software repository ' "$SW_REPOSITORY"
-    log $reason
-    update_fwjob 'check connection to repository' "$reason"
+    update_fwjob 'check connection to repository' "Failed to connect to software repository $SW_REPOSITORY"
     handle_upgrade_failure
 fi
 
@@ -189,7 +183,6 @@ fi
 res=$(apt-get update)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
-    log 'Failed to update debian repositores'
     update_fwjob 'update debian repositories' 'Failed to update debian repositores'
     handle_upgrade_failure
 fi
@@ -201,14 +194,12 @@ fi
 # doesn't kill the upgrade process when the process is stopped
 update_service_conf_file
 if [ ${PIPESTATUS[0]} != 0 ]; then
-    log 'Failed to update service configuration file'
     update_fwjob 'update service configuration file' 'Failed to update service configuration file'
     handle_upgrade_failure
 fi
 
 res=$(apt-get -o Dpkg::Options::="--force-confold" install -y "$AGENT_SERVICE")
 if [ ${PIPESTATUS[0]} != 0 ]; then
-    log $res
     update_fwjob 'install' "$res"
     handle_upgrade_failure 'revert'
 fi
@@ -225,7 +216,6 @@ log 'Finished installing new software. waiting for agent check ('"$AGENT_CHECK_T
 sleep "$AGENT_CHECK_TIMEOUT"
 
 if [ -f "$UPGRADE_FAILURE_FILE" ]; then
-    log 'Agent checks failed'
     update_fwjob 'agent check' 'Agent checks failed'
     handle_upgrade_failure 'revert'
 fi
