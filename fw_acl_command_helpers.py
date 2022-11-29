@@ -314,19 +314,19 @@ class FwAclCache():
     def add(self, direction, acl_id):
         if direction == 'ingress':
             self.ingress_rules.add(acl_id)
-        else:
+        elif direction == 'egress':
             self.egress_rules.add(acl_id)
 
     def remove(self, direction, acl_id):
         if direction == 'ingress':
             self.ingress_rules.remove(acl_id)
-        else:
+        elif direction == 'egress':
             self.egress_rules.remove(acl_id)
 
     def get(self, direction):
         if direction == 'ingress':
             return list(self.ingress_rules)
-        else:
+        elif direction == 'egress':
             return list(self.egress_rules)
 
     def clear(self):
@@ -385,7 +385,13 @@ def add_acl_rules_intf(is_add, sw_if_index):
     :param is_add: add or remove
     :param sw_if_index: device identifier of the interface
     """
-    inbound_rules = fwglobals.g.acl_cache.get('inbound')
-    outbound_rules = fwglobals.g.acl_cache.get('outbound')
-    fwglobals.log.debug(f'inbound_rules: {inbound_rules}')
-    fwglobals.log.debug(f'outbound_rules: {outbound_rules}')
+    ingress_acls = fwglobals.g.acl_cache.get('ingress')
+    egress_acls = fwglobals.g.acl_cache.get('egress')
+
+    for acl_id in ingress_acls:
+        fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_add_del',
+            is_add=is_add, sw_if_index=sw_if_index, is_input=True, acl_index=acl_id)
+
+    for acl_id in egress_acls:
+        fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_add_del',
+            is_add=is_add, sw_if_index=sw_if_index, is_input=False, acl_index=acl_id)
