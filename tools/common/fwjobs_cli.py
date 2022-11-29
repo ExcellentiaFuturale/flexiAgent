@@ -32,14 +32,6 @@ from fwjobs import FwJobs
 
 if __name__ == '__main__':
 
-    g = fwglobals.Fwglobals()
-    fwglobals.initialize()
-
-    jobs = FwJobs(g.JOBS_FILE)
-    command_functions = {
-                    'show': lambda _: print(jobs.dumps()),
-                    'update': lambda args: jobs.update_record(args.job_id, {'request': args.request, 'command': args.command, 'error': args.job_error}) }
-
     parser = argparse.ArgumentParser(
         description="fwjobs command line interface",
         formatter_class=argparse.RawTextHelpFormatter)
@@ -57,6 +49,13 @@ if __name__ == '__main__':
                         help="failed job command")
     parser_update.add_argument('-e', '--job_error', dest='job_error', default=None,
                         help="job error")
-
     args = parser.parse_args()
-    command_functions[args.jobs_commands](args)
+
+    g = fwglobals.Fwglobals()
+    fwglobals.initialize()
+
+    with FwJobs(g.JOBS_FILE) as jobs:
+        command_functions = {
+                        'show': lambda _: print(jobs.dumps()),
+                        'update': lambda args: jobs.update_record(args.job_id, {'request': args.request, 'command': args.command, 'error': args.job_error}) }
+        command_functions[args.jobs_commands](args)
