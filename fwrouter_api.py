@@ -1419,7 +1419,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         # TODO: Waiting for qos implementation
 
         # apply multilink
-        fwglobals.g.policies.attach_detach_interface_to_policies(add, vpp_if_name, if_type)
+        fwglobals.g.policies.vpp_attach_detach_policies(add, vpp_if_name, if_type)
 
     def _on_remove_interface_before(self, type, sw_if_index):
         """remove-interface preprocessing

@@ -81,7 +81,7 @@ class FwPolicies(FwObject):
         """
         return self.policies
 
-    def attach_detach_interface_to_policies(self, attach, vpp_if_name, if_type=None):
+    def vpp_attach_detach_policies(self, attach, vpp_if_name, if_type=None):
         """Attach interface to policy policies dictionary.
 
         :param attach: A boolean indicates if to attach or detach.

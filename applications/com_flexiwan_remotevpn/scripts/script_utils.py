@@ -90,39 +90,46 @@ def get_saved_vpp_interface_name():
         return tun_vpp_if_name
 
 def create_tun_in_vpp(addr):
+    out = None
     try:
         cmd = f'fwagent configure interfaces create --type lan --host_if_name t_vpp_remotevpn --addr {addr}'
         out = subprocess.check_output(cmd, shell=True).decode()
         response_data = json.loads(out)
         tun_vpp_if_name = response_data.get('tun_vpp_if_name')
         if not tun_vpp_if_name:
-            raise Exception('create_tun_in_vpp(): Failed to parse response')
+            raise Exception(f'create_tun_in_vpp({addr}): The name of the interface created in VPP was not returned as expected. response_data={str(response_data)}')
+
+        logger.info(f'TUN created in vpp. vpp_if_name={tun_vpp_if_name}')
 
         data = { 'tun_vpp_if_name': tun_vpp_if_name }
         with open(app_database_file, 'w') as f:
             json.dump(data, f)
     except Exception as e:
-        logger.error(f'create_tun_in_vpp({addr}): {str(e)}')
+        logger.error(f'create_tun_in_vpp({addr}): out={str(out)}. {str(e)}')
         raise e
 
 def remove_tun_from_vpp(addr):
+    data = {}
     try:
-        data = None
         with open(app_database_file, 'r') as json_file:
             data = json.load(json_file)
             tun_vpp_if_name = data.get('tun_vpp_if_name')
             if not tun_vpp_if_name:
-                raise Exception('remove_tun_from_vpp(): Failed to find the VPP tun interface')
+                raise Exception(f'remove_tun_from_vpp({addr}): Failed to find the VPP tun interface')
+
+            # Since in down process the vpn anyway will be stopped, we need to clear the tun name from the database.
+            # even if error will be raised below. Hence, database update is done in the 'finally' block
+            del data['tun_vpp_if_name']
 
             cmd = f'fwagent configure interfaces delete --type lan --vpp_if_name {tun_vpp_if_name} --addr {addr}'
-            subprocess.check_output(cmd, shell=True).decode()
-
-        # update
+            subprocess.check_output(cmd, shell=True)
+            logger.info(f'TUN removed from vpp. vpp_if_name={tun_vpp_if_name}')
+    except Exception as e:
+        logger.error(f'remove_tun_from_vpp({addr}): {str(e)}')
+        raise e
+    finally:
         with open(app_database_file, 'w+') as json_file:
             json.dump(data, json_file)
-    except Exception as e:
-        logger.error(f'remove_tun_from_vpp(): {str(e)}')
-        raise e
 
 def get_device_versions():
     """Get agent version.

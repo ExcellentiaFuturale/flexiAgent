@@ -79,7 +79,7 @@ class Application(FwApplicationInterface):
                 'chmod +x /etc/openvpn/server/client-connect.py',
             ]
             fwapplication_utils.run_linux_commands(commands)
-            self.log.info("remoteVPN installed successfully")
+            self.log.info(f'application installed successfully')
 
         except Exception as e:
             self.log.error(f"install(): {str(e)}")
@@ -94,21 +94,6 @@ class Application(FwApplicationInterface):
         except:
             return None
 
-    def _openvpn_stop(self, timeout=5):
-        """Wait OpenVPN process to be stopped.
-        """
-        os.system('sudo killall openvpn')
-        while timeout >= 0:
-            try:
-                _ = subprocess.check_output(['pidof', 'openvpn'])
-                timeout-= 1
-                time.sleep(1)
-            except Exception:
-                self.log.info("remoteVPN server is stopped")
-                return
-
-        self.log.excep('_openvpn_stop(): failed to kill')
-
     def configure(self, params):
         """Configure Open VPN server on host.
 
@@ -117,7 +102,7 @@ class Application(FwApplicationInterface):
         :returns: (True, None) tuple on success, (False, <error string>) on failure.
         """
         try:
-            self.log.info(f"remote vpn configurations: {str(cfg)}")
+            self.log.info(f"application configurations: {str(cfg)}")
 
             commands = [
                 'echo "%s" > /etc/openvpn/server/ca.crt' % params['caCrt'],
@@ -279,12 +264,11 @@ class Application(FwApplicationInterface):
             for command in sorted(commands):
                 ret = os.system(f'echo "{command}" >> {cfg["openvpn_server_conf_file"]}')
                 if ret:
-                    raise Exception(f'install: failed to run "{command}". error code is {ret}')
+                    raise Exception(f'Failed to run "{command}". Error code is {ret}')
 
-            self.log.info("remoteVPN server.conf configured successfully")
-
+            self.log.info('the server.conf file configured successfully')
         except Exception as e:
-            self.log.error(f"failed to configure remoteVPN server.conf. err={str(e)}")
+            self.log.error(f='_configure_server_file({str(params)}): failed to configure remoteVPN server.conf. err={str(e)}')
             raise e
 
     def on_router_is_started(self):
@@ -308,40 +292,31 @@ class Application(FwApplicationInterface):
         if self.is_app_running():
             if not restart:
                 return
+            self.log.info(f'start({restart}): restarting daemon')
             self.stop()
 
         os.system(f'sudo openvpn --config {cfg["openvpn_server_conf_file"]} --daemon')
 
-        timeout, completed = 30, False
+        timeout = 30
         while timeout >= 0:
             try:
                 subprocess.check_call(f'grep "Initialization Sequence Completed" {cfg["openvpn_log_file"]}', shell=True)
-                completed = True
-                break
+                self.log.info(f'daemon is running')
+                return
             except:
                 timeout -= 1
                 time.sleep(1)
-        if not completed:
-            raise Exception('removeVPN failed to start')
 
-        self.log.info("remoteVPN server is running")
+        raise Exception('Daemon failed to start')
 
     def stop(self):
         if self.is_app_running():
-            os.system('sudo killall openvpn')
-            timeout = 5
-            while timeout >= 0:
-                try:
-                    _ = subprocess.check_output(['pidof', 'openvpn'])
-                    timeout-= 1
-                    time.sleep(1)
-                except Exception:
-                    self.log.info("remoteVPN server is stopped")
-                    break
-            if timeout < 0:
-                self.log.excep('_openvpn_stop(): failed to kill')
-
-        os.system(f'echo "" > {cfg["openvpn_status_file"]}')
+            killed = fwapplication_utils.kill_process('openvpn')
+            if killed:
+                self.log.info(f'daemon is stopped')
+                os.system(f'echo "" > {cfg["openvpn_status_file"]}')
+            else:
+                self.log.excep('stop(): failed to kill openvpn')
 
     def on_watchdog(self):
         vpn_runs = self.is_app_running()

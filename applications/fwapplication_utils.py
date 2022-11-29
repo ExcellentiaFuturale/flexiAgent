@@ -22,6 +22,7 @@
 
 import os
 import subprocess
+import time
 
 def run_linux_commands(commands, exception_on_error=True):
     for command in commands:
@@ -43,3 +44,14 @@ def vpp_pid():
 
 def router_is_running():
     return True if vpp_pid() else False
+
+def kill_process(name, timeout=10):
+    os.system(f'sudo killall {name}')
+    while timeout >= 0:
+        try:
+            _ = subprocess.check_output(['pidof', name])
+            timeout -= 1
+            time.sleep(1)
+        except:
+            return True
+    return False

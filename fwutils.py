@@ -2548,7 +2548,7 @@ def tunnel_change_postprocess(remove, vpp_if_name):
     :param remove:      True if tunnel is removed, False if added
     :param vpp_if_name: name of the vpp software interface, e.g. "loop4"
     """
-    fwglobals.g.policies.attach_detach_interface_to_policies(False if remove else True, vpp_if_name)
+    fwglobals.g.policies.vpp_attach_detach_policies(False if remove else True, vpp_if_name)
 
 
 # The messages received from flexiManage are not perfect :)
