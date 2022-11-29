@@ -296,21 +296,17 @@ def add_interface_attachment(sw_if_index, ingress_acl_ids, egress_acl_ids):
     return cmd
 
 class FwAclCache():
+    """ Cache of ACL rules used by Firewall feature.
+    """
     def __init__(self):
-        self.ingress_rules = set()
-        self.egress_rules = set()
+        self.ingress_rules = []
+        self.egress_rules = []
 
     def add(self, direction, acl_id):
         if direction == 'ingress':
-            self.ingress_rules.add(acl_id)
+            self.ingress_rules.append(acl_id)
         elif direction == 'egress':
-            self.egress_rules.add(acl_id)
-
-    def remove(self, direction, acl_id):
-        if direction == 'ingress':
-            self.ingress_rules.remove(acl_id)
-        elif direction == 'egress':
-            self.egress_rules.remove(acl_id)
+            self.egress_rules.append(acl_id)
 
     def get(self, direction):
         if direction == 'ingress':
@@ -339,15 +335,6 @@ def cache_acl_rule(direction, acl_id):
             'direction': direction,
             'substs': [ { 'add_param': 'acl_index', 'val_by_key': acl_id } ]
     }
-    cmd['revert'] = {}
-    cmd['revert']['func']   = "update_firewall_cache"
-    cmd['revert']['module'] = "fw_acl_command_helpers"
-    cmd['revert']['descr']  = "Remove Firewall ACL from cache"
-    cmd['revert']['params'] = {
-            'is_add': False,
-            'direction': direction,
-            'substs': [ { 'add_param': 'acl_index', 'val_by_key': acl_id } ]
-    }
 
     return cmd
 
@@ -362,8 +349,6 @@ def update_firewall_cache(is_add, direction, acl_index):
     """
     if is_add:
         fwglobals.g.acl_cache.add(direction, acl_index)
-    else:
-        fwglobals.g.acl_cache.remove(direction, acl_index)
 
     return (True, None)
 
