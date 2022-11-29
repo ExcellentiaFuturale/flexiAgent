@@ -42,7 +42,7 @@ log() {
 
 update_fwjob() {
     log $1: $2
-    python3 /usr/share/flexiwan/agent/tools/common/fw_jobs.py update --job_id $JOB_ID --request 'upgrade-device-sw' --command "$1" --job_error "$2"
+    python3 /usr/share/flexiwan/agent/tools/common/fwjobs_cli.py update --job_id $JOB_ID --request 'upgrade-device-sw' --command "$1" --job_error "$2"
 }
 
 #######################################
