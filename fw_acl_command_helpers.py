@@ -22,6 +22,7 @@ Helper functions to convert classifications and actions into VPP ACL commands
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import copy
 import ctypes
 
 import fwglobals
@@ -254,42 +255,40 @@ def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
     return cmd
 
 
-def add_interface_attachment(sw_if_index, ingress_acl_ids, egress_acl_ids):
+def add_interface_attachment(ingress_id, egress_id, dev_id_params):
     """ Prepares command dict required to attach array of ingress and egress
     ACL identifiers to an interface
 
-    :param sw_if_index: Integer identifier that represents an interface in VPP
-    :param ingress_acl_ids: Array of ingress ACL identifiers
-    :param egress_acl_ids: Array of egress ACL identifiers
+    :param ingress_id: Ingress ACL identifier
+    :param egress_id: Egress ACL identifier
+    :param dev_id_params: List of interfaces
     :return: Dict representing the command
     """
     cmd = {}
 
     add_params = {
                 'is_add': True,
-                'sw_if_index': sw_if_index,
+                'dev_id_params': dev_id_params,
                 'substs': [{'add_param':            'ingress_acl_ids',
                             'val_by_func':          'map_keys_to_acl_ids',
-                            'arg':                  {'keys': ingress_acl_ids},
+                            'arg':                  {'keys': [ingress_id]},
                             'func_uses_cmd_cache':  True},
                            {'add_param':            'egress_acl_ids',
                             'val_by_func':          'map_keys_to_acl_ids',
-                            'arg':                  {'keys': egress_acl_ids},
+                            'arg':                  {'keys': [egress_id]},
                             'func_uses_cmd_cache':  True}]
     }
 
-    revert_params = {
-                'is_add': False,
-                'sw_if_index': sw_if_index,
-    }
+    revert_params = copy.deepcopy(add_params)
+    revert_params['is_add'] = False
 
     cmd['cmd'] = {}
-    cmd['cmd']['func']   = "add_acl_rules_intf"
+    cmd['cmd']['func']   = "add_acl_rules_interfaces"
     cmd['cmd']['module'] = "fw_acl_command_helpers"
     cmd['cmd']['descr'] = "Attach ACLs to interface"
     cmd['cmd']['params'] = add_params
     cmd['revert'] = {}
-    cmd['revert']['func']   = "add_acl_rules_intf"
+    cmd['revert']['func']   = "add_acl_rules_interfaces"
     cmd['revert']['module'] = "fw_acl_command_helpers"
     cmd['revert']['descr'] = "Detach ACLs from interface"
     cmd['revert']['params'] = revert_params
@@ -371,7 +370,7 @@ def update_firewall_cache(is_add, direction, acl_index):
 
     return (True, None)
 
-def add_acl_rules_intf(is_add, sw_if_index, ingress_acl_ids=None, egress_acl_ids=None):
+def add_acl_rules_intf(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids):
     """
     Add/remove ACL rules on the interface
 
@@ -380,18 +379,28 @@ def add_acl_rules_intf(is_add, sw_if_index, ingress_acl_ids=None, egress_acl_ids
     :param ingress_acl_ids: ingress acl ids
     :param egress_acl_ids: egress acl ids
     """
-    acl_ids = []
-    ingress_count = 0
-    if ingress_acl_ids:
-        acl_ids.extend(ingress_acl_ids)
-        ingress_count = len(ingress_acl_ids)
-    if egress_acl_ids:
-        acl_ids.extend(egress_acl_ids)
+    for acl_id in ingress_acl_ids:
+        fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_add_del',
+            is_add=is_add, sw_if_index=sw_if_index, is_input=True, acl_index=acl_id)
 
-    if is_add and acl_ids:
-        fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_set_acl_list',
-            sw_if_index=sw_if_index, count=len(acl_ids), n_input=ingress_count, acls=acl_ids)
+    for acl_id in egress_acl_ids:
+        fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_add_del',
+            is_add=is_add, sw_if_index=sw_if_index, is_input=False, acl_index=acl_id)
 
-    if not is_add:
-        fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_set_acl_list',
-            sw_if_index=sw_if_index, count=0, n_input=0, acls=[])
+def add_acl_rules_interfaces(is_add, dev_id_params, ingress_acl_ids, egress_acl_ids):
+    """
+    Add/remove ACL rules on the list of interfaces
+
+    :param is_add: add or remove
+    :param dev_id_params: list of interfaces
+    :param ingress_acl_ids: ingress acl ids
+    :param egress_acl_ids: egress acl ids
+    """
+    if not dev_id_params:
+        interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
+        for intf in interfaces:
+            dev_id_params.append(intf['dev_id'])
+
+    for dev_id in dev_id_params:
+        sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
+        add_acl_rules_intf(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids)

@@ -148,14 +148,7 @@ def add_firewall_policy(params):
 
     def process_outbound_rules(outbound_rules):
 
-        intf_attachments = {}
         cmd_list = []
-
-        # Get LAN interfaces managed by installed applications.
-        # The function below returns dictionary, where keys are application identifiers,
-        # and values are lists of vpp interface names, e.g.
-        #      { 'com.flexiwan.vpn': ['tun0'] }
-        app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True, linux_interfaces=False)
 
         for rule_index, rule in enumerate(outbound_rules['rules']):
 
@@ -187,70 +180,8 @@ def add_firewall_policy(params):
 
             # interfaces ['Array of LAN device ids] received from flexiManage
             dev_id_params = action.get('interfaces')
-            if dev_id_params:
-                # flexiManage doesn't know about application interfaces,
-                # So it sends only 'app_{identifier}' as the dev_id.
-                # Hence, we need to manipulate  the dev_id to be app_{identifier}_{vpp_if_name},
-                # as it expected by the following code.
-                updated_dev_id_params = []
-                for dev_id_param in dev_id_params:
-                    # if dev id is a dpdk interface - keep it as is.
-                    if not dev_id_param.startswith('app_'):
-                        updated_dev_id_params.append(dev_id_param)
-                        continue
-
-                    # if we don't have vpp interfaces for this app - continue.
-                    app_identifier = dev_id_param.split('_')[-1]
-                    if not app_identifier in app_lans:
-                        continue
-
-                    # add the application vpp interface names to the list
-                    for vpp_if_name in app_lans[app_identifier]:
-                        updated_dev_id_params.append(f'app_{app_identifier}_{vpp_if_name}')
-
-                dev_id_params = updated_dev_id_params
-            else:
-                dev_id_params = []
-                # if flexiManage sends empty array, we appling the rule for all the lan interfaces
-                interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
-                for intf in interfaces:
-                    dev_id_params.append(intf['dev_id'])
-
-                # for applications interfaces we are using
-                # the prefix 'app_' and the identifier name as the key.
-                # if interfaces are specified by flexiManage, it is sent this way as well
-                for app_identifier in app_lans:
-                    for vpp_if_name in app_lans[app_identifier]:
-                        dev_id_params.append(f'app_{app_identifier}_{vpp_if_name}')
-
-            for dev_id in dev_id_params:
-                if intf_attachments.get(dev_id) is None:
-                    intf_attachments[dev_id] = {}
-                    intf_attachments[dev_id]['ingress'] = []
-                    intf_attachments[dev_id]['egress'] = []
-                intf_attachments[dev_id]['ingress'].append(ingress_id)
-                intf_attachments[dev_id]['egress'].append(egress_id)
-
-        for dev_id, value in intf_attachments.items():
-            # handle application interfaces
-            if dev_id.startswith('app_'):
-                vpp_if_name = dev_id.split('_')[-1]
-                sw_if_index = fwutils.vpp_if_name_to_vpp_sw_if_index(vpp_if_name)
-            else:
-                sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
-            if sw_if_index is None:
-                fwglobals.log.error('Firewall policy - LAN dev_id not found: ' + dev_id +
-                                    ' ' + str(value['ingress']) + ' ' + str(value['egress']))
-                raise Exception('Firewall policy - outbound : dev_id not resolved')
-
-            # Add last default ACL as allow ALL
-            value['ingress'].append(DEFAULT_ALLOW_ID)
-            value['egress'].append(DEFAULT_ALLOW_ID)
-
-            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(
-                sw_if_index, value['ingress'], value['egress']))
-
-        if outbound_rules['rules']:
+            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_id, egress_id, dev_id_params))
+            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(DEFAULT_ALLOW_ID, DEFAULT_ALLOW_ID, dev_id_params))
             cmd_list.append(fw_acl_command_helpers.cache_acl_rule('ingress', DEFAULT_ALLOW_ID))
             cmd_list.append(fw_acl_command_helpers.cache_acl_rule('egress', DEFAULT_ALLOW_ID))
 
