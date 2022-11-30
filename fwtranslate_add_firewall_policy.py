@@ -159,29 +159,36 @@ def add_firewall_policy(params):
             else:
                 destination = None
                 source = None
+
             action = rule['action']
             permit = action['permit']
+            # interfaces ['Array of LAN device ids] received from flexiManage
+            dev_id_params = action.get('interfaces')
             ingress_id = 'fw_lan_ingress_rule_%d' % rule_index
+
             cmd1 = fw_acl_command_helpers.add_acl_rule(ingress_id, source, destination,
                     permit, 0, 0, True, False)
             if cmd1:
                 egress_id = 'fw_lan_egress_rule_%d' % rule_index
                 cmd2 = fw_acl_command_helpers.add_acl_rule(egress_id, source, destination,
                         permit, 0, 0, False, False)
+
             if cmd1 and cmd2:
                 cmd_list.append(cmd1)
                 cmd_list.append(cmd2)
-                cmd_list.append(fw_acl_command_helpers.cache_acl_rule('ingress', ingress_id))
-                cmd_list.append(fw_acl_command_helpers.cache_acl_rule('egress', egress_id))
             else:
                 fwglobals.log.warning('Outbound firewall: Match conditions ' +
                     'do not exist for rule index: %d' % rule_index)
                 continue
 
-            # interfaces ['Array of LAN device ids] received from flexiManage
-            dev_id_params = action.get('interfaces')
+            if not dev_id_params:
+                cmd_list.append(fw_acl_command_helpers.cache_acl_rule('ingress', ingress_id))
+                cmd_list.append(fw_acl_command_helpers.cache_acl_rule('egress', egress_id))
+
             cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_id, egress_id, dev_id_params))
-            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(DEFAULT_ALLOW_ID, DEFAULT_ALLOW_ID, dev_id_params))
+
+        if outbound_rules['rules']:
+            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(DEFAULT_ALLOW_ID, DEFAULT_ALLOW_ID, []))
             cmd_list.append(fw_acl_command_helpers.cache_acl_rule('ingress', DEFAULT_ALLOW_ID))
             cmd_list.append(fw_acl_command_helpers.cache_acl_rule('egress', DEFAULT_ALLOW_ID))
 
