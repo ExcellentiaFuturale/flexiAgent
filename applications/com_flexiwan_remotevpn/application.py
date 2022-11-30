@@ -307,6 +307,13 @@ class Application(FwApplicationInterface):
                 timeout -= 1
                 time.sleep(1)
 
+                if timeout % 5 == 0:
+                    try: # check if existing due to error. In such case, no need to wait more time.
+                        subprocess.check_call(f'grep "Exiting due to fatal error" {cfg["openvpn_log_file"]}', shell=True)
+                        break # break the loop and go to exception below
+                    except:
+                        pass
+
         raise Exception('Daemon failed to start')
 
     def stop(self):

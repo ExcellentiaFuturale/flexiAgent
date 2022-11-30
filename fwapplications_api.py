@@ -68,8 +68,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         self._build_app_instances()
 
         if start_application_stats:
-            self.thread_stats = fwthread.FwThread(target=self.app_stats_thread_func, name='App Stats', log=self.log)
-            self.thread_stats.start()
+            self.start_watchdog()
 
     def __enter__(self):
         return self
@@ -81,11 +80,18 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         # arguments will be `None`.
         self.finalize()
 
-    def finalize(self):
+    def start_watchdog(self):
+        if not self.thread_stats:
+            self.thread_stats = fwthread.FwThread(target=self.app_stats_thread_func, name='App Stats', log=self.log)
+            self.thread_stats.start()
+
+    def stop_watchdog(self):
         if self.thread_stats:
-            self.thread_stats.join()
+            self.thread_stats.stop()
             self.thread_stats = None
 
+    def finalize(self):
+        self.stop_watchdog()
         self.app_instances = {}
         return
 
@@ -178,6 +184,9 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         return copy.deepcopy(self.stats)
 
     def app_stats_thread_func(self, ticks):
+        if fwglobals.g.router_api.state_is_starting_stopping():
+            return
+
         if (self.stats_counter % self.stats_threshold) == 0 and not self.processing_request:
             apps = self.cfg_db.get_applications()
             for app in apps:

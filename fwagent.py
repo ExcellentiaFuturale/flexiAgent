@@ -743,7 +743,7 @@ def reset(soft=False, quiet=False, pppoe=False):
     if reset_device:
         if fwutils.vpp_does_run():
             print("stopping the router...")
-        daemon_rpc('stop', stop_router=True)
+        daemon_rpc('stop', stop_router=True, stop_applications=True)
 
         with FWAPPLICATIONS_API() as applications_api:
             applications_api.reset()
@@ -766,7 +766,7 @@ def reset(soft=False, quiet=False, pppoe=False):
         fwglobals.log.info("Reset operation aborted")
     daemon_rpc('start')     # Start daemon main loop if daemon is alive
 
-def stop(reset_device_config, stop_router):
+def stop(reset_device_config, stop_router, stop_applications):
     """Handles 'fwagent stop' command.
     Stops the infinite connection loop run by Fwagent in daemon mode.
     See documentation on FwagentDaemon class.
@@ -778,7 +778,7 @@ def stop(reset_device_config, stop_router):
     """
     fwglobals.log.info("stopping router...")
     try:
-        daemon_rpc('stop', stop_router=stop_router)
+        daemon_rpc('stop', stop_router=stop_router, stop_applications=stop_applications)
     except:
         # If failed to stop, kill vpp from shell and get interfaces back to Linux
         if stop_router:
@@ -789,7 +789,7 @@ def stop(reset_device_config, stop_router):
         fwutils.reset_device_config()
     fwglobals.log.info("done")
 
-def start(start_router):
+def start(start_router, start_applications):
     """Handles 'fwagent start' command.
     Starts the infinite connection loop run by Fwagent in daemon mode.
     See documentation on FwagentDaemon class.
@@ -799,7 +799,7 @@ def start(start_router):
     :returns: None.
     """
     fwglobals.log.info("start router...")
-    daemon_rpc('start', start_vpp=start_router) # if daemon runs, start connection loop and router if required
+    daemon_rpc('start', start_vpp=start_router, start_applications=start_applications) # if daemon runs, start connection loop and router if required
     fwglobals.log.info("done")
 
 def show(agent, configuration, database, status, networks):
@@ -942,7 +942,7 @@ class FwagentDaemon(FwObject):
         # statement finishes without an exception being raised, these
         # arguments will be `None`.
         self.log.debug("goes to exit")
-        self.stop(stop_router=False)  # Keep VPP running to continue packet routing. To stop is use 'fwagent stop'
+        self.stop(stop_router=False, stop_applications=False)  # Keep VPP and applications running to continue packet routing. To stop is use 'fwagent stop'
         fwglobals.g.finalize_agent()
         self.agent = None
         self.log.debug("exited")
@@ -968,7 +968,7 @@ class FwagentDaemon(FwObject):
     def ping(self):
         self.log.debug("ping: alive")
 
-    def start(self, start_vpp=False, check_system=True):
+    def start(self, start_vpp=False, start_applications=False, check_system=True):
         """Starts the main daemon loop.
         The main daemon loop keeps Fwagent connected to flexiManage.
         To stop registration/connection retrials use the 'fwagent stop' command.
@@ -979,6 +979,10 @@ class FwagentDaemon(FwObject):
         :returns: None.
         """
         self.log.debug("start (start_vpp=%s)" % str(start_vpp))
+
+        if start_applications:
+            fwglobals.g.applications_api.call_hook('start')
+            fwglobals.g.applications_api.start_watchdog()
 
         if self.active:
             self.log.debug("already started, ignore")
@@ -1006,12 +1010,13 @@ class FwagentDaemon(FwObject):
 
         self.log.debug("started")
 
-    def stop(self, stop_router=True):
+    def stop(self, stop_router=True, stop_applications=True):
         """Stop main daemon loop.
         Once stopped, no more registration or connection retrials are performed.
         To resume registration/connection use the 'fwagent start' command.
 
         :param stop_router: Stop router, thus cheesing the packet routing.
+        :param stop_applications
 
         :returns: None.
         """
@@ -1031,6 +1036,13 @@ class FwagentDaemon(FwObject):
                 self.log.excep("failed to stop router: " + str(e))
         elif fwglobals.g.router_api.state_is_started():
             self.log.debug("vpp alive, use 'fwagent stop' to stop it")
+
+        if stop_applications:
+            fwglobals.g.applications_api.stop_watchdog()
+            fwglobals.g.applications_api.call_hook('stop')
+        else:
+            self.log.debug("applications are alive, use 'fwagent stop' to stop it")
+
         # Stop main connection loop
         if self.thread_main:
             self.thread_main.join()
@@ -1309,8 +1321,11 @@ if __name__ == '__main__':
     command_functions = {
                     'version':lambda args: version(),
                     'reset': lambda args: reset(soft=args.soft, quiet=args.quiet, pppoe=args.pppoe),
-                    'stop': lambda args: stop(reset_device_config=args.reset_softly, stop_router=(not args.dont_stop_vpp)),
-                    'start': lambda args: start(start_router=args.start_router),
+                    'stop': lambda args: stop(
+                        reset_device_config=args.reset_softly,
+                        stop_router=(not args.dont_stop_vpp),
+                        stop_applications=(not args.dont_stop_applications)),
+                    'start': lambda args: start(start_router=args.start_router, start_applications=args.start_applications),
                     'daemon': lambda args: daemon(debug_conf_filename=args.debug_conf_filename),
                     'simulate': lambda args: loadsimulator.simulate(count=int(args.count)),
                     'dump': lambda args: dump(filename=args.filename, path=args.path, clean_log=args.clean_log),
@@ -1348,7 +1363,9 @@ if __name__ == '__main__':
     parser_stop.add_argument('-s', '--reset_softly', action='store_true',
                         help="reset router softly: clean router configuration")
     parser_stop.add_argument('-r', '--dont_stop_vpp', action='store_true',
-                        help="stop agent connection loop only")
+                        help="stop agent connection loop only without stopping the router")
+    parser_stop.add_argument('-a', '--dont_stop_applications', action='store_true',
+                        help="stop agent connection loop only without stopping the applications")
     parser_stop.add_argument('-q', '--quiet', action='store_true',
                         help="don't print info onto screen, print into syslog only")
     parser_start = subparsers.add_parser('start', help='Resumes daemon connection loop if it was stopped by "fwagent stop"')
@@ -1356,6 +1373,8 @@ if __name__ == '__main__':
                         help="don't print info onto screen, print into syslog only")
     parser_start.add_argument('-r', '--start_router', action='store_true',
                         help="start router before loop is started")
+    parser_start.add_argument('-a', '--start_applications', action='store_true',
+                        help="start applications")
     parser_daemon = subparsers.add_parser('daemon', help='Run agent in daemon mode: infinite register-connect loop')
     parser_daemon.add_argument('-d', '--debug_conf', dest='debug_conf_filename', default=None,
                         help="Path to debug_conf.yaml file, includes filename")

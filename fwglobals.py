@@ -480,6 +480,7 @@ class Fwglobals(FwObject):
             self.stun_wrapper.finalize()
             self.system_api.finalize()
             self.router_api.finalize()
+            self.applications_api.finalize()
             self.fwagent.finalize()
             self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
         except Exception as e:
