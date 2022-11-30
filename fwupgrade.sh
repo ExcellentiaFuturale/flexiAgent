@@ -25,6 +25,7 @@ AGENT_SERVICE_FILE='/lib/systemd/system/flexiwan-router.service'
 AGENT_SERVICE='flexiwan-router'
 SW_REPOSITORY='deb.flexiwan.com'
 AGENT_CHECK_TIMEOUT=600
+SCRIPT_NAME="$(basename $BASH_SOURCE)"
 
 # Constants passed to the script by fwagent
 TARGET_VERSION="$1"
@@ -37,11 +38,11 @@ JOB_ID="$5"
 prev_ver=''
 
 log() {
-    echo `date +'%b %e %R:%S'`" $HOSTNAME fwagent:" "$@" >> "$AGENT_LOG_FILE" 2>&1
+    echo `date +'%b %e %R:%S'`" $HOSTNAME $SCRIPT_NAME:" "$@" >> "$AGENT_LOG_FILE" 2>&1
 }
 
 update_fwjob() {
-    log $1: $2
+    log "$1": "$2"
     python3 /usr/share/flexiwan/agent/tools/common/fwjobs_cli.py update --job_id $JOB_ID --request 'upgrade-device-sw' --command "$1" --job_error "$2"
 }
 
@@ -54,9 +55,10 @@ update_fwjob() {
 #######################################
 handle_upgrade_failure() {
     log 'Software upgrade failed'
+    update_fwjob "$1" "$2"
 
     # Revert back to previous version if required
-    if [ "$1" == 'revert' ]; then
+    if [ "$3" == 'revert' ]; then
         log 'Reverting to previous version ('"$prev_ver"')...'
         res=$(apt-get -y install --allow-downgrades "$AGENT_SERVICE"="$prev_ver")
         ret=${PIPESTATUS[0]}
@@ -147,8 +149,7 @@ rm "$UPGRADE_FAILURE_FILE" >> /dev/null 2>&1
 # Save previous version for revert in case the upgrade process fails
 get_prev_version
 if [ -z "$prev_ver" ]; then
-    update_fwjob 'extract previous version' "Failed to extract previous version from $VERSIONS_FILE"
-    handle_upgrade_failure
+    handle_upgrade_failure 'extract previous version' "Failed to extract previous version from $VERSIONS_FILE"
 fi
 
 # Quit upgrade process if device is already running the latest version
@@ -164,8 +165,7 @@ log 'Closing connection to MGMT...'
 res=$(fwagent stop --dont_stop_vpp --dont_stop_applications)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
-    update_fwjob 'stop agent connection' 'Failed to stop agent connection to management'
-    handle_upgrade_failure
+    handle_upgrade_failure 'stop agent connection' 'Failed to stop agent connection to management'
 fi
 
 log 'Installing new software...'
@@ -175,16 +175,14 @@ log 'Installing new software...'
 # command returns success status code even if the connection fails.
 check_connection_to_sw_repo
 if [ ${PIPESTATUS[0]} != 0 ]; then
-    update_fwjob 'check connection to repository' "Failed to connect to software repository $SW_REPOSITORY"
-    handle_upgrade_failure
+    handle_upgrade_failure 'check connection to repository' "Failed to connect to software repository $SW_REPOSITORY"
 fi
 
 # Update debian repositories
 res=$(apt-get update)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
-    update_fwjob 'update debian repositories' 'Failed to update debian repositores'
-    handle_upgrade_failure
+    handle_upgrade_failure 'update debian repositories' 'Failed to update debian repositores'
 fi
 
 # Upgrade device package. From this stage on, we should
@@ -194,14 +192,12 @@ fi
 # doesn't kill the upgrade process when the process is stopped
 update_service_conf_file
 if [ ${PIPESTATUS[0]} != 0 ]; then
-    update_fwjob 'update service configuration file' 'Failed to update service configuration file'
-    handle_upgrade_failure
+    handle_upgrade_failure 'update service configuration file' 'Failed to update service configuration file'
 fi
 
 res=$(apt-get -o Dpkg::Options::="--force-confold" install -y "$AGENT_SERVICE")
 if [ ${PIPESTATUS[0]} != 0 ]; then
-    update_fwjob 'install' "$res"
-    handle_upgrade_failure 'revert'
+    handle_upgrade_failure 'install' "$res" 'revert'
 fi
 
 # Reopen the connection loop in case it is closed
@@ -216,8 +212,7 @@ log 'Finished installing new software. waiting for agent check ('"$AGENT_CHECK_T
 sleep "$AGENT_CHECK_TIMEOUT"
 
 if [ -f "$UPGRADE_FAILURE_FILE" ]; then
-    update_fwjob 'agent check' 'Agent checks failed'
-    handle_upgrade_failure 'revert'
+    handle_upgrade_failure 'agent check' 'Agent checks failed' 'revert'
 fi
 
 log 'Software upgrade process finished successfully'
