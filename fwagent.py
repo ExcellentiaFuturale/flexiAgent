@@ -30,6 +30,7 @@ import sys
 import time
 import random
 import signal
+import pathlib
 import psutil
 import Pyro4
 import re
@@ -1341,7 +1342,6 @@ if __name__ == '__main__':
                         api=args.api,
                         template_fname=args.template_fname,
                         ignore_errors=args.ignore_errors),
-                    'configure': lambda args: configure_router(args=args),
     }
 
     parser = argparse.ArgumentParser(
@@ -1411,25 +1411,6 @@ if __name__ == '__main__':
                         # or surround argument with single quotes, e.g. "--api inject_requests 'my request.json'"
                         # Note we don't use circle brackets, e.g. "--api inject_requests(request.json)" to avoid bash confuse
 
-
-    router_parser = subparsers.add_parser('configure', help='Configure router')
-    router_subparsers = router_parser.add_subparsers()
-
-    interfaces_parser = router_subparsers.add_parser('interfaces', help='Configure interfaces')
-    router_interfaces_subparsers = interfaces_parser.add_subparsers(dest='interfaces')
-
-    create_interfaces_cli = router_interfaces_subparsers.add_parser('create', help='Create VPP interface')
-    # create_interfaces_cli.add_argument('-n', '--name', dest='params.linux_interface_name', metavar='INTERFACE_NAME', help="Existing Linux Interface name", required=True)
-    create_interfaces_cli.add_argument('--type', dest='params.type', choices=['wan', 'lan'], metavar='INTERFACE_TYPE', help="Indicates if interface will be use to go to the internet", required=True)
-    create_interfaces_cli.add_argument('--addr', dest='params.addr', metavar='ADDRESS', help="The IPv4 to configure on the VPP interface", required=True)
-    create_interfaces_cli.add_argument('--host_if_name', dest='params.host_if_name', metavar='INTERFACE_TYPE', help="The name of the interface that will be created in Linux side", required=True)
-
-    remove_interfaces_cli = router_interfaces_subparsers.add_parser('delete', help='Remove VPP interface')
-    remove_interfaces_cli.add_argument('--type', dest='params.type', choices=['wan', 'lan'], metavar='INTERFACE_TYPE', help="Indicates if interface is used to go to the internet", required=True)
-    remove_interfaces_cli.add_argument('--addr', dest='params.addr', metavar='INTERFACE_IP', help="The IPv4 of VPP interface to remove", required=True)
-    remove_interfaces_cli.add_argument('--vpp_if_name', dest='params.vpp_if_name', metavar='VPP_INTERFACE_NAME', help="VPP interface name", required=True)
-    remove_interfaces_cli.add_argument('--ignore_errors', dest='params.ignore_errors', help="Ignore exceptions during removal", action='store_true')
-
     parser_dump = subparsers.add_parser('dump', help='Dump various system info into x.tar.gz file')
     parser_dump.add_argument('-f', '--file', dest='filename', default=None,
                         help="The name of the result archive file. Can be full path. The default is 'fwdump_<hostname>_<YYYYMMDD>_<HHMMSS>.tar.gz")
@@ -1437,6 +1418,18 @@ if __name__ == '__main__':
                         help="The path to the final name. The default is %s" % fwglobals.g.DUMP_FOLDER)
     parser_dump.add_argument('-c', '--clean_log', action='store_true',
                         help="Clean agent log")
+
+    # get all files within the cli folder
+    cli_dir_name = 'cli'
+    current_dir = pathlib.Path().absolute()
+    cli_files = glob.glob(f'{current_dir}/{cli_dir_name}/*.py')
+    for cli_file in cli_files:
+        module_name = pathlib.Path(cli_file).stem
+        cli_module = __import__(f'{cli_dir_name}.{module_name}')
+        module = getattr(cli_module, module_name)
+        cli_handler = module.build(subparsers)
+        command_functions[module_name] = lambda args: cli_handler(args=args)
+
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
 

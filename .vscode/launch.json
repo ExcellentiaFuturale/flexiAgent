@@ -103,7 +103,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/fwagent.py",
             "args": [
-                "configure", "interfaces", "create", "--type", "tun", "--host_if_name", "${input:showCli}", "--ip", "${input:showCli1}"
+                "configure", "interfaces", "create", "--type", "lan", "--host_if_name", "${input:showCli}", "--addr", "${input:showCli1}"
             ],
             "cwd": "${workspaceRoot}",
             "justMyCode": false,
