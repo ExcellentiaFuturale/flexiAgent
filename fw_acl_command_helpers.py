@@ -389,12 +389,10 @@ def add_acl_rules_intf(is_add, sw_if_index, ingress_acl_ids=None, egress_acl_ids
     if egress_acl_ids:
         acl_ids.extend(egress_acl_ids)
 
-    if not acl_ids:
-        return
-
-    if is_add:
+    if is_add and acl_ids:
         fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_set_acl_list',
             sw_if_index=sw_if_index, count=len(acl_ids), n_input=ingress_count, acls=acl_ids)
-    else:
+
+    if not is_add:
         fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_set_acl_list',
             sw_if_index=sw_if_index, count=0, n_input=0, acls=[])
