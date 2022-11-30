@@ -279,8 +279,10 @@ def add_interface_attachment(sw_if_index, ingress_acl_ids, egress_acl_ids):
                             'func_uses_cmd_cache':  True}]
     }
 
-    revert_params = copy.deepcopy(add_params)
-    revert_params['is_add'] = 0
+    revert_params = {
+                'is_add': False,
+                'sw_if_index': sw_if_index,
+    }
 
     cmd['cmd'] = {}
     cmd['cmd']['func']   = "add_acl_rules_intf"
@@ -308,11 +310,17 @@ class FwAclCache():
         elif direction == 'egress':
             self.egress_rules.append(acl_id)
 
+    def remove(self, direction, acl_id):
+        if direction == 'ingress':
+            self.ingress_rules = [tup for tup in self.ingress_rules if tup == acl_id]
+        elif direction == 'egress':
+            self.egress_rules = [tup for tup in self.egress_rules if tup == acl_id]
+
     def get(self, direction):
         if direction == 'ingress':
-            return list(self.ingress_rules)
+            return self.ingress_rules
         elif direction == 'egress':
-            return list(self.egress_rules)
+            return self.egress_rules
 
     def clear(self):
         self.ingress_rules.clear()
@@ -336,6 +344,16 @@ def cache_acl_rule(direction, acl_id):
             'substs': [ { 'add_param': 'acl_index', 'val_by_key': acl_id } ]
     }
 
+    cmd['revert'] = {}
+    cmd['revert']['func']   = "update_firewall_cache"
+    cmd['revert']['module'] = "fw_acl_command_helpers"
+    cmd['revert']['descr']  = "Remove Firewall ACL from cache"
+    cmd['revert']['params'] = {
+            'is_add': False,
+            'direction': direction,
+            'substs': [ { 'add_param': 'acl_index', 'val_by_key': acl_id } ]
+    }
+
     return cmd
 
 def update_firewall_cache(is_add, direction, acl_index):
@@ -349,10 +367,12 @@ def update_firewall_cache(is_add, direction, acl_index):
     """
     if is_add:
         fwglobals.g.acl_cache.add(direction, acl_index)
+    else:
+        fwglobals.g.acl_cache.remove(direction, acl_index)
 
     return (True, None)
 
-def add_acl_rules_intf(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids):
+def add_acl_rules_intf(is_add, sw_if_index, ingress_acl_ids=None, egress_acl_ids=None):
     """
     Add/remove ACL rules on the interface
 
@@ -361,10 +381,20 @@ def add_acl_rules_intf(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids):
     :param ingress_acl_ids: ingress acl ids
     :param egress_acl_ids: egress acl ids
     """
-    for acl_id in ingress_acl_ids:
-        fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_add_del',
-            is_add=is_add, sw_if_index=sw_if_index, is_input=True, acl_index=acl_id)
+    acl_ids = []
+    ingress_count = 0
+    if ingress_acl_ids:
+        acl_ids.extend(ingress_acl_ids)
+        ingress_count = len(ingress_acl_ids)
+    if egress_acl_ids:
+        acl_ids.extend(egress_acl_ids)
 
-    for acl_id in egress_acl_ids:
-        fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_add_del',
-            is_add=is_add, sw_if_index=sw_if_index, is_input=False, acl_index=acl_id)
+    if not acl_ids:
+        return
+
+    if is_add:
+        fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_set_acl_list',
+            sw_if_index=sw_if_index, count=len(acl_ids), n_input=ingress_count, acls=acl_ids)
+    else:
+        fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_set_acl_list',
+            sw_if_index=sw_if_index, count=0, n_input=0, acls=[])
