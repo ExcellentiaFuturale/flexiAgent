@@ -22,7 +22,6 @@ Helper functions to convert classifications and actions into VPP ACL commands
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import copy
 import ctypes
 
 import fwglobals
