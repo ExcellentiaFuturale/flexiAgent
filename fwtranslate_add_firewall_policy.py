@@ -150,6 +150,9 @@ def add_firewall_policy(params):
 
         cmd_list = []
 
+        # Clean ACL cache
+        fwglobals.g.acl_cache.clear()
+
         for rule_index, rule in enumerate(outbound_rules['rules']):
 
             classification = rule.get('classification')
