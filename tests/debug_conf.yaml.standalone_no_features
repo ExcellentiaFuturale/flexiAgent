@@ -1,0 +1,10 @@
+daemon:
+  standalone: true
+agent:
+  features:
+    stun:
+      enabled: false
+    wan_monitor:
+      enabled: false
+    pppoe:
+      enabled: false
