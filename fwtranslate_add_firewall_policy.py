@@ -21,6 +21,7 @@ Translates firewall request to a set of commands
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
+import copy
 import enum
 
 import fwglobals
@@ -203,11 +204,11 @@ def add_firewall_policy(params):
     cmd_list.append(fw_acl_command_helpers.add_acl_rule(DEFAULT_ALLOW_ID,
                                                         None, None, True, 0, 0, True, False))
 
-    outbound_rules = params.get('outbound')
+    outbound_rules = copy.deepcopy(params.get('outbound'))
     if outbound_rules:
         cmd_list.extend(process_outbound_rules(outbound_rules))
 
-    inbound_rules = params.get('inbound')
+    inbound_rules = copy.deepcopy(params.get('inbound'))
     if inbound_rules:
         cmd_list.extend(process_inbound_rules(inbound_rules))
 

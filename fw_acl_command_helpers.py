@@ -396,6 +396,7 @@ def add_acl_rules_interfaces(is_add, dev_id_params, ingress_acl_ids, egress_acl_
     :param ingress_acl_ids: ingress acl ids
     :param egress_acl_ids: egress acl ids
     """
+    updated_dev_id_params = []
     if dev_id_params:
         # Get LAN interfaces managed by installed applications.
         # The function below returns dictionary, where keys are application identifiers,
@@ -407,8 +408,6 @@ def add_acl_rules_interfaces(is_add, dev_id_params, ingress_acl_ids, egress_acl_
         # So it sends only 'app_{identifier}' as the dev_id.
         # Hence, we need to manipulate  the dev_id to be app_{identifier}_{vpp_if_name},
         # as it expected by the following code.
-        updated_dev_id_params = []
-
         for dev_id_param in dev_id_params:
             # if dev id is a dpdk interface - keep it as is.
             if not dev_id_param.startswith('app_'):
@@ -424,12 +423,11 @@ def add_acl_rules_interfaces(is_add, dev_id_params, ingress_acl_ids, egress_acl_
             for vpp_if_name in app_lans[app_identifier]:
                 updated_dev_id_params.append(f'app_{app_identifier}_{vpp_if_name}')
 
-        dev_id_params = updated_dev_id_params
     else: # if not dev_id_params
         interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
         for intf in interfaces:
-            dev_id_params.append(intf['dev_id'])
+            updated_dev_id_params.append(intf['dev_id'])
 
-    for dev_id in dev_id_params:
+    for dev_id in updated_dev_id_params:
         sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
         add_acl_rules_intf(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids)
