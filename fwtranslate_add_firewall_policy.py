@@ -93,6 +93,7 @@ def add_firewall_policy(params):
                 action = rule.get('action')
                 destination = classification.get('destination')
                 source = classification.get('source')
+                dev_id_params = destination.get('interface', [])
                 if source:
                     ingress_id = 'fw_wan_ingress__type_%s_rule_%d' % (
                         rule_type, rule_index)
@@ -100,28 +101,14 @@ def add_firewall_policy(params):
                     cmd_list.append(fw_acl_command_helpers.add_acl_rule(
                         ingress_id, source, dest_rule_params, True, 0, 0, True, True))
 
+                if rule_type != InboundNatType.NAT_1TO1 and ingress_id:
+                    cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_id, None, dev_id_params))
+
                 if rule_type == InboundNatType.IDENTITY_MAPPING:
-                    interface = destination.get('interface')
-                    dev_id_params = [interface] if interface is not None else []
-                    if not dev_id_params:
-                        interfaces = fwglobals.g.router_cfg.get_interfaces(type='wan')
-                        for intf in interfaces:
-                            dev_id_params.append(intf['dev_id'])
-                else:
-                    dev_id_params = [destination['interface']]
+                    cmd_list.extend(fw_nat_command_helpers.get_nat_identity_config(
+                        dev_id_params, destination.get('protocols'), destination['ports']))
 
                 for dev_id in dev_id_params:
-                    if intf_attachments.get(dev_id) is None:
-                        sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
-                        if sw_if_index is None:
-                            fwglobals.log.error('Firewall policy - WAN dev_id not found: ' + dev_id)
-                            raise Exception('Firewall policy - inbound : dev_id not resolved')
-                        intf_attachments[dev_id] = {}
-                        intf_attachments[dev_id]['sw_if_index'] = sw_if_index
-                        intf_attachments[dev_id]['ingress'] = []
-                    if rule_type != InboundNatType.NAT_1TO1 and ingress_id:
-                        intf_attachments[dev_id]['ingress'].append(ingress_id)
-
                     sw_if_index = intf_attachments[dev_id]['sw_if_index']
                     if rule_type == InboundNatType.NAT_1TO1:
                         cmd_list.extend(fw_nat_command_helpers.get_nat_1to1_config(
@@ -130,19 +117,9 @@ def add_firewall_policy(params):
                         cmd_list.extend(fw_nat_command_helpers.get_nat_port_forward_config(
                             sw_if_index, destination.get('protocols'), destination['ports'],
                             action['internalIP'], action['internalPortStart']))
-                    elif rule_type == InboundNatType.IDENTITY_MAPPING:
-                        cmd_list.extend(fw_nat_command_helpers.get_nat_identity_config(
-                            sw_if_index, destination.get('protocols'), destination['ports']))
 
-        # Generate Per Interface ACL commands
-        for dev_id, value in intf_attachments.items():
-            if value['ingress']:
-                # Add last default ACL as allow ALL
-                value['ingress'].append(DEFAULT_ALLOW_ID)
-                fwglobals.log.info('Firewall policy - WAN dev_id: ' +
-                                dev_id + ' ' + str(value['ingress']))
-                cmd_list.append(fw_acl_command_helpers.add_interface_attachment(
-                    intf_attachments[dev_id]['sw_if_index'], value['ingress'], None))
+                if rules['rules']:
+                    cmd_list.append(fw_acl_command_helpers.add_interface_attachment(DEFAULT_ALLOW_ID, None, []))
 
         return cmd_list
 

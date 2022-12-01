@@ -313,11 +313,11 @@ def get_nat_port_forward_config(sw_if_index, protocols, ports, internal_ip,
     return cmd_list
 
 
-def get_nat_identity_config(sw_if_index, protocols, ports):
+def get_nat_identity_config(dev_id_params, protocols, ports):
     """
     Generates command for NAT identity mapping configuration
 
-    :param sw_if_index: device identifier of the WAN interface
+    :param dev_id_params: device identifiers of the WAN interfaces
     :type sw_if_index: String
     :param protocols: protocols for which the port forward is applied
     :type protocols: list
@@ -331,23 +331,23 @@ def get_nat_identity_config(sw_if_index, protocols, ports):
     cmd = {}
 
     cmd['cmd'] = {}
-    cmd['cmd']['func']   = "run_nat_identity_config"
+    cmd['cmd']['func']   = "run_nat_identity_configs"
     cmd['cmd']['module'] = "fw_nat_command_helpers"
     cmd['cmd']['descr'] = "Add NAT identity mapping rule"
     cmd['cmd']['params'] = {
         'is_add': 1,
-        'sw_if_index': sw_if_index,
+        'dev_id_params': dev_id_params,
         'protocols': protocols,
         'ports': ports
     }
 
     cmd['revert'] = {}
-    cmd['revert']['func']   = "run_nat_identity_config"
+    cmd['revert']['func']   = "run_nat_identity_configs"
     cmd['revert']['module'] = "fw_nat_command_helpers"
     cmd['revert']['descr'] = "Delete NAT identity mapping rule"
     cmd['revert']['params'] = {
         'is_add': 0,
-        'sw_if_index': sw_if_index,
+        'dev_id_params': dev_id_params,
         'protocols': protocols,
         'ports': ports
     }
@@ -383,6 +383,25 @@ def run_nat_identity_config(is_add, sw_if_index, protocols, ports):
 
             fwglobals.g.router_api.vpp_api.vpp.call('nat44_add_del_identity_mapping',
                 is_add=is_add, sw_if_index=sw_if_index, protocol=fwutils.proto_map[proto], port=port)
+
+
+def run_nat_identity_configs(is_add, dev_id_params, protocols, ports):
+    """
+    Executes commands for NAT identity mapping configuration
+
+    :param is_add: add or remove
+    :param dev_id_params: device identifiers
+    :param protocols: protocols for which the port forward is applied
+    :param ports: ports for which forwarding is applied
+    """
+    if not dev_id_params:
+        interfaces = fwglobals.g.router_cfg.get_interfaces(type='wan')
+        for intf in interfaces:
+            dev_id_params.append(intf['dev_id'])
+
+    for dev_id in dev_id_params:
+        sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
+        run_nat_identity_config(is_add, sw_if_index, protocols, ports)
 
 def add_nat_rules_intf(is_add, sw_if_index):
     """
