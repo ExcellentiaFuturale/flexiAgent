@@ -52,6 +52,7 @@ def _migrate_vpn_script():
                 shutil.copyfile('{}/up.py'.format(path), '/etc/openvpn/server/up-script.py')
                 shutil.copyfile('{}/down.py'.format(path), '/etc/openvpn/server/down-script.py')
                 shutil.copyfile('{}/script_utils.py'.format(path), '/etc/openvpn/server/script_utils.py')
+                shutil.copyfile('{}/scripts_logger.py'.format(path), '/etc/openvpn/server/scripts_logger.py')
                 os.system('killall openvpn') # it will be start again by our application watchdog
 
 

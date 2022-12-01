@@ -117,4 +117,3 @@ def api_firewall_restart():
         fwglobals.g.router_api.call({'message': 'remove-firewall-policy', 'params': firewall_policy_params})
         fwglobals.g.router_api.call({'message': 'add-firewall-policy',    'params': firewall_policy_params})
         fwglobals.log.info(f"api_restart_firewall(): finished")
-        a = 'a'

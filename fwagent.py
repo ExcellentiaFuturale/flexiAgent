@@ -1324,8 +1324,7 @@ if __name__ == '__main__':
                         clean_request_db=args.clean,
                         api=args.api,
                         template_fname=args.template_fname,
-                        ignore_errors=args.ignore_errors),
-    }
+                        ignore_errors=args.ignore_errors)}
 
     parser = argparse.ArgumentParser(
         description="Device Agent for FlexiWan orchestrator\n" + \
@@ -1378,7 +1377,6 @@ if __name__ == '__main__':
                         help="show whole flexiEdge database")
     parser_show.add_argument('--status', choices=['daemon', 'router'],
                         help="show flexiEdge status")
-
     parser_cli = subparsers.add_parser('cli', help='Runs agent in CLI mode: read flexiManage requests from command line')
     parser_cli.add_argument('-f', '--script_file', dest='script_fname', default=None,
                         help="File with requests to be executed")
@@ -1393,7 +1391,6 @@ if __name__ == '__main__':
                         # If arguments include spaces escape them with slash, e.g. "--api inject_requests my\ request.json"
                         # or surround argument with single quotes, e.g. "--api inject_requests 'my request.json'"
                         # Note we don't use circle brackets, e.g. "--api inject_requests(request.json)" to avoid bash confuse
-
     parser_dump = subparsers.add_parser('dump', help='Dump various system info into x.tar.gz file')
     parser_dump.add_argument('-f', '--file', dest='filename', default=None,
                         help="The name of the result archive file. Can be full path. The default is 'fwdump_<hostname>_<YYYYMMDD>_<HHMMSS>.tar.gz")
