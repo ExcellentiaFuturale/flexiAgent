@@ -877,27 +877,6 @@ def show(agent, configuration, database, status, networks):
         elif status == 'router':
             fwglobals.log.info('Router state: %s (%s)' % (fwutils.get_router_status()[0], fwutils.get_router_status()[1]))
 
-def configure_router(args):
-    """Handles 'fwagent configure' command.
-
-    :returns: None.
-    """
-    args_dict = vars(args) # args is NameSpace and is not iterable
-
-    def _extract_rpc_params(_args):
-        out = {}
-        for key in _args:
-            if key.startswith('params.'):
-                out[key.split('.')[-1]] = _args[key]
-        return out
-    rpc_params = _extract_rpc_params(args_dict)
-
-    if 'interfaces' in args_dict:
-        call = f'{args_dict["interfaces"]}_interface'
-        out = daemon_rpc('configure', call=call, params=rpc_params)
-        if out:
-            print(out)
-
 @Pyro4.expose
 class FwagentDaemon(FwObject):
     """This class implements abstraction of Fwagent that runs in daemon mode.
@@ -1073,13 +1052,17 @@ class FwagentDaemon(FwObject):
         if what == 'networks':
             return fwutils.get_device_networks_json(**args)
 
-    def configure(self, call, params):
-        if call == 'create_interface':
-            out = fwapi_router.api_add_interface(**params)
-            return json.dumps(out, indent=2, sort_keys=True)
-        elif call == 'delete_interface':
-            return fwapi_router.api_remove_interface(**params)
-        return False
+    def configure(self, call, params=None):
+        func_name = f'api_{call}'
+        api_func = getattr(fwapi_router, func_name, None)
+        if not api_func:
+            return
+
+        if params:
+            ret = api_func(**params)
+        else:
+            ret = api_func()
+        return ret
 
     def main(self):
         """Implementation of the main daemon loop.
@@ -1421,7 +1404,7 @@ if __name__ == '__main__':
 
     # get all files within the cli folder
     cli_dir_name = 'cli'
-    current_dir = pathlib.Path().absolute()
+    current_dir = os.path.dirname(os.path.realpath(__file__))
     cli_files = glob.glob(f'{current_dir}/{cli_dir_name}/*.py')
     for cli_file in cli_files:
         module_name = pathlib.Path(cli_file).stem

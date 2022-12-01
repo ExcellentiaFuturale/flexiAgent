@@ -20,10 +20,11 @@
 
 
 import os
+import json
 import fwglobals
 import fwutils
 
-def api_add_interface(type, addr, host_if_name, ospf=True, bgp=True):
+def api_interfaces_create(type, addr, host_if_name, ospf=True, bgp=True):
     if not fwutils.vpp_does_run():
         return
 
@@ -49,7 +50,7 @@ def api_add_interface(type, addr, host_if_name, ospf=True, bgp=True):
 
         fwglobals.g.router_api.apply_features_on_interface(True, tun_vpp_if_name, type)
 
-        return response
+        return json.dumps(response, indent=2, sort_keys=True)
     except Exception as e:
         if revert_bgp:
             fwglobals.g.router_api.frr.run_bgp_remove_network(addr)
@@ -59,7 +60,7 @@ def api_add_interface(type, addr, host_if_name, ospf=True, bgp=True):
 
         raise e
 
-def api_remove_interface(vpp_if_name, type, addr, ospf=True, bgp=True, ignore_errors=False):
+def api_interfaces_delete(vpp_if_name, type, addr, ospf=True, bgp=True, ignore_errors=False):
     if not fwutils.vpp_does_run():
         return
 
@@ -108,3 +109,12 @@ def create_tun_in_vpp(addr, host_if_name, recreate_if_exists=False):
     fwutils.vpp_cli_execute(vpp_cmds)
 
     return tun_vpp_if_name
+
+def api_firewall_restart():
+    firewall_policy_params = fwglobals.g.router_cfg.get_firewall_policy()
+    if firewall_policy_params:
+        fwglobals.log.info(f"api_restart_firewall(): Inject remove and add firewall jobs")
+        fwglobals.g.router_api.call({'message': 'remove-firewall-policy', 'params': firewall_policy_params})
+        fwglobals.g.router_api.call({'message': 'add-firewall-policy',    'params': firewall_policy_params})
+        fwglobals.log.info(f"api_restart_firewall(): finished")
+        a = 'a'

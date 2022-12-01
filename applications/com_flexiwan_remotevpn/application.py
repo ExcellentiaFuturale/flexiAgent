@@ -268,7 +268,7 @@ class Application(FwApplicationInterface):
 
             self.log.info('the server.conf file configured successfully')
         except Exception as e:
-            self.log.error(f='_configure_server_file({str(params)}): failed to configure remoteVPN server.conf. err={str(e)}')
+            self.log.error(f'_configure_server_file({str(params)}): failed to configure remoteVPN server.conf. err={str(e)}')
             raise e
 
     def on_router_is_started(self):
@@ -295,26 +295,8 @@ class Application(FwApplicationInterface):
             self.log.info(f'start({restart}): restarting daemon')
             self.stop()
 
+        self.log.info(f'daemon is being started')
         os.system(f'sudo openvpn --config {cfg["openvpn_server_conf_file"]} --daemon')
-
-        timeout = 30
-        while timeout >= 0:
-            try:
-                subprocess.check_call(f'grep "Initialization Sequence Completed" {cfg["openvpn_log_file"]}', shell=True)
-                self.log.info(f'daemon is running')
-                return
-            except:
-                timeout -= 1
-                time.sleep(1)
-
-                if timeout % 5 == 0:
-                    try: # check if existing due to error. In such case, no need to wait more time.
-                        subprocess.check_call(f'grep "Exiting due to fatal error" {cfg["openvpn_log_file"]}', shell=True)
-                        break # break the loop and go to exception below
-                    except:
-                        pass
-
-        raise Exception('Daemon failed to start')
 
     def stop(self):
         if self.is_app_running():

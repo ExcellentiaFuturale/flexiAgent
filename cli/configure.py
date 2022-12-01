@@ -21,6 +21,8 @@
 ################################################################################
 from fwagent import daemon_rpc
 
+configure_router_cli_types = ['interfaces', 'firewall']
+
 def configure(args):
     """Handles 'fwagent configure' command.
 
@@ -34,10 +36,18 @@ def configure(args):
             if key.startswith('params.'):
                 out[key.split('.')[-1]] = _args[key]
         return out
+
+    def _get_func_name(key):
+        if key in args_dict:
+            return f'{key}_{args_dict[key]}'
+        return None
+
     rpc_params = _extract_rpc_params(args_dict)
 
-    if 'interfaces' in args_dict:
-        call = f'{args_dict["interfaces"]}_interface'
+    for cli_type in configure_router_cli_types:
+        call = _get_func_name(cli_type)
+        if not call:
+            continue
         out = daemon_rpc('configure', call=call, params=rpc_params)
         if out:
             print(out)
@@ -59,5 +69,9 @@ def build(subparsers):
     remove_interfaces_cli.add_argument('--addr', dest='params.addr', metavar='INTERFACE_IP', help="The IPv4 of VPP interface to remove", required=True)
     remove_interfaces_cli.add_argument('--vpp_if_name', dest='params.vpp_if_name', metavar='VPP_INTERFACE_NAME', help="VPP interface name", required=True)
     remove_interfaces_cli.add_argument('--ignore_errors', dest='params.ignore_errors', help="Ignore exceptions during removal", action='store_true')
+
+    firewall_parser = router_subparsers.add_parser('firewall', help='Configure firewall')
+    router_firewall_subparsers = firewall_parser.add_subparsers(dest='firewall')
+    router_firewall_subparsers.add_parser('restart', help='Re-apply firewall (Temporary)')
 
     return configure
