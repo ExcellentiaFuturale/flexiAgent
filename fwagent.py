@@ -57,7 +57,7 @@ import fwutils
 import fwwebsocket
 import loadsimulator
 import fwqos
-import fwapi_router
+import fwcli_router
 
 from fwapplications_api import FWAPPLICATIONS_API
 from fwfrr import FwFrr
@@ -1054,7 +1054,7 @@ class FwagentDaemon(FwObject):
 
     def configure(self, call, params=None):
         func_name = f'api_{call}'
-        api_func = getattr(fwapi_router, func_name, None)
+        api_func = getattr(fwcli_router, func_name, None)
         if not api_func:
             return
 
