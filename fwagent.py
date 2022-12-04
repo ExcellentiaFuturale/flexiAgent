@@ -57,7 +57,7 @@ import fwutils
 import fwwebsocket
 import loadsimulator
 import fwqos
-import fwcli_router
+import fwcli_utils
 
 from fwapplications_api import FWAPPLICATIONS_API
 from fwfrr import FwFrr
@@ -1054,7 +1054,7 @@ class FwagentDaemon(FwObject):
 
     def configure(self, call, params=None):
         func_name = f'api_{call}'
-        api_func = getattr(fwcli_router, func_name, None)
+        api_func = getattr(fwcli_utils, func_name, None)
         if not api_func:
             return
 
@@ -1402,13 +1402,14 @@ if __name__ == '__main__':
     # get all files within the cli folder
     cli_dir_name = 'cli'
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    cli_files = glob.glob(f'{current_dir}/{cli_dir_name}/*.py')
+    cli_files = glob.glob(f'{current_dir}/{cli_dir_name}/fwcli_*.py')
     for cli_file in cli_files:
         module_name = pathlib.Path(cli_file).stem
         cli_module = __import__(f'{cli_dir_name}.{module_name}')
         module = getattr(cli_module, module_name)
         cli_handler = module.build(subparsers)
-        command_functions[module_name] = lambda args: cli_handler(args=args)
+        cli_name = module_name.split('fwcli_')[-1]
+        command_functions[cli_name] = lambda args: cli_handler(args=args)
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args()

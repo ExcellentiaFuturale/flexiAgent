@@ -23,7 +23,7 @@ from fwagent import daemon_rpc
 
 configure_router_cli_types = ['interfaces', 'firewall']
 
-def configure(args):
+def handler(args):
     """Handles 'fwagent configure' command.
 
     :returns: None.
@@ -53,10 +53,13 @@ def configure(args):
             print(out)
 
 def build(subparsers):
-    router_parser = subparsers.add_parser('configure', help='Configure router')
-    router_subparsers = router_parser.add_subparsers()
+    configure_parser = subparsers.add_parser('configure', help='Run various configuration commands to the agent')
+    configure_subparsers = configure_parser.add_subparsers()
 
-    interfaces_parser = router_subparsers.add_parser('interfaces', help='Configure interfaces')
+    configure_router_parser = configure_subparsers.add_parser('router', help='Configure router')
+    configure_router_subparsers = configure_router_parser.add_subparsers()
+
+    interfaces_parser = configure_router_subparsers.add_parser('interfaces', help='Configure interfaces')
     router_interfaces_subparsers = interfaces_parser.add_subparsers(dest='interfaces')
 
     create_interfaces_cli = router_interfaces_subparsers.add_parser('create', help='Create VPP interface')
@@ -70,8 +73,8 @@ def build(subparsers):
     remove_interfaces_cli.add_argument('--vpp_if_name', dest='params.vpp_if_name', metavar='VPP_INTERFACE_NAME', help="VPP interface name", required=True)
     remove_interfaces_cli.add_argument('--ignore_errors', dest='params.ignore_errors', help="Ignore exceptions during removal", action='store_true')
 
-    firewall_parser = router_subparsers.add_parser('firewall', help='Configure firewall')
+    firewall_parser = configure_router_subparsers.add_parser('firewall', help='Configure firewall')
     router_firewall_subparsers = firewall_parser.add_subparsers(dest='firewall')
     router_firewall_subparsers.add_parser('restart', help='Re-apply firewall (Temporary)')
 
-    return configure
+    return handler
