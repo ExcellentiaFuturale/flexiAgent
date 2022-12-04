@@ -962,7 +962,7 @@ class FwagentDaemon(FwObject):
 
         if start_applications:
             fwglobals.g.applications_api.call_hook('start')
-            fwglobals.g.applications_api.start_watchdog()
+            fwglobals.g.applications_api.start_applications_thread()
 
         if self.active:
             self.log.debug("already started, ignore")
@@ -1018,7 +1018,7 @@ class FwagentDaemon(FwObject):
             self.log.debug("vpp alive, use 'fwagent stop' to stop it")
 
         if stop_applications:
-            fwglobals.g.applications_api.stop_watchdog()
+            fwglobals.g.applications_api.stop_applications_thread()
             fwglobals.g.applications_api.call_hook('stop')
         else:
             self.log.debug("applications are alive, use 'fwagent stop' to stop it")

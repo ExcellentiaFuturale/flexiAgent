@@ -148,7 +148,7 @@ fi
 # Stop agent connection loop to the MGMT, to make sure the
 # agent does not prcoess messages during the upgrade process.
 log 'Closing connection to MGMT...'
-res=$(fwagent stop -r -a)
+res=$(fwagent stop --dont_stop_vpp --dont_stop_applications)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
     log 'Failed to stop agent connection to management'

@@ -25,13 +25,9 @@ import glob
 import importlib
 import os
 import pathlib
-import threading
-import time
-import traceback
 
 import fwglobals
 import fwthread
-import fwutils
 from fwapplications_cfg import FwApplicationsCfg
 from fwcfg_request_handler import FwCfgRequestHandler
 
@@ -56,7 +52,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         cfg = FwApplicationsCfg()
         FwCfgRequestHandler.__init__(self, fwapplication_translators, cfg)
 
-        self.thread_stats = None
+        self.application_thread = None
         self.processing_request = False
 
         self.stats    = {}
@@ -68,7 +64,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         self._build_app_instances()
 
         if start_application_stats:
-            self.start_watchdog()
+            self.start_applications_thread()
 
     def __enter__(self):
         return self
@@ -80,18 +76,18 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         # arguments will be `None`.
         self.finalize()
 
-    def start_watchdog(self):
-        if not self.thread_stats:
-            self.thread_stats = fwthread.FwThread(target=self.app_stats_thread_func, name='App Stats', log=self.log)
-            self.thread_stats.start()
+    def start_applications_thread(self):
+        if not self.application_thread:
+            self.application_thread = fwthread.FwThread(target=self.applications_thread_func, name='Applications', log=self.log)
+            self.application_thread.start()
 
-    def stop_watchdog(self):
-        if self.thread_stats:
-            self.thread_stats.stop()
-            self.thread_stats = None
+    def stop_applications_thread(self):
+        if self.application_thread:
+            self.application_thread.stop()
+            self.application_thread = None
 
     def finalize(self):
-        self.stop_watchdog()
+        self.stop_applications_thread()
         self.app_instances = {}
         return
 
@@ -183,7 +179,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
     def get_stats(self):
         return copy.deepcopy(self.stats)
 
-    def app_stats_thread_func(self, ticks):
+    def applications_thread_func(self, ticks):
         if fwglobals.g.router_api.state_is_starting_stopping():
             return
 

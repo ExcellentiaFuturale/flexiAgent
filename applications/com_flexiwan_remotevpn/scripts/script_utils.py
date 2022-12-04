@@ -24,7 +24,6 @@ import os
 import subprocess
 
 import yaml
-from netaddr import IPAddress
 
 from scripts_logger import Logger
 
