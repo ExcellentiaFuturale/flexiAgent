@@ -775,9 +775,8 @@ def stop(reset_device_config, stop_router):
 
     :returns: None.
     """
-    fwglobals.log.info("stopping router...")
     try:
-        daemon_rpc('stop', stop_router=stop_router)
+        daemon_rpc('stop_main_loop', stop_router=stop_router)
     except:
         # If failed to stop, kill vpp from shell and get interfaces back to Linux
         if stop_router:
@@ -786,7 +785,6 @@ def stop(reset_device_config, stop_router):
 
     if reset_device_config:
         fwutils.reset_device_config()
-    fwglobals.log.info("done")
 
 def start(start_router):
     """Handles 'fwagent start' command.
@@ -797,9 +795,7 @@ def start(start_router):
 
     :returns: None.
     """
-    fwglobals.log.info("start router...")
-    daemon_rpc('start', start_vpp=start_router) # if daemon runs, start connection loop and router if required
-    fwglobals.log.info("done")
+    daemon_rpc('start_main_loop', start_vpp=start_router) # if daemon runs, start connection loop and router if required
 
 def show(agent, configuration, database, status, networks):
     """Handles 'fwagent show' command.
@@ -899,19 +895,26 @@ class FwagentDaemon(FwObject):
         """
         FwObject.__init__(self)
 
-        self.agent          = None
-        self.active         = False
-        self.thread_main    = None
+        self.agent                  = None
+        self.active_main_loop       = False
+        self.thread_main_loop       = None
+        self.thread_rpc_loop        = None
+        self.event_exit             = None
+
 
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT,  self._signal_handler)
 
     def _signal_handler(self, signum, frame):
-        self.log.info("got %s" % fwglobals.g.signal_names[signum])
-        exit(1)
+        sig_name = fwglobals.g.signal_names[signum]
+        self.log.info(f"got {sig_name}")
+        if self.event_exit:
+            self.event_exit.set()
+        else:
+            self.log.info(f"agent is being initialized, ignore {sig_name}")
 
     def __enter__(self):
-        self.agent = fwglobals.g.initialize_agent()
+        self.agent = fwglobals.g.create_agent(initialize=False)
         return self
 
     def __exit__(self, exc_type, exc_value, tb):
@@ -919,11 +922,8 @@ class FwagentDaemon(FwObject):
         # caused the `with` statement execution to fail. If the `with`
         # statement finishes without an exception being raised, these
         # arguments will be `None`.
-        self.log.debug("goes to exit")
-        self.stop(stop_router=False)  # Keep VPP running to continue packet routing. To stop is use 'fwagent stop'
-        fwglobals.g.finalize_agent()
+        fwglobals.g.destroy_agent(finalize=False)
         self.agent = None
-        self.log.debug("exited")
 
     def _check_system(self):
         """Check system requirements.
@@ -933,7 +933,8 @@ class FwagentDaemon(FwObject):
         root = os.path.dirname(os.path.realpath(__file__))
         checker = os.path.join(root, 'tools' , 'system_checker' , 'fwsystem_checker.py')
         try:
-            subprocess.check_call(['python3' , checker , '--check_only'])
+            # Use "subprocess.check_output" to suppress prints onto screen :)
+            subprocess.check_output(['python3' , checker , '--check_only'])
             return True
         except subprocess.CalledProcessError as err:
             self.log.excep("+====================================================")
@@ -946,7 +947,31 @@ class FwagentDaemon(FwObject):
     def ping(self):
         self.log.debug("ping: alive")
 
-    def start(self, start_vpp=False, check_system=True):
+    def run_agent(self):
+        fwglobals.g.initialize_agent()
+
+        # Ensure system compatibility with our soft.
+        # Do this after initialize_agent(), so we could use router_api.state_is_started().
+        # If router was started, it is too late to check the compatibility :)
+        #
+        if not fwglobals.g.router_api.state_is_started():
+            if self._check_system() == False:
+                self.log.excep("system checker failed")
+
+        if self.active_main_loop == False and not fwglobals.g.cfg.debug['daemon']['standalone']:
+            self.start_main_loop()
+
+        # Keep agent instance on the air until SIGTERM/SIGKILL is received
+        #
+        self.event_exit = threading.Event()
+        self.event_exit.wait()
+        self.event_exit.clear()
+
+        if self.active_main_loop:
+            self.stop_main_loop(stop_router=False)  # Keep VPP running to continue packet routing. To stop is use 'fwagent stop'
+        fwglobals.g.finalize_agent()
+
+    def start_main_loop(self, start_vpp=False):
         """Starts the main daemon loop.
         The main daemon loop keeps Fwagent connected to flexiManage.
         To stop registration/connection retrials use the 'fwagent stop' command.
@@ -956,20 +981,14 @@ class FwagentDaemon(FwObject):
 
         :returns: None.
         """
-        self.log.debug("start (start_vpp=%s)" % str(start_vpp))
+        self.log.debug(f"start_main_loop(start_vpp={start_vpp}): starting")
 
-        if self.active:
+        if self.active_main_loop:
             self.log.debug("already started, ignore")
             return
 
         # Reload configuration.
         fwglobals.g.load_configuration_from_file()
-
-        # Ensure system compatibility with our soft
-        if check_system and fwglobals.g.router_api.state_is_started():
-            check_system = False    # No need to check system if VPP runs, it is too late :)
-        if check_system and self._check_system() == False:
-            self.log.excep("system checker failed")
 
         if start_vpp:
             try:
@@ -978,13 +997,13 @@ class FwagentDaemon(FwObject):
             except Exception as e:
                 self.log.excep("failed to start vpp: " + str(e))
                 return
-        self.active  = True
-        self.thread_main = threading.Thread(target=self.main, name='FwagentDaemon Main Thread')
-        self.thread_main.start()
+        self.active_main_loop = True
+        self.thread_main_loop = threading.Thread(target=self.main_loop, name='FwagentDaemon Main Thread')
+        self.thread_main_loop.start()
 
-        self.log.debug("started")
+        self.log.debug(f"start_main_loop(start_vpp={start_vpp}): started")
 
-    def stop(self, stop_router=True):
+    def stop_main_loop(self, stop_router=True):
         """Stop main daemon loop.
         Once stopped, no more registration or connection retrials are performed.
         To resume registration/connection use the 'fwagent start' command.
@@ -993,11 +1012,11 @@ class FwagentDaemon(FwObject):
 
         :returns: None.
         """
-        self.log.debug("stop")
+        self.log.debug(f"stop_main_loop(stop_router={stop_router}): stopping")
 
         # Initiate connection shutdown
-        if self.active:
-            self.active = False
+        if self.active_main_loop:
+            self.active_main_loop = False
             self.agent.disconnect()  # Break WebSocket connection event loop to get control back to main()
             self.log.debug("disconnect from server was initiated")
         # Stop vpp ASAP, as no more requests can arrive on connection
@@ -1010,20 +1029,11 @@ class FwagentDaemon(FwObject):
         elif fwglobals.g.router_api.state_is_started():
             self.log.debug("vpp alive, use 'fwagent stop' to stop it")
         # Stop main connection loop
-        if self.thread_main:
-            self.thread_main.join()
-            self.thread_main = None
+        if self.thread_main_loop:
+            self.thread_main_loop.join()
+            self.thread_main_loop = None
 
-        self.log.debug("stopped")
-
-    def reset(self):
-        """Restart the main daemon loop.
-
-        :returns: None.
-        """
-        self.log.debug("reset")
-        self.stop()
-        self.start()
+        self.log.debug(f"stop_main_loop(stop_router={stop_router}): stopped")
 
     def show(self, what=None, **args):
         if what == 'version':
@@ -1038,8 +1048,7 @@ class FwagentDaemon(FwObject):
         if what == 'networks':
             return fwutils.get_device_networks_json(**args)
 
-
-    def main(self):
+    def main_loop(self):
         """Implementation of the main daemon loop.
         The main daemon loop keeps Fwagent registered and connected to flexiManage.
 
@@ -1056,7 +1065,7 @@ class FwagentDaemon(FwObject):
         else:
             prev_register_error = ''
             device_token = self.agent.register()
-            while self.active and not device_token:
+            while self.active_main_loop and not device_token:
                 # If registration failed due to invalid authentication token,
                 # probe the token file in loop until it is modified.
                 # Otherwise sleep random period and retry registration.
@@ -1065,8 +1074,8 @@ class FwagentDaemon(FwObject):
                     self.log.debug('poll %s for modification' % fwglobals.g.cfg.TOKEN_FILE)
                     token   = self.agent.token
                     elapsed = 0
-                    while token == self.agent.token and self.active:
-                        time.sleep(1)               # Check self.active every second to detect Ctrl-C as soon as possible
+                    while token == self.agent.token and self.active_main_loop:
+                        time.sleep(1)               # Check self.active_main_loop every second to detect Ctrl-C as soon as possible
                         elapsed += 1
                         if (elapsed % 10) == 0:     # Check if token was updated every 10 seconds
                             with open(fwglobals.g.cfg.TOKEN_FILE, 'r') as f:
@@ -1076,7 +1085,7 @@ class FwagentDaemon(FwObject):
                 elif self.agent.register_error != '' and \
                     self.agent.register_error == prev_register_error:
                     self.log.info("stop registration trials, use 'fwagent start' to resume")
-                    self.active = False
+                    self.active_main_loop = False
                     self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}: exit on registration failure")
                     return
                 # Sleep a little bit and retry
@@ -1093,7 +1102,7 @@ class FwagentDaemon(FwObject):
             # Ensure that there is token to be stored.
             # On rare condition, like restarting daemon during registration,
             # the self.agent.register() might return None and registration loop
-            #  exits due to self.active False.
+            #  exits due to self.active_main_loop False.
             #
             if device_token:
                 with open(fwglobals.g.DEVICE_TOKEN_FILE, 'w') as f:
@@ -1102,10 +1111,10 @@ class FwagentDaemon(FwObject):
         # Establish main connection to Manager.
         # That start infinite receive-send loop in Fwagent::connect().
         # -------------------------------------
-        while self.active:
+        while self.active_main_loop:
 
             closed_gracefully = self.agent.connect()
-            if not closed_gracefully and self.active:
+            if not closed_gracefully and self.active_main_loop:
                 # If connection was closed by flexiManage because of not approved
                 # device (reject 403), retry connection in few seconds.
                 # Otherwise - in few minutes in order to prevent DoS attack.
@@ -1115,8 +1124,8 @@ class FwagentDaemon(FwObject):
                 else:
                     retry_sec = random.randint(fwglobals.g.RETRY_INTERVAL_LONG_MIN, fwglobals.g.RETRY_INTERVAL_LONG_MAX)
                 self.log.info("retry connection in %d seconds" % retry_sec)
-                while retry_sec > 0 and self.active:
-                    time.sleep(1)   # Check self.active every second to detect Ctrl-C as soon as possible
+                while retry_sec > 0 and self.active_main_loop:
+                    time.sleep(1)   # Check self.active_main_loop every second to detect Ctrl-C as soon as possible
                     retry_sec -= 1
 
         self.log.info("connection loop was stopped, use 'fwagent start' to start it again")
@@ -1134,6 +1143,41 @@ class FwagentDaemon(FwObject):
                 ret = api_func()
             return ret
 
+    def start_rpc_service(self):
+        self.log.debug(f"RPC service: start to listen for RPC-s on {fwglobals.g.FWAGENT_DAEMON_URI}")
+
+        if self.thread_rpc_loop:
+            self.log.debug("RPC service: already started")
+            return
+
+        # Ensure the RPC port is not in use
+        #
+        for c in psutil.net_connections():
+            if c.laddr.port == fwglobals.g.FWAGENT_DAEMON_PORT:
+                err_str = f"port {c.laddr.port} is in use, try other port (fwagent_conf.yaml:daemon_socket)"
+                fwglobals.log.error(err_str)
+                raise Exception(err_str)
+
+        self.thread_rpc_loop = threading.Thread(
+                                target=lambda: Pyro4.Daemon.serveSimple(
+                                        {self: fwglobals.g.FWAGENT_DAEMON_NAME},
+                                        host=fwglobals.g.FWAGENT_DAEMON_HOST,
+                                        port=fwglobals.g.FWAGENT_DAEMON_PORT,
+                                        ns=False,
+                                        verbose=False),
+                                name='FwagentDaemon RPC Thread',
+                                daemon=True)
+        self.thread_rpc_loop.start()
+        self.log.debug("RPC service: started")
+
+    def stop_rpc_service(self):
+        # We have no real way to break the Pyro4.Daemon.serveSimple() loop.
+        # So, we just run Pyro4.Daemon.serveSimple() as a daemon thread.
+        # That causes the agent to exit, when all non-daemon threads are terminated.
+        if self.thread_rpc_loop:
+            self.thread_rpc_loop = None
+
+
 def daemon(debug_conf_filename=None):
     """Handles 'fwagent daemon' command.
     This command runs Fwagent in daemon mode. It creates the wrapping
@@ -1147,32 +1191,14 @@ def daemon(debug_conf_filename=None):
     """
     fwglobals.log.set_target(to_syslog=True, to_terminal=False)
     fwglobals.log.info("starting in daemon mode")
-    # Ensure the IPC port is not in use
-    #
-    for c in psutil.net_connections():
-        if c.laddr.port == fwglobals.g.FWAGENT_DAEMON_PORT:
-            fwglobals.log.debug(f"port {c.laddr.port} is in use, try other port (fwagent_conf.yaml:daemon_socket)")
-            return
 
     if debug_conf_filename:
         fwglobals.g.load_debug_configuration_from_file(debug_conf_filename)
 
     with FwagentDaemon() as agent_daemon:
-
-        # Start the FwagentDaemon main function in separate thread as it is infinite,
-        # and we need to get to Pyro4.Daemon.serveSimple() call to run rpc loop.
-        if not fwglobals.g.cfg.debug['daemon']['standalone']:
-            agent_daemon.start()
-
-        # Register FwagentDaemon object with Pyro framework and start Pyro request loop:
-        # listen for rpc that invoke FwagentDaemon methods
-        fwglobals.log.debug("going to listen on " + fwglobals.g.FWAGENT_DAEMON_URI)
-        Pyro4.Daemon.serveSimple(
-            {agent_daemon: fwglobals.g.FWAGENT_DAEMON_NAME},
-            host=fwglobals.g.FWAGENT_DAEMON_HOST,
-            port=fwglobals.g.FWAGENT_DAEMON_PORT,
-            ns=False,
-            verbose=False)
+        agent_daemon.start_rpc_service()
+        agent_daemon.run_agent()
+        agent_daemon.stop_rpc_service()
 
 def daemon_rpc(func, **kwargs):
     """Wrapper for methods of the FwagentDaemon object that runs on background
