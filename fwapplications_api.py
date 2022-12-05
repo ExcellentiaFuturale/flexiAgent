@@ -76,6 +76,14 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         # arguments will be `None`.
         self.finalize()
 
+    def initialize(self):
+        self.start_applications_thread()
+
+    def finalize(self):
+        self.stop_applications_thread()
+        self.app_instances = {}
+        return
+
     def start_applications_thread(self):
         if not self.application_thread:
             self.application_thread = fwthread.FwThread(target=self.applications_thread_func, name='Applications', log=self.log)
@@ -85,11 +93,6 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         if self.application_thread:
             self.application_thread.stop()
             self.application_thread = None
-
-    def finalize(self):
-        self.stop_applications_thread()
-        self.app_instances = {}
-        return
 
     def _build_app_instances(self):
         current_dir = str(pathlib.Path(__file__).parent.resolve())

@@ -418,7 +418,7 @@ class Fwglobals(FwObject):
         self.agent_api        = FWAGENT_API()
         self.system_api       = FWSYSTEM_API(self.system_cfg)
         self.router_api       = FWROUTER_API(self.router_cfg, self.ROUTER_PENDING_CFG_FILE, self.MULTILINK_DB_FILE, self.FRR_DB_FILE)
-        self.applications_api = FWAPPLICATIONS_API(start_application_stats=True)
+        self.applications_api = FWAPPLICATIONS_API()
         self.os_api           = OS_API()
         self.policies         = FwPolicies(self.POLICY_REC_DB_FILE)
         self.wan_monitor      = FwWanMonitor()
@@ -488,6 +488,7 @@ class Fwglobals(FwObject):
         self.pppoe.initialize()
         self.system_api.initialize()  # This one does not depend on VPP :)
         self.routes.initialize()
+        self.applications_api.initialize()
 
         self.log.debug('initialize_agent: completed')
 

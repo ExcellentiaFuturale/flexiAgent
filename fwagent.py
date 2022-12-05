@@ -971,7 +971,7 @@ class FwagentDaemon(FwObject):
         self.event_exit.clear()
 
         if self.active_main_loop:
-            self.stop_main_loop(stop_router=False)  # Keep VPP running to continue packet routing. To stop is use 'fwagent stop'
+            self.stop_main_loop(stop_router=False, stop_applications=False)  # Keep VPP running to continue packet routing. To stop is use 'fwagent stop'
         fwglobals.g.finalize_agent()
 
     def start_main_loop(self, start_vpp=False, start_applications=False):
@@ -984,7 +984,7 @@ class FwagentDaemon(FwObject):
 
         :returns: None.
         """
-        self.log.debug(f"start_main_loop(start_vpp={start_vpp}): starting")
+        self.log.debug(f"start_main_loop(start_vpp={start_vpp}, start_applications={start_applications}): starting")
 
         if start_applications:
             fwglobals.g.applications_api.call_hook('start')
@@ -1008,7 +1008,7 @@ class FwagentDaemon(FwObject):
         self.thread_main_loop = threading.Thread(target=self.main_loop, name='FwagentDaemon Main Thread')
         self.thread_main_loop.start()
 
-        self.log.debug(f"start_main_loop(start_vpp={start_vpp}): started")
+        self.log.debug(f"start_main_loop(start_vpp={start_vpp}, start_applications={start_applications}): started")
 
     def stop_main_loop(self, stop_router=True, stop_applications=True):
         """Stop main daemon loop.
@@ -1020,7 +1020,7 @@ class FwagentDaemon(FwObject):
 
         :returns: None.
         """
-        self.log.debug(f"stop_main_loop(stop_router={stop_router}): stopping")
+        self.log.debug(f"stop_main_loop(stop_router={stop_router}, stop_applications={stop_applications}): stopping")
 
         # Initiate connection shutdown
         if self.active_main_loop:
@@ -1048,7 +1048,7 @@ class FwagentDaemon(FwObject):
             self.thread_main_loop.join()
             self.thread_main_loop = None
 
-        self.log.debug(f"stop_main_loop(stop_router={stop_router}): stopped")
+        self.log.debug(f"stop_main_loop(stop_router={stop_router}, stop_applications={stop_applications}): stopped")
 
     def show(self, what=None, **args):
         if what == 'version':
