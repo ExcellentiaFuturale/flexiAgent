@@ -101,7 +101,7 @@ def add_firewall_policy(params):
                     cmd_list.append(fw_acl_command_helpers.add_acl_rule(
                         ingress_id, source, dest_rule_params, True, 0, 0, True, True))
 
-                if rule_type != InboundNatType.NAT_1TO1 and ingress_id:
+                if rule_type != InboundNatType.NAT_1TO1 and ingress_id and dev_id_params:
                     cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_id, None, dev_id_params))
 
                 if rule_type == InboundNatType.IDENTITY_MAPPING:
@@ -118,8 +118,8 @@ def add_firewall_policy(params):
                             sw_if_index, destination.get('protocols'), destination['ports'],
                             action['internalIP'], action['internalPortStart']))
 
-                if rules['rules']:
-                    cmd_list.append(fw_acl_command_helpers.add_interface_attachment(DEFAULT_ALLOW_ID, None, []))
+                if rules['rules'] and dev_id_params:
+                    cmd_list.append(fw_acl_command_helpers.add_interface_attachment(DEFAULT_ALLOW_ID, None, dev_id_params))
 
         return cmd_list
 
