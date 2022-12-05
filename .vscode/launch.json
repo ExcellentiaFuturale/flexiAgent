@@ -103,7 +103,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/fwagent.py",
             "args": [
-                "configure", "interfaces", "create", "--type", "lan", "--host_if_name", "${input:showCli}", "--addr", "${input:showCli1}"
+                "configure", "router", "interfaces", "create", "--type", "lan", "--host_if_name", "${input:showCli}", "--addr", "${input:showCli1}"
             ],
             "cwd": "${workspaceRoot}",
             "justMyCode": false,
@@ -117,7 +117,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/fwagent.py",
             "args": [
-                "configure", "interfaces", "delete", "--ignore_errors", "--type", "tun", "--vpp_if_name", "${input:showCli}", "--ip", "${input:showCli1}", 
+                "configure", "router", "interfaces", "delete", "--ignore_errors", "--type", "lan", "--vpp_if_name", "${input:showCli}", "--addr", "${input:showCli1}"
             ],
             "cwd": "${workspaceRoot}",
             "justMyCode": false,

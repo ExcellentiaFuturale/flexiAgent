@@ -3741,9 +3741,9 @@ def build_timestamped_filename(filename, ext='', separator='_'):
     '''
     return filename + separator + datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ext
 
-def is_ip(str_to_check):
+def is_ipv4(str_to_check):
     try:
-        ipaddress.ip_address(str_to_check)
+        ipaddress.ip_network(str_to_check, strict=False)
         return True
     except:
         return False
@@ -3990,6 +3990,38 @@ def build_tunnel_bgp_neighbor(tunnel):
         'ip': remote_loop0_ip,
         'remoteAsn': bgp_remote_asn
     }
+
+def create_tun_in_vpp(addr, host_if_name, recreate_if_exists=False):
+    # ensure that tun is not exists in case of down-script failed
+    tun_exists = os.popen(f'sudo vppctl show tun | grep -B 1 "{host_if_name}"').read().strip()
+    if tun_exists:
+        if not recreate_if_exists:
+            raise Exception(f'The tun "{host_if_name}" already exists in VPP. tun_exists={str(tun_exists)}')
+
+        # root@flexiwan-zn1:/home/shneorp# sudo vppctl show tun | grep -B 1 "t_vpp_remotevpn"
+        # Interface: tun0 (ifindex 7)
+        #   name "t_vpp_remotevpn"
+        tun_name = tun_exists.splitlines()[0].split(' ')[1]
+        os.system(f'sudo vppctl delete tap {tun_name}')
+
+    # configure the vpp interface
+    tun_vpp_if_name = os.popen(f'sudo vppctl create tap host-if-name {host_if_name} tun').read().strip()
+    if not tun_vpp_if_name:
+        raise Exception('Cannot create tun device in vpp')
+
+    fwglobals.log.info(f'create_tun_in_vpp(): TUN created in vpp. vpp_if_name={tun_vpp_if_name}')
+
+    vpp_cmds = [
+        f'set interface ip address {tun_vpp_if_name} {addr}',
+        f'set interface state {tun_vpp_if_name} up'
+    ]
+
+    vpp_cli_execute(vpp_cmds)
+
+    return tun_vpp_if_name
+
+def delete_tun_tap_from_vpp(vpp_if_name, ignore_errors):
+    vpp_cli_execute([f'delete tap {vpp_if_name}'], raise_exception_on_error=(not ignore_errors))
 
 class FwJsonEncoder(json.JSONEncoder):
     '''Customization of the JSON encoder that is able to serialize simple

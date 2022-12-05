@@ -20,6 +20,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import importlib.util
 import json
 import os
 import glob
@@ -30,7 +31,6 @@ import sys
 import time
 import random
 import signal
-import pathlib
 import psutil
 import Pyro4
 import re
@@ -57,7 +57,6 @@ import fwutils
 import fwwebsocket
 import loadsimulator
 import fwqos
-import fwcli_utils
 
 from fwapplications_api import FWAPPLICATIONS_API
 from fwfrr import FwFrr
@@ -68,6 +67,8 @@ from fw_nat_command_helpers import WAN_INTERFACE_SERVICES
 system_checker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tools/system_checker/")
 sys.path.append(system_checker_path)
 import fwsystem_checker_common
+
+cli_modules = {}
 
 # Global signal handler for clean exit
 def global_signal_handler(signum, frame):
@@ -1052,18 +1053,6 @@ class FwagentDaemon(FwObject):
         if what == 'networks':
             return fwutils.get_device_networks_json(**args)
 
-    def configure(self, call, params=None):
-        func_name = f'api_{call}'
-        api_func = getattr(fwcli_utils, func_name, None)
-        if not api_func:
-            return
-
-        if params:
-            ret = api_func(**params)
-        else:
-            ret = api_func()
-        return ret
-
     def main(self):
         """Implementation of the main daemon loop.
         The main daemon loop keeps Fwagent registered and connected to flexiManage.
@@ -1147,17 +1136,44 @@ class FwagentDaemon(FwObject):
         self.log.info("connection loop was stopped, use 'fwagent start' to start it again")
         self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}: stopped")
 
-
-    def api(self, api_name, api_args=None):
+    def api(self, api_name, api_module=None, **api_args):
         """Wrapper for Fwagent methods
         """
-        if self.agent:
-            api_func = getattr(self.agent, api_name)
-            if api_args:
-                ret = api_func(**api_args)
-            else:
-                ret = api_func()
-            return ret
+        module = None
+        if not api_module and self.agent:
+            module = self.agent
+        else:
+            current_dir = os.path.dirname(os.path.realpath(__file__))
+            for root, dirs, files in os.walk(current_dir):
+                for name in files:
+                    if api_module in name:
+                        spec = importlib.util.spec_from_file_location(api_module, f'{root}/{name}')
+                        module = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(module)
+                        break
+
+                # If the inner loop completes without encountering
+                # the break statement then the following else
+                # block will be executed and outer loop will
+                # continue to the next iteration
+                else:
+                    continue
+
+                # If the inner loop terminates due to the
+                # break statement, the else block will not
+                # be executed and the following break
+                # statement will terminate the outer loop also
+                break
+
+        if not module:
+            return
+
+        api_func = getattr(module, api_name)
+        if api_args:
+            ret = api_func(**api_args)
+        else:
+            ret = api_func()
+        return ret
 
 def daemon(debug_conf_filename=None):
     """Handles 'fwagent daemon' command.
@@ -1294,7 +1310,66 @@ def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None,
         with fwrouter_cfg.FwRouterCfg(fwglobals.g.ROUTER_PENDING_CFG_FILE) as router_pending_cfg:
             router_pending_cfg.clean()
 
+def handle_cli_command(args):
+    """Handles 'fwagent' CLI command.
+    This function is responsible for taking CLI arguments, analyzing them and
+    mapping them to a CLI module and function that will be called to continue the process.
 
+    When running "fwagent configure router interfaces create -addr 8.8.8.8/32 --type lan --host_if_name test",
+    the "args" looks as follows:
+    {
+        command: 'configure',
+        configure: 'router',
+        interfaces: 'create',
+        params.addr: '8.8.8.8/32',
+        params.host_if_name: 'test',
+        params.type: 'lan',
+        router: 'interfaces'
+    }
+
+    Comments inside the function are based on the example above.
+    """
+    cli_module_name = f'fwcli'
+    cli_module      = ''
+    cli_func        = ''
+    cli_params      = {}
+
+    def _build_cli_params():
+        for key in args.__dict__:
+            if key.startswith('params.'):
+                cli_params[key.split('.')[-1]] = args.__dict__[key]
+
+    def _build_cli_func(step):
+        nonlocal cli_func
+
+        cli_func += f'_{step}' # -> _interfaces
+        next_step = args.__dict__[step] # -> create
+        if not next_step in args.__dict__:
+            cli_func += f'_{next_step}' # -> _interfaces_create
+            _build_cli_params()
+            return
+        _build_cli_func(next_step)
+
+    def _build_cli_module(step):
+        nonlocal cli_module_name
+        nonlocal cli_module
+
+        if not step in args.__dict__:
+            return
+        cli_module_name += f'_{step}' # -> fwcli_configure -> fwcli_configure_router
+        next_step = args.__dict__[step] # -> router -> interfaces
+        if cli_module_name in cli_modules:
+            cli_module = cli_module_name # -> fwcli_configure_router
+            _build_cli_func(next_step)
+            return
+        _build_cli_module(next_step)
+
+    _build_cli_module(args.command)
+
+    cli_func = cli_func.lstrip('_') # _interfaces_create -> interfaces_create
+    if cli_module and cli_func:
+        f = getattr(cli_modules[cli_module], cli_func)
+        f(**cli_params)
 
 if __name__ == '__main__':
     import argcomplete
@@ -1303,28 +1378,30 @@ if __name__ == '__main__':
     fwglobals.initialize()
 
     command_functions = {
-                    'version':lambda args: version(),
-                    'reset': lambda args: reset(soft=args.soft, quiet=args.quiet, pppoe=args.pppoe),
-                    'stop': lambda args: stop(
-                        reset_device_config=args.reset_softly,
-                        stop_router=(not args.dont_stop_vpp),
-                        stop_applications=(not args.dont_stop_applications)),
-                    'start': lambda args: start(start_router=args.start_router, start_applications=args.start_applications),
-                    'daemon': lambda args: daemon(debug_conf_filename=args.debug_conf_filename),
-                    'simulate': lambda args: loadsimulator.simulate(count=int(args.count)),
-                    'dump': lambda args: dump(filename=args.filename, path=args.path, clean_log=args.clean_log),
-                    'show': lambda args: show(
-                        agent=args.agent,
-                        configuration=args.configuration,
-                        database=args.database,
-                        status=args.status,
-                        networks=args.networks),
-                    'cli': lambda args: cli(
-                        script_fname=args.script_fname,
-                        clean_request_db=args.clean,
-                        api=args.api,
-                        template_fname=args.template_fname,
-                        ignore_errors=args.ignore_errors)}
+        'version':lambda args: version(),
+        'reset': lambda args: reset(soft=args.soft, quiet=args.quiet, pppoe=args.pppoe),
+        'stop': lambda args: stop(
+            reset_device_config=args.reset_softly,
+            stop_router=(not args.dont_stop_vpp),
+            stop_applications=(not args.dont_stop_applications)),
+        'start': lambda args: start(start_router=args.start_router, start_applications=args.start_applications),
+        'daemon': lambda args: daemon(debug_conf_filename=args.debug_conf_filename),
+        'simulate': lambda args: loadsimulator.simulate(count=int(args.count)),
+        'dump': lambda args: dump(filename=args.filename, path=args.path, clean_log=args.clean_log),
+        'show': lambda args: show(
+            agent=args.agent,
+            configuration=args.configuration,
+            database=args.database,
+            status=args.status,
+            networks=args.networks),
+        'cli': lambda args: cli(
+            script_fname=args.script_fname,
+            clean_request_db=args.clean,
+            api=args.api,
+            template_fname=args.template_fname,
+            ignore_errors=args.ignore_errors),
+        'configure': lambda args: handle_cli_command(args)
+    }
 
     parser = argparse.ArgumentParser(
         description="Device Agent for FlexiWan orchestrator\n" + \
@@ -1399,17 +1476,17 @@ if __name__ == '__main__':
     parser_dump.add_argument('-c', '--clean_log', action='store_true',
                         help="Clean agent log")
 
+    configure_parser = subparsers.add_parser('configure', help='Configure various parameters')
+    configure_subparsers = configure_parser.add_subparsers(dest='configure')
+
     # get all files within the cli folder
-    cli_dir_name = 'cli'
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    cli_files = glob.glob(f'{current_dir}/{cli_dir_name}/fwcli_*.py')
+    cli_files = glob.glob(f'{current_dir}/cli/fwcli_*.py')
     for cli_file in cli_files:
-        module_name = pathlib.Path(cli_file).stem
-        cli_module = __import__(f'{cli_dir_name}.{module_name}')
-        module = getattr(cli_module, module_name)
-        cli_handler = module.build(subparsers)
-        cli_name = module_name.split('fwcli_')[-1]
-        command_functions[cli_name] = lambda args: cli_handler(args=args)
+        cli_module_name = os.path.splitext(os.path.basename(cli_file))[0] # /usr/share/flexiwan.../cli/fwcli_counfigure_router.py -> "fwcli_counfigure_router"
+        cli_import = __import__(f'cli.{cli_module_name}')
+        cli_modules[cli_module_name] = getattr(cli_import, cli_module_name)
+        cli_modules[cli_module_name].argparse(configure_subparsers)
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
