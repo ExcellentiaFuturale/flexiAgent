@@ -254,7 +254,7 @@ class Fwglobals(FwObject):
     def __init__(self, log=None):
         """Constructor method
         """
-        FwObject.__init__(self)
+        FwObject.__init__(self, log=log)
 
         # Set default configuration
         self.RETRY_INTERVAL_MIN  = 5 # seconds - is used for both registration and main connection
@@ -386,13 +386,9 @@ class Fwglobals(FwObject):
 
         with open(debug_conf_file, 'r') as debug_conf_file:
             self.cfg.debug = yaml.load(debug_conf_file, Loader=yaml.SafeLoader)
-            if self.cfg.DEBUG:
-                self.log.debug("load_debug_configuration_from_file: \n" + json.dumps(self.cfg.debug, indent=2))
 
-
-    def initialize_agent(self):
-        """Initialize singleton object. Restore VPP if needed.
-
+    def create_agent(self, initialize=True):
+        """Create the fwagent and the rest of supporting objects (that are globals for historical reasons).
         """
         if self.fwagent:
             self.log.warning('Fwglobals.initialize_agent: agent exists')
@@ -451,40 +447,15 @@ class Fwglobals(FwObject):
 
         self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
 
-        self.router_api.restore_vpp_if_needed()
-
-        fwutils.get_linux_interfaces(cached=False) # Fill global interface cache
-
-        self.wan_monitor.initialize() # IMPORTANT! The WAN monitor should be initialized after restore_vpp_if_needed!
-        self.pppoe.initialize()   # IMPORTANT! The PPPOE should be initialized after restore_vpp_if_needed!
-        self.system_api.initialize()
-        self.routes.initialize()      # IMPORTANT! The FwRoutes should be initialized after restore_vpp_if_needed!
-
+        if initialize:
+            self.initialize_agent()
         return self.fwagent
 
-    def finalize_agent(self):
-        """Destructor method
+    def destroy_agent(self, finalize=True):
+        """Graceful shutdown...
         """
-        if not self.fwagent:
-            global log
-            log.warning('Fwglobals.finalize_agent: agent does not exists')
-            return
-
-        self.router_threads.teardown = True   # Stop all threads in parallel to speedup gracefull exit
-
-        try:
-            self.qos.finalize()
-            self.routes.finalize()
-            self.pppoe.finalize()
-            self.wan_monitor.finalize()
-            self.stun_wrapper.finalize()
-            self.system_api.finalize()
-            self.router_api.finalize()
-            self.applications_api.finalize()
-            self.fwagent.finalize()
-            self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
-        except Exception as e:
-            self.log.error(f"finalize_agent: {str(e)}")
+        if finalize:
+            self.finalize_agent()
 
         del self.routes
         del self.pppoe
@@ -501,7 +472,42 @@ class Fwglobals(FwObject):
         del self.fwagent
         self.fwagent = None
         self.db.close()
-        return
+
+    def initialize_agent(self):
+        """Restore VPP if needed and start various features.
+        """
+        self.log.debug('initialize_agent: started')
+
+        self.router_api.restore_vpp_if_needed()
+
+        fwutils.get_linux_interfaces(cached=False) # Fill global interface cache
+
+        # IMPORTANT! Some of the features below should be initialized after restore_vpp_if_needed
+        #
+        self.wan_monitor.initialize()
+        self.pppoe.initialize()
+        self.system_api.initialize()  # This one does not depend on VPP :)
+        self.routes.initialize()
+
+        self.log.debug('initialize_agent: completed')
+
+    def finalize_agent(self):
+        self.log.debug('finalize_agent: started')
+        self.router_threads.teardown = True   # Stop all threads in parallel to speedup gracefull exit
+        try:
+            self.qos.finalize()
+            self.routes.finalize()
+            self.pppoe.finalize()
+            self.wan_monitor.finalize()
+            self.stun_wrapper.finalize()
+            self.system_api.finalize()
+            self.router_api.finalize()
+            self.applications_api.finalize()
+            self.fwagent.finalize()
+            self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
+        except Exception as e:
+            self.log.error(f"finalize_agent: {str(e)}")
+        self.log.debug('finalize_agent: completed')
 
     def __str__(self):
         """Get string representation of configuration.
