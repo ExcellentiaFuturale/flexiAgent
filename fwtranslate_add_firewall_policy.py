@@ -109,13 +109,12 @@ def add_firewall_policy(params):
                         dev_id_params, destination.get('protocols'), destination['ports']))
 
                 for dev_id in dev_id_params:
-                    sw_if_index = intf_attachments[dev_id]['sw_if_index']
                     if rule_type == InboundNatType.NAT_1TO1:
                         cmd_list.extend(fw_nat_command_helpers.get_nat_1to1_config(
-                            sw_if_index, action['internalIP']))
+                            dev_id, action['internalIP']))
                     elif rule_type == InboundNatType.PORT_FORWARD:
                         cmd_list.extend(fw_nat_command_helpers.get_nat_port_forward_config(
-                            sw_if_index, destination.get('protocols'), destination['ports'],
+                            dev_id, destination.get('protocols'), destination['ports'],
                             action['internalIP'], action['internalPortStart']))
 
                 if rules['rules'] and dev_id_params:

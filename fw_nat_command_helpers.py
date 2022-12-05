@@ -194,12 +194,12 @@ def get_nat_wan_setup_config(dev_id):
     return cmd_list
 
 
-def get_nat_1to1_config(sw_if_index, internal_ip):
+def get_nat_1to1_config(dev_id, internal_ip):
     """
     Generates command for 1:1 NAT configuration
 
-    :param sw_if_index: device identifier of the WAN interface
-    :type sw_if_index: String
+    :param dev_id: device identifier of the WAN interface
+    :type dev_id: String
     :param internal_ip: Internal IP to which WAN IP need to be mapped
     :type internal_ip: String
     :return: Command params carrying the generated config
@@ -211,7 +211,10 @@ def get_nat_1to1_config(sw_if_index, internal_ip):
 
     add_params = {
         'is_add': 1,
-        'external_sw_if_index': sw_if_index,
+        'substs': [
+            {'add_param': 'external_sw_if_index',
+            'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
+        ],
         'local_ip_address': ip_bytes,
         'flags': 12 #[IS_OUT2IN_ONLY(0x4) | IS_ADDR_ONLY (0x8)]
     }
@@ -242,13 +245,13 @@ def get_nat_1to1_config(sw_if_index, internal_ip):
     return cmd_list
 
 
-def get_nat_port_forward_config(sw_if_index, protocols, ports, internal_ip,
+def get_nat_port_forward_config(dev_id, protocols, ports, internal_ip,
                                 internal_port_start):
     """
     Generates command for NAT Port forwarding configuration
 
-    :param sw_if_index: device identifier of the WAN interface
-    :type sw_if_index: String
+    :param dev_id: device identifier of the WAN interface
+    :type dev_id: String
     :param protocols: protocols for which the port forward is applied
     :type protocols: list
     :param ports: ports for which forwarding is applied
@@ -280,7 +283,10 @@ def get_nat_port_forward_config(sw_if_index, protocols, ports, internal_ip,
             cmd = {}
             add_params = {
                 'is_add': 1,
-                'external_sw_if_index': sw_if_index,
+                'substs': [
+                    {'add_param': 'external_sw_if_index',
+                    'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
+                ],
                 'local_ip_address': ip_bytes,
                 'protocol': fwutils.proto_map[proto],
                 'external_port': port,
