@@ -31,16 +31,18 @@ from os.path import exists
 
 from netaddr import IPNetwork
 
-this_dir = os.path.dirname(os.path.realpath(__file__))
-sys.path.append(this_dir)
-
+current_dir = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(current_dir)
 from application_cfg import config as cfg
 
-up_dir   = os.path.dirname(this_dir)
-sys.path.append(up_dir)
-
-import fwapplication_utils
+applications_dir   = os.path.dirname(current_dir)
+sys.path.append(applications_dir)
 from applications.fwapplication_interface import FwApplicationInterface
+
+agent_dir   = os.path.dirname(applications_dir)
+sys.path.append(agent_dir)
+
+import fw_os_utils
 
 class Application(FwApplicationInterface):
 
@@ -78,7 +80,7 @@ class Application(FwApplicationInterface):
                 'chmod +x /etc/openvpn/server/down-script.py',
                 'chmod +x /etc/openvpn/server/client-connect.py',
             ]
-            fwapplication_utils.run_linux_commands(commands)
+            fw_os_utils.run_linux_commands(commands)
             self.log.info(f'application installed successfully')
 
         except Exception as e:
@@ -114,7 +116,7 @@ class Application(FwApplicationInterface):
                 'chmod 600 /etc/openvpn/server/server.key',
             ]
 
-            fwapplication_utils.run_linux_commands(commands)
+            fw_os_utils.run_linux_commands(commands)
 
             self._configure_server_file(params)
 
@@ -136,7 +138,7 @@ class Application(FwApplicationInterface):
                 'apt-get remove -y openvpn',
                 'rm -rf /etc/openvpn/server/*'
             ]
-            fwapplication_utils.run_linux_commands(commands)
+            fw_os_utils.run_linux_commands(commands)
 
         except Exception as e:
             self.log.error(f"uninstall(): {str(e)}")
@@ -285,7 +287,7 @@ class Application(FwApplicationInterface):
 
     def start(self, restart=False):
         # don't start if vpp is down
-        router_is_running = fwapplication_utils.router_is_running()
+        router_is_running = fw_os_utils.vpp_does_run()
         if not router_is_running:
             return
 
@@ -300,7 +302,7 @@ class Application(FwApplicationInterface):
 
     def stop(self):
         if self.is_app_running():
-            killed = fwapplication_utils.kill_process('openvpn')
+            killed = fw_os_utils.kill_process('openvpn')
             if killed:
                 self.log.info(f'daemon is stopped')
                 os.system(f'echo "" > {cfg["openvpn_status_file"]}')
@@ -309,7 +311,7 @@ class Application(FwApplicationInterface):
 
     def on_watchdog(self):
         vpn_runs = self.is_app_running()
-        router_is_running = fwapplication_utils.router_is_running()
+        router_is_running = fw_os_utils.vpp_does_run()
         if not vpn_runs and router_is_running:
             self.start()
 
@@ -326,7 +328,7 @@ class Application(FwApplicationInterface):
         if not self.is_app_running():
             return []
 
-        if not fwapplication_utils.router_is_running():
+        if not fw_os_utils.vpp_does_run():
             return []
 
         res = []

@@ -51,6 +51,7 @@ import fwlte
 import fwwifi
 import fwqos
 import fwtranslate_add_switch
+import fw_os_utils
 
 from fwapplications_api import call_applications_hook, FWAPPLICATIONS_API
 from fwfrr          import FwFrr
@@ -176,23 +177,10 @@ def pid_of(process_name):
     return pid
 
 def vpp_pid():
-    """Get pid of VPP process.
-
-    :returns:           process identifier.
-    """
-    try:
-        pid = pid_of('vpp')
-    except:
-        pid = None
-    return pid
+    return fw_os_utils.vpp_pid()
 
 def vpp_does_run():
-    """Check if VPP is running.
-
-    :returns:           Return 'True' if VPP is running.
-    """
-    runs = True if vpp_pid() else False
-    return runs
+    return fw_os_utils.vpp_does_run()
 
 def get_vpp_tap_interface_mac_addr(dev_id):
     tap = dev_id_to_tap(dev_id)

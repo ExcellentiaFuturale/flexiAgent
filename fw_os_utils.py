@@ -1,5 +1,3 @@
-#! /usr/bin/python3
-
 ################################################################################
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
@@ -24,12 +22,23 @@ import os
 import subprocess
 import time
 
-def run_linux_commands(commands, exception_on_error=True):
-    for command in commands:
-        ret = os.system(command)
-        if ret and exception_on_error:
-            raise Exception(f'failed to run "{command}". error code is {ret}')
-    return True
+def kill_process(name, timeout=10):
+    os.system(f'sudo killall {name}')
+    while timeout >= 0:
+        try:
+            _ = subprocess.check_output(['pidof', name])
+            timeout -= 1
+            time.sleep(1)
+        except:
+            return True
+    return False
+
+def vpp_does_run():
+    """Check if VPP is running.
+
+    :returns:           Return 'True' if VPP is running.
+    """
+    return True if vpp_pid() else False
 
 def vpp_pid():
     """Get pid of VPP process.
@@ -42,16 +51,10 @@ def vpp_pid():
         pid = None
     return pid
 
-def router_is_running():
-    return True if vpp_pid() else False
+def run_linux_commands(commands, exception_on_error=True):
+    for command in commands:
+        ret = os.system(command)
+        if ret and exception_on_error:
+            raise Exception(f'failed to run "{command}". error code is {ret}')
+    return True
 
-def kill_process(name, timeout=10):
-    os.system(f'sudo killall {name}')
-    while timeout >= 0:
-        try:
-            _ = subprocess.check_output(['pidof', name])
-            timeout -= 1
-            time.sleep(1)
-        except:
-            return True
-    return False
