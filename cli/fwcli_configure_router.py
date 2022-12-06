@@ -132,7 +132,7 @@ def api_interface_delete(vpp_if_name, type, addr, ospf=True, bgp=True, ignore_er
             if not ret and not ignore_errors:
                 raise Exception(f'api_remove_interface(): Failed to remove {addr} network from ospf. err_str={str(err_str)}')
 
-        if bgp:
+        if bgp and fwglobals.g.router_cfg.get_bgp():
             ret, err_str = fwglobals.g.router_api.frr.run_bgp_remove_network(addr)
             if not ret and not ignore_errors:
                 raise Exception(f'api_remove_interface(): Failed to remove {addr} network from bgp. err_str={str(err_str)}')

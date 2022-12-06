@@ -109,7 +109,7 @@ class FwagentCli(FwObject):
 
             if self.daemon:
                 rpc_api_func = getattr(self.daemon, 'api')
-                ret = rpc_api_func(api_name, api_args)
+                ret = rpc_api_func(api_name, None, **api_args)
             elif self.agent:
                 api_func = getattr(self.agent, api_name)
                 ret = api_func(**api_args)

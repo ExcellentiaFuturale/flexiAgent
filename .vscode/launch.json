@@ -167,7 +167,7 @@
             "args": [
                 "cli",
                 "-f",
-                "${workspaceFolder}/tests/router/27_applications_basic_test/04_start-router_install_configure_uninstall_stop-router.cli",
+                "${input:testCliPath}",
                 "-t",
                 "${workspaceFolder}/tests/fwtemplates.yaml"
             ],
@@ -183,7 +183,7 @@
             "program": "${workspaceFolder}/fwagent.py",
             "args": [
                 "daemon",
-                "--dont_connect"
+                "--debug_conf", "/root/flexiagent/tests/debug_conf.yaml.standalone_no_features"
             ],
             "cwd": "${workspaceRoot}",
             "env": {
@@ -196,7 +196,7 @@
             "request": "launch",
             "module": "pytest",
             "args": [
-                "-rs", "-k", "27"
+                "-rs", "-k", "30_"
             ],
             "cwd": "${workspaceRoot}/tests",
             "env": {
@@ -246,6 +246,11 @@
             "id": "showCli1",
             "type": "promptString",
             "description": "Show cli flags"
+        },
+        {
+            "id": "testCliPath",
+            "type": "promptString",
+            "description": "Paste full path of cli file to inject"
         }
     ]
 }
