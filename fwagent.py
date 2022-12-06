@@ -1354,7 +1354,38 @@ def handle_cli_command(args):
         router: 'interfaces'
     }
 
+    We parse this "args" object, and looking for module name and function name.
+
+    Guidelines:
+    - We have the "cli_modules" global variable that has modules' names as keys.
+    - We start from "command" value, which is the entry point.
+    - The "dest" parameter in the subparsers is mandatory to have correct "args" structure.
+
+    The logic is as follows:
+        The value of "command" is "configure". So we look if "configure" exists in "args".
+        If exists, we continue to get the value of "configure" which is "router". So we look if "router" exists in "args".
+        If exists, we continue to get the value of "router" which is "interfaces". And so on.
+
+        Once the value does not exists in "args", it means that we should have the module name and the function name.
+
+        To get the module name and function name from the logic above:
+        On each step, we check if the value is a key in "cli_modules".
+            If so, we have the module name.
+            If not, we append the next value ("router") to the old one ("configure") - and we continue the loop.
+            So on the next step, we will check if "configure_router" is a module name.
+        Once we have the module name, we continue to loop to get the function name in a similar way.
+
     Comments inside the function are based on the example above.
+
+    In order to add another CLI module, for example "users" that returns users' lists.
+    - Create another "users" parser at the bottom of the fwagent.py file.
+    - Create subparser for the users parser, and set the "dest" to be "users".
+    - Create "fwcli_users.py" file under "cli" directory.
+    - In the new file, implement a function called "argparse" and pass the subparser as parameter.
+    - In the subparser you can add another parser called "get".
+    - Implement a function "get" in this file.
+
+    The logic above should automatically call the "get" function when user will run "fwagent users get".
     """
     cli_module_name = f'fwcli'
     cli_module      = ''
