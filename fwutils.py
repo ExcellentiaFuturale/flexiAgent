@@ -176,12 +176,6 @@ def pid_of(process_name):
         pid = None
     return pid
 
-def vpp_pid():
-    return fw_os_utils.vpp_pid()
-
-def vpp_does_run():
-    return fw_os_utils.vpp_does_run()
-
 def get_vpp_tap_interface_mac_addr(dev_id):
     tap = dev_id_to_tap(dev_id)
     return get_interface_mac_addr(tap)
@@ -609,7 +603,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
 
             # Some interfaces need special logic to get their ip
             # For LTE/WiFi/Bridged interfaces - we need to take it from the tap
-            if vpp_does_run():
+            if fw_os_utils.vpp_does_run():
                 tap_name = None
 
                 if is_lte or is_wifi:
@@ -712,7 +706,7 @@ def get_interface_dev_id(if_name):
             interface.update({'dev_id': dev_id})
             return dev_id
 
-        if not vpp_does_run() or is_interface_assigned_to_vpp(dev_id) == False:
+        if not fw_os_utils.vpp_does_run() or is_interface_assigned_to_vpp(dev_id) == False:
             # don't update cache
             return ''
 
@@ -1074,7 +1068,7 @@ def vpp_if_name_to_vpp_sw_if_index(vpp_if_name):
 # 'bridge_addr_to_bvi_interface_tap' function get the addr of the interface in a bridge
 # and return the tap interface of the BVI interface
 def bridge_addr_to_bvi_interface_tap(bridge_addr):
-    if not vpp_does_run():
+    if not fw_os_utils.vpp_does_run():
         return None
 
     # check if interface indeed in a bridge
@@ -1110,7 +1104,7 @@ def dev_id_to_tap(dev_id, check_vpp_state=False, print_log=True):
 
     if check_vpp_state:
         is_assigned = is_interface_assigned_to_vpp(dev_id_full)
-        vpp_runs    = vpp_does_run()
+        vpp_runs    = fw_os_utils.vpp_does_run()
         if not (is_assigned and vpp_runs):
             if print_log:
                 fwglobals.log.debug('dev_id_to_tap(%s): is_assigned=%s, vpp_runs=%s' %
@@ -1187,7 +1181,7 @@ def vpp_enable_tap_inject():
     if out == None:
         return (False, "'vppctl enable tap-inject' failed")
 
-    if not vpp_does_run():
+    if not fw_os_utils.vpp_does_run():
         return (False, "VPP is not running")
 
     taps = _vppctl_read("show tap-inject").strip()
@@ -1208,7 +1202,7 @@ def vpp_get_tap_info(vpp_if_name=None, vpp_sw_if_index=None, tap_if_name=None):
 
      :returns: tap info in list
      """
-    if not vpp_does_run():
+    if not fw_os_utils.vpp_does_run():
         fwglobals.log.debug("vpp_get_tap_info: VPP is not running")
         return (None, None)
 
@@ -1268,7 +1262,7 @@ def vpp_get_tap_mapping():
      :returns: tap info in list
      """
     vpp_loopback_name_to_tunnel_name = {}
-    if not vpp_does_run():
+    if not fw_os_utils.vpp_does_run():
         fwglobals.log.debug("vpp_get_tap_mapping: VPP is not running")
         return {}
 
@@ -1815,7 +1809,7 @@ def get_router_status():
         state = 'failed'
         with open(fwglobals.g.ROUTER_STATE_FILE, 'r') as f:
             reason = f.read()
-    elif vpp_pid():
+    elif fw_os_utils.vpp_pid():
         state = 'running'
     else:
         state = 'stopped'

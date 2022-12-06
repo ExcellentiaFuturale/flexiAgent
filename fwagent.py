@@ -20,7 +20,6 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import importlib.util
 import json
 import os
 import glob
@@ -49,6 +48,7 @@ import fwglobals
 import fwikev2
 import fwlte
 import fwmultilink
+import fw_os_utils
 import fwpppoe
 import fwrouter_cfg
 import fwstats
@@ -273,7 +273,7 @@ class FwAgent(FwObject):
             self.log.debug("_decode_token_and_setup_environment failed: %s (%s)" %(str(e), traceback.format_exc()))
             return None
 
-        if fwutils.vpp_does_run():
+        if fw_os_utils.vpp_does_run():
             self.log.error("register: router is running, it by 'fwagent stop' and retry by 'fwagent start'")
             return None
 
@@ -473,7 +473,7 @@ class FwAgent(FwObject):
                                     name='Statistics', log=self.log, args=(self,))
         self.thread_statistics.start()
 
-        if not fwutils.vpp_does_run():
+        if not fw_os_utils.vpp_does_run():
             self.log.info("connect: router is not running, start it in flexiManage")
 
     def _on_message(self, message):
@@ -722,7 +722,7 @@ def reset(soft=False, quiet=False, pppoe=False):
     """
 
     # prevent reset configuration when vpp is run
-    if fwutils.vpp_does_run() and soft:
+    if fw_os_utils.vpp_does_run() and soft:
         print("Router must be stopped in order to reset the configuration")
         return
 
@@ -743,7 +743,7 @@ def reset(soft=False, quiet=False, pppoe=False):
             reset_device = False
 
     if reset_device:
-        if fwutils.vpp_does_run():
+        if fw_os_utils.vpp_does_run():
             print("stopping the router...")
         daemon_rpc('stop', stop_router=True, stop_applications=True)
 
@@ -986,10 +986,6 @@ class FwagentDaemon(FwObject):
         """
         self.log.debug(f"start_main_loop(start_vpp={start_vpp}, start_applications={start_applications}): starting")
 
-        if start_applications:
-            fwglobals.g.applications_api.call_hook('start')
-            fwglobals.g.applications_api.start_applications_thread()
-
         if self.active_main_loop:
             self.log.debug("already started, ignore")
             return
@@ -1004,6 +1000,10 @@ class FwagentDaemon(FwObject):
             except Exception as e:
                 self.log.excep("failed to start vpp: " + str(e))
                 return
+
+        if start_applications:
+            fwglobals.g.applications_api.enable_applications()
+
         self.active_main_loop = True
         self.thread_main_loop = threading.Thread(target=self.main_loop, name='FwagentDaemon Main Thread')
         self.thread_main_loop.start()
@@ -1038,8 +1038,7 @@ class FwagentDaemon(FwObject):
             self.log.debug("vpp alive, use 'fwagent stop' to stop it")
 
         if stop_applications:
-            fwglobals.g.applications_api.stop_applications_thread()
-            fwglobals.g.applications_api.call_hook('stop')
+            fwglobals.g.applications_api.disable_applications()
         else:
             self.log.debug("applications are alive, use 'fwagent stop' to stop it")
 
@@ -1150,30 +1149,12 @@ class FwagentDaemon(FwObject):
         """Wrapper for Fwagent methods
         """
         module = None
-        if not api_module and self.agent:
-            module = self.agent
+        if not api_module:
+            if self.agent:
+                module = self.agent
         else:
             current_dir = os.path.dirname(os.path.realpath(__file__))
-            for root, dirs, files in os.walk(current_dir):
-                for name in files:
-                    if api_module in name:
-                        spec = importlib.util.spec_from_file_location(api_module, f'{root}/{name}')
-                        module = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(module)
-                        break
-
-                # If the inner loop completes without encountering
-                # the break statement then the following else
-                # block will be executed and outer loop will
-                # continue to the next iteration
-                else:
-                    continue
-
-                # If the inner loop terminates due to the
-                # break statement, the else block will not
-                # be executed and the following break
-                # statement will terminate the outer loop also
-                break
+            module = fw_os_utils.load_python_module(current_dir, api_module)
 
         if not module:
             return
@@ -1342,7 +1323,8 @@ def handle_cli_command(args):
     This function is responsible for taking CLI arguments, analyzing them and
     mapping them to a CLI module and function that will be called to continue the process.
 
-    When running "fwagent configure router interfaces create -addr 8.8.8.8/32 --type lan --host_if_name test",
+    For example, for the following command:
+    "fwagent configure router interfaces create -addr 8.8.8.8/32 --type lan --host_if_name test"
     the "args" looks as follows:
     {
         command: 'configure',
@@ -1354,38 +1336,11 @@ def handle_cli_command(args):
         router: 'interfaces'
     }
 
-    We parse this "args" object, and looking for module name and function name.
-
-    Guidelines:
-    - We have the "cli_modules" global variable that has modules' names as keys.
-    - We start from "command" value, which is the entry point.
-    - The "dest" parameter in the subparsers is mandatory to have correct "args" structure.
-
-    The logic is as follows:
-        The value of "command" is "configure". So we look if "configure" exists in "args".
-        If exists, we continue to get the value of "configure" which is "router". So we look if "router" exists in "args".
-        If exists, we continue to get the value of "router" which is "interfaces". And so on.
-
-        Once the value does not exists in "args", it means that we should have the module name and the function name.
-
-        To get the module name and function name from the logic above:
-        On each step, we check if the value is a key in "cli_modules".
-            If so, we have the module name.
-            If not, we append the next value ("router") to the old one ("configure") - and we continue the loop.
-            So on the next step, we will check if "configure_router" is a module name.
-        Once we have the module name, we continue to loop to get the function name in a similar way.
+    The derived CLI module name will be: "fwcli_configure_router"
+    The derived function name will be: "interfaces_create"
 
     Comments inside the function are based on the example above.
 
-    In order to add another CLI module, for example "users" that returns users' lists.
-    - Create another "users" parser at the bottom of the fwagent.py file.
-    - Create subparser for the users parser, and set the "dest" to be "users".
-    - Create "fwcli_users.py" file under "cli" directory.
-    - In the new file, implement a function called "argparse" and pass the subparser as parameter.
-    - In the subparser you can add another parser called "get".
-    - Implement a function "get" in this file.
-
-    The logic above should automatically call the "get" function when user will run "fwagent users get".
     """
     cli_module_name = f'fwcli'
     cli_module      = ''
@@ -1534,17 +1489,14 @@ if __name__ == '__main__':
     parser_dump.add_argument('-c', '--clean_log', action='store_true',
                         help="Clean agent log")
 
-    configure_parser = subparsers.add_parser('configure', help='Configure various parameters')
-    configure_subparsers = configure_parser.add_subparsers(dest='configure')
-
-    # get all files within the cli folder
+    # load argparse for CLI-s
     current_dir = os.path.dirname(os.path.realpath(__file__))
     cli_files = glob.glob(f'{current_dir}/cli/fwcli_*.py')
     for cli_file in cli_files:
-        cli_module_name = os.path.splitext(os.path.basename(cli_file))[0] # /usr/share/flexiwan.../cli/fwcli_counfigure_router.py -> "fwcli_counfigure_router"
+        cli_module_name = os.path.splitext(os.path.basename(cli_file))[0] # /usr/share/flexiwan.../cli/fwcli_configure_router.py -> "fwcli_configure_router"
         cli_import = __import__(f'cli.{cli_module_name}')
         cli_modules[cli_module_name] = getattr(cli_import, cli_module_name)
-        cli_modules[cli_module_name].argparse(configure_subparsers)
+        cli_modules[cli_module_name].argparse(subparsers)
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args()

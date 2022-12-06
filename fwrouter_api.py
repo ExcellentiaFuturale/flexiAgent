@@ -35,6 +35,7 @@ import fw_vpp_coredump_utils
 import fwglobals
 import fwlte
 import fwnetplan
+import fw_os_utils
 import fwpppoe
 import fwrouter_cfg
 import fwroutes
@@ -147,7 +148,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         """
         if not self.state_is_started():
             return
-        if not fwutils.vpp_does_run():      # This 'if' prevents debug print by restore_vpp_if_needed() every second
+        if not fw_os_utils.vpp_does_run():      # This 'if' prevents debug print by restore_vpp_if_needed() every second
             self.log.debug("watchdog: initiate restore")
 
             self.state_change(FwRouterState.STOPPED)    # Reset state ASAP, so:
@@ -343,7 +344,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 or use 'fwagent reset [--soft]' to recover")
 
         # If vpp runs already, or if management didn't request to start it, return.
-        vpp_runs = fwutils.vpp_does_run()
+        vpp_runs = fw_os_utils.vpp_does_run()
         vpp_should_be_started = self.cfg_db.exists({'message': 'start-router'})
         if vpp_runs or not vpp_should_be_started:
             self.log.debug("restore_vpp_if_needed: no need to restore(vpp_runs=%s, vpp_should_be_started=%s)" %
@@ -351,7 +352,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             if vpp_runs:
                 self.state_change(FwRouterState.STARTED)
             if self.state_is_started():
-                self.log.debug("restore_vpp_if_needed: vpp_pid=%s" % str(fwutils.vpp_pid()))
+                self.log.debug("restore_vpp_if_needed: vpp_pid=%s" % str(fw_os_utils.vpp_pid()))
                 self._start_threads()
                 # We use here read_from_disk because we can't fill the netplan cache from scratch when vpp is running.
                 # We use the original interface names in this cache,
@@ -565,7 +566,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         try:
             req = request['message']
 
-            vpp_does_run = fwutils.vpp_does_run()
+            vpp_does_run = fw_os_utils.vpp_does_run()
 
             # The 'add-application' and 'add-multilink-policy' requests should
             # be translated and executed only if VPP runs, as the translations
@@ -1356,7 +1357,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         #
         self._get_monitor_interfaces(cached=False)
 
-        self.log.info("router was started: vpp_pid=%s" % str(fwutils.vpp_pid()))
+        self.log.info("router was started: vpp_pid=%s" % str(fw_os_utils.vpp_pid()))
 
         fwglobals.g.applications_api.call_hook('on_router_is_started')
 
@@ -1370,7 +1371,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         self._stop_threads()
         fwglobals.g.pppoe.stop(reset_tun_if_params=True)
         fwglobals.g.cache.dev_id_to_vpp_tap_name.clear()
-        self.log.info("router is being stopped: vpp_pid=%s" % str(fwutils.vpp_pid()))
+        self.log.info("router is being stopped: vpp_pid=%s" % str(fw_os_utils.vpp_pid()))
 
         fwglobals.g.applications_api.call_hook('on_router_is_stopping')
 

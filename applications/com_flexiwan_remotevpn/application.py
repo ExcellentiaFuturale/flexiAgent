@@ -22,11 +22,9 @@
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
-import time
 from os.path import exists
 
 from netaddr import IPNetwork
@@ -35,13 +33,12 @@ current_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(current_dir)
 from application_cfg import config as cfg
 
-applications_dir   = os.path.dirname(current_dir)
+applications_dir = os.path.join(current_dir, "../")
 sys.path.append(applications_dir)
 from applications.fwapplication_interface import FwApplicationInterface
 
-agent_dir   = os.path.dirname(applications_dir)
+agent_dir = os.path.join(applications_dir, "../")
 sys.path.append(agent_dir)
-
 import fw_os_utils
 
 class Application(FwApplicationInterface):

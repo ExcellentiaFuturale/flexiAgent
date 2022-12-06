@@ -30,6 +30,7 @@ from functools import partial
 from netaddr import IPAddress
 
 import fwglobals
+import fw_os_utils
 import fwutils
 
 class LTE_ERROR_MESSAGES():
@@ -779,7 +780,7 @@ def configure_interface(params):
     '''
     try:
         dev_id = params['dev_id']
-        if fwutils.vpp_does_run() and fwutils.is_interface_assigned_to_vpp(dev_id):
+        if fw_os_utils.vpp_does_run() and fwutils.is_interface_assigned_to_vpp(dev_id):
             # Make sure interface is up. It might be down due to suddenly disconnected
             nic_name = fwutils.dev_id_to_linux_if(dev_id)
             fwutils.os_system(f"ifconfig {nic_name} up")

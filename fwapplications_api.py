@@ -94,6 +94,14 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
             self.application_thread.stop()
             self.application_thread = None
 
+    def disable_applications(self):
+        self.stop_applications_thread()
+        self.call_hook('stop')
+
+    def enable_applications(self):
+        self.call_hook('start')
+        self.start_applications_thread()
+
     def _build_app_instances(self):
         current_dir = str(pathlib.Path(__file__).parent.resolve())
         installed_apps = glob.glob(f'{current_dir}/applications/com_flexiwan_*')

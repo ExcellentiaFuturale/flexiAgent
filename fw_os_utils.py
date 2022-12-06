@@ -18,6 +18,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import importlib.util
 import os
 import subprocess
 import time
@@ -58,3 +59,27 @@ def run_linux_commands(commands, exception_on_error=True):
             raise Exception(f'failed to run "{command}". error code is {ret}')
     return True
 
+def load_python_module(entry_point, module_name):
+    module = None
+    for root, dirs, files in os.walk(entry_point):
+        for name in files:
+            if module_name in name:
+                spec = importlib.util.spec_from_file_location(module_name, f'{root}/{name}')
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                break
+
+        # If the inner loop completes without encountering
+        # the break statement then the following else
+        # block will be executed and outer loop will
+        # continue to the next iteration
+        else:
+            continue
+
+        # If the inner loop terminates due to the
+        # break statement, the else block will not
+        # be executed and the following break
+        # statement will terminate the outer loop also
+        break
+
+    return module
