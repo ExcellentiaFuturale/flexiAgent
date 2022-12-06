@@ -21,6 +21,7 @@
 ################################################################################
 
 import copy
+import glob
 import json
 import hashlib
 import os
@@ -69,6 +70,13 @@ modules = {
     'fwrouter_api':       { 'module': __import__('fwrouter_api'),       'sync': True,  'object': 'router_api' },       # fwglobals.g.router_api
     'os_api':             { 'module': __import__('os_api'),             'sync': False, 'object': 'os_api' },           # fwglobals.g.os_api
     'fwapplications_api': { 'module': __import__('fwapplications_api'), 'sync': True,  'object': 'applications_api' }, # fwglobals.g.applications_api,
+}
+
+cli_commands = {
+    'configure':    {'help': 'Configure flexiEdge components', 'modules': []},
+}
+cli_modules = {
+    # Will be filled automatically out of content of the 'cli' folder
 }
 
 request_handlers = {
@@ -354,6 +362,18 @@ class Fwglobals(FwObject):
         # Load signal to string map
         self.signal_names = dict((getattr(signal, n), n) \
                                 for n in dir(signal) if n.startswith('SIG') and '_' not in n )
+
+        # Load cli modules
+        #
+        root_dir = os.path.dirname(os.path.realpath(__file__))
+        for cmd_name, cli_command in cli_commands.items():
+            cli_command_files = glob.glob(f'{root_dir}/cli/fwcli_{cmd_name}*.py')
+            for filename in cli_command_files:
+                cli_module_name = os.path.splitext(os.path.basename(filename))[0] # .../cli/fwcli_configure_router.py -> "fwcli_configure_router"
+                cli_command['modules'].append(cli_module_name)
+                cli_import = __import__(f'cli.{cli_module_name}')
+                cli_module = getattr(cli_import, cli_module_name)
+                cli_modules.update({cli_module_name: cli_module})
 
     def load_configuration_from_file(self):
         """Load configuration from YAML file.

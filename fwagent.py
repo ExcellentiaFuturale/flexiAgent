@@ -23,7 +23,6 @@
 import json
 import os
 import glob
-import errno
 import ssl
 import socket
 import sys
@@ -67,8 +66,6 @@ from fw_nat_command_helpers import WAN_INTERFACE_SERVICES
 system_checker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tools/system_checker/")
 sys.path.append(system_checker_path)
 import fwsystem_checker_common
-
-cli_modules = {}
 
 # Global signal handler for clean exit
 def global_signal_handler(signum, frame):
@@ -1148,6 +1145,8 @@ class FwagentDaemon(FwObject):
     def api(self, api_name, api_module=None, **api_args):
         """Wrapper for Fwagent methods
         """
+        fwglobals.log.trace(f'{api_name}({api_args if api_args else ""}): enter')
+
         module = None
         if not api_module:
             if self.agent:
@@ -1166,12 +1165,12 @@ class FwagentDaemon(FwObject):
         else:
             func = lambda: api_func()
 
-        ret = None
+        ret, ret_str = None, None
         try:
-            fwglobals.log.info(f'{api_name}({api_args if api_args else ""}): started')
             ret = func()
+            ret_str = json.dumps(ret, indent=2, sort_keys=True) if ret else ''
         finally:
-            fwglobals.log.info(f'{api_name}({api_args if api_args else ""}): finished')
+            fwglobals.log.trace(f'{api_name}({api_args if api_args else ""}): leave: ret={ret_str}')
         return ret
 
     def start_rpc_service(self):
@@ -1351,7 +1350,6 @@ def handle_cli_command(args):
 
     """
     cli_module_name = f'fwcli'
-    cli_module      = ''
     cli_func        = ''
     cli_params      = {}
 
@@ -1373,14 +1371,12 @@ def handle_cli_command(args):
 
     def _build_cli_module(step):
         nonlocal cli_module_name
-        nonlocal cli_module
 
         if not step in args.__dict__:
             return
         cli_module_name += f'_{step}' # -> fwcli_configure -> fwcli_configure_router
         next_step = args.__dict__[step] # -> router -> interfaces
-        if cli_module_name in cli_modules:
-            cli_module = cli_module_name # -> fwcli_configure_router
+        if cli_module_name in fwglobals.cli_modules:
             _build_cli_func(next_step)
             return
         _build_cli_module(next_step)
@@ -1388,8 +1384,8 @@ def handle_cli_command(args):
     _build_cli_module(args.command)
 
     cli_func = cli_func.lstrip('_') # _interfaces_create -> interfaces_create
-    if cli_module and cli_func:
-        f = getattr(cli_modules[cli_module], cli_func)
+    if cli_module_name and cli_func:
+        f = getattr(fwglobals.cli_modules[cli_module_name], cli_func)
         f(**cli_params)
 
 if __name__ == '__main__':
@@ -1421,8 +1417,9 @@ if __name__ == '__main__':
             api=args.api,
             template_fname=args.template_fname,
             ignore_errors=args.ignore_errors),
-        'configure': lambda args: handle_cli_command(args)
     }
+    for cli_command_name in fwglobals.cli_commands.keys():
+        command_functions.update({cli_command_name: lambda args: handle_cli_command(args)})
 
     parser = argparse.ArgumentParser(
         description="Device Agent for FlexiWan orchestrator\n" + \
@@ -1497,14 +1494,11 @@ if __name__ == '__main__':
     parser_dump.add_argument('-c', '--clean_log', action='store_true',
                         help="Clean agent log")
 
-    # load argparse for CLI-s
-    current_dir = os.path.dirname(os.path.realpath(__file__))
-    cli_files = glob.glob(f'{current_dir}/cli/fwcli_*.py')
-    for cli_file in cli_files:
-        cli_module_name = os.path.splitext(os.path.basename(cli_file))[0] # /usr/share/flexiwan.../cli/fwcli_configure_router.py -> "fwcli_configure_router"
-        cli_import = __import__(f'cli.{cli_module_name}')
-        cli_modules[cli_module_name] = getattr(cli_import, cli_module_name)
-        cli_modules[cli_module_name].argparse(subparsers)
+    for cmd_name, cli_command in fwglobals.cli_commands.items():
+      cli_parser     = subparsers.add_parser(cmd_name, help=cli_command['help'])
+      cli_subparsers = cli_parser.add_subparsers(dest=cmd_name)
+      for name in cli_command['modules']:
+        fwglobals.cli_modules[name].argparse(cli_subparsers)
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args()

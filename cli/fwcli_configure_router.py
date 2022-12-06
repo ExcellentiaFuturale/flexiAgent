@@ -26,10 +26,7 @@ import fw_os_utils
 import fwutils
 from fwagent import daemon_rpc
 
-def argparse(main_subparsers):
-    configure_parser = main_subparsers.add_parser('configure', help='Configure various parameters')
-    configure_subparsers = configure_parser.add_subparsers(dest='configure')
-
+def argparse(configure_subparsers):
     configure_router_parser = configure_subparsers.add_parser('router', help='Configure router')
     configure_router_subparsers = configure_router_parser.add_subparsers(dest='router')
 
@@ -64,8 +61,6 @@ def interfaces_create(type, addr, host_if_name):
         api_name='api_interface_create',
         type=type, addr=addr, host_if_name=host_if_name
     )
-
-    print(json.dumps(ret, indent=2, sort_keys=True))
 
 def interfaces_delete(vpp_if_name, type, addr, ignore_errors=False):
     if not fwutils.is_ipv4(addr):
