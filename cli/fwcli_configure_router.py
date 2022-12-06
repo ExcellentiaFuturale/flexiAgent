@@ -86,7 +86,6 @@ def firewall_restart():
     )
 
 def api_interface_create(type, addr, host_if_name, ospf=True, bgp=True):
-    fwglobals.log.info(f'api_interface_create({type}, {addr}, {host_if_name}): started')
     if not fw_os_utils.vpp_does_run():
         return
 
@@ -122,11 +121,8 @@ def api_interface_create(type, addr, host_if_name, ospf=True, bgp=True):
             fwglobals.g.router_api.frr.run_ospf_remove(addr, '0.0.0.0')
 
         raise e
-    finally:
-        fwglobals.log.info(f'api_interface_create({type}, {addr}, {host_if_name}): finished')
 
 def api_interface_delete(vpp_if_name, type, addr, ospf=True, bgp=True, ignore_errors=False):
-    fwglobals.log.info(f'api_interface_delete({vpp_if_name}, {type}, {addr}): started')
     if not fw_os_utils.vpp_does_run():
         return
 
@@ -147,14 +143,10 @@ def api_interface_delete(vpp_if_name, type, addr, ospf=True, bgp=True, ignore_er
     except Exception as e:
         fwglobals.log.error(f'api_interface_delete({vpp_if_name}, {type}, {addr}) failed. {str(e)}')
         raise e
-    finally:
-        fwglobals.log.info(f'api_interface_delete({vpp_if_name}, {type}, {addr}): finished')
 
 def api_firewall_restart():
-    fwglobals.log.info(f'api_firewall_restart(): started')
     firewall_policy_params = fwglobals.g.router_cfg.get_firewall_policy()
     if firewall_policy_params:
         fwglobals.log.info(f"api_restart_firewall(): Inject remove and add firewall jobs")
         fwglobals.g.router_api.call({'message': 'remove-firewall-policy', 'params': firewall_policy_params})
         fwglobals.g.router_api.call({'message': 'add-firewall-policy',    'params': firewall_policy_params})
-    fwglobals.log.info(f'api_firewall_restart(): finished')

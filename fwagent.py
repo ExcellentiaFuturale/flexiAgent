@@ -1002,7 +1002,7 @@ class FwagentDaemon(FwObject):
                 return
 
         if start_applications:
-            fwglobals.g.applications_api.enable_applications()
+            fwglobals.g.applications_api.start_applications()
 
         self.active_main_loop = True
         self.thread_main_loop = threading.Thread(target=self.main_loop, name='FwagentDaemon Main Thread')
@@ -1038,7 +1038,7 @@ class FwagentDaemon(FwObject):
             self.log.debug("vpp alive, use 'fwagent stop' to stop it")
 
         if stop_applications:
-            fwglobals.g.applications_api.disable_applications()
+            fwglobals.g.applications_api.stop_applications()
         else:
             self.log.debug("applications are alive, use 'fwagent stop' to stop it")
 
@@ -1157,13 +1157,21 @@ class FwagentDaemon(FwObject):
             module = fw_os_utils.load_python_module(current_dir, api_module)
 
         if not module:
+            fwglobals.log.error(f'api({api_name}, {api_module}, {api_args if api_args else ""}: No module found)')
             return
 
         api_func = getattr(module, api_name)
         if api_args:
-            ret = api_func(**api_args)
+            func = lambda: api_func(**api_args)
         else:
-            ret = api_func()
+            func = lambda: api_func()
+
+        ret = None
+        try:
+            fwglobals.log.info(f'{api_name}({api_args if api_args else ""}): started')
+            ret = func()
+        finally:
+            fwglobals.log.info(f'{api_name}({api_args if api_args else ""}): finished')
         return ret
 
     def start_rpc_service(self):

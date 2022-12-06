@@ -94,11 +94,11 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
             self.application_thread.stop()
             self.application_thread = None
 
-    def disable_applications(self):
+    def stop_applications(self):
         self.stop_applications_thread()
         self.call_hook('stop')
 
-    def enable_applications(self):
+    def start_applications(self):
         self.call_hook('start')
         self.start_applications_thread()
 
