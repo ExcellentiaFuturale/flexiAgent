@@ -1168,7 +1168,7 @@ class FwagentDaemon(FwObject):
         ret, ret_str = None, None
         try:
             ret = func()
-            ret_str = json.dumps(ret, indent=2, sort_keys=True) if ret else ''
+            ret_str = json.dumps(ret, indent=2, sort_keys=True)
         finally:
             fwglobals.log.trace(f'{api_name}({api_args if api_args else ""}): leave: ret={ret_str}')
         return ret
@@ -1386,7 +1386,10 @@ def handle_cli_command(args):
     cli_func = cli_func.lstrip('_') # _interfaces_create -> interfaces_create
     if cli_module_name and cli_func:
         f = getattr(fwglobals.cli_modules[cli_module_name], cli_func)
-        f(**cli_params)
+        ret = f(**cli_params)
+        if ret:
+            ret_str = str(ret) if type(ret) != dict else json.dumps(ret, indent=2, sort_keys=True)
+            print(ret_str)
 
 if __name__ == '__main__':
     import argcomplete

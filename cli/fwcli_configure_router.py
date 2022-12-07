@@ -51,21 +51,19 @@ def argparse(configure_subparsers):
 def interfaces_create(type, addr, host_if_name):
     if not fwutils.is_ipv4(addr):
         raise Exception(f'addr {addr} is not valid IPv4 address')
-
     if len(host_if_name) > 15:
         raise Exception(f'host_if_name {host_if_name} cannot have more then 15 characters')
-
     ret = daemon_rpc(
         'api',
         api_module='fwcli_configure_router',
         api_name='api_interface_create',
         type=type, addr=addr, host_if_name=host_if_name
     )
+    return ret
 
 def interfaces_delete(vpp_if_name, type, addr, ignore_errors=False):
     if not fwutils.is_ipv4(addr):
         raise Exception(f'addr {addr} is not valid IPv4 address')
-
     daemon_rpc(
         'api',
         api_module='fwcli_configure_router',
