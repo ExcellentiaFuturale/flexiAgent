@@ -37,15 +37,15 @@ def add_tc_commands(ifconfig_local_ip):
     try:
         tc_cmd = [
             # configure mirror ingress traffic from the tun interface created by vpp to the the openvpn tun interface
-            'sudo tc qdisc add dev t_vpp_remotevpn handle ffff: ingress',
-            'sudo tc filter add dev t_vpp_remotevpn parent ffff: protocol all u32 match u32 0 0 action mirred egress mirror dev t_remotevpn',
+            'sudo tc qdisc add dev vpp_remotevpn handle ffff: ingress',
+            'sudo tc filter add dev vpp_remotevpn parent ffff: protocol all u32 match u32 0 0 action mirred egress mirror dev t_remotevpn',
 
             # configure mirror ingress traffic from vpn tun interace to the tun interface that created by vpp
             'sudo tc qdisc add dev t_remotevpn handle ffff: ingress',
 
             # don't mirror traffic that its destination address is the vpn server itself (traffic originated by linux).
             f'sudo tc filter add dev t_remotevpn parent ffff: protocol all priority 1 u32 match ip dst {ifconfig_local_ip}/32 action pass',
-            'sudo tc filter add dev t_remotevpn parent ffff: protocol all priority 2 u32 match u32 0 0 action mirred egress mirror dev t_vpp_remotevpn',
+            'sudo tc filter add dev t_remotevpn parent ffff: protocol all priority 2 u32 match u32 0 0 action mirred egress mirror dev vpp_remotevpn',
         ]
 
         for cmd in tc_cmd:
@@ -59,7 +59,7 @@ def add_tc_commands(ifconfig_local_ip):
 
 def remove_tc_commands(vpn_tun_is_up):
     try:
-        tc_cmd = ['sudo tc qdisc del dev t_vpp_remotevpn handle ffff: ingress']
+        tc_cmd = ['sudo tc qdisc del dev vpp_remotevpn handle ffff: ingress']
 
         # This function can be called from the revert of the "up" script.
         # In such a case, the t_remotevpn interface exists.
@@ -91,7 +91,7 @@ def get_saved_vpp_interface_name():
 def create_tun_in_vpp(addr):
     out = None
     try:
-        cmd = f'fwagent configure router interfaces create --type lan --host_if_name t_vpp_remotevpn --addr {addr}'
+        cmd = f'fwagent configure router interfaces create --type lan --host_if_name vpp_remotevpn --addr {addr}'
         response_data = json.loads(subprocess.check_output(cmd, shell=True).decode())
         tun_vpp_if_name = response_data.get('tun_vpp_if_name')
         if not tun_vpp_if_name:

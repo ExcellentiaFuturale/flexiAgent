@@ -3980,9 +3980,9 @@ def create_tun_in_vpp(addr, host_if_name, recreate_if_exists=False):
         if not recreate_if_exists:
             raise Exception(f'The tun "{host_if_name}" already exists in VPP. tun_exists={str(tun_exists)}')
 
-        # root@flexiwan-zn1:/home/shneorp# sudo vppctl show tun | grep -B 1 "t_vpp_remotevpn"
+        # root@flexiwan-zn1:/home/shneorp# sudo vppctl show tun | grep -B 1 "vpp_remotevpn"
         # Interface: tun0 (ifindex 7)
-        #   name "t_vpp_remotevpn"
+        #   name "vpp_remotevpn"
         tun_name = tun_exists.splitlines()[0].split(' ')[1]
         os.system(f'sudo vppctl delete tap {tun_name}')
 
