@@ -91,7 +91,7 @@ class FwFrr(FwObject):
              address = fwutils.get_interface_address(None, dev_id)
 
         if address:     # update FRR only if interface has IP (DHCP/cable is plugged/etc)
-            ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"network {address} area {area}"])
+            ret, err_str =  self.run_ospf_add(address, area)
             if not ret:
                 self.log.error(f"ospf_network_add({dev_id}): failed to update frr: {err_str}")
                 return (False, f"failed to add OSPF network for {dev_id}")
@@ -118,7 +118,7 @@ class FwFrr(FwObject):
             return
 
         if ospf_network['address']:  # update FRR only if interface has IP
-            ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"no network {ospf_network['address']} area {ospf_network['area']}"])
+            ret, err_str = self.run_ospf_remove(ospf_network['address'], ospf_network['area'])
             if not ret:
                 self.log.excep(f"ospf_network_remove({dev_id}): failed to update frr: {err_str}")
 
@@ -151,7 +151,7 @@ class FwFrr(FwObject):
         area        = ospf_network['area']
         old_address = ospf_network['address']
         if old_address:
-            ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"no network {old_address} area {area}"])
+            ret, err_str = self.run_ospf_remove(old_address, area)
             if not ret:
                 self.log.excep(f"ospf_network_update({dev_id}): failed to remove old network '{old_address}' from frr: {err_str}")
 
@@ -159,7 +159,7 @@ class FwFrr(FwObject):
         # If new address was provided, update FRR. Otherwise update database only.
         #
         if new_address:
-            ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"network {new_address} area {area}"])
+            ret, err_str = self.run_ospf_add(new_address, area)
             if not ret:
                 self.log.excep(f"ospf_network_update({dev_id}): failed to add new network '{new_address}' to frr: {err_str}")
                 new_network = None
@@ -189,4 +189,20 @@ class FwFrr(FwObject):
             commands.append(f'neighbor {ip} timers {keepalive_interval} {hold_interval}')
 
         return commands
+
+    def run_ospf_remove(self, address, area):
+        ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"no network {address} area {area}"])
+        return ret, err_str
+
+    def run_ospf_add(self, address, area):
+        ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"network {address} area {area}"])
+        return ret, err_str
+
+    def run_bgp_remove_network(self, address):
+        ret, err_str = fwutils.frr_vtysh_run(["router bgp", 'address-family ipv4 unicast', f"no network {address}"])
+        return ret, err_str
+
+    def run_bgp_add_network(self, address):
+        ret, err_str = fwutils.frr_vtysh_run(["router bgp", 'address-family ipv4 unicast', f"network {address}"])
+        return ret, err_str
 

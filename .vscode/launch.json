@@ -9,7 +9,8 @@
             "type": "python",
             "request": "launch",
             "program": "${file}",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "args": ["t_remotevpn", "1500", "1621", "78.78.78.1", "255.255.255.192", "init"]
         },
         {
             "name": "fwagent daemon",
@@ -21,6 +22,7 @@
             ],
             "subProcess": true,
             "sudo": true,
+            "justMyCode": false,
             "cwd": "${workspaceRoot}",
             "env": {
                 "PYTHONPATH": "${workspaceRoot}/flexiagent"
@@ -96,6 +98,34 @@
             }
         },
         {
+            "name": "fwagent configure CLI",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/fwagent.py",
+            "args": [
+                "configure", "router", "interfaces", "create", "--type", "lan", "--host_if_name", "${input:showCli}", "--addr", "${input:showCli1}"
+            ],
+            "cwd": "${workspaceRoot}",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceRoot}/flexiagent"
+            }
+        },
+        {
+            "name": "fwagent configure delete CLI",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/fwagent.py",
+            "args": [
+                "configure", "router", "interfaces", "delete", "--ignore_errors", "--type", "lan", "--vpp_if_name", "${input:showCli}", "--addr", "${input:showCli1}"
+            ],
+            "cwd": "${workspaceRoot}",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceRoot}/flexiagent"
+            }
+        },
+        {
             "name": "fwdump",
             "type": "python",
             "request": "launch",
@@ -137,7 +167,7 @@
             "args": [
                 "cli",
                 "-f",
-                "${workspaceFolder}/tests/router/27_applications_basic_test/04_start-router_install_configure_uninstall_stop-router.cli",
+                "${input:testCliPath}",
                 "-t",
                 "${workspaceFolder}/tests/fwtemplates.yaml"
             ],
@@ -153,7 +183,7 @@
             "program": "${workspaceFolder}/fwagent.py",
             "args": [
                 "daemon",
-                "--dont_connect"
+                "--debug_conf", "/root/flexiagent/tests/debug_conf.yaml.standalone_no_features"
             ],
             "cwd": "${workspaceRoot}",
             "env": {
@@ -166,7 +196,7 @@
             "request": "launch",
             "module": "pytest",
             "args": [
-                "-rs", "-k", "27"
+                "-rs", "-k", "30_"
             ],
             "cwd": "${workspaceRoot}/tests",
             "env": {
@@ -216,6 +246,11 @@
             "id": "showCli1",
             "type": "promptString",
             "description": "Show cli flags"
+        },
+        {
+            "id": "testCliPath",
+            "type": "promptString",
+            "description": "Paste full path of cli file to inject"
         }
     ]
 }

@@ -21,6 +21,7 @@
 ################################################################################
 
 import copy
+import glob
 import json
 import hashlib
 import os
@@ -30,6 +31,7 @@ import signal
 import traceback
 import yaml
 from fwqos import FwQoS
+import fw_os_utils
 import fwutils
 import threading
 import fw_vpp_coredump_utils
@@ -68,6 +70,13 @@ modules = {
     'fwrouter_api':       { 'module': __import__('fwrouter_api'),       'sync': True,  'object': 'router_api' },       # fwglobals.g.router_api
     'os_api':             { 'module': __import__('os_api'),             'sync': False, 'object': 'os_api' },           # fwglobals.g.os_api
     'fwapplications_api': { 'module': __import__('fwapplications_api'), 'sync': True,  'object': 'applications_api' }, # fwglobals.g.applications_api,
+}
+
+cli_commands = {
+    'configure':    {'help': 'Configure flexiEdge components', 'modules': []},
+}
+cli_modules = {
+    # Will be filled automatically out of content of the 'cli' folder
 }
 
 request_handlers = {
@@ -354,6 +363,18 @@ class Fwglobals(FwObject):
         self.signal_names = dict((getattr(signal, n), n) \
                                 for n in dir(signal) if n.startswith('SIG') and '_' not in n )
 
+        # Load cli modules
+        #
+        root_dir = os.path.dirname(os.path.realpath(__file__))
+        for cmd_name, cli_command in cli_commands.items():
+            cli_command_files = glob.glob(f'{root_dir}/cli/fwcli_{cmd_name}*.py')
+            for filename in cli_command_files:
+                cli_module_name = os.path.splitext(os.path.basename(filename))[0] # .../cli/fwcli_configure_router.py -> "fwcli_configure_router"
+                cli_command['modules'].append(cli_module_name)
+                cli_import = __import__(f'cli.{cli_module_name}')
+                cli_module = getattr(cli_import, cli_module_name)
+                cli_modules.update({cli_module_name: cli_module})
+
     def load_configuration_from_file(self):
         """Load configuration from YAML file.
 
@@ -407,7 +428,7 @@ class Fwglobals(FwObject):
         # As workaround, we reload the driver to fix it.
         # We run it only if vpp is not running to make sure that we reload the driver
         # only on boot, and not if a user run `systemctl restart flexiwan-router` when vpp is running.
-        if not fwutils.vpp_does_run():
+        if not fw_os_utils.vpp_does_run():
             fwlte.reload_lte_drivers_if_needed()
 
         self.db               = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! Load data at the first place!
@@ -418,7 +439,7 @@ class Fwglobals(FwObject):
         self.agent_api        = FWAGENT_API()
         self.system_api       = FWSYSTEM_API(self.system_cfg)
         self.router_api       = FWROUTER_API(self.router_cfg, self.ROUTER_PENDING_CFG_FILE, self.MULTILINK_DB_FILE, self.FRR_DB_FILE)
-        self.applications_api = FWAPPLICATIONS_API(start_application_stats=True)
+        self.applications_api = FWAPPLICATIONS_API()
         self.os_api           = OS_API()
         self.policies         = FwPolicies(self.POLICY_REC_DB_FILE)
         self.wan_monitor      = FwWanMonitor()
@@ -488,6 +509,7 @@ class Fwglobals(FwObject):
         self.pppoe.initialize()
         self.system_api.initialize()  # This one does not depend on VPP :)
         self.routes.initialize()
+        self.applications_api.initialize()
 
         self.log.debug('initialize_agent: completed')
 
@@ -502,6 +524,7 @@ class Fwglobals(FwObject):
             self.stun_wrapper.finalize()
             self.system_api.finalize()
             self.router_api.finalize()
+            self.applications_api.finalize()
             self.fwagent.finalize()
             self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
         except Exception as e:

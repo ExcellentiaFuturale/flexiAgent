@@ -23,7 +23,6 @@
 import json
 import os
 import glob
-import errno
 import ssl
 import socket
 import sys
@@ -48,6 +47,7 @@ import fwglobals
 import fwikev2
 import fwlte
 import fwmultilink
+import fw_os_utils
 import fwpppoe
 import fwrouter_cfg
 import fwstats
@@ -270,7 +270,7 @@ class FwAgent(FwObject):
             self.log.debug("_decode_token_and_setup_environment failed: %s (%s)" %(str(e), traceback.format_exc()))
             return None
 
-        if fwutils.vpp_does_run():
+        if fw_os_utils.vpp_does_run():
             self.log.error("register: router is running, it by 'fwagent stop' and retry by 'fwagent start'")
             return None
 
@@ -470,7 +470,7 @@ class FwAgent(FwObject):
                                     name='Statistics', log=self.log, args=(self,))
         self.thread_statistics.start()
 
-        if not fwutils.vpp_does_run():
+        if not fw_os_utils.vpp_does_run():
             self.log.info("connect: router is not running, start it in flexiManage")
 
     def _on_message(self, message):
@@ -719,7 +719,7 @@ def reset(soft=False, quiet=False, pppoe=False):
     """
 
     # prevent reset configuration when vpp is run
-    if fwutils.vpp_does_run() and soft:
+    if fw_os_utils.vpp_does_run() and soft:
         print("Router must be stopped in order to reset the configuration")
         return
 
@@ -740,9 +740,9 @@ def reset(soft=False, quiet=False, pppoe=False):
             reset_device = False
 
     if reset_device:
-        if fwutils.vpp_does_run():
+        if fw_os_utils.vpp_does_run():
             print("stopping the router...")
-        daemon_rpc('stop', stop_router=True)
+        daemon_rpc_safe('stop', stop_router=True, stop_applications=True)
 
         with FWAPPLICATIONS_API() as applications_api:
             applications_api.reset()
@@ -763,9 +763,9 @@ def reset(soft=False, quiet=False, pppoe=False):
         fwglobals.log.info("Reset operation done")
     else:
         fwglobals.log.info("Reset operation aborted")
-    daemon_rpc('start')     # Start daemon main loop if daemon is alive
+    daemon_rpc_safe('start')     # Start daemon main loop if daemon is alive
 
-def stop(reset_device_config, stop_router):
+def stop(reset_device_config, stop_router, stop_applications):
     """Handles 'fwagent stop' command.
     Stops the infinite connection loop run by Fwagent in daemon mode.
     See documentation on FwagentDaemon class.
@@ -776,7 +776,7 @@ def stop(reset_device_config, stop_router):
     :returns: None.
     """
     try:
-        daemon_rpc('stop_main_loop', stop_router=stop_router)
+        daemon_rpc('stop_main_loop', stop_router=stop_router, stop_applications=stop_applications)
     except:
         # If failed to stop, kill vpp from shell and get interfaces back to Linux
         if stop_router:
@@ -786,7 +786,7 @@ def stop(reset_device_config, stop_router):
     if reset_device_config:
         fwutils.reset_device_config()
 
-def start(start_router):
+def start(start_router, start_applications):
     """Handles 'fwagent start' command.
     Starts the infinite connection loop run by Fwagent in daemon mode.
     See documentation on FwagentDaemon class.
@@ -795,7 +795,7 @@ def start(start_router):
 
     :returns: None.
     """
-    daemon_rpc('start_main_loop', start_vpp=start_router) # if daemon runs, start connection loop and router if required
+    daemon_rpc_safe('start_main_loop', start_vpp=start_router, start_applications=start_applications) # if daemon runs, start connection loop and router if required
 
 def show(agent, configuration, database, status, networks):
     """Handles 'fwagent show' command.
@@ -829,12 +829,12 @@ def show(agent, configuration, database, status, networks):
 
     if networks:
         networks_type = None if networks == 'all' else networks
-        out = daemon_rpc('show', what='networks', type=networks_type)
+        out = daemon_rpc_safe('show', what='networks', type=networks_type)
         if out:
             print(out)
 
     if agent:
-        out = daemon_rpc('show', what=agent)
+        out = daemon_rpc_safe('show', what=agent)
         if out:
             print(out)
 
@@ -968,10 +968,10 @@ class FwagentDaemon(FwObject):
         self.event_exit.clear()
 
         if self.active_main_loop:
-            self.stop_main_loop(stop_router=False)  # Keep VPP running to continue packet routing. To stop is use 'fwagent stop'
+            self.stop_main_loop(stop_router=False, stop_applications=False)  # Keep VPP running to continue packet routing. To stop is use 'fwagent stop'
         fwglobals.g.finalize_agent()
 
-    def start_main_loop(self, start_vpp=False):
+    def start_main_loop(self, start_vpp=False, start_applications=False):
         """Starts the main daemon loop.
         The main daemon loop keeps Fwagent connected to flexiManage.
         To stop registration/connection retrials use the 'fwagent stop' command.
@@ -981,7 +981,7 @@ class FwagentDaemon(FwObject):
 
         :returns: None.
         """
-        self.log.debug(f"start_main_loop(start_vpp={start_vpp}): starting")
+        self.log.debug(f"start_main_loop(start_vpp={start_vpp}, start_applications={start_applications}): starting")
 
         if self.active_main_loop:
             self.log.debug("already started, ignore")
@@ -997,22 +997,27 @@ class FwagentDaemon(FwObject):
             except Exception as e:
                 self.log.excep("failed to start vpp: " + str(e))
                 return
+
+        if start_applications:
+            fwglobals.g.applications_api.start_applications()
+
         self.active_main_loop = True
         self.thread_main_loop = threading.Thread(target=self.main_loop, name='FwagentDaemon Main Thread')
         self.thread_main_loop.start()
 
-        self.log.debug(f"start_main_loop(start_vpp={start_vpp}): started")
+        self.log.debug(f"start_main_loop(start_vpp={start_vpp}, start_applications={start_applications}): started")
 
-    def stop_main_loop(self, stop_router=True):
+    def stop_main_loop(self, stop_router=True, stop_applications=True):
         """Stop main daemon loop.
         Once stopped, no more registration or connection retrials are performed.
         To resume registration/connection use the 'fwagent start' command.
 
         :param stop_router: Stop router, thus cheesing the packet routing.
+        :param stop_applications
 
         :returns: None.
         """
-        self.log.debug(f"stop_main_loop(stop_router={stop_router}): stopping")
+        self.log.debug(f"stop_main_loop(stop_router={stop_router}, stop_applications={stop_applications}): stopping")
 
         # Initiate connection shutdown
         if self.active_main_loop:
@@ -1028,12 +1033,18 @@ class FwagentDaemon(FwObject):
                 self.log.excep("failed to stop router: " + str(e))
         elif fwglobals.g.router_api.state_is_started():
             self.log.debug("vpp alive, use 'fwagent stop' to stop it")
+
+        if stop_applications:
+            fwglobals.g.applications_api.stop_applications()
+        else:
+            self.log.debug("applications are alive, use 'fwagent stop' to stop it")
+
         # Stop main connection loop
         if self.thread_main_loop:
             self.thread_main_loop.join()
             self.thread_main_loop = None
 
-        self.log.debug(f"stop_main_loop(stop_router={stop_router}): stopped")
+        self.log.debug(f"stop_main_loop(stop_router={stop_router}, stop_applications={stop_applications}): stopped")
 
     def show(self, what=None, **args):
         if what == 'version':
@@ -1131,17 +1142,36 @@ class FwagentDaemon(FwObject):
         self.log.info("connection loop was stopped, use 'fwagent start' to start it again")
         self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}: stopped")
 
-
-    def api(self, api_name, api_args=None):
+    def api(self, api_name, api_module=None, **api_args):
         """Wrapper for Fwagent methods
         """
-        if self.agent:
-            api_func = getattr(self.agent, api_name)
-            if api_args:
-                ret = api_func(**api_args)
-            else:
-                ret = api_func()
-            return ret
+        fwglobals.log.trace(f'{api_name}({api_args if api_args else ""}): enter')
+
+        module = None
+        if not api_module:
+            if self.agent:
+                module = self.agent
+        else:
+            current_dir = os.path.dirname(os.path.realpath(__file__))
+            module = fw_os_utils.load_python_module(current_dir, api_module)
+
+        if not module:
+            fwglobals.log.error(f'api({api_name}, {api_module}, {api_args if api_args else ""}: No module found)')
+            return
+
+        api_func = getattr(module, api_name)
+        if api_args:
+            func = lambda: api_func(**api_args)
+        else:
+            func = lambda: api_func()
+
+        ret, ret_str = None, None
+        try:
+            ret = func()
+            ret_str = json.dumps(ret, indent=2, sort_keys=True)
+        finally:
+            fwglobals.log.trace(f'{api_name}({api_args if api_args else ""}): leave: ret={ret_str}')
+        return ret
 
     def start_rpc_service(self):
         self.log.debug(f"RPC service: start to listen for RPC-s on {fwglobals.g.FWAGENT_DAEMON_URI}")
@@ -1200,14 +1230,18 @@ def daemon(debug_conf_filename=None):
         agent_daemon.run_agent()
         agent_daemon.stop_rpc_service()
 
-def daemon_rpc(func, **kwargs):
+def daemon_rpc_safe(func, **kwargs):
+    return daemon_rpc(func, ignore_exception=True, **kwargs)
+
+def daemon_rpc(func, ignore_exception=False, **kwargs):
     """Wrapper for methods of the FwagentDaemon object that runs on background
     as a daemon. It is used to fullfil CLI commands that can be designated
     either to the FwagentDaemon object itself or to the Fwagent object managed
     by the FwagentDaemon. See for example 'fwagent start' command.
 
-    :param func:      Name of FwagentDaemon method to be called.
-    :param kwargs:    Method parameters.
+    :param func:             Name of FwagentDaemon method to be called.
+    :param ignore_exception: If True, the function consumes exception and returns None.
+    :param kwargs:           Method parameters.
 
     :returns: None.
     """
@@ -1216,14 +1250,18 @@ def daemon_rpc(func, **kwargs):
         remote_func = getattr(agent_daemon, func)
         fwglobals.log.debug("invoke remote FwagentDaemon::%s(%s)" % (func, json.dumps(kwargs)), to_terminal=False)
         return remote_func(**kwargs)
-    except Pyro4.errors.CommunicationError:
-        fwglobals.log.debug("ignore FwagentDaemon::%s(%s): daemon does not run" % (func, json.dumps(kwargs)))
-        return None
+    except Pyro4.errors.CommunicationError as e:
+        if ignore_exception:
+            fwglobals.log.debug("ignore FwagentDaemon::%s(%s): daemon does not run" % (func, json.dumps(kwargs)))
+            return None
+        raise Exception("daemon does not run")
     except Exception as e:
-        fwglobals.log.debug("FwagentDaemon::%s(%s) failed: %s" % (func, json.dumps(kwargs), str(e)))
-        ex_type, ex_value, ex_tb = sys.exc_info()
-        Pyro4.util.excepthook(ex_type, ex_value, ex_tb)
-        return None
+        if ignore_exception:
+            fwglobals.log.debug("FwagentDaemon::%s(%s) failed: %s" % (func, json.dumps(kwargs), str(e)))
+            ex_type, ex_value, ex_tb = sys.exc_info()
+            Pyro4.util.excepthook(ex_type, ex_value, ex_tb)
+            return None
+        raise e
 
 def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None, ignore_errors=False):
     """Handles 'fwagent cli' command.
@@ -1295,6 +1333,82 @@ def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None,
         with fwrouter_cfg.FwRouterCfg(fwglobals.g.ROUTER_PENDING_CFG_FILE) as router_pending_cfg:
             router_pending_cfg.clean()
 
+def handle_cli_command(args):
+    """Handles 'fwagent' CLI command.
+    This function is responsible for taking CLI arguments, analyzing them and
+    mapping them to a CLI module and function that will be called to continue the process.
+
+    For example, for the following command:
+    "fwagent configure router interfaces create -addr 8.8.8.8/32 --type lan --host_if_name test"
+    the "args" looks as follows:
+    {
+        command: 'configure',
+        configure: 'router',
+        interfaces: 'create',
+        params.addr: '8.8.8.8/32',
+        params.host_if_name: 'test',
+        params.type: 'lan',
+        router: 'interfaces'
+    }
+
+    The derived CLI module name will be: "fwcli_configure_router"
+    The derived function name will be: "interfaces_create"
+
+    Comments inside the function are based on the example above.
+
+    """
+    cli_module_name = f'fwcli'
+    cli_func_name        = ''
+    cli_params      = {}
+
+    def _build_cli_params():
+        for key in args.__dict__:
+            if key.startswith('params.'):
+                cli_params[key.split('.')[-1]] = args.__dict__[key]
+
+    def _build_cli_func(step):
+        nonlocal cli_func_name
+
+        cli_func_name += f'_{step}' # -> _interfaces
+        next_step = args.__dict__[step] # -> create
+        if not next_step in args.__dict__:
+            cli_func_name += f'_{next_step}' # -> _interfaces_create
+            _build_cli_params()
+            return
+        _build_cli_func(next_step)
+
+    def _build_cli_module(step):
+        nonlocal cli_module_name
+        nonlocal cli_func_name
+
+        if not step in args.__dict__:
+            return
+        cli_module_name += f'_{step}' # -> fwcli_configure -> fwcli_configure_router
+        next_step = args.__dict__[step] # -> router -> interfaces
+        if cli_module_name in fwglobals.cli_modules:
+            _build_cli_func(next_step)
+            cli_func_name = cli_func_name.lstrip('_') # _interfaces_create -> interfaces_create
+            return
+        _build_cli_module(next_step)
+
+    _build_cli_module(args.command)
+
+    if not cli_func_name:
+        print(f'failed to identify function out of command')
+        return -1
+
+    try:
+        f = getattr(fwglobals.cli_modules[cli_module_name], cli_func_name)
+        ret = f(**cli_params)
+        if ret:
+            ret_str = str(ret) if type(ret) != dict else json.dumps(ret, indent=2, sort_keys=True)
+            print(ret_str)
+    except AttributeError:
+        print(f'{cli_func_name}({cli_params if cli_params else ""}) failed: function not found in {cli_module_name}.py')
+        return -1
+    except Exception as e:
+        print(f'{cli_func_name}({cli_params if cli_params else ""}) failed: {str(e)}')
+        return -1
 
 
 if __name__ == '__main__':
@@ -1304,25 +1418,31 @@ if __name__ == '__main__':
     fwglobals.initialize()
 
     command_functions = {
-                    'version':lambda args: version(),
-                    'reset': lambda args: reset(soft=args.soft, quiet=args.quiet, pppoe=args.pppoe),
-                    'stop': lambda args: stop(reset_device_config=args.reset_softly, stop_router=(not args.dont_stop_vpp)),
-                    'start': lambda args: start(start_router=args.start_router),
-                    'daemon': lambda args: daemon(debug_conf_filename=args.debug_conf_filename),
-                    'simulate': lambda args: loadsimulator.simulate(count=int(args.count)),
-                    'dump': lambda args: dump(filename=args.filename, path=args.path, clean_log=args.clean_log),
-                    'show': lambda args: show(
-                        agent=args.agent,
-                        configuration=args.configuration,
-                        database=args.database,
-                        status=args.status,
-                        networks=args.networks),
-                    'cli': lambda args: cli(
-                        script_fname=args.script_fname,
-                        clean_request_db=args.clean,
-                        api=args.api,
-                        template_fname=args.template_fname,
-                        ignore_errors=args.ignore_errors)}
+        'version':lambda args: version(),
+        'reset': lambda args: reset(soft=args.soft, quiet=args.quiet, pppoe=args.pppoe),
+        'stop': lambda args: stop(
+            reset_device_config=args.reset_softly,
+            stop_router=(not args.dont_stop_vpp),
+            stop_applications=(not args.dont_stop_applications)),
+        'start': lambda args: start(start_router=args.start_router, start_applications=args.start_applications),
+        'daemon': lambda args: daemon(debug_conf_filename=args.debug_conf_filename),
+        'simulate': lambda args: loadsimulator.simulate(count=int(args.count)),
+        'dump': lambda args: dump(filename=args.filename, path=args.path, clean_log=args.clean_log),
+        'show': lambda args: show(
+            agent=args.agent,
+            configuration=args.configuration,
+            database=args.database,
+            status=args.status,
+            networks=args.networks),
+        'cli': lambda args: cli(
+            script_fname=args.script_fname,
+            clean_request_db=args.clean,
+            api=args.api,
+            template_fname=args.template_fname,
+            ignore_errors=args.ignore_errors),
+    }
+    for cli_command_name in fwglobals.cli_commands.keys():
+        command_functions.update({cli_command_name: lambda args: handle_cli_command(args)})
 
     parser = argparse.ArgumentParser(
         description="Device Agent for FlexiWan orchestrator\n" + \
@@ -1331,7 +1451,7 @@ if __name__ == '__main__':
         formatter_class=argparse.RawTextHelpFormatter)
     subparsers = parser.add_subparsers(help='Agent commands', dest='command')
     subparsers.required = True
-    parser_version = subparsers.add_parser('version', help='show components and their versions')
+    parser_version = subparsers.add_parser('version', help='Show components and their versions')
     parser_reset = subparsers.add_parser('reset', help='Reset device: clear router configuration and remove device registration')
     parser_reset.add_argument('-s', '--soft', action='store_true',
                         help="clean router configuration only, device remains registered")
@@ -1343,7 +1463,9 @@ if __name__ == '__main__':
     parser_stop.add_argument('-s', '--reset_softly', action='store_true',
                         help="reset router softly: clean router configuration")
     parser_stop.add_argument('-r', '--dont_stop_vpp', action='store_true',
-                        help="stop agent connection loop only")
+                        help="stop agent connection loop only without stopping the router")
+    parser_stop.add_argument('-a', '--dont_stop_applications', action='store_true',
+                        help="stop agent connection loop only without stopping the applications")
     parser_stop.add_argument('-q', '--quiet', action='store_true',
                         help="don't print info onto screen, print into syslog only")
     parser_start = subparsers.add_parser('start', help='Resumes daemon connection loop if it was stopped by "fwagent stop"')
@@ -1351,6 +1473,8 @@ if __name__ == '__main__':
                         help="don't print info onto screen, print into syslog only")
     parser_start.add_argument('-r', '--start_router', action='store_true',
                         help="start router before loop is started")
+    parser_start.add_argument('-a', '--start_applications', action='store_true',
+                        help="start applications")
     parser_daemon = subparsers.add_parser('daemon', help='Run agent in daemon mode: infinite register-connect loop')
     parser_daemon.add_argument('-d', '--debug_conf', dest='debug_conf_filename', default=None,
                         help="Path to debug_conf.yaml file, includes filename")
@@ -1371,7 +1495,7 @@ if __name__ == '__main__':
                         help="show whole flexiEdge database")
     parser_show.add_argument('--status', choices=['daemon', 'router'],
                         help="show flexiEdge status")
-    parser_cli = subparsers.add_parser('cli', help='runs agent in CLI mode: read flexiManage requests from command line')
+    parser_cli = subparsers.add_parser('cli', help='Runs agent in CLI mode: read flexiManage requests from command line')
     parser_cli.add_argument('-f', '--script_file', dest='script_fname', default=None,
                         help="File with requests to be executed")
     parser_cli.add_argument('-t', '--template', dest='template_fname', default=None,
@@ -1392,6 +1516,13 @@ if __name__ == '__main__':
                         help="The path to the final name. The default is %s" % fwglobals.g.DUMP_FOLDER)
     parser_dump.add_argument('-c', '--clean_log', action='store_true',
                         help="Clean agent log")
+
+    for cmd_name, cli_command in fwglobals.cli_commands.items():
+      cli_parser     = subparsers.add_parser(cmd_name, help=cli_command['help'])
+      cli_subparsers = cli_parser.add_subparsers(dest=cmd_name)
+      for name in cli_command['modules']:
+        fwglobals.cli_modules[name].argparse(cli_subparsers)
+
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
@@ -1403,4 +1534,6 @@ if __name__ == '__main__':
             sys.exit(1)
 
     fwglobals.log.debug("---> exec " + str(args), to_terminal=False)
-    command_functions[args.command](args)
+    ret = command_functions[args.command](args)
+    if type(ret) == int:
+        sys.exit(ret)
