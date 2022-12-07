@@ -742,7 +742,7 @@ def reset(soft=False, quiet=False, pppoe=False):
     if reset_device:
         if fw_os_utils.vpp_does_run():
             print("stopping the router...")
-        daemon_rpc('stop', stop_router=True, stop_applications=True)
+        daemon_rpc_safe('stop', stop_router=True, stop_applications=True)
 
         with FWAPPLICATIONS_API() as applications_api:
             applications_api.reset()
@@ -763,7 +763,7 @@ def reset(soft=False, quiet=False, pppoe=False):
         fwglobals.log.info("Reset operation done")
     else:
         fwglobals.log.info("Reset operation aborted")
-    daemon_rpc('start')     # Start daemon main loop if daemon is alive
+    daemon_rpc_safe('start')     # Start daemon main loop if daemon is alive
 
 def stop(reset_device_config, stop_router, stop_applications):
     """Handles 'fwagent stop' command.
@@ -795,7 +795,7 @@ def start(start_router, start_applications):
 
     :returns: None.
     """
-    daemon_rpc('start_main_loop', start_vpp=start_router, start_applications=start_applications) # if daemon runs, start connection loop and router if required
+    daemon_rpc_safe('start_main_loop', start_vpp=start_router, start_applications=start_applications) # if daemon runs, start connection loop and router if required
 
 def show(agent, configuration, database, status, networks):
     """Handles 'fwagent show' command.
@@ -829,12 +829,12 @@ def show(agent, configuration, database, status, networks):
 
     if networks:
         networks_type = None if networks == 'all' else networks
-        out = daemon_rpc('show', what='networks', type=networks_type)
+        out = daemon_rpc_safe('show', what='networks', type=networks_type)
         if out:
             print(out)
 
     if agent:
-        out = daemon_rpc('show', what=agent)
+        out = daemon_rpc_safe('show', what=agent)
         if out:
             print(out)
 
@@ -1230,14 +1230,18 @@ def daemon(debug_conf_filename=None):
         agent_daemon.run_agent()
         agent_daemon.stop_rpc_service()
 
-def daemon_rpc(func, **kwargs):
+def daemon_rpc_safe(func, **kwargs):
+    return daemon_rpc(func, ignore_exception=True, **kwargs)
+
+def daemon_rpc(func, ignore_exception=False, **kwargs):
     """Wrapper for methods of the FwagentDaemon object that runs on background
     as a daemon. It is used to fullfil CLI commands that can be designated
     either to the FwagentDaemon object itself or to the Fwagent object managed
     by the FwagentDaemon. See for example 'fwagent start' command.
 
-    :param func:      Name of FwagentDaemon method to be called.
-    :param kwargs:    Method parameters.
+    :param func:             Name of FwagentDaemon method to be called.
+    :param ignore_exception: If True, the function consumes exception and returns None.
+    :param kwargs:           Method parameters.
 
     :returns: None.
     """
@@ -1246,14 +1250,18 @@ def daemon_rpc(func, **kwargs):
         remote_func = getattr(agent_daemon, func)
         fwglobals.log.debug("invoke remote FwagentDaemon::%s(%s)" % (func, json.dumps(kwargs)), to_terminal=False)
         return remote_func(**kwargs)
-    except Pyro4.errors.CommunicationError:
-        fwglobals.log.debug("ignore FwagentDaemon::%s(%s): daemon does not run" % (func, json.dumps(kwargs)))
-        return None
+    except Pyro4.errors.CommunicationError as e:
+        if ignore_exception:
+            fwglobals.log.debug("ignore FwagentDaemon::%s(%s): daemon does not run" % (func, json.dumps(kwargs)))
+            return None
+        raise Exception("daemon does not run")
     except Exception as e:
-        fwglobals.log.debug("FwagentDaemon::%s(%s) failed: %s" % (func, json.dumps(kwargs), str(e)))
-        ex_type, ex_value, ex_tb = sys.exc_info()
-        Pyro4.util.excepthook(ex_type, ex_value, ex_tb)
-        return None
+        if ignore_exception:
+            fwglobals.log.debug("FwagentDaemon::%s(%s) failed: %s" % (func, json.dumps(kwargs), str(e)))
+            ex_type, ex_value, ex_tb = sys.exc_info()
+            Pyro4.util.excepthook(ex_type, ex_value, ex_tb)
+            return None
+        raise e
 
 def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None, ignore_errors=False):
     """Handles 'fwagent cli' command.
@@ -1350,7 +1358,7 @@ def handle_cli_command(args):
 
     """
     cli_module_name = f'fwcli'
-    cli_func        = ''
+    cli_func_name        = ''
     cli_params      = {}
 
     def _build_cli_params():
@@ -1359,18 +1367,19 @@ def handle_cli_command(args):
                 cli_params[key.split('.')[-1]] = args.__dict__[key]
 
     def _build_cli_func(step):
-        nonlocal cli_func
+        nonlocal cli_func_name
 
-        cli_func += f'_{step}' # -> _interfaces
+        cli_func_name += f'_{step}' # -> _interfaces
         next_step = args.__dict__[step] # -> create
         if not next_step in args.__dict__:
-            cli_func += f'_{next_step}' # -> _interfaces_create
+            cli_func_name += f'_{next_step}' # -> _interfaces_create
             _build_cli_params()
             return
         _build_cli_func(next_step)
 
     def _build_cli_module(step):
         nonlocal cli_module_name
+        nonlocal cli_func_name
 
         if not step in args.__dict__:
             return
@@ -1378,18 +1387,29 @@ def handle_cli_command(args):
         next_step = args.__dict__[step] # -> router -> interfaces
         if cli_module_name in fwglobals.cli_modules:
             _build_cli_func(next_step)
+            cli_func_name = cli_func_name.lstrip('_') # _interfaces_create -> interfaces_create
             return
         _build_cli_module(next_step)
 
     _build_cli_module(args.command)
 
-    cli_func = cli_func.lstrip('_') # _interfaces_create -> interfaces_create
-    if cli_module_name and cli_func:
-        f = getattr(fwglobals.cli_modules[cli_module_name], cli_func)
+    if not cli_func_name:
+        print(f'failed to identify function out of command')
+        return -1
+
+    try:
+        f = getattr(fwglobals.cli_modules[cli_module_name], cli_func_name)
         ret = f(**cli_params)
         if ret:
             ret_str = str(ret) if type(ret) != dict else json.dumps(ret, indent=2, sort_keys=True)
             print(ret_str)
+    except AttributeError:
+        print(f'{cli_func_name}({cli_params if cli_params else ""}) failed: function not found in {cli_module_name}.py')
+        return -1
+    except Exception as e:
+        print(f'{cli_func_name}({cli_params if cli_params else ""}) failed: {str(e)}')
+        return -1
+
 
 if __name__ == '__main__':
     import argcomplete
@@ -1514,4 +1534,6 @@ if __name__ == '__main__':
             sys.exit(1)
 
     fwglobals.log.debug("---> exec " + str(args), to_terminal=False)
-    command_functions[args.command](args)
+    ret = command_functions[args.command](args)
+    if type(ret) == int:
+        sys.exit(ret)
