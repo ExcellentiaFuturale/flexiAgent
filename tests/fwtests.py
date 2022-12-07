@@ -335,7 +335,7 @@ def vpp_is_configured(config_entities, print_error=True):
         output = str(amount)
         if e == 'interfaces':
             # Count number of interfaces that are UP
-            cmd          = r"sudo vppctl sh int addr | grep -E '^(loop|Gigabit|TenGigabit|vmxnet3|tap).* \(up\)'"
+            cmd          = r"sudo vppctl sh int addr | grep -E '^(loop|Gigabit|TenGigabit|vmxnet3|tap|dpdk-tap).* \(up\)'"
             cmd_on_error = r"sudo vppctl sh int addr"
             if not _check_command_output(cmd, output, 'UP interfaces', cmd_on_error, print_error, ignore_cmd_failure=True):
                 return False
@@ -550,3 +550,7 @@ def adjust_environment_variables():
             fd.seek(0)
             fd.write(netplan_str)
             fd.truncate()
+
+def get_pppoe_info():
+    data = fwutils.get_template_data_by_hw(template_path)
+    return data['__PPPoE__']['if_name'], data['__PPPoE__']['dev_id']
