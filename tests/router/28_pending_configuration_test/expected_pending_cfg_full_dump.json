@@ -9,10 +9,10 @@
       }
     },
     {
-      "Key": "add-route:3.3.3.3/32:10.72.100.254:pci:0000:00:09.0",
+      "Key": "add-route:3.3.3.3/32:10.72.100.254:__INTERFACE_2__dev_id",
       "Params": {
         "addr": "3.3.3.3/32",
-        "dev_id": "pci:0000:00:09.0",
+        "dev_id": "__INTERFACE_2__dev_id",
         "redistributeViaOSPF": "false",
         "via": "10.72.100.254"
       }
