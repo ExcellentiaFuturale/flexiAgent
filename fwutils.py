@@ -614,6 +614,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
             is_pppoe = fwpppoe.is_pppoe_interface(if_name=if_name)
             is_wifi = fwwifi.is_wifi_interface(if_name)
             is_lte = fwlte.is_lte_interface(if_name)
+            is_vlan = 'vlan' in dev_id
 
             if is_lte:
                 interface['deviceType'] = 'lte'
@@ -621,6 +622,8 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                 interface['deviceType'] = 'wifi'
             elif is_pppoe:
                 interface['deviceType'] = 'pppoe'
+            elif is_vlan:
+                interface['deviceType'] = 'vlan'
             else:
                 interface['deviceType'] = 'dpdk'
 
@@ -2899,6 +2902,12 @@ def get_interface_link_state(if_name, dev_id, device_type=None):
         state = get_ethtool_value(if_name, 'Link detected')
         # 'Link detected' field has yes/no values, so conversion is needed
         return 'up' if state == 'yes' else 'down' if state == 'no' else ''
+
+    if device_type == 'vlan':
+        parts = if_name.split('.')
+        if len(parts) == 2:
+            if_name = parts[0]
+            return _return_ethtool_value(if_name)
 
     if device_type == 'lte' or device_type == 'wifi':
         # no need to check for tap interface in case of LTE or WiFi
