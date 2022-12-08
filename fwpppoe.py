@@ -138,7 +138,9 @@ class FwPppoeConnection(FwObject):
             if proc.info['name'] != 'pppd':
                 continue
 
-            if proc.info['cmdline'][2] == self.filename:
+            cmdline = proc.info['cmdline']
+
+            if len(cmdline) > 2 and cmdline[2] == self.filename:
                 return True
 
         return False
@@ -603,6 +605,10 @@ class FwPppoeClient(FwObject):
             self.log.error(f'add_interface: {dev_id} is missing on the device')
             return
 
+        if dev_id in self.interfaces:
+            self.log.error(f'add_interface: {dev_id} interface is already present')
+            return
+
         netplan_fname = fwnetplan.check_interface_exist(if_name)
         if netplan_fname:
             fwnetplan.create_baseline_if_not_exist(netplan_fname)
@@ -628,16 +634,19 @@ class FwPppoeClient(FwObject):
             self.log.error(f'remove_interface: {dev_id} is missing on the device')
             return
 
-        if dev_id in self.interfaces:
-            pppoe_iface = self.interfaces[dev_id]
-            netplan_fname = pppoe_iface.netplan_fname
-            netplan_section = pppoe_iface.netplan_section
-            self._remove_connection(dev_id)
-            del self.interfaces[dev_id]
-            self.reset_interfaces()
-            self.start()
-            if pppoe_iface.netplan_fname:
-                fwnetplan.add_interface(if_name, netplan_fname, netplan_section)
+        if dev_id not in self.interfaces:
+            self.log.error(f'remove_interface: {dev_id} interface is not present')
+            return
+
+        pppoe_iface = self.interfaces[dev_id]
+        netplan_fname = pppoe_iface.netplan_fname
+        netplan_section = pppoe_iface.netplan_section
+        self._remove_connection(dev_id)
+        del self.interfaces[dev_id]
+        self.reset_interfaces()
+        self.start()
+        if pppoe_iface.netplan_fname:
+            fwnetplan.add_interface(if_name, netplan_fname, netplan_section)
 
     def reset_interfaces(self):
         """Re-create PPPoE connection files based on interface DB.
