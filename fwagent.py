@@ -1052,10 +1052,15 @@ class FwagentDaemon(FwObject):
         if what == 'cache':
             return json.dumps(fwglobals.g.cache.db, indent=2, sort_keys=True, default=lambda x: x.__dict__)
         if what == 'threads':
-            thread_list = []
+            threads_summary = {}
+            threads_verbose = {}
             for thd in threading.enumerate():
-                thread_list.append(thd.name)
-            return json.dumps(sorted(thread_list), indent=2, sort_keys=True)
+                frame = traceback.format_stack(sys._current_frames()[thd.ident])
+                threads_verbose.update({thd.name: frame})
+                threads_summary.update({thd.name: ""})
+            threads_summary_str = json.dumps(threads_summary, indent=2, sort_keys=True)
+            threads_verbose_str = json.dumps(threads_verbose, indent=2, sort_keys=True)
+            return threads_summary_str + threads_verbose_str
         if what == 'networks':
             return fwutils.get_device_networks_json(**args)
 
@@ -1481,6 +1486,7 @@ if __name__ == '__main__':
     parser_simulate = subparsers.add_parser('simulate', help='register and connect many fake devices with flexiManage')
     parser_simulate.add_argument('-c', '--count', dest='count',
                         help="How many devices to simulate")
+
     parser_show = subparsers.add_parser('show', help='Prints various information to stdout')
     parser_show.add_argument('--agent', choices=['version', 'cache', 'threads'],
                         help="show various agent parameters")
@@ -1495,6 +1501,7 @@ if __name__ == '__main__':
                         help="show whole flexiEdge database")
     parser_show.add_argument('--status', choices=['daemon', 'router'],
                         help="show flexiEdge status")
+
     parser_cli = subparsers.add_parser('cli', help='Runs agent in CLI mode: read flexiManage requests from command line')
     parser_cli.add_argument('-f', '--script_file', dest='script_fname', default=None,
                         help="File with requests to be executed")
