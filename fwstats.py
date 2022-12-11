@@ -28,6 +28,7 @@ import threading
 import traceback
 import psutil
 import fwlte
+import fw_os_utils
 import fwwifi
 from fwtunnel_stats import tunnel_stats_get
 import fwglobals
@@ -66,7 +67,7 @@ def update_stats(renew_lte_wifi_stats=True):
 
     # If vpp is not running or has crashed (at least one of its process
     # IDs has changed), reset the statistics and update the vpp pids list
-    current_vpp_pid = fwutils.vpp_pid()
+    current_vpp_pid = fw_os_utils.vpp_pid()
     if not current_vpp_pid or current_vpp_pid != vpp_pid:
         reset_stats()
         vpp_pid = current_vpp_pid
@@ -125,7 +126,7 @@ def update_stats(renew_lte_wifi_stats=True):
                 stats['bytes'] = if_bytes
                 stats['tunnel_stats'] = tunnel_stats
                 stats['period'] = stats['time'] - prev_stats['time']
-                stats['running'] = True if fwutils.vpp_does_run() else False
+                stats['running'] = True if fw_os_utils.vpp_does_run() else False
 
     if renew_lte_wifi_stats:
         stats['lte_stats'] = fwlte.get_stats()
@@ -207,7 +208,7 @@ def get_stats():
         reason = ''
         reconfig = ''
     else:
-        status = True if fwutils.vpp_does_run() else False
+        status = True if fw_os_utils.vpp_does_run() else False
         (state, reason) = fwutils.get_router_status()
     if not res_update_list:
         info = {

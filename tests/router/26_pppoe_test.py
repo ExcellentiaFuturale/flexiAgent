@@ -24,17 +24,21 @@ import time
 
 import fwglobals
 from  fwpppoe import FwPppoeClient, FwPppoeInterface
+import fwutils
 
 code_root = os.path.realpath(__file__).replace('\\','/').split('/tests/')[0]
 test_root = code_root + '/tests/'
 sys.path.append(test_root)
+import fwtests
 
 def test(fixture_globals):
     fwglobals.initialize()
     client = FwPppoeClient()
     client.clean()
-    if_name = 'enp0s9'
-    dev_id = 'pci:0000:00:09.00'
+
+    # if the test fails, ensure that if_name and dev_id are correct and exists in your setup. Fill in fwtemplates.yaml if needed
+    if_name, dev_id = fwtests.get_pppoe_info()
+
     nameservers = ['1.1.1.1', '9.9.9.9']
 
     pppoe_iface = FwPppoeInterface('denis-2', 'password', 1412, 1412, False, 20, False, nameservers)

@@ -184,7 +184,7 @@ def add_firewall_policy(params):
                 continue
 
             # interfaces ['Array of LAN device ids] received from flexiManage
-            dev_id_params = action.get('interfaces', [])
+            dev_id_params = action.get('interfaces')
             if dev_id_params:
                 # flexiManage doesn't know about application interfaces,
                 # So it sends only 'app_{identifier}' as the dev_id.
@@ -208,6 +208,7 @@ def add_firewall_policy(params):
 
                 dev_id_params = updated_dev_id_params
             else:
+                dev_id_params = []
                 # if flexiManage sends empty array, we appling the rule for all the lan interfaces
                 interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
                 for intf in interfaces:

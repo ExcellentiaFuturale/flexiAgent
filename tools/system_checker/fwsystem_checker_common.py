@@ -1383,7 +1383,6 @@ class Checker:
         """
         update_vpp = False
         hqos_workers = self.vpp_startup_conf.get_cpu_hqos_workers()
-        hqos_enabled = True if (hqos_workers > 0) else False
         grub_cores = self._get_grub_cores()
         cur_vpp_cores = self.vpp_startup_conf.get_cpu_workers() + hqos_workers
         cur_power_saving = self.vpp_startup_conf.get_power_saving()
@@ -1399,7 +1398,7 @@ class Checker:
             # if we pass 1 as vRouter cores it means single thread mode and we need to call set_cpu_workers(0)
             if vpp_cores == 1:
                 vpp_cores = 0
-            self.vpp_startup_conf.set_cpu_workers(vpp_cores, hqos_enabled=hqos_enabled)
+            self.vpp_startup_conf.set_cpu_workers(vpp_cores)
             self.vpp_config_modified = True
             if vpp_cores > grub_cores:
                 self.update_grub = True

@@ -51,6 +51,7 @@ import fwlte
 import fwwifi
 import fwqos
 import fwtranslate_add_switch
+import fw_os_utils
 
 from fwapplications_api import call_applications_hook, FWAPPLICATIONS_API
 from fwfrr          import FwFrr
@@ -174,25 +175,6 @@ def pid_of(process_name):
     except:
         pid = None
     return pid
-
-def vpp_pid():
-    """Get pid of VPP process.
-
-    :returns:           process identifier.
-    """
-    try:
-        pid = pid_of('vpp')
-    except:
-        pid = None
-    return pid
-
-def vpp_does_run():
-    """Check if VPP is running.
-
-    :returns:           Return 'True' if VPP is running.
-    """
-    runs = True if vpp_pid() else False
-    return runs
 
 def get_vpp_tap_interface_mac_addr(dev_id):
     tap = dev_id_to_tap(dev_id)
@@ -621,7 +603,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
 
             # Some interfaces need special logic to get their ip
             # For LTE/WiFi/Bridged interfaces - we need to take it from the tap
-            if vpp_does_run():
+            if fw_os_utils.vpp_does_run():
                 tap_name = None
 
                 if is_lte or is_wifi:
@@ -724,7 +706,7 @@ def get_interface_dev_id(if_name):
             interface.update({'dev_id': dev_id})
             return dev_id
 
-        if not vpp_does_run() or is_interface_assigned_to_vpp(dev_id) == False:
+        if not fw_os_utils.vpp_does_run() or is_interface_assigned_to_vpp(dev_id) == False:
             # don't update cache
             return ''
 
@@ -1086,7 +1068,7 @@ def vpp_if_name_to_vpp_sw_if_index(vpp_if_name):
 # 'bridge_addr_to_bvi_interface_tap' function get the addr of the interface in a bridge
 # and return the tap interface of the BVI interface
 def bridge_addr_to_bvi_interface_tap(bridge_addr):
-    if not vpp_does_run():
+    if not fw_os_utils.vpp_does_run():
         return None
 
     # check if interface indeed in a bridge
@@ -1122,7 +1104,7 @@ def dev_id_to_tap(dev_id, check_vpp_state=False, print_log=True):
 
     if check_vpp_state:
         is_assigned = is_interface_assigned_to_vpp(dev_id_full)
-        vpp_runs    = vpp_does_run()
+        vpp_runs    = fw_os_utils.vpp_does_run()
         if not (is_assigned and vpp_runs):
             if print_log:
                 fwglobals.log.debug('dev_id_to_tap(%s): is_assigned=%s, vpp_runs=%s' %
@@ -1199,7 +1181,7 @@ def vpp_enable_tap_inject():
     if out == None:
         return (False, "'vppctl enable tap-inject' failed")
 
-    if not vpp_does_run():
+    if not fw_os_utils.vpp_does_run():
         return (False, "VPP is not running")
 
     taps = _vppctl_read("show tap-inject").strip()
@@ -1220,7 +1202,7 @@ def vpp_get_tap_info(vpp_if_name=None, vpp_sw_if_index=None, tap_if_name=None):
 
      :returns: tap info in list
      """
-    if not vpp_does_run():
+    if not fw_os_utils.vpp_does_run():
         fwglobals.log.debug("vpp_get_tap_info: VPP is not running")
         return (None, None)
 
@@ -1280,7 +1262,7 @@ def vpp_get_tap_mapping():
      :returns: tap info in list
      """
     vpp_loopback_name_to_tunnel_name = {}
-    if not vpp_does_run():
+    if not fw_os_utils.vpp_does_run():
         fwglobals.log.debug("vpp_get_tap_mapping: VPP is not running")
         return {}
 
@@ -1827,7 +1809,7 @@ def get_router_status():
         state = 'failed'
         with open(fwglobals.g.ROUTER_STATE_FILE, 'r') as f:
             reason = f.read()
-    elif vpp_pid():
+    elif fw_os_utils.vpp_pid():
         state = 'running'
     else:
         state = 'stopped'
@@ -2179,7 +2161,7 @@ def vpp_startup_conf_hqos(vpp_config_filename, is_add):
         hqos_enabled = False
         if fwqos.has_qos_policy() is True:
             hqos_enabled = True if ((num_worker_cores > 1) and (is_add is True)) else False
-            startup_conf.set_cpu_workers(num_worker_cores, hqos_enabled=hqos_enabled)
+        startup_conf.set_cpu_workers(num_worker_cores, hqos_enabled=hqos_enabled)
         fwglobals.g.qos.update_hqos_worker_state(hqos_enabled, num_worker_cores)
 
 
@@ -2548,15 +2530,7 @@ def tunnel_change_postprocess(remove, vpp_if_name):
     :param remove:      True if tunnel is removed, False if added
     :param vpp_if_name: name of the vpp software interface, e.g. "loop4"
     """
-    policies = fwglobals.g.policies.policies_get()
-    if len(policies) == 0:
-        return
-
-    op = 'del' if remove else 'add'
-
-    for policy_id, priority in list(policies.items()):
-        vppctl_cmd = 'fwabf attach ip4 %s policy %d priority %d %s' % (op, int(policy_id), priority, vpp_if_name)
-        vpp_cli_execute([vppctl_cmd])
+    fwglobals.g.policies.vpp_attach_detach_policies(False if remove else True, vpp_if_name)
 
 
 # The messages received from flexiManage are not perfect :)
@@ -3734,11 +3708,10 @@ def send_udp_packet(src_ip, src_port, dst_ip, dst_port, dev_name, msg):
 def map_keys_to_acl_ids(acl_ids, arg):
     # arg carries command cache
     keys = acl_ids['keys']
-    i = 0
-    while i < len(keys):
-        keys[i] = arg[keys[i]]
-        i += 1
-    return keys
+    out_keys = []
+    for key in keys:
+        out_keys.append(arg[key])
+    return out_keys
 
 
 def build_timestamped_filename(filename, ext='', separator='_'):
@@ -3750,9 +3723,9 @@ def build_timestamped_filename(filename, ext='', separator='_'):
     '''
     return filename + separator + datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ext
 
-def is_ip(str_to_check):
+def is_ipv4(str_to_check):
     try:
-        ipaddress.ip_address(str_to_check)
+        ipaddress.ip_network(str_to_check, strict=False)
         return True
     except:
         return False
@@ -3999,6 +3972,38 @@ def build_tunnel_bgp_neighbor(tunnel):
         'ip': remote_loop0_ip,
         'remoteAsn': bgp_remote_asn
     }
+
+def create_tun_in_vpp(addr, host_if_name, recreate_if_exists=False):
+    # ensure that tun is not exists in case of down-script failed
+    tun_exists = os.popen(f'sudo vppctl show tun | grep -B 1 "{host_if_name}"').read().strip()
+    if tun_exists:
+        if not recreate_if_exists:
+            raise Exception(f'The tun "{host_if_name}" already exists in VPP. tun_exists={str(tun_exists)}')
+
+        # root@flexiwan-zn1:/home/shneorp# sudo vppctl show tun | grep -B 1 "vpp_remotevpn"
+        # Interface: tun0 (ifindex 7)
+        #   name "vpp_remotevpn"
+        tun_name = tun_exists.splitlines()[0].split(' ')[1]
+        os.system(f'sudo vppctl delete tap {tun_name}')
+
+    # configure the vpp interface
+    tun_vpp_if_name = os.popen(f'sudo vppctl create tap host-if-name {host_if_name} tun').read().strip()
+    if not tun_vpp_if_name:
+        raise Exception('Cannot create tun device in vpp')
+
+    fwglobals.log.info(f'create_tun_in_vpp(): TUN created in vpp. vpp_if_name={tun_vpp_if_name}')
+
+    vpp_cmds = [
+        f'set interface ip address {tun_vpp_if_name} {addr}',
+        f'set interface state {tun_vpp_if_name} up'
+    ]
+
+    vpp_cli_execute(vpp_cmds)
+
+    return tun_vpp_if_name
+
+def delete_tun_tap_from_vpp(vpp_if_name, ignore_errors):
+    vpp_cli_execute([f'delete tap {vpp_if_name}'], raise_exception_on_error=(not ignore_errors))
 
 class FwJsonEncoder(json.JSONEncoder):
     '''Customization of the JSON encoder that is able to serialize simple

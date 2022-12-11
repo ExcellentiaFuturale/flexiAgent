@@ -1753,6 +1753,9 @@ def add_tunnel(params):
                 # Add loop0-bridge-l2gre-ikev2
                 _add_loop_bridge_l2gre_ikev2(cmd_list, params, l2gre_ips, params['tunnel-id']*2, loop0_cache_key=loop0_cache_key, loop1_cache_key='loop1_sw_if_index')
 
+    # Enable classification on tunnel interface
+    fwglobals.g.qos.get_tunnel_classification_setup_commands (params, loop0_cache_key, cmd_list)
+
     # --------------------------------------------------------------------------
     # Add following section to frr ospfd.conf
     #           !

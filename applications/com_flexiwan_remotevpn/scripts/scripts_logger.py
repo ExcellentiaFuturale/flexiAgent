@@ -42,8 +42,10 @@ logging.basicConfig(
 # Save the files, up to 5 files of 5MB each
 handler = RotatingFileHandler(openvpn_scripts_log_file, mode='a', maxBytes=5*1024*1024,
                                  backupCount=5, encoding=None, delay=0)
-log = logging.getLogger()
-log.addHandler(handler)
+
+logger = logging.getLogger('applications')
+if not logger.handlers:
+    logger.addHandler(handler)
 
 class Logger():
     def error(self, str):

@@ -69,7 +69,7 @@ class TestFwagent:
             os.system('kill -9 %s' % daemon_pid)                # Ensure daemon by previous failed test does not run
         if vpp_does_run():
             os.system('%s --quiet' % self.fwkill_py)            # The kill shot - ensure vpp does not run
-        os.system('%s reset --soft --quiet' % self.fwagent_py)  # Clean fwagent files like persistent configuration database
+        os.system('%s reset --soft --quiet --pppoe' % self.fwagent_py)  # Clean fwagent files like persistent configuration database
 
         # Print exception if it is not caused by 'assert' statement
         # The 'assert' is printed by pytest.
@@ -87,7 +87,7 @@ class TestFwagent:
         time.sleep(1)   # Ensure that all further log times are greater than now()
                         # The now() uses microseconds, when log uses seconds only.
 
-    def cli(self, args, daemon=False, expected_vpp_cfg=None, expected_router_cfg=None, check_log=False):
+    def cli(self, args, daemon=False, debug_conf_file=None, standalone=True, expected_vpp_cfg=None, expected_router_cfg=None, check_log=False):
         '''Invokes fwagent API.
 
         :param args:   the API function name and parameters to be invoked.
@@ -95,6 +95,14 @@ class TestFwagent:
         :param daemon: if True the fwagent will be created and run by background
                     process. Otherwise, the local instance of agent will be created,
                     the API will be invoked on it and the instance will be destroyed.
+
+        :param debug_conf_file: the debug_conf.yaml file to be fed to agent.
+                    Can be relative or absolute path including file name.
+                    Applicable only if daemon=True.
+
+        :param standalone: if True the tests/debug_conf.yaml.standalone_no_features
+                    file will be fed to daemon as a debug_conf_file.
+                    Applicable only if daemon=True and debug_conf_file=None.
 
         :param expected_vpp_cfg: The name of the JSON file with dictionary or
                     the python list of VPP configuration items that describes
@@ -148,7 +156,10 @@ class TestFwagent:
         # Create instance of background fwagent if asked.
         if daemon:
             try:
-                cmd = '%s daemon --dont_connect &' % (self.fwagent_py)
+                if not debug_conf_file and standalone:
+                    debug_conf_file = os.path.abspath(TEST_ROOT + '/debug_conf.yaml.standalone_no_features')
+                debug_conf = f"--debug_conf={debug_conf_file}" if debug_conf_file else ''
+                cmd = f'{self.fwagent_py} daemon {debug_conf} &'
                 os.system(cmd)
 
                 # Poll daemon status until it becomes 'running'
@@ -324,7 +335,7 @@ def vpp_is_configured(config_entities, print_error=True):
         output = str(amount)
         if e == 'interfaces':
             # Count number of interfaces that are UP
-            cmd          = r"sudo vppctl sh int addr | grep -E '^(loop|Gigabit|TenGigabit|vmxnet3|tap).* \(up\)'"
+            cmd          = r"sudo vppctl sh int addr | grep -E '^(loop|Gigabit|TenGigabit|vmxnet3|tap|dpdk-tap).* \(up\)'"
             cmd_on_error = r"sudo vppctl sh int addr"
             if not _check_command_output(cmd, output, 'UP interfaces', cmd_on_error, print_error, ignore_cmd_failure=True):
                 return False
@@ -539,3 +550,7 @@ def adjust_environment_variables():
             fd.seek(0)
             fd.write(netplan_str)
             fd.truncate()
+
+def get_pppoe_info():
+    data = fwutils.get_template_data_by_hw(template_path)
+    return data['__PPPoE__']['if_name'], data['__PPPoE__']['dev_id']

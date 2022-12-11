@@ -209,6 +209,9 @@ def add_switch(params):
     }
     cmd_list.append(cmd)
 
+    # Enable classification on BVI interface
+    fwglobals.g.qos.get_bvi_classification_setup_commands(loopback_cache_key, cmd_list)
+
     return cmd_list
 
 def get_request_key(params):
