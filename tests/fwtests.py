@@ -69,7 +69,7 @@ class TestFwagent:
             os.system('kill -9 %s' % daemon_pid)                # Ensure daemon by previous failed test does not run
         if vpp_does_run():
             os.system('%s --quiet' % self.fwkill_py)            # The kill shot - ensure vpp does not run
-        os.system('%s reset --soft --quiet' % self.fwagent_py)  # Clean fwagent files like persistent configuration database
+        os.system('%s reset --soft --quiet --pppoe' % self.fwagent_py)  # Clean fwagent files like persistent configuration database
 
         # Print exception if it is not caused by 'assert' statement
         # The 'assert' is printed by pytest.
