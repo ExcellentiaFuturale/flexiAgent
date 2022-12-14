@@ -34,14 +34,16 @@ os_modules = {
     'psutil':__import__('psutil'),
     'os':__import__('os'),
     'fwutils':__import__('fwutils'),
-    'fwstats':__import__('fwstats')
+    'fwstats':__import__('fwstats'),
+    'fwproxy':__import__('fw_webproxy')
 }
 
 # TBD: define all APIs in a file
 os_api_defs = {
     'cpuutil':{'module':'psutil', 'api':'cpu_percent', 'decode':None},
     'exec':{'module':'os', 'api':'popen', 'decode':'execd'},
-    'exec_timeout':{'module':'fwutils', 'api':'exec_with_timeout', 'decode':'exec_timeout_decode'}
+    'exec_timeout':{'module':'fwutils', 'api':'exec_with_timeout', 'decode':'exec_timeout_decode'},
+    'proxy': {'module':'fwproxy', 'api':'do_GET', 'decode':None}
 }
 
 class OS_DECODERS:

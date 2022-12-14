@@ -21,6 +21,7 @@
                 "daemon"
             ],
             "subProcess": true,
+            "console": "integratedTerminal",
             "sudo": true,
             "justMyCode": false,
             "cwd": "${workspaceRoot}",
@@ -172,6 +173,7 @@
                 "${workspaceFolder}/tests/fwtemplates.yaml"
             ],
             "cwd": "${workspaceRoot}",
+            "sudo": true,
             "env": {
                 "PYTHONPATH": "${workspaceRoot}"
             }

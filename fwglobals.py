@@ -156,6 +156,7 @@ request_handlers = {
     'cpuutil':                      {'name': '_call_os_api'},
     'exec':                         {'name': '_call_os_api'},
     'exec_timeout':                 {'name': '_call_os_api'},
+    'proxy':                        {'name': '_call_os_api'},
 }
 
 global g_initialized
