@@ -67,17 +67,14 @@ def interfaces_delete(if_name, dev_id):
     )
 
 def api_interface_create(if_name, dev_id, user, password, mtu, mru, usepeerdns, metric, enabled, nameserver1, nameserver2):
-    fwglobals.log.debug(f'api_interface_create: {if_name}, {dev_id}, {user}, {password}, {mtu}, {mru}, {usepeerdns}, {metric}, {enabled}, {nameserver1}, {nameserver2}')
-
     nameservers = []
     if nameserver1:
         nameservers.append(nameserver1)
     if nameserver2:
         nameservers.append(nameserver2)
 
-    pppoe_iface = FwPppoeInterface(user, password, int(mtu), int(mru), usepeerdns, int(metric), enabled, nameservers)
+    pppoe_iface = FwPppoeInterface(user, password, int(mtu), int(mru), usepeerdns=='True', int(metric), enabled=='True', nameservers)
     fwglobals.g.pppoe.add_interface(pppoe_iface, if_name=if_name, dev_id=dev_id)
 
 def api_interface_delete(if_name, dev_id):
-    fwglobals.log.debug(f'api_interface_delete: {if_name}, {dev_id}')
     fwglobals.g.pppoe.remove_interface(if_name=if_name, dev_id=dev_id)
