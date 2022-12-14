@@ -445,7 +445,7 @@ class Fwglobals(FwObject):
         self.wan_monitor      = FwWanMonitor()
         self.stun_wrapper     = FwStunWrap()
         self.ikev2            = FwIKEv2()
-        self.pppoe            = FwPppoeClient(singleton=True)
+        self.pppoe            = FwPppoeClient(start=True)
         self.routes           = FwRoutes()
         self.qos              = FwQoS()
 

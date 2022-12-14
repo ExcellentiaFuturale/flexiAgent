@@ -21,7 +21,7 @@
 ################################################################################
 import fwglobals
 from fwagent import daemon_rpc
-from  fwpppoe import FwPppoeInterface
+from  fwpppoe import FwPppoeInterface, FwPppoeClient
 
 def argparse(configure_subparsers):
     configure_router_parser = configure_subparsers.add_parser('pppoe', help='Configure router')
@@ -74,7 +74,16 @@ def api_interface_create(if_name, dev_id, user, password, mtu, mru, usepeerdns, 
         nameservers.append(nameserver2)
 
     pppoe_iface = FwPppoeInterface(user, password, int(mtu), int(mru), usepeerdns=='True', int(metric), enabled=='True', nameservers)
-    fwglobals.g.pppoe.add_interface(pppoe_iface, if_name=if_name, dev_id=dev_id)
+
+    if fwglobals.g.pppoe:
+        fwglobals.g.pppoe.add_interface(pppoe_iface, if_name=if_name, dev_id=dev_id)
+    else:
+        with FwPppoeClient() as pppoe:
+            pppoe.add_interface(pppoe_iface, if_name=if_name, dev_id=dev_id)
 
 def api_interface_delete(if_name, dev_id):
-    fwglobals.g.pppoe.remove_interface(if_name=if_name, dev_id=dev_id)
+    if fwglobals.g.pppoe:
+        fwglobals.g.pppoe.remove_interface(if_name=if_name, dev_id=dev_id)
+    else:
+        with FwPppoeClient() as pppoe:
+            pppoe.remove_interface(if_name=if_name, dev_id=dev_id)
