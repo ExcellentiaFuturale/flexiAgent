@@ -388,14 +388,14 @@ class FwPppoeClient(FwObject):
     It is used as a high level API from Flexiagent and EdgeUI.
     It aggregates all the PPPoE client configuration and management.
     """
-    def __init__(self, db_file=None, path=None, filename=None):
+    def __init__(self, db_file=None, path=None, filename=None, singleton=False):
         FwObject.__init__(self)
         db_file = db_file if db_file else fwglobals.g.PPPOE_DB_FILE
         self.filename = filename if filename else fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE
         path = path if path else fwglobals.g.PPPOE_CONFIG_PATH
         self.path = path + 'peers/'
         self.resolv_path = path + 'resolv/'
-        self.standalone = not fwglobals.g.cfg.debug['agent']['features']['pppoe']['enabled']
+        self.singleton = singleton
         self.thread_pppoec = None
         self.interfaces = SqliteDict(db_file, 'interfaces', autocommit=True)
         self.connections = SqliteDict(db_file, 'connections', autocommit=True)
@@ -404,9 +404,9 @@ class FwPppoeClient(FwObject):
         self._populate_users()
 
     def initialize(self):
-        """Start all PPPoE connections and PPPoE thread if not standalone.
+        """Start all PPPoE connections and PPPoE thread if singleton.
         """
-        if self.standalone:
+        if not self.singleton:
             return
 
         self.scan()
@@ -426,14 +426,14 @@ class FwPppoeClient(FwObject):
         self.finalize()
 
     def finalize(self):
-        """Stop all PPPoE connections and PPPoE thread if not standalone.
+        """Stop all PPPoE connections and PPPoE thread if singleton.
            Also close SQLDict databases.
         """
         if self.thread_pppoec:
             self.thread_pppoec.stop()
             self.thread_pppoec = None
 
-        if not self.standalone:
+        if self.singleton:
             self.stop()
 
         self.interfaces.close()
