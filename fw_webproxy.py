@@ -64,7 +64,9 @@ def _get_resp_headers(resp):
         if key not in [
             'Content-Encoding',
             'Transfer-Encoding',
-            'Content-Length']:
+            'Content-Length',
+            'X-Frame-Options',
+            'X-Content-Type-Options']:
             res_headers.append((key, resp_headers[key]))
     res_headers.append(('Content-Length', len(resp.content)))
     return res_headers
