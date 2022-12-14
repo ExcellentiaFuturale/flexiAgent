@@ -21,6 +21,7 @@
 import os
 import psutil
 import time
+import threading
 
 from netaddr import IPNetwork
 from sqlitedict import SqliteDict
@@ -402,6 +403,7 @@ class FwPppoeClient(FwObject):
         self.chap_config = FwPppoeSecretsConfig(path, 'chap-secrets')
         self.pap_config = FwPppoeSecretsConfig(path, 'pap-secrets')
         self._populate_users()
+        self.lock = threading.RLock()
 
     def initialize(self):
         """Start all PPPoE connections and PPPoE thread if singleton.
@@ -605,23 +607,24 @@ class FwPppoeClient(FwObject):
             self.log.error(f'add_interface: {dev_id} is missing on the device')
             return
 
-        if dev_id in self.interfaces:
-            self.log.error(f'add_interface: {dev_id} interface is already present')
-            return
+        with self.lock:
+            if dev_id in self.interfaces:
+                self.log.error(f'add_interface: {dev_id} interface is already present')
+                return
 
-        netplan_fname = fwnetplan.check_interface_exist(if_name)
-        if netplan_fname:
-            fwnetplan.create_baseline_if_not_exist(netplan_fname)
-
-            netplan_fname, netplan_section = fwnetplan.remove_interface(if_name)
+            netplan_fname = fwnetplan.check_interface_exist(if_name)
             if netplan_fname:
-                pppoe_iface.netplan_fname = netplan_fname
-                pppoe_iface.netplan_section = netplan_section
+                fwnetplan.create_baseline_if_not_exist(netplan_fname)
 
-        self.interfaces[dev_id] = pppoe_iface
-        self._add_connection(dev_id, pppoe_iface)
-        self.reset_interfaces()
-        self.start()
+                netplan_fname, netplan_section = fwnetplan.remove_interface(if_name)
+                if netplan_fname:
+                    pppoe_iface.netplan_fname = netplan_fname
+                    pppoe_iface.netplan_section = netplan_section
+
+            self.interfaces[dev_id] = pppoe_iface
+            self._add_connection(dev_id, pppoe_iface)
+            self.reset_interfaces()
+            self.start()
 
     def remove_interface(self, if_name = None, dev_id = None):
         """Remove interface from database.
@@ -634,19 +637,20 @@ class FwPppoeClient(FwObject):
             self.log.error(f'remove_interface: {dev_id} is missing on the device')
             return
 
-        if dev_id not in self.interfaces:
-            self.log.error(f'remove_interface: {dev_id} interface is not present')
-            return
+        with self.lock:
+            if dev_id not in self.interfaces:
+                self.log.error(f'remove_interface: {dev_id} interface is not present')
+                return
 
-        pppoe_iface = self.interfaces[dev_id]
-        netplan_fname = pppoe_iface.netplan_fname
-        netplan_section = pppoe_iface.netplan_section
-        self._remove_connection(dev_id)
-        del self.interfaces[dev_id]
-        self.reset_interfaces()
-        self.start()
-        if pppoe_iface.netplan_fname:
-            fwnetplan.add_interface(if_name, netplan_fname, netplan_section)
+            pppoe_iface = self.interfaces[dev_id]
+            netplan_fname = pppoe_iface.netplan_fname
+            netplan_section = pppoe_iface.netplan_section
+            self._remove_connection(dev_id)
+            del self.interfaces[dev_id]
+            self.reset_interfaces()
+            self.start()
+            if pppoe_iface.netplan_fname:
+                fwnetplan.add_interface(if_name, netplan_fname, netplan_section)
 
     def reset_interfaces(self):
         """Re-create PPPoE connection files based on interface DB.
@@ -700,11 +704,12 @@ class FwPppoeClient(FwObject):
     def scan(self, connect_if_needed=False):
         """Scan all interfaces for established PPPoE connection.
         """
-        if not self.connections:
-            return
+        with self.lock:
+            if not self.connections:
+                return
 
-        for dev_id, conn in self.connections.items():
-            self.scan_interface(dev_id, conn, connect_if_needed)
+            for dev_id, conn in self.connections.items():
+                self.scan_interface(dev_id, conn, connect_if_needed)
 
     def start(self):
         """Open connections for all PPPoE interfaces.
