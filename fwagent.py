@@ -1259,7 +1259,7 @@ def daemon_rpc(func, ignore_exception=False, **kwargs):
         if ignore_exception:
             fwglobals.log.debug("ignore FwagentDaemon::%s(%s): daemon does not run" % (func, json.dumps(kwargs)))
             return None
-        raise Exception("daemon does not run")
+        raise e
     except Exception as e:
         if ignore_exception:
             fwglobals.log.debug("FwagentDaemon::%s(%s) failed: %s" % (func, json.dumps(kwargs), str(e)))

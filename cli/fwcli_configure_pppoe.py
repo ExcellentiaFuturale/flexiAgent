@@ -22,6 +22,7 @@
 import fwglobals
 from fwagent import daemon_rpc
 from  fwpppoe import FwPppoeInterface, FwPppoeClient
+import Pyro4
 
 def argparse(configure_subparsers):
     configure_router_parser = configure_subparsers.add_parser('pppoe', help='Configure router')
@@ -48,23 +49,36 @@ def argparse(configure_subparsers):
     remove_interfaces_cli.add_argument('--dev_id', dest='params.dev_id', help="Device id", required=False)
 
 def interfaces_create(if_name, dev_id, user, password, mtu, mru, usepeerdns, metric, enabled, nameserver1='', nameserver2=''):
-    ret = daemon_rpc(
-        'api',
-        api_module='fwcli_configure_pppoe',
-        api_name='api_interface_create',
-        if_name=if_name, dev_id=dev_id,
-        user=user, password=password, mtu=mtu, mru=mru, usepeerdns=usepeerdns, metric=metric,
-        enabled=enabled, nameserver1=nameserver1, nameserver2=nameserver2
-    )
-    return ret
+    try:
+        daemon_rpc(
+            'api',
+            api_module='fwcli_configure_pppoe',
+            api_name='api_interface_create',
+            if_name=if_name, dev_id=dev_id,
+            user=user, password=password, mtu=mtu, mru=mru, usepeerdns=usepeerdns, metric=metric,
+            enabled=enabled, nameserver1=nameserver1, nameserver2=nameserver2
+        )
+    except Pyro4.errors.CommunicationError:
+        # Daemon does not run, try to use local instance.
+        api_interface_create(if_name=if_name, dev_id=dev_id,
+            user=user, password=password, mtu=mtu, mru=mru, usepeerdns=usepeerdns, metric=metric,
+            enabled=enabled, nameserver1=nameserver1, nameserver2=nameserver2)
+    except Exception as e:
+        raise e
 
 def interfaces_delete(if_name, dev_id):
-    daemon_rpc(
-        'api',
-        api_module='fwcli_configure_pppoe',
-        api_name='api_interface_delete',
-        if_name=if_name, dev_id=dev_id
-    )
+    try:
+        daemon_rpc(
+            'api',
+            api_module='fwcli_configure_pppoe',
+            api_name='api_interface_delete',
+            if_name=if_name, dev_id=dev_id
+        )
+    except Pyro4.errors.CommunicationError:
+        # Daemon does not run, try to use local instance.
+        api_interface_delete(if_name=if_name, dev_id=dev_id)
+    except Exception as e:
+        raise e
 
 def api_interface_create(if_name, dev_id, user, password, mtu, mru, usepeerdns, metric, enabled, nameserver1, nameserver2):
     nameservers = []
