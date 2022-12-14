@@ -389,14 +389,13 @@ class FwPppoeClient(FwObject):
     It is used as a high level API from Flexiagent and EdgeUI.
     It aggregates all the PPPoE client configuration and management.
     """
-    def __init__(self, db_file=None, path=None, filename=None, open_conn=False):
+    def __init__(self, db_file=None, path=None, filename=None):
         FwObject.__init__(self)
         db_file = db_file if db_file else fwglobals.g.PPPOE_DB_FILE
         self.filename = filename if filename else fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE
         path = path if path else fwglobals.g.PPPOE_CONFIG_PATH
         self.path = path + 'peers/'
         self.resolv_path = path + 'resolv/'
-        self.open_conn = open_conn
         self.thread_pppoec = None
         self.interfaces = SqliteDict(db_file, 'interfaces', autocommit=True)
         self.connections = SqliteDict(db_file, 'connections', autocommit=True)
@@ -404,18 +403,18 @@ class FwPppoeClient(FwObject):
         self.pap_config = FwPppoeSecretsConfig(path, 'pap-secrets')
         self._populate_users()
         self.lock = threading.RLock()
+        self.initialized = False
 
     def initialize(self):
         """Start all PPPoE connections and PPPoE thread.
         """
-        if not self.open_conn:
-            return
-
         self.scan()
         self.start()
 
         self.thread_pppoec = fwthread.FwThread(target=self.pppoec_thread_func, name='PPPOE Client', log=self.log)
         self.thread_pppoec.start()
+
+        self.initialized = True
 
     def __enter__(self):
         return self
@@ -431,12 +430,12 @@ class FwPppoeClient(FwObject):
         """Stop all PPPoE connections and PPPoE thread.
            Also close SQLDict databases.
         """
-        if self.thread_pppoec:
-            self.thread_pppoec.stop()
-            self.thread_pppoec = None
-
-        if self.open_conn:
+        if self.initialized:
+            if self.thread_pppoec:
+                self.thread_pppoec.stop()
+                self.thread_pppoec = None
             self.stop()
+            self.initialized = False
 
         self.interfaces.close()
         self.interfaces = None
