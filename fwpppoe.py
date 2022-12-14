@@ -389,14 +389,14 @@ class FwPppoeClient(FwObject):
     It is used as a high level API from Flexiagent and EdgeUI.
     It aggregates all the PPPoE client configuration and management.
     """
-    def __init__(self, db_file=None, path=None, filename=None, start=False):
+    def __init__(self, db_file=None, path=None, filename=None, open_conn=False):
         FwObject.__init__(self)
         db_file = db_file if db_file else fwglobals.g.PPPOE_DB_FILE
         self.filename = filename if filename else fwglobals.g.PPPOE_CONFIG_PROVIDER_FILE
         path = path if path else fwglobals.g.PPPOE_CONFIG_PATH
         self.path = path + 'peers/'
         self.resolv_path = path + 'resolv/'
-        self.start = start
+        self.open_conn = open_conn
         self.thread_pppoec = None
         self.interfaces = SqliteDict(db_file, 'interfaces', autocommit=True)
         self.connections = SqliteDict(db_file, 'connections', autocommit=True)
@@ -408,7 +408,7 @@ class FwPppoeClient(FwObject):
     def initialize(self):
         """Start all PPPoE connections and PPPoE thread.
         """
-        if not self.start:
+        if not self.open_conn:
             return
 
         self.scan()
@@ -435,7 +435,7 @@ class FwPppoeClient(FwObject):
             self.thread_pppoec.stop()
             self.thread_pppoec = None
 
-        if self.start:
+        if self.open_conn:
             self.stop()
 
         self.interfaces.close()
