@@ -1147,24 +1147,30 @@ class FwagentDaemon(FwObject):
         self.log.info("connection loop was stopped, use 'fwagent start' to start it again")
         self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}: stopped")
 
-    def api(self, api_name, api_module=None, **api_args):
+    def api(self, api_name, api_module=None, api_object=None, **api_args):
         """Wrapper for Fwagent methods
         """
         fwglobals.log.trace(f'{api_name}({api_args if api_args else ""}): enter')
 
-        module = None
-        if not api_module:
-            if self.agent:
-                module = self.agent
+        if api_object:
+            api_func = fwglobals.g.get_object_func(api_object, api_name)
         else:
-            current_dir = os.path.dirname(os.path.realpath(__file__))
-            module = fw_os_utils.load_python_module(current_dir, api_module)
+            module = None
+            if not api_module:
+                if self.agent:
+                    module = self.agent
+            else:
+                current_dir = os.path.dirname(os.path.realpath(__file__))
+                module = fw_os_utils.load_python_module(current_dir, api_module)
+            if not module:
+                fwglobals.log.error(f'api({api_name}, {api_module}, {api_args if api_args else ""}: No module found)')
+                return
+            api_func = getattr(module, api_name)
 
-        if not module:
-            fwglobals.log.error(f'api({api_name}, {api_module}, {api_args if api_args else ""}: No module found)')
+        if not api_func:
+            fwglobals.log.error(f'api({api_name}, {api_module}, {api_object}, {api_args if api_args else ""}: Function not found)')
             return
 
-        api_func = getattr(module, api_name)
         if api_args:
             func = lambda: api_func(**api_args)
         else:
@@ -1253,19 +1259,30 @@ def daemon_rpc(func, ignore_exception=False, **kwargs):
     try:
         agent_daemon = Pyro4.Proxy(fwglobals.g.FWAGENT_DAEMON_URI)
         remote_func = getattr(agent_daemon, func)
-        fwglobals.log.debug("invoke remote FwagentDaemon::%s(%s)" % (func, json.dumps(kwargs)), to_terminal=False)
+        fwglobals.log.debug("invoke remote FwagentDaemon::%s(%s)" % (func, json.dumps(kwargs, cls=fwutils.FwJsonEncoder)), to_terminal=False)
         return remote_func(**kwargs)
     except Pyro4.errors.CommunicationError as e:
+        fwglobals.log.debug("ignore FwagentDaemon::%s(%s)" % (func, str(e)))
         if ignore_exception:
-            fwglobals.log.debug("ignore FwagentDaemon::%s(%s): daemon does not run" % (func, json.dumps(kwargs)))
+            fwglobals.log.debug("ignore FwagentDaemon::%s(%s): daemon does not run" % (func, json.dumps(kwargs, cls=fwutils.FwJsonEncoder)))
             return None
         raise Exception("daemon does not run")
     except Exception as e:
         if ignore_exception:
-            fwglobals.log.debug("FwagentDaemon::%s(%s) failed: %s" % (func, json.dumps(kwargs), str(e)))
+            fwglobals.log.debug("FwagentDaemon::%s(%s) failed: %s" % (func, json.dumps(kwargs, cls=fwutils.FwJsonEncoder), str(e)))
             ex_type, ex_value, ex_tb = sys.exc_info()
             Pyro4.util.excepthook(ex_type, ex_value, ex_tb)
             return None
+        raise e
+
+def daemon_is_alive():
+    try:
+        daemon = Pyro4.Proxy(fwglobals.g.FWAGENT_DAEMON_URI)
+        daemon.ping()   # Check if daemon runs
+        return True
+    except Pyro4.errors.CommunicationError:
+        return False
+    except Exception as e:
         raise e
 
 def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None, ignore_errors=False):
