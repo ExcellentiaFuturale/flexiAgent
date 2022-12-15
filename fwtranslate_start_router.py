@@ -164,7 +164,8 @@ def start_router(params=None):
     cmd['cmd']['func']    = 'vpp_startup_conf_hqos'
     cmd['cmd']['params']  = {
         'vpp_config_filename' : vpp_filename,
-        'is_add'              : True
+        'is_add'              : True,
+        'num_interfaces'      : len(assigned_linux_interfaces),
     }
     cmd['revert'] = {}
     cmd['revert']['name']   = "python"
@@ -173,7 +174,8 @@ def start_router(params=None):
     cmd['revert']['func']   = 'vpp_startup_conf_hqos'
     cmd['revert']['params'] = {
         'vpp_config_filename' : vpp_filename,
-        'is_add'              : False
+        'is_add'              : False,
+        'num_interfaces'      : len(assigned_linux_interfaces),
     }
     cmd_list.append(cmd)
 
