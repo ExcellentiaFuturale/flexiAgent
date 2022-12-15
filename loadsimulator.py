@@ -70,7 +70,7 @@ class LoadSimulator(FwObject):
         for t in self.simulate_threads:
             t.join()
         self.simulate_threads = []
-        fwglobals.g.finalize_agent()
+        fwglobals.g.destroy_agent()
 
 
 
@@ -82,7 +82,7 @@ class LoadSimulator(FwObject):
         # We have to initialize agent once, as it initializes various global data.
         # All the rest of simulated agents should be not initialized but created.
         #
-        agent = fwglobals.g.initialize_agent()
+        agent = fwglobals.g.create_agent()
 
         self.started = True
         for id in range(count):

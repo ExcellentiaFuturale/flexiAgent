@@ -26,6 +26,7 @@ import glob
 import os
 import subprocess
 
+import fw_os_utils
 from fwobject import FwObject
 
 class FwIKEv2(FwObject):
@@ -134,7 +135,7 @@ class FwIKEv2(FwObject):
             if not ok:
                 return {'ok': 0, 'message': 'Cannot create certificate'}
 
-            if fwutils.vpp_does_run():
+            if fw_os_utils.vpp_does_run():
                 ok = self.modify_private_key(private_pem)
                 if not ok:
                     return {'ok': 0, 'message': 'Cannot set private key in VPP'}

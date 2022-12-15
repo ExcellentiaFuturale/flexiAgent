@@ -33,7 +33,7 @@ class FwObject():
     for objects by calling self.log(), while prepending log line with name
     of the specific object that called the self.log().
     """
-    def __init__(self, name=None):
+    def __init__(self, name=None, log=None):
         if not name:
             name = self.__class__.__name__
-        self.log = FwObjectLogger(object_name=name)
+        self.log = FwObjectLogger(object_name=name, log=log)

@@ -21,6 +21,7 @@
 ################################################################################
 
 import fwglobals
+import fw_os_utils
 import fwutils
 
 import copy
@@ -637,7 +638,7 @@ class FwCfgRequestHandler(FwObject):
                             noop = False
                     if noop:
                         return True
-            elif re.match('start-router', req) and fwutils.vpp_does_run():
+            elif re.match('start-router', req) and fw_os_utils.vpp_does_run():
                 # start-router & stop-router break add-/remove-/modify- convention.
                 return True
             elif re.match('modify-', req):

@@ -52,22 +52,17 @@ class FwStunWrap(FwObject):
     More info can be found in unassigned_if.py
     """
 
-    def __init__(self, standalone):
+    def __init__(self):
         """ Init function. This function inits the cache, gets the router-db handle
             and register callback and request names to listen too.
 
-            : param standalone : if set to TRUE, no traffic will be sent from the
-                                 STUN module. We use this mode in pytest, for example.
-                                 In pytests, we define bogus IP addresses, which we
-                                 do not want to sent STUN requests on their behalf as
-                                 they will produce nothing.
         """
         FwObject.__init__(self)
         self.stun_cache    = fwglobals.g.cache.stun_cache
         self.sym_nat_cache = fwglobals.g.cache.sym_nat_cache
         self.sym_nat_tunnels_cache = fwglobals.g.cache.sym_nat_tunnels_cache
         self.thread_stun   = None
-        self.standalone    = standalone
+        self.standalone    = not fwglobals.g.cfg.debug['agent']['features']['stun']['enabled']
         self.stun_retry    = 60
         fwstun.set_log(fwglobals.log)
 
