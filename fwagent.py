@@ -1154,9 +1154,6 @@ class FwagentDaemon(FwObject):
 
         if api_object:
             api_func = fwutils.get_func_object(api_object, api_name)
-            if not api_func:
-                fwglobals.log.error(f'api({api_name}, {api_object}, {api_args if api_args else ""}: Object not found)')
-                return
         else:
             module = None
             if not api_module:
@@ -1169,6 +1166,10 @@ class FwagentDaemon(FwObject):
                 fwglobals.log.error(f'api({api_name}, {api_module}, {api_args if api_args else ""}: No module found)')
                 return
             api_func = getattr(module, api_name)
+
+        if not api_func:
+            fwglobals.log.error(f'api({api_name}, {api_module}, {api_object}, {api_args if api_args else ""}: Function not found)')
+            return
 
         if api_args:
             func = lambda: api_func(**api_args)
