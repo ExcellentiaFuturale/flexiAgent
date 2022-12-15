@@ -1153,27 +1153,8 @@ class FwagentDaemon(FwObject):
         fwglobals.log.trace(f'{api_name}({api_args if api_args else ""}): enter')
 
         if object_name:
-            if object_name == 'fwglobals.g':
-                api_func = getattr(self, api_name)
-            elif object_name == 'fwglobals.g.router_api':
-                api_func = getattr(fwglobals.g.router_api, api_name)
-            elif object_name == 'fwglobals.g.router_api.vpp_api':
-                api_func = getattr(fwglobals.g.router_api.vpp_api, api_name)
-            elif object_name == 'fwglobals.g.router_api.frr':
-                api_func = getattr(fwglobals.g.router_api.frr, api_name)
-            elif object_name == 'fwglobals.g.router_api.multilink':
-                api_func = getattr(fwglobals.g.router_api.multilink, api_name)
-            elif object_name == 'fwglobals.g.ikev2':
-                api_func = getattr(fwglobals.g.ikev2, api_name)
-            elif object_name == 'fwglobals.g.traffic_identifications':
-                api_func = getattr(fwglobals.g.traffic_identifications, api_name)
-            elif object_name == 'fwglobals.g.pppoe':
-                api_func = getattr(fwglobals.g.pppoe, api_name)
-            elif object_name == 'fwglobals.g.applications_api':
-                api_func = getattr(fwglobals.g.applications_api, api_name)
-            elif object_name == 'fwglobals.g.qos':
-                api_func = getattr(fwglobals.g.qos, api_name)
-            else:
+            api_func = fwutils.get_func_object(object_name, api_name)
+            if not api_func:
                 fwglobals.log.error(f'api({api_name}, {object_name}, {api_args if api_args else ""}: Object not found)')
                 return
         else:

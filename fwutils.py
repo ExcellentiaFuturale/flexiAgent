@@ -4016,3 +4016,28 @@ class FwJsonEncoder(json.JSONEncoder):
         except:
             serialized = o.__dict__  # As a last resort, assume complex object
         return serialized
+
+def get_func_object(object_name, func_name):
+    if object_name == 'fwglobals.g':
+        func = getattr(self, func_name)
+    elif object_name == 'fwglobals.g.router_api':
+        func = getattr(fwglobals.g.router_api, func_name)
+    elif object_name == 'fwglobals.g.router_api.vpp_api':
+        func = getattr(fwglobals.g.router_api.vpp_api, func_name)
+    elif object_name == 'fwglobals.g.router_api.frr':
+        func = getattr(fwglobals.g.router_api.frr, func_name)
+    elif object_name == 'fwglobals.g.router_api.multilink':
+        func = getattr(fwglobals.g.router_api.multilink, func_name)
+    elif object_name == 'fwglobals.g.ikev2':
+        func = getattr(fwglobals.g.ikev2, func_name)
+    elif object_name == 'fwglobals.g.traffic_identifications':
+        func = getattr(fwglobals.g.traffic_identifications, func_name)
+    elif object_name == 'fwglobals.g.pppoe':
+        func = getattr(fwglobals.g.pppoe, func_name)
+    elif object_name == 'fwglobals.g.applications_api':
+        func = getattr(fwglobals.g.applications_api, func_name)
+    elif object_name == 'fwglobals.g.qos':
+        func = getattr(fwglobals.g.qos, func_name)
+    else:
+        return None
+    return func
