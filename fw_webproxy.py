@@ -145,12 +145,12 @@ class FwWebProxy():
         full = base_parse.netloc + path + rel
         return base_parse.scheme + '://' + full
 
-    def proxify_url(self, url):
+    def proxify_url(self, url, safe=''):
         parser = HTMLParser()
         url = parser.unescape(url)
         # Convert to a full url
         url = self.full_url(url, self.base_url)
-        return self.server + '/' + quote_plus(url)
+        return self.server + '/' + quote_plus(url, safe)
 
     def proxify_form_action(self, matches):
         # When the form action is empty, it means to the current page
@@ -186,7 +186,11 @@ class FwWebProxy():
 
     def proxify_css_url(self, matches):
         url = matches.group(1).strip()
-        if url.startswith('data:'):
+        if (
+            url.startswith('data:') or
+            ',' in url or
+            ('/' not in url and '.' not in url)
+        ):
             return matches.group(0)
         return matches.group(0).replace(url, self.proxify_url(url))
 
@@ -203,7 +207,7 @@ class FwWebProxy():
     def proxify_css(self, str):
         # HTML5 supports also unquotes attributes
         str = re.sub(
-            r'[^a-z]{1}url\s*\((?:\'|"|)(.*?)(?:\'|"|)\)',
+            r'[^a-z]{1}url\s*\((?:\'|"|`|)(.*?)(?:\'|"|`|\))',
             self.proxify_css_url,
             str,
             flags=re.I|re.M|re.S
@@ -246,12 +250,17 @@ class FwWebProxy():
         )
         return str
 
+    def proxify_ntopng(self, matches):
+        url = matches.group(1).strip()
+        url_nobase = url.replace('${base_path}','')
+        return matches.group(0).replace(url, self.proxify_url(url_nobase, safe='${}'))
+
     def proxify_application(self, str, application):
         if (application == 'ntopng'):
             # TBD: Proxify ntop spefic, move to a separate application specific module
             str = re.sub(
-                r'["\'](/lua/.*?.lua.*?)["\']',
-                self.proxify_html_attr_href_src,
+                r'["\'`]([^"\'`]*/lua/.*?.lua.*?)[\\"\'`\?]',
+                self.proxify_ntopng,
                 str,
                 flags=re.I|re.M|re.S
             )
@@ -263,14 +272,16 @@ class FwWebProxy():
     def on_complete(self, url, server, application, resp):
         # Skip proxification for font files .woff2 and .ttf
         no_proxify_ext = ['.woff2', '.ttf']
-        if any(c in url for c in no_proxify_ext): return None
+        if any(c in url for c in no_proxify_ext):
+            return None
 
         # Skip proxification on .js files and text/plain content type
         content_type = resp.headers.get('Content-Type')
         no_proxify_js = [
             'text/javascript', 'application/javascript',
             'application/x-javascript', 'text/plain']
-        if any(c in content_type for c in no_proxify_js): return None
+        if any(c in content_type for c in no_proxify_js):
+            return None
 
         # Prepend http in url if needed
         if not url.startswith('http'):
