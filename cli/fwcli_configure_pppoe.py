@@ -21,7 +21,7 @@
 ################################################################################
 import fwglobals
 from fwagent import daemon_rpc, daemon_is_alive
-from  fwpppoe import FwPppoeInterface, FwPppoeClient
+from  fwpppoe import FwPppoeClient
 
 def argparse(configure_subparsers):
     configure_router_parser = configure_subparsers.add_parser('pppoe', help='Configure router')
@@ -48,51 +48,27 @@ def argparse(configure_subparsers):
     remove_interfaces_cli.add_argument('--dev_id', dest='params.dev_id', help="Device id", required=False)
 
 def interfaces_create(if_name, dev_id, user, password, mtu, mru, usepeerdns, metric, enabled, nameserver1='', nameserver2=''):
-    if daemon_is_alive():
-        daemon_rpc(
-            'api',
-            api_module='fwcli_configure_pppoe',
-            api_name='api_interface_create',
-            if_name=if_name, dev_id=dev_id,
-            user=user, password=password, mtu=mtu, mru=mru, usepeerdns=usepeerdns, metric=metric,
-            enabled=enabled, nameserver1=nameserver1, nameserver2=nameserver2
-        )
-    else:
-        # Daemon does not run, try to use local instance.
-        api_interface_create(if_name=if_name, dev_id=dev_id,
-            user=user, password=password, mtu=mtu, mru=mru, usepeerdns=usepeerdns, metric=metric,
-            enabled=enabled, nameserver1=nameserver1, nameserver2=nameserver2)
-
-def interfaces_delete(if_name, dev_id):
-    if daemon_is_alive():
-        daemon_rpc(
-            'api',
-            api_module='fwcli_configure_pppoe',
-            api_name='api_interface_delete',
-            if_name=if_name, dev_id=dev_id
-        )
-    else:
-        # Daemon does not run, try to use local instance.
-        api_interface_delete(if_name=if_name, dev_id=dev_id)
-
-def api_interface_create(if_name, dev_id, user, password, mtu, mru, usepeerdns, metric, enabled, nameserver1, nameserver2):
     nameservers = []
     if nameserver1:
         nameservers.append(nameserver1)
     if nameserver2:
         nameservers.append(nameserver2)
 
-    pppoe_iface = FwPppoeInterface(user, password, int(mtu), int(mru), usepeerdns=='True', int(metric), enabled=='True', nameservers)
+    daemon_rpc(
+        'api',
+        object_name='fwglobals.g.pppoe',
+        api_name='add_interface',
+        user=user, password=password, mtu=int(mtu),
+        mru=int(mru), usepeerdns=usepeerdns=='True',
+        metric=int(metric), enabled=enabled=='True',
+        nameservers=nameservers,
+        if_name=if_name, dev_id=dev_id
+    )
 
-    if fwglobals.g.pppoe:
-        fwglobals.g.pppoe.add_interface(pppoe_iface, if_name=if_name, dev_id=dev_id)
-    else:
-        with FwPppoeClient() as pppoe:
-            pppoe.add_interface(pppoe_iface, if_name=if_name, dev_id=dev_id)
-
-def api_interface_delete(if_name, dev_id):
-    if fwglobals.g.pppoe:
-        fwglobals.g.pppoe.remove_interface(if_name=if_name, dev_id=dev_id)
-    else:
-        with FwPppoeClient() as pppoe:
-            pppoe.remove_interface(if_name=if_name, dev_id=dev_id)
+def interfaces_delete(if_name, dev_id):
+    daemon_rpc(
+        'api',
+        object_name='fwglobals.g.pppoe',
+        api_name='remove_interface',
+        if_name=if_name, dev_id=dev_id
+    )

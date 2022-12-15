@@ -591,9 +591,11 @@ class FwPppoeClient(FwObject):
 
         return False
 
-    def add_interface(self, pppoe_iface, if_name = None, dev_id = None):
+    def add_interface(self, user, password, mtu, mru, usepeerdns, metric, enabled, nameservers, if_name = None, dev_id = None):
         """Add interface into database.
         """
+        pppoe_iface = FwPppoeInterface(user, password, mtu, mru, usepeerdns, metric, enabled, nameservers)
+
         if not dev_id:
             if if_name:
                 dev_id = fwutils.get_interface_dev_id(if_name)

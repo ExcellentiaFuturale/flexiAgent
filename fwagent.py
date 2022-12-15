@@ -1147,24 +1147,48 @@ class FwagentDaemon(FwObject):
         self.log.info("connection loop was stopped, use 'fwagent start' to start it again")
         self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}: stopped")
 
-    def api(self, api_name, api_module=None, **api_args):
+    def api(self, api_name, api_module=None, object_name=None, **api_args):
         """Wrapper for Fwagent methods
         """
         fwglobals.log.trace(f'{api_name}({api_args if api_args else ""}): enter')
 
-        module = None
-        if not api_module:
-            if self.agent:
-                module = self.agent
+        if object_name:
+            if object_name == 'fwglobals.g':
+                api_func = getattr(self, api_name)
+            elif object_name == 'fwglobals.g.router_api':
+                api_func = getattr(fwglobals.g.router_api, api_name)
+            elif object_name == 'fwglobals.g.router_api.vpp_api':
+                api_func = getattr(fwglobals.g.router_api.vpp_api, api_name)
+            elif object_name == 'fwglobals.g.router_api.frr':
+                api_func = getattr(fwglobals.g.router_api.frr, api_name)
+            elif object_name == 'fwglobals.g.router_api.multilink':
+                api_func = getattr(fwglobals.g.router_api.multilink, api_name)
+            elif object_name == 'fwglobals.g.ikev2':
+                api_func = getattr(fwglobals.g.ikev2, api_name)
+            elif object_name == 'fwglobals.g.traffic_identifications':
+                api_func = getattr(fwglobals.g.traffic_identifications, api_name)
+            elif object_name == 'fwglobals.g.pppoe':
+                api_func = getattr(fwglobals.g.pppoe, api_name)
+            elif object_name == 'fwglobals.g.applications_api':
+                api_func = getattr(fwglobals.g.applications_api, api_name)
+            elif object_name == 'fwglobals.g.qos':
+                api_func = getattr(fwglobals.g.qos, api_name)
+            else:
+                fwglobals.log.error(f'api({api_name}, {object_name}, {api_args if api_args else ""}: Object not found)')
+                return
         else:
-            current_dir = os.path.dirname(os.path.realpath(__file__))
-            module = fw_os_utils.load_python_module(current_dir, api_module)
+            module = None
+            if not api_module:
+                if self.agent:
+                    module = self.agent
+            else:
+                current_dir = os.path.dirname(os.path.realpath(__file__))
+                module = fw_os_utils.load_python_module(current_dir, api_module)
+            if not module:
+                fwglobals.log.error(f'api({api_name}, {api_module}, {api_args if api_args else ""}: No module found)')
+                return
+            api_func = getattr(module, api_name)
 
-        if not module:
-            fwglobals.log.error(f'api({api_name}, {api_module}, {api_args if api_args else ""}: No module found)')
-            return
-
-        api_func = getattr(module, api_name)
         if api_args:
             func = lambda: api_func(**api_args)
         else:
@@ -1253,16 +1277,17 @@ def daemon_rpc(func, ignore_exception=False, **kwargs):
     try:
         agent_daemon = Pyro4.Proxy(fwglobals.g.FWAGENT_DAEMON_URI)
         remote_func = getattr(agent_daemon, func)
-        fwglobals.log.debug("invoke remote FwagentDaemon::%s(%s)" % (func, json.dumps(kwargs)), to_terminal=False)
+        fwglobals.log.debug("invoke remote FwagentDaemon::%s(%s)" % (func, json.dumps(kwargs, cls=fwutils.FwJsonEncoder)), to_terminal=False)
         return remote_func(**kwargs)
     except Pyro4.errors.CommunicationError as e:
+        fwglobals.log.debug("ignore FwagentDaemon::%s(%s)" % (func, str(e)))
         if ignore_exception:
-            fwglobals.log.debug("ignore FwagentDaemon::%s(%s): daemon does not run" % (func, json.dumps(kwargs)))
+            fwglobals.log.debug("ignore FwagentDaemon::%s(%s): daemon does not run" % (func, json.dumps(kwargs, cls=fwutils.FwJsonEncoder)))
             return None
         raise Exception("daemon does not run")
     except Exception as e:
         if ignore_exception:
-            fwglobals.log.debug("FwagentDaemon::%s(%s) failed: %s" % (func, json.dumps(kwargs), str(e)))
+            fwglobals.log.debug("FwagentDaemon::%s(%s) failed: %s" % (func, json.dumps(kwargs, cls=fwutils.FwJsonEncoder), str(e)))
             ex_type, ex_value, ex_tb = sys.exc_info()
             Pyro4.util.excepthook(ex_type, ex_value, ex_tb)
             return None
