@@ -67,9 +67,20 @@ class Application(FwApplicationInterface):
             shutil.copyfile('{}/scripts/script_utils.py'.format(path), '/etc/openvpn/server/script_utils.py')
             shutil.copyfile('{}/application_cfg.py'.format(path), '/etc/openvpn/server/application_cfg.py')
 
+            try:
+                fw_os_utils.run_linux_commands( [
+                    'wget -O - https://swupdate.openvpn.net/repos/repo-public.gpg|apt-key add -',
+                    'echo "deb http://build.openvpn.net/debian/openvpn/release/2.5 bionic main" > /etc/apt/sources.list.d/openvpn-aptrepo.list',
+                ])
+            except Exception as e:
+                self.log.error(f"failed to install from openvpn repo. trying another way: {str(e)}")
+                fw_os_utils.run_linux_commands([
+                    'wget -O - https://vpnrepo.flexiwan.com/debian/openvpn/release/2.5/pubkey.gpg | apt-key add -',
+                    'echo "deb https://vpnrepo.flexiwan.com/debian/openvpn/release/2.5/ bionic main" > /etc/apt/sources.list.d/openvpn-aptrepo.list'
+                ]
+            )
+
             commands = [
-                'wget -O - https://swupdate.openvpn.net/repos/repo-public.gpg|apt-key add -',
-                'echo "deb http://build.openvpn.net/debian/openvpn/release/2.5 bionic main" > /etc/apt/sources.list.d/openvpn-aptrepo.list',
                 'apt-get update && apt-get install -y openvpn',
 
                 'chmod +x /etc/openvpn/server/auth-script.py',
