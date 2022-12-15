@@ -1259,13 +1259,23 @@ def daemon_rpc(func, ignore_exception=False, **kwargs):
         if ignore_exception:
             fwglobals.log.debug("ignore FwagentDaemon::%s(%s): daemon does not run" % (func, json.dumps(kwargs)))
             return None
-        raise e
+        raise Exception("daemon does not run")
     except Exception as e:
         if ignore_exception:
             fwglobals.log.debug("FwagentDaemon::%s(%s) failed: %s" % (func, json.dumps(kwargs), str(e)))
             ex_type, ex_value, ex_tb = sys.exc_info()
             Pyro4.util.excepthook(ex_type, ex_value, ex_tb)
             return None
+        raise e
+
+def daemon_is_alive():
+    try:
+        daemon = Pyro4.Proxy(fwglobals.g.FWAGENT_DAEMON_URI)
+        daemon.ping()   # Check if daemon runs
+        return True
+    except Pyro4.errors.CommunicationError:
+        return False
+    except Exception as e:
         raise e
 
 def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None, ignore_errors=False):
