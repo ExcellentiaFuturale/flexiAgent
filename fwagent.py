@@ -1153,7 +1153,7 @@ class FwagentDaemon(FwObject):
         fwglobals.log.trace(f'{api_name}({api_args if api_args else ""}): enter')
 
         if api_object:
-            api_func = fwutils.get_func_object(api_object, api_name)
+            api_func = fwglobals.g.get_object_func(api_object, api_name)
         else:
             module = None
             if not api_module:

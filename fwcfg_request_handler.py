@@ -336,7 +336,7 @@ class FwCfgRequestHandler(FwObject):
             #
             object_name = cmd.get('object')
             if object_name:
-                func = fwutils.get_func_object(object_name, func_name)
+                func = fwglobals.g.get_object_func(object_name, func_name)
                 if not func:
                     return None
                 self.cache_func_by_name[full_name] = func
