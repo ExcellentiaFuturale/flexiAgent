@@ -1147,15 +1147,15 @@ class FwagentDaemon(FwObject):
         self.log.info("connection loop was stopped, use 'fwagent start' to start it again")
         self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}: stopped")
 
-    def api(self, api_name, api_module=None, object_name=None, **api_args):
+    def api(self, api_name, api_module=None, api_object=None, **api_args):
         """Wrapper for Fwagent methods
         """
         fwglobals.log.trace(f'{api_name}({api_args if api_args else ""}): enter')
 
-        if object_name:
-            api_func = fwutils.get_func_object(object_name, api_name)
+        if api_object:
+            api_func = fwutils.get_func_object(api_object, api_name)
             if not api_func:
-                fwglobals.log.error(f'api({api_name}, {object_name}, {api_args if api_args else ""}: Object not found)')
+                fwglobals.log.error(f'api({api_name}, {api_object}, {api_args if api_args else ""}: Object not found)')
                 return
         else:
             module = None

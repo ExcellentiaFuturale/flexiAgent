@@ -56,7 +56,7 @@ def interfaces_create(if_name, dev_id, user, password, mtu, mru, usepeerdns, met
 
     daemon_rpc(
         'api',
-        object_name='fwglobals.g.pppoe',
+        api_object='fwglobals.g.pppoe',
         api_name='add_interface',
         user=user, password=password, mtu=int(mtu),
         mru=int(mru), usepeerdns=usepeerdns=='True',
@@ -68,7 +68,7 @@ def interfaces_create(if_name, dev_id, user, password, mtu, mru, usepeerdns, met
 def interfaces_delete(if_name, dev_id):
     daemon_rpc(
         'api',
-        object_name='fwglobals.g.pppoe',
+        api_object='fwglobals.g.pppoe',
         api_name='remove_interface',
         if_name=if_name, dev_id=dev_id
     )
