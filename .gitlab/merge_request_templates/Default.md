@@ -17,3 +17,9 @@ This can include:
 - Old customer configuration that isn't compatible after the commit
 - Issue with other component - such as between flexiManage and flexiEdge
 - Etc
+
+## Test required
+
+List the **minimal** testing needed to make sure the fix is working.
+Take into considertaion the knowledge about the code changed 
+and interactions with other functions.
