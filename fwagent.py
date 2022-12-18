@@ -742,7 +742,9 @@ def reset(soft=False, quiet=False, pppoe=False):
     if reset_device:
         if fw_os_utils.vpp_does_run():
             print("stopping the router...")
-        daemon_rpc_safe('stop', stop_router=True, stop_applications=True)
+
+        # Stop daemon main loop
+        stop(False, stop_router=True, stop_applications=True)
 
         with FWAPPLICATIONS_API() as applications_api:
             applications_api.reset()
@@ -763,7 +765,9 @@ def reset(soft=False, quiet=False, pppoe=False):
         fwglobals.log.info("Reset operation done")
     else:
         fwglobals.log.info("Reset operation aborted")
-    daemon_rpc_safe('start')     # Start daemon main loop if daemon is alive
+
+    # Start daemon main loop if daemon is alive
+    start(start_router=False, start_applications=False)
 
 def stop(reset_device_config, stop_router, stop_applications):
     """Handles 'fwagent stop' command.
