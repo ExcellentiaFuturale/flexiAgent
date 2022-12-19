@@ -22,6 +22,7 @@ import copy
 import ctypes
 import binascii
 import datetime
+import fwroutes
 import glob
 import hashlib
 import inspect
@@ -281,18 +282,12 @@ def get_interface_gateway(if_name, if_dev_id=None):
         pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
         return pppoe_iface.gw, str(pppoe_iface.metric)
 
-    try:
-        cmd   = "ip route list match default | grep via | grep 'dev %s'" % if_name
-        route = os.popen(cmd).read()
-        if not route:
-            return '', ''
-    except:
-        return '', ''
+    routes_linux = fwroutes.FwLinuxRoutes(prefix='0.0.0.0/0')
+    for route in routes_linux.values():
+        if route.dev == if_name:
+            return route.via, str(route.metric)
 
-    rip    = route.split('via ')[1].split(' ')[0]
-    metric = '0' if not 'metric ' in route else route.split('metric ')[1].split(' ')[0]
-    return rip, metric
-
+    return '', ''
 
 def get_tunnel_gateway(dst, dev_id):
     interface = get_linux_interfaces(if_dev_id=dev_id)
