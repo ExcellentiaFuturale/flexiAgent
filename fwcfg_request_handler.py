@@ -625,6 +625,15 @@ class FwCfgRequestHandler(FwObject):
                 #Qos-Policy requires full diff
                 existing_params = self.cfg_db.get_request_params(__request)
                 return True if existing_params == __request.get('params') else False
+            elif re.match('add-wan-', req) and self.cfg_db.exists(__request):
+                # Ensure this is actually not modification request :)
+                existing_params = self.cfg_db.get_request_params(__request)
+                if fwutils.compare_request_params(existing_params, __request.get('params')):
+                    # Ensure that the aggregated request does not include correspondent 'remove-X' before.
+                    return True
+                else:
+                    #cmd_list = self.cfg_db.get_request_cmd_list(__request)
+                    return False
             elif re.match('add-', req) and self.cfg_db.exists(__request):
                 # Ensure this is actually not modification request :)
                 existing_params = self.cfg_db.get_request_params(__request)

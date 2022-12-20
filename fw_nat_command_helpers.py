@@ -47,7 +47,7 @@ def get_nat_forwarding_config(enable):
     }
     return cmd
 
-def get_nat_wan_setup_config(dev_id):
+def get_nat_wan_setup_config(dev_id, port = -1):
     """
     Generates command to enable NAT and required default identity mappings
     on WAN interfaces
@@ -142,6 +142,15 @@ def get_nat_wan_setup_config(dev_id):
                         'remove': True,
     }
     cmd_list.append(cmd)
+
+    if port > 0:
+        fwglobals.WAN_INTERFACE_SERVICES = {
+            "VXLAN Tunnel":
+            {
+                "port": port,
+                "protocol": "udp"
+            }
+        }
 
     for service_name, service_cfg in fwglobals.WAN_INTERFACE_SERVICES.items():
         cmd = {}

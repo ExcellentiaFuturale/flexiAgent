@@ -36,6 +36,8 @@ import fwutils
 import threading
 import fw_vpp_coredump_utils
 import fwlte
+import fw_nat_command_helpers
+import fwglobals
 
 from sqlitedict import SqliteDict
 
@@ -132,6 +134,8 @@ request_handlers = {
     'add-interface':                {'name': '_call_router_api', 'sign': True},
     'remove-interface':             {'name': '_call_router_api', 'sign': True},
     'modify-interface':             {'name': '_call_router_api', 'sign': True},
+    'add-wan-nat-mapping':          {'name': '_call_router_api', 'sign': True},
+    'remove-wan-nat-mapping':       {'name': '_call_router_api', 'sign': True},
     'add-route':                    {'name': '_call_router_api', 'sign': True},
     'remove-route':                 {'name': '_call_router_api', 'sign': True},
     'add-tunnel':                   {'name': '_call_router_api', 'sign': True},
@@ -525,6 +529,28 @@ class Fwglobals(FwObject):
         self.router_api.restore_vpp_if_needed()
 
         fwutils.get_linux_interfaces(cached=False) # Fill global interface cache
+
+        # Fetch add-interface configuration items from database and re-configure the WAN types one by one.
+        messages = self.router_cfg.dump(types=['add-interface'])
+        cmd_list = []
+        for msg in messages:
+            params = msg['params']
+            if 'type' not in params or params['type'].lower() == 'wan':
+                dev_id = params['dev_id']
+                port = fwglobals.VXLAN_PORTS["port"]
+
+                # Remove previous NAT mapping
+                fwglobals.g.handle_request({'message':'remove-wan-nat-mapping',
+                                            'params':{'dev_id':dev_id,
+                                            'type': params['type'],
+                                            'port': port }
+                                            })
+                # Add the current fwglobals.VXLAN_PORTS["port"] NAT mapping
+                fwglobals.g.handle_request({'message':'add-wan-nat-mapping',
+                                            'params':{'dev_id':dev_id,
+                                            'type': params['type'],
+                                            'port': port }
+                                            })
 
         # IMPORTANT! Some of the features below should be initialized after restore_vpp_if_needed
         #

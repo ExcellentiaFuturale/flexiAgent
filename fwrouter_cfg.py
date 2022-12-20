@@ -69,6 +69,7 @@ class FwRouterCfg(FwCfgDatabase):
                 'add-routing-filter',
                 'add-routing-bgp',           # BGP should come after frr routing filter, as it might use them!
                 'add-interface',
+                'add_wan_nat_mapping',
                 'add-switch',
                 'add-tunnel',
                 'add-route',		 # routes should come after tunnels, as they might use them
@@ -95,6 +96,7 @@ class FwRouterCfg(FwCfgDatabase):
                                     #
             'start-router':         "======= START COMMAND =======",
             'add-interface':        "======== INTERFACES ========",
+            'add-wan-nat-mapping':  "======== WAN NAT MAPPING ========",
             'add-switch':           "======== SWITCHES ========",
             'add-route':            "========= ROUTES =========",
             'add-tunnel':           "========== TUNNELS ==========",

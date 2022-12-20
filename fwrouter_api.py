@@ -57,6 +57,8 @@ fwrouter_translators = {
     'stop-router':              {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
     'add-interface':            {'module': __import__('fwtranslate_add_interface'),   'api':'add_interface'},
     'remove-interface':         {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
+    'add-wan-nat-mapping':      {'module': __import__('fwtranslate_add_wan_nat_mapping'),   'api':'add_wan_nat_mapping'},
+    'remove-wan-nat-mapping':   {'module': __import__('fwtranslate_revert') ,         'api':'revert'},
     'modify-interface':         {'module': __import__('fwtranslate_add_interface'),   'api':'modify_interface',
                                     'ignored_params'  : 'modify_interface_ignored_params',
                                     'supported_params': 'modify_interface_supported_params'
@@ -1100,6 +1102,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-switch'              : -1,
             'remove-interface'        : -1,
             'add-interface'           : -1,
+            'remove-wan-nat-mapping'  : -1,
+            'add-wan-nat-mapping'     : -1,
             'remove-application'      : -1,
             'add-application'         : -1,
             'remove-multilink-policy' : -1,
