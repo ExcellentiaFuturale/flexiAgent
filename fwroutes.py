@@ -333,7 +333,10 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
 
     if remove:
         if dev:  # If device was provided, delete specific route via this device only
-            cmd = "sudo ip route del %s%s proto %s dev %s" % (addr, metric, proto, dev)
+            if next_hops:
+                cmd = "sudo ip route %s %s%s proto %s %s" % (op, addr, metric, proto, next_hops)
+            else:
+                cmd = "sudo ip route del %s%s proto %s dev %s" % (addr, metric, proto, dev)
         else:    # Else delete all routes with same prefix and metric for all devices
             if not next_hops:
                 op = 'del'
@@ -374,7 +377,22 @@ def remove_route(route):
     try:
         with IPRoute() as ipr:
             fwglobals.log.debug(f"remove_route: {route.prefix}, metric={route.metric}")
-            ipr.route("del", dst=route.prefix, priority=route.metric)
+            next_hops = []
+            multipath = False
+            try:
+                for next_hops in ipr.get_routes()[0].get_attrs('RTA_MULTIPATH')[0]:
+                    if route.via in next_hops.get_attrs('RTA_GATEWAY')[0]:
+                        multipath = True
+                    else:
+                        next_hops.append({
+                            "gateway": next_hops.get_attrs('RTA_GATEWAY')[0],
+                            "hops": next_hops['hops'] })
+            except: #there are no multihops in route tables
+                pass
+            if next_hops:
+                ipr.route("replace", dst=route.prefix, multipath=next_hops)
+            if not multipath:
+                ipr.route("del", dst=route.prefix, priority=route.metric)
         return None
     except Exception as e:
         fwglobals.log.debug(f"failed to remove_route({route.prefix} metric={route.metric}): {str(e)}, ignore this error")
