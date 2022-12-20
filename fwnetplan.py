@@ -191,6 +191,8 @@ def load_netplan_filenames(read_from_disk=False, get_only=False):
     if get_only:
         return our_files
 
+    fwglobals.g.NETPLAN_FILES.clear()
+
     for fname, devices in list(our_files.items()):
         for dev in devices:
             dev_id = dev.get('dev_id')
@@ -198,7 +200,8 @@ def load_netplan_filenames(read_from_disk=False, get_only=False):
             set_name = dev.get('set-name')
             if dev_id:
                 fwglobals.g.NETPLAN_FILES[dev_id] = {'fname': fname, 'ifname': ifname, 'set-name': set_name}
-                fwglobals.log.debug('load_netplan_filenames: %s(%s) uses %s' % (ifname, dev_id, fname))
+
+    fwglobals.log.debug(f'load_netplan_filenames: {fwglobals.g.NETPLAN_FILES}')
 
     # Save the disk cache for use when needed
     netplan = fwglobals.g.db.get('netplan')
