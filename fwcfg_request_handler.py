@@ -21,6 +21,7 @@
 ################################################################################
 
 import fwglobals
+import fw_os_utils
 import fwutils
 
 import copy
@@ -335,27 +336,8 @@ class FwCfgRequestHandler(FwObject):
             #
             object_name = cmd.get('object')
             if object_name:
-                if object_name == 'fwglobals.g':
-                    func = getattr(self, func_name)
-                elif object_name == 'fwglobals.g.router_api':
-                    func = getattr(fwglobals.g.router_api, func_name)
-                elif object_name == 'fwglobals.g.router_api.vpp_api':
-                    func = getattr(fwglobals.g.router_api.vpp_api, func_name)
-                elif object_name == 'fwglobals.g.router_api.frr':
-                    func = getattr(fwglobals.g.router_api.frr, func_name)
-                elif object_name == 'fwglobals.g.router_api.multilink':
-                    func = getattr(fwglobals.g.router_api.multilink, func_name)
-                elif object_name == 'fwglobals.g.ikev2':
-                    func = getattr(fwglobals.g.ikev2, func_name)
-                elif object_name == 'fwglobals.g.traffic_identifications':
-                    func = getattr(fwglobals.g.traffic_identifications, func_name)
-                elif object_name == 'fwglobals.g.pppoe':
-                    func = getattr(fwglobals.g.pppoe, func_name)
-                elif object_name == 'fwglobals.g.applications_api':
-                    func = getattr(fwglobals.g.applications_api, func_name)
-                elif object_name == 'fwglobals.g.qos':
-                    func = getattr(fwglobals.g.qos, func_name)
-                else:
+                func = fwglobals.g.get_object_func(object_name, func_name)
+                if not func:
                     return None
                 self.cache_func_by_name[full_name] = func
                 return func
@@ -637,7 +619,7 @@ class FwCfgRequestHandler(FwObject):
                             noop = False
                     if noop:
                         return True
-            elif re.match('start-router', req) and fwutils.vpp_does_run():
+            elif re.match('start-router', req) and fw_os_utils.vpp_does_run():
                 # start-router & stop-router break add-/remove-/modify- convention.
                 return True
             elif re.match('modify-', req):

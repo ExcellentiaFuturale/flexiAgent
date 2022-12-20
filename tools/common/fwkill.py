@@ -71,6 +71,9 @@ def main():
         print ("Shutting down flexiwan-router...")
     fwglobals.initialize(quiet=arg_quiet)
 
+    # Stop agent connection loop and applications. VPP will continue to run and will be killed later
+    os.system('timeout -k 10 20 fwagent stop --dont_stop_vpp')
+
     os.system('systemctl stop flexiwan-router')
     fwutils.stop_vpp()
     fwutils.remove_linux_bridges()
