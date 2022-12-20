@@ -245,6 +245,14 @@ def get_default_route(if_name=None):
     dev_id = get_interface_dev_id(dev)
     return (via, dev, dev_id, proto)
 
+def get_gateway_arp_entries(gw):
+    try:
+        out = subprocess.check_output(f'ip neigh show to {gw}', shell=True).decode()
+        return out.splitlines()
+    except Exception as e:
+        fwglobals.log.error(f'get_gateway_arp({gw}): failed to fetch arp for gateway. {str(e)}')
+        return []
+
 def get_interface_gateway(if_name, if_dev_id=None):
     """Get gateway.
 
