@@ -526,30 +526,45 @@ class Fwglobals(FwObject):
         """
         self.log.debug('initialize_agent: started')
 
-        self.router_api.restore_vpp_if_needed()
+        # Check whether it is required to restore VPP:
+        # - False: it means VPP is already running and configured, thus tha wan-nat-port mapping reconfiguration
+        #          is required to ensure that the VXLAN UDP port mapping is according to the configured in
+        #          /etc/flexiwan/agent/fwagent_conf.yaml
+        # - True: it means that VPP has just started and has been configured considering the latest VXLAN UDP port
+        #         in the /etc/flexiwan/agent/fwagent_conf.yaml configuration file
+        restore_vpp_needed = self.router_api.restore_vpp_if_needed()
 
         fwutils.get_linux_interfaces(cached=False) # Fill global interface cache
 
-        # Fetch add-interface configuration items from database and re-configure the WAN types one by one.
-        messages = self.router_cfg.dump(types=['add-interface'])
-        cmd_list = []
-        for msg in messages:
-            params = msg['params']
-            if 'type' not in params or params['type'].lower() == 'wan':
-                dev_id = params['dev_id']
-                port = fwglobals.VXLAN_PORTS["port"]
+        if not restore_vpp_needed:
+            # Fetch add-interface configuration items from database and re-configure the WAN types one by one.
+            messages = self.router_cfg.dump(types=['add-interface'])
+            port = fwglobals.VXLAN_PORTS["port"]
+            dev_ids = []    # get all WAN interfaces' dev_id
+            for msg in messages:
+                params = msg['params']
+                if 'type' not in params or params['type'].lower() == 'wan':
+                    dev_ids.append(params['dev_id'])
 
+            for dev_id in dev_ids:
                 # Remove previous NAT mapping
                 fwglobals.g.handle_request({'message':'remove-wan-nat-mapping',
-                                            'params':{'dev_id':dev_id,
-                                            'type': params['type'],
-                                            'port': port }
+                                            'params':
+                                            {
+                                                'dev_id':dev_id,
+                                                'type': params['type'],
+                                                'port': port
+                                            }
                                             })
+            for dev_id in dev_ids:
                 # Add the current fwglobals.VXLAN_PORTS["port"] NAT mapping
                 fwglobals.g.handle_request({'message':'add-wan-nat-mapping',
-                                            'params':{'dev_id':dev_id,
-                                            'type': params['type'],
-                                            'port': port }
+                                            'params':
+                                            {
+                                                'dev_id':dev_id,
+                                                'type': params['type'],
+                                                'port': port
+                                            }
                                             })
 
         # IMPORTANT! Some of the features below should be initialized after restore_vpp_if_needed

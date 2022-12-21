@@ -33,7 +33,7 @@ import fw_nat_command_helpers
 #    {
 #      "message": "add-wan-nat-mapping",
 #      "params": {
-#           "dev_id":"0000:00:08.00",
+#           "dev_id":"0000:00:01.00",
 #           "port":"4789"
 #      }
 #    }
@@ -42,8 +42,10 @@ import fw_nat_command_helpers
 #
 #    1.vpp.cfg
 #    ------------------------------------------------------------
-#    01. sudo vppctl set int state 0000:00:08.00 up
-#    02. sudo vppctl set int ip address 0000:00:08.00 192.168.56.107/24
+#    01. sudo vppctl nat44 out GigabitEthernet1/0/0 output-feature
+#    02. sudo vppctl nat44 add interface address GigabitEthernet8/0/0 session-recovery
+#    03. fwutils: enable forward of tap-inject to ip4-output features
+#    04. sudo vppctl nat44 add static mapping udp local 0.0.0.0 4789 external GigabitEthernet1/0/0 4789 vrf 0
 
 def add_wan_nat_mapping(params):
     """Generate commands to configure interface nat mapping in VPP
@@ -59,7 +61,7 @@ def add_wan_nat_mapping(params):
 
     # Setup NAT config on WAN interface
     if 'type' not in params or params['type'].lower() == 'wan':
-        cmd_list.extend(fw_nat_command_helpers.get_nat_wan_setup_config(dev_id, port=port))
+        cmd_list.extend(fw_nat_command_helpers.get_nat_wan_setup_config(dev_id))
 
     return cmd_list
 
