@@ -20,6 +20,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+from functools import partial
 from sqlitedict import SqliteDict
 
 import fwglobals
@@ -100,8 +101,25 @@ class FwPolicies(FwObject):
             if not attach_to_wan:
                 return
 
-        op = 'add' if attach else 'del'
+        op         = 'add' if attach else 'del'
+        revert_op = 'del' if attach else 'add'
 
-        for policy_id, priority in list(policies.items()):
-            vppctl_cmd = f'fwabf attach ip4 {op} policy {int(policy_id)} priority {priority} {vpp_if_name}'
-            fwutils.vpp_cli_execute([vppctl_cmd])
+        revert_functions = []
+        try:
+            for policy_id, priority in list(policies.items()):
+                vppctl_cmd        = f'fwabf attach ip4 {op} policy {int(policy_id)} priority {priority} {vpp_if_name}'
+                fwutils.vpp_cli_execute([vppctl_cmd], raise_exception_on_error=True)
+
+                revert_vppctl_cmd = f'fwabf attach ip4 {revert_op} policy {int(policy_id)} priority {priority} {vpp_if_name}'
+                revert_functions.append(partial(fwutils.vpp_cli_execute, [revert_vppctl_cmd]))
+        except Exception as e:
+            fwglobals.log.error(f"vpp_attach_detach_policies({attach, vpp_if_name, if_type}) failed: {str(e)}")
+
+            # delete successful commands
+            for revert_function in revert_functions:
+                try:
+                    revert_function()
+                except Exception as revert_e: # on revert, don't catch exceptions to prevent infinite loop of failure -> revert failure -> revert of revert failure and so on (:
+                    fwglobals.log.excep(f"vpp_attach_detach_policies(): revert failed. err: {str(revert_e)}")
+                    pass
+            raise e

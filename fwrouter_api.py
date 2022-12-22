@@ -1412,15 +1412,28 @@ class FWROUTER_API(FwCfgRequestHandler):
         self._update_cache_sw_if_index(sw_if_index, type, True)
 
     def apply_features_on_interface(self, add, vpp_if_name, if_type=None):
-        # apply firewall
-        # TODO: Should be implemented in the next release.
-        # For RemoteVPN, we rely temporarily on the add-firewall-policy job that expected to arrive after add-app-install.
+        revert_firewall = False
+        revert_qos = False
+        try:
+            # apply firewall
+            # TODO: Should be implemented in the next release.
+            # For current release, the remote vpn injects pair of remove and add firewall policy job when.
+            # revert_firewall = False
 
-        # apply qos
-        # TODO: Waiting for qos implementation
+            # apply qos
+            # TODO: Waiting for qos implementation
+            # revert_qos = False
 
-        # apply multilink
-        fwglobals.g.policies.vpp_attach_detach_policies(add, vpp_if_name, if_type)
+            # apply multilink
+            fwglobals.g.policies.vpp_attach_detach_policies(add, vpp_if_name, if_type)
+        except Exception as e:
+            self.log.error(f"apply_features_on_interface({add, vpp_if_name, if_type}): failed. {str(e)}")
+
+            # if revert_qos:
+
+            # if revert_firewall:
+
+            raise e
 
     def _on_remove_interface_before(self, type, sw_if_index):
         """remove-interface preprocessing

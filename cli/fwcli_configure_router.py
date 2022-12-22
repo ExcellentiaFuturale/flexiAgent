@@ -84,29 +84,35 @@ def api_interface_create(type, addr, host_if_name, ospf=True, bgp=True):
 
     revert_ospf = False
     revert_bgp = False
+    revert_tun = False
 
+    tun_vpp_if_name = None
     try:
         ret = {}
         if ospf:
             _ret, err_str = fwglobals.g.router_api.frr.run_ospf_add(addr, '0.0.0.0')
             if not _ret:
-                raise Exception(f'api_add_interface(): Failed to add {addr} network to ospf. err_str={str(err_str)}')
+                raise Exception(f'api_interface_create(): Failed to add {addr} network to ospf. err_str={str(err_str)}')
             revert_ospf = True
 
         if bgp and fwglobals.g.router_cfg.get_bgp(): # check if BGP exists
             _ret, err_str = fwglobals.g.router_api.frr.run_bgp_add_network(addr)
             if not _ret:
-                raise Exception(f'api_add_interface(): Failed to add {addr} network to bgp. err_str={str(err_str)}')
+                raise Exception(f'api_interface_create(): Failed to add {addr} network to bgp. err_str={str(err_str)}')
             revert_bgp = True
 
         tun_vpp_if_name = fwutils.create_tun_in_vpp(addr, host_if_name=host_if_name, recreate_if_exists=True)
         ret['tun_vpp_if_name'] = tun_vpp_if_name
+        revert_tun = True
 
         fwglobals.g.router_api.apply_features_on_interface(True, tun_vpp_if_name, type)
 
         return ret
     except Exception as e:
         fwglobals.log.error(f'api_interface_create({type}, {addr}, {host_if_name}) failed. {str(e)}')
+        if revert_tun and tun_vpp_if_name:
+            fwutils.delete_tun_tap_from_vpp(tun_vpp_if_name, ignore_errors=True)
+
         if revert_bgp:
             fwglobals.g.router_api.frr.run_bgp_remove_network(addr)
 
