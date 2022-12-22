@@ -1416,8 +1416,8 @@ class FWROUTER_API(FwCfgRequestHandler):
         # TODO: Should be implemented in the next release.
         # For RemoteVPN, we rely temporarily on the add-firewall-policy job that expected to arrive after add-app-install.
 
-        # apply qos
-        # TODO: Waiting for qos implementation
+        # apply qos classification
+        fwqos.update_interface_qos_classification(vpp_if_name, add)
 
         # apply multilink
         fwglobals.g.policies.vpp_attach_detach_policies(add, vpp_if_name, if_type)
