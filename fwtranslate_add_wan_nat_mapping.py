@@ -43,25 +43,65 @@ import fw_nat_command_helpers
 #    1.vpp.cfg
 #    ------------------------------------------------------------
 #    01. sudo vppctl nat44 out GigabitEthernet1/0/0 output-feature
-#    02. sudo vppctl nat44 add interface address GigabitEthernet8/0/0 session-recovery
+#    02. sudo vppctl nat44 add interface address GigabitEthernet1/0/0 session-recovery
 #    03. fwutils: enable forward of tap-inject to ip4-output features
-#    04. sudo vppctl nat44 add static mapping udp local 0.0.0.0 4789 external GigabitEthernet1/0/0 4789 vrf 0
+#    04. sudo vppctl nat44 add identity mapping external GigabitEthernet1/0/0 udp 4789 vrf 0 del
+#    05. sudo vppctl nat44 add static mapping udp local 0.0.0.0 4789 external GigabitEthernet1/0/0 4789 vrf 0
 
 def add_wan_nat_mapping(params):
-    """Generate commands to configure interface nat mapping in VPP
+    """
+    Generates command to default NAT identity mappings
+    on WAN interfaces
 
-     :param params:        Parameters from flexiManage.
+    :param dev_id: device identifier of the WAN interface
+    :type dev_id: String
+    :return: Command params carrying the generated config
+    :rtype: list
+    """
 
-     :returns: List of commands.
-     """
+     # Setup NAT config on WAN interface
     cmd_list = []
-
     dev_id  = params['dev_id']
     port = params.get('port', fwglobals.VXLAN_PORTS["port"])
 
-    # Setup NAT config on WAN interface
-    if 'type' not in params or params['type'].lower() == 'wan':
-        cmd_list.extend(fw_nat_command_helpers.get_nat_wan_setup_config(dev_id))
+    for service_name, service_cfg in fwglobals.WAN_INTERFACE_SERVICES.items():
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']   = "call_vpp_api"
+        cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+        cmd['cmd']['descr'] = "Add NAT WAN identity mapping for port %s:%d Protocol: %s" % (
+            service_name, port, service_cfg['protocol'])
+        cmd['cmd']['params'] = {
+                        'api': "nat44_add_del_identity_mapping",
+                        'args': {
+                            'port':     port,
+                            'protocol': fwutils.proto_map[service_cfg['protocol']],
+                            'is_add':   1,
+                            'substs': [
+                                {'add_param': 'sw_if_index',
+                                'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
+                            ]
+                        },
+        }
+
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "call_vpp_api"
+        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+        cmd['revert']['descr'] = "Delete NAT WAN identity mapping for port %s:%d Protocol: %s" % (
+            service_name, port, service_cfg['protocol'])
+        cmd['revert']['params'] = {
+                        'api': "nat44_add_del_identity_mapping",
+                        'args': {
+                            'port': port,
+                            'protocol': fwutils.proto_map[service_cfg['protocol']],
+                            'is_add': 0,
+                            'substs': [
+                                {'add_param': 'sw_if_index',
+                                'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
+                            ]
+                        },
+        }
+        cmd_list.append(cmd)
 
     return cmd_list
 

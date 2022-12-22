@@ -536,36 +536,66 @@ class Fwglobals(FwObject):
 
         fwutils.get_linux_interfaces(cached=False) # Fill global interface cache
 
-        if not restore_vpp_needed:
-            # Fetch add-interface configuration items from database and re-configure the WAN types one by one.
+        port = fwglobals.VXLAN_PORTS["port"]
+        if restore_vpp_needed:
             messages = self.router_cfg.dump(types=['add-interface'])
-            port = fwglobals.VXLAN_PORTS["port"]
-            dev_ids = []    # get all WAN interfaces' dev_id
             for msg in messages:
                 params = msg['params']
                 if 'type' not in params or params['type'].lower() == 'wan':
-                    dev_ids.append(params['dev_id'])
-
-            for dev_id in dev_ids:
+                    fwglobals.g.handle_request({'message':'add-wan-nat-mapping',
+                                                'params':
+                                                {
+                                                    'dev_id': params['dev_id'],
+                                                    'type': params['type'],
+                                                    'port': port
+                                                }
+                                                })
+        else:
+            # Fetch add-wan-nat-mapping configuration items from database and re-configure nat port mapping
+            messages = self.router_cfg.dump(types=['add-wan-nat-mapping'])
+            dev_ids = []    # list of the WAN devices' id
+            for msg in messages:
+                # Check if the VXLAN UDP port has changed in the configuration
+                #   file with respect to the configured one and saved in the database
+                if msg['params']['port'] == port:
+                    continue
+                params = msg['params']
+                dev_ids.append(params['dev_id'])
                 # Remove previous NAT mapping
                 fwglobals.g.handle_request({'message':'remove-wan-nat-mapping',
                                             'params':
                                             {
-                                                'dev_id':dev_id,
+                                                'dev_id': params['dev_id'],
                                                 'type': params['type'],
                                                 'port': port
                                             }
                                             })
-            for dev_id in dev_ids:
                 # Add the current fwglobals.VXLAN_PORTS["port"] NAT mapping
                 fwglobals.g.handle_request({'message':'add-wan-nat-mapping',
                                             'params':
                                             {
-                                                'dev_id':dev_id,
+                                                'dev_id': params['dev_id'],
                                                 'type': params['type'],
                                                 'port': port
                                             }
                                             })
+
+            # Fetch add-interface configuration items from database and re-configure the nat port mapping.
+            if len(dev_ids) > 0:
+                add_iface_messages = self.router_cfg.dump(types=['add-interface'], full=True)
+                for add_iface_message in add_iface_messages:
+                    params = add_iface_message['params']
+                    if 'type' not in params or params['type'].lower() == 'wan':
+                        if params['dev_id'] not in dev_ids:
+                            continue
+                        cmd_list = add_iface_message['cmd_list']
+                        for cmd in cmd_list:
+                            if 'api' in cmd['cmd']['params'] and cmd['cmd']['params']['api'] == 'nat44_add_del_identity_mapping':
+                                cmd['cmd']['params']['args']['port'] = port
+                                cmd['revert']['params']['args']['port'] = port
+                        self.router_cfg.update(request=add_iface_message,
+                                            cmd_list=add_iface_message['cmd_list'],
+                                            executed=True)
 
         # IMPORTANT! Some of the features below should be initialized after restore_vpp_if_needed
         #
