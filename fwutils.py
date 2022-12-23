@@ -245,6 +245,14 @@ def get_default_route(if_name=None):
     dev_id = get_interface_dev_id(dev)
     return (via, dev, dev_id, proto)
 
+def get_gateway_arp_entries(gw):
+    try:
+        out = subprocess.check_output(f'ip neigh show to {gw}', shell=True).decode()
+        return out.splitlines()
+    except Exception as e:
+        fwglobals.log.error(f'get_gateway_arp({gw}): failed to fetch arp for gateway. {str(e)}')
+        return []
+
 def get_interface_gateway(if_name, if_dev_id=None):
     """Get gateway.
 
@@ -2146,7 +2154,7 @@ def vpp_startup_conf_remove_devices(vpp_config_filename, devices):
     p.dump(config, vpp_config_filename)
     return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
 
-def vpp_startup_conf_hqos(vpp_config_filename, is_add):
+def vpp_startup_conf_hqos(vpp_config_filename, is_add, num_interfaces):
     """
     Add/Remove HQoS Worker thread if QoS policy is applied
 
@@ -2161,7 +2169,7 @@ def vpp_startup_conf_hqos(vpp_config_filename, is_add):
         hqos_enabled = False
         if fwqos.has_qos_policy() is True:
             hqos_enabled = True if ((num_worker_cores > 1) and (is_add is True)) else False
-        startup_conf.set_cpu_workers(num_worker_cores, hqos_enabled=hqos_enabled)
+        startup_conf.set_cpu_workers(num_worker_cores, num_interfaces=num_interfaces, hqos_enabled=hqos_enabled)
         fwglobals.g.qos.update_hqos_worker_state(hqos_enabled, num_worker_cores)
 
 

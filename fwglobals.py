@@ -888,6 +888,34 @@ class Fwglobals(FwObject):
                 return self.loggers[r['message']]
         return None
 
+    def get_object_func(self, object_name, func_name):
+        try:
+            if object_name == 'fwglobals.g':
+                func = getattr(self, func_name)
+            elif object_name == 'fwglobals.g.router_api':
+                func = getattr(self.router_api, func_name)
+            elif object_name == 'fwglobals.g.router_api.vpp_api':
+                func = getattr(self.router_api.vpp_api, func_name)
+            elif object_name == 'fwglobals.g.router_api.frr':
+                func = getattr(self.router_api.frr, func_name)
+            elif object_name == 'fwglobals.g.router_api.multilink':
+                func = getattr(self.router_api.multilink, func_name)
+            elif object_name == 'fwglobals.g.ikev2':
+                func = getattr(self.ikev2, func_name)
+            elif object_name == 'fwglobals.g.traffic_identifications':
+                func = getattr(self.traffic_identifications, func_name)
+            elif object_name == 'fwglobals.g.pppoe':
+                func = getattr(self.pppoe, func_name)
+            elif object_name == 'fwglobals.g.applications_api':
+                func = getattr(self.applications_api, func_name)
+            elif object_name == 'fwglobals.g.qos':
+                func = getattr(self.qos, func_name)
+            else:
+                return None
+        except Exception as e:
+            self.log.excep(f"get_object_func({object_name}, {func_name}): {str(e)}")
+            return None
+        return func
 
 def initialize(log_level=FWLOG_LEVEL_INFO, quiet=False):
     """Initialize global instances of LOG, and GLOBALS.
