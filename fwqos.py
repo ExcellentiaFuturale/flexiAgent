@@ -1395,3 +1395,21 @@ def get_interface_classification_setup_commands(dev_id, sw_if_index_key, cmd_lis
             }
         ]
     cmd_list.append(cmd)
+
+
+def update_interface_qos_classification(vpp_if_name, add):
+    """
+    Commands to attach / detach classification ACLs on the given interface
+
+    :param vpp_if_name: Interface name on which classification is to be enabled
+    :type vpp_if_name: String
+    :param add: Flag indicating to attach or detach
+    :type add: Boolean
+    """
+    vpp_commands = []
+    params = vpp_if_name if add else vpp_if_name + ' del'
+    vpp_commands.append('classifier-acls set %s' % params)
+    vpp_commands.append('classifier-acls enable %s' % params)
+    status, err = fwutils.vpp_cli_execute(vpp_commands)
+    if not status:
+        fwglobals.log.error('Error in enabling QoS classification on: %s (%s)' % (vpp_if_name, err))
