@@ -52,7 +52,8 @@ class Application(FwApplicationInterface):
         """
         try:
             installed = os.popen("dpkg -l | grep -E '^ii' | grep openvpn").read()
-            if installed:
+            dir_is_empty = exists('/etc/openvpn/server') and len(os.listdir('/etc/openvpn/server')) == 0
+            if installed and not dir_is_empty:
                 return
 
             os.system('mkdir -p /etc/openvpn/server')
@@ -134,7 +135,7 @@ class Application(FwApplicationInterface):
             self.log.error(f"configure({params}): {str(e)}")
             raise e
 
-    def uninstall(self):
+    def uninstall(self, files_only=False):
         """Remove Open VPN server from host.
 
         :returns: (True, None) tuple on success, (False, <error string>) on failure.
@@ -142,10 +143,10 @@ class Application(FwApplicationInterface):
         try:
             self.stop()
 
-            commands = [
-                'apt-get remove -y openvpn',
-                'rm -rf /etc/openvpn/server/*'
-            ]
+            commands = ['rm -rf /etc/openvpn/server/*']
+            if not files_only:
+                commands.append('apt-get remove -y openvpn')
+
             fw_os_utils.run_linux_commands(commands)
 
         except Exception as e:
