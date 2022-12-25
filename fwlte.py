@@ -26,12 +26,12 @@ import subprocess
 import time
 
 from datetime import datetime, timedelta
-from functools import partial
 from netaddr import IPAddress
 
 import fwglobals
 import fw_os_utils
 import fwutils
+from fw_run_with_revert import FwRunWithRevert
 
 class LTE_ERROR_MESSAGES():
     PIN_IS_WRONG = 'PIN_IS_WRONG'
@@ -1096,26 +1096,43 @@ def add_del_traffic_control(is_add, dev_id, lte_if_name=None):
     # If a command fails, it throws an error.
     # Hence, after each command, we know that it succeeded, and we add the revert function of it to a list.
     # In case of an error, we call each function within the revert list to clean up the configuration.
-    revert_functions = []
+    process = FwRunWithRevert()
+
     try:
         if is_add:
             # first, apply the ingress qdisc
-            fwutils.traffic_control_add_del_qdisc(is_add=True, dev_name=lte_if_name)
-            revert_functions.append(partial(fwutils.traffic_control_add_del_qdisc, is_add=False, dev_name=lte_if_name))
+            process.run(
+                success=fwutils.traffic_control_add_del_qdisc,
+                success_params={ 'is_add': True, 'dev_name': lte_if_name },
+                revert=fwutils.traffic_control_add_del_qdisc,
+                revert_params={ 'is_add': False, 'dev_name': lte_if_name }
+            )
             '''
             When DPDK is used to initialize the tap interface created as part of LTE init,
             the ingress qdisc setup is taken care as part of dpdk initialization
 
             Below setup is need only if the tap is initialized by VPP (not DPDK)
-            fwutils.traffic_control_add_del_qdisc(is_add=True, dev_name=linux_tap_if_name)
-            revert_functions.append(partial(fwutils.traffic_control_add_del_qdisc, is_add=False, dev_name=linux_tap_if_name))
+            process.run(
+                success=fwutils.traffic_control_add_del_qdisc,
+                success_params={ 'is_add': True, 'dev_name': linux_tap_if_name },
+                revert=fwutils.traffic_control_add_del_qdisc,
+                revert_params={ 'is_add': True, 'dev_name': linux_tap_if_name },
+            )
             '''
             # then, apply the mirroring
-            fwutils.traffic_control_add_del_mirror_policy(is_add=True, from_ifc=linux_tap_if_name, to_ifc=lte_if_name, set_dst_mac=lte_mac_addr)
-            revert_functions.append(partial(fwutils.traffic_control_add_del_mirror_policy, is_add=False, from_ifc=linux_tap_if_name, to_ifc=lte_if_name, set_dst_mac=lte_mac_addr))
+            process.run(
+                success=fwutils.traffic_control_add_del_mirror_policy,
+                success_params={ 'is_add': True, 'from_ifc': linux_tap_if_name, 'to_ifc': lte_if_name, 'set_dst_mac': lte_mac_addr },
+                revert=fwutils.traffic_control_add_del_mirror_policy,
+                revert_params={ 'is_add': False, 'from_ifc': linux_tap_if_name, 'to_ifc': lte_if_name, 'set_dst_mac': lte_mac_addr }
+            )
 
-            fwutils.traffic_control_add_del_mirror_policy(is_add=True, from_ifc=lte_if_name, to_ifc=linux_tap_if_name, set_dst_mac=vpp_mac_addr)
-            revert_functions.append(partial(fwutils.traffic_control_add_del_mirror_policy, is_add=False, from_ifc=lte_if_name, to_ifc=linux_tap_if_name, set_dst_mac=vpp_mac_addr))
+            process.run(
+                success=fwutils.traffic_control_add_del_mirror_policy,
+                success_params={ 'is_add': True, 'from_ifc': lte_if_name, 'to_ifc': linux_tap_if_name, 'set_dst_mac': vpp_mac_addr },
+                revert=fwutils.traffic_control_add_del_mirror_policy,
+                revert_params={ 'is_add': False, 'from_ifc': lte_if_name, 'to_ifc': linux_tap_if_name, 'set_dst_mac': vpp_mac_addr }
+            )
         else:
             # first, remove the mirroring
             fwutils.traffic_control_add_del_mirror_policy(is_add=False, from_ifc=linux_tap_if_name, to_ifc=lte_if_name, set_dst_mac=lte_mac_addr)
@@ -1128,15 +1145,7 @@ def add_del_traffic_control(is_add, dev_id, lte_if_name=None):
             '''
     except Exception as e:
         fwglobals.log.error(f"add_del_traffic_control({dev_id}, {lte_if_name}): {str(e)}")
-        # delete successful commands
-        if revert_functions:
-            for revert_function in revert_functions:
-                try:
-                    revert_function()
-                except Exception as revert_e: # on revert, don't catch exceptions to prevent infinite loop of failure -> revert failure -> revert of revert failure and so on (:
-                    fwglobals.log.excep(f"add_del_traffic_control({dev_id}, {lte_if_name}): revert failed. err: {str(revert_e)}")
-                    pass
-        raise e
+        process.revert(e)
 
 
 def dump(dev_id, lte_if_name, prefix_path=''):
