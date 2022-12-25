@@ -32,7 +32,7 @@ import traceback
 FW_VPP_COREDUMP_FOLDER = "/var/crash"
 FW_VPP_COREDUMP_PERMISSIONS = 0o775
 FW_VPP_COREDUMP_LOCATION = FW_VPP_COREDUMP_FOLDER + "/"
-FW_VPP_COREDUMP_START_STR = "core-vpp"
+FW_VPP_COREDUMP_START_STR_LIST = ["core-vpp", "core-lcore"]
 FW_VPP_COREDUMP_END_STR = "-dump"
 FW_MAX_CORE_RETAIN_LIMIT = 3
 FW_VPP_COREDUMP_LOCK = threading.Lock()
@@ -185,7 +185,7 @@ class FwVppCoredumpProcess(threading.Thread):
     @staticmethod
     def __vpp_coredump_limit_cores():
 
-        files = glob.glob((FW_VPP_COREDUMP_LOCATION + FW_VPP_COREDUMP_START_STR + "*"))
+        files = vpp_get_coredump_files()
         filenames = sorted(files, key=lambda t: -os.stat(t).st_ctime)
         count = 0
         for filename in filenames:
@@ -214,6 +214,16 @@ class FwVppCoredumpProcess(threading.Thread):
         finally:
             FW_VPP_COREDUMP_LOCK.release()
         fwglobals.log.info("VPP coredump process: Thread end")
+
+
+def vpp_get_coredump_files():
+    """
+    Function that returns VPP coredump files
+    """
+    files = []
+    for start_word in FW_VPP_COREDUMP_START_STR_LIST:
+        files.extend(glob.glob((FW_VPP_COREDUMP_LOCATION + start_word + "*")))
+    return files
 
 
 def vpp_coredump_in_progress(filename):
@@ -253,7 +263,7 @@ def vpp_coredump_process():
     pending_count = 0
     corefiles = []
     try:
-        files = glob.glob((FW_VPP_COREDUMP_LOCATION + FW_VPP_COREDUMP_START_STR + "*"))
+        files = vpp_get_coredump_files()
         filenames = sorted(files, key=lambda t: os.stat(t).st_ctime)
         for filename in filenames:
             if filename.endswith(FW_VPP_COREDUMP_END_STR):
@@ -276,7 +286,7 @@ def vpp_coredump_process():
 def vpp_coredump_copy_cores(dest_folder, copy_count):
 
     # Sorting enables selecting recent cores for copy
-    files = glob.glob((FW_VPP_COREDUMP_LOCATION + FW_VPP_COREDUMP_START_STR + "*"))
+    files = vpp_get_coredump_files()
     filenames = sorted(files, key=lambda t: -os.stat(t).st_ctime)
     count = 0
     for filename in filenames:
