@@ -821,6 +821,8 @@ class Fwglobals(FwObject):
                 func = getattr(self.applications_api, func_name)
             elif object_name == 'fwglobals.g.qos':
                 func = getattr(self.qos, func_name)
+            elif object_name == 'fwglobals.g.jobs':
+                func = getattr(self.jobs, func_name)
             else:
                 return None
         except Exception as e:
