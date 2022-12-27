@@ -47,7 +47,7 @@ def vpp_pid():
     :returns:           process identifier.
     """
     try:
-        pid = subprocess.check_output(['pidof', 'vpp'])
+        pid = subprocess.check_output(['pidof', 'vpp']).decode().strip()
     except:
         pid = None
     return pid
