@@ -267,6 +267,14 @@ class Checker:
 
         :returns: 'True' if check is successful and 'False' otherwise.
         """
+
+        # Firstly check if user (or fwsystem_checker) configured UUID explicitly.
+        #
+        with open(self.CFG_FWAGENT_CONF_FILE, 'r') as f:
+            conf = yaml.load(f, Loader=yaml.SafeLoader)
+            if conf.get('agent') and conf['agent'].get('uuid'):
+                return True
+
         uuid_filename = '/sys/class/dmi/id/product_uuid'
         try:
             found_uuid = subprocess.check_output(['cat', uuid_filename]).decode().split('\n')[0].strip()
@@ -285,14 +293,6 @@ class Checker:
 
         except Exception as e:
             self.log.error(prompt + str(e))
-
-            # Check if fwagent configuration file has the simulated uuid
-            with open(self.CFG_FWAGENT_CONF_FILE, 'r') as f:
-                conf = yaml.load(f, Loader=yaml.SafeLoader)
-                if conf.get('agent') and conf['agent'].get('uuid'):
-                    return True
-
-            self.log.warning(prompt + "UUID was found neither in system nor in %s" % self.CFG_FWAGENT_CONF_FILE)
             if not fix:
                 return False
 
