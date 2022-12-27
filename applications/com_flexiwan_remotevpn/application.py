@@ -409,3 +409,12 @@ class Application(FwApplicationInterface):
             cfg["openvpn_scripts_log_file"],
             cfg["openvpn_log_file"],
         ]
+
+    def get_networks(self, for_bgp=False, for_ospf=False):
+        networks = []
+        with open(cfg['app_database_file'], 'r') as json_file:
+            data = json.load(json_file)
+            tun_vpp_if_addr = data.get('tun_vpp_if_addr')
+            if tun_vpp_if_addr:
+                networks.append(tun_vpp_if_addr)
+        return networks
