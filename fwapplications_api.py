@@ -255,6 +255,9 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
     def get_interfaces(self, **params):
         return self.call_hook('get_interfaces', params)
 
+    def get_networks(self, **params):
+        return self.call_hook('get_networks', params)
+
     def _get_installation_dir(self, identifier):
         current_dir = str(pathlib.Path(__file__).parent.resolve())
         identifier = identifier.replace('.', '_') # python modules cannot be imported if the path is with dots

@@ -136,6 +136,14 @@ def add_routing_bgp(params):
         vtysh_commands += _get_neighbor_address_family_frr_commands(neighbor)
 
     networks = params.get('networks', [])
+
+    # Get networks managed by installed applications.
+    # The function below returns dictionary, where keys are application identifiers,
+    # and values are lists of networks, e.g.
+    #      { 'com.flexiwan.vpn': ['tun0'] }
+    app_networks = fwglobals.g.applications_api.get_networks(for_bgp=True, for_bgp=False)
+    networks += [{ 'ipv4': app_network } for app_networks in app_networks.values() for app_network in app_networks]
+
     for network in networks:
         ip = network.get('ipv4')
         vtysh_commands += [f'network {ip}']
