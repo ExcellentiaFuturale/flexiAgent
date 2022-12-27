@@ -25,6 +25,7 @@ import fw_os_utils
 import fwutils
 
 import copy
+from functools import partial
 import traceback
 import json
 import re
@@ -863,3 +864,68 @@ class FwCfgRequestHandler(FwObject):
 
         existing_params = self.cfg_db.get_request_params(request)
         return _compare_modify_params(request['params'], existing_params, ignore_params)
+
+class FwCfgMultiOpsWithRevert():
+    """This class is used as a helper function to perform several operations, one after the other, 4
+    taking responsibility for the revert of each operation in case one of the operations fails.
+    If one of the operations failed, you should do a revert of the functions that have already passed successfully
+    to clean the system of settings that were not completed correctly.
+    """
+
+    def __init__(self):
+        """Constructor.
+        """
+        self.revert_functions = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return
+
+    def exec(self, func, params=None, revert_func=None, revert_params=None):
+        """Execute the given function and save its revert function to a list.
+
+        :param func:          Function to execute now.
+        :param params:        Dictionary of params to call the function with. Keep None to call function without params.
+        :param revert_func:   Revert function to save in order to run on a failure.
+        :param revert_params: Params of the revert function.
+
+        :returns: reply from the executed function.
+        """
+        try:
+            ret = func(**params) if params else func()
+            self.add_revert_func(revert_func, revert_params)
+            return ret
+        except Exception as e:
+            fwglobals.log.error(f"FwCfgMultiOpsWithRevert(): func {func.__name__}({params}) failed. err: {str(e)}")
+            self.revert(e)
+
+    def add_revert_func(self, revert_func=None, revert_params=None):
+        """Save the revert function in a list. The list will be run in case of failure in one of the functions.
+
+        :param revert_func:   Revert function to save in order to run on a failure.
+        :param revert_params: Params of the revert function.
+        """
+        if revert_func and revert_params:
+            self.revert_functions.append(partial(revert_func, **revert_params))
+        elif revert_func:
+            self.revert_functions.append(partial(revert_func))
+
+    def revert(self, error):
+        """Execute all the saved revert functions.
+
+        :param error: Error to throw at the end of the process..
+        """
+        if not self.revert_functions:
+            raise error
+
+        self.revert_functions.reverse()
+        for revert_function in self.revert_functions:
+            try:
+                revert_function()
+            except Exception as revert_e: # on revert, don't raise exceptions to prevent infinite loop of failure -> revert failure -> revert of revert failure and so on (:
+                fwglobals.log.excep(f"FwCfgMultiOpsWithRevert(): revert func {str(revert_function)} failed. err: {str(revert_e)}")
+
+        self.revert_functions = []
+        raise error
