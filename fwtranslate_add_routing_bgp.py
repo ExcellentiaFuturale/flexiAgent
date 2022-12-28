@@ -141,7 +141,7 @@ def add_routing_bgp(params):
     # The function below returns dictionary, where keys are application identifiers,
     # and values are lists of networks, e.g.
     #      { 'com.flexiwan.vpn': ['tun0'] }
-    app_networks = fwglobals.g.applications_api.get_networks(for_bgp=True, for_bgp=False)
+    app_networks = fwglobals.g.applications_api.get_networks(for_bgp=True, for_ospf=False)
     networks += [{ 'ipv4': app_network } for app_networks in app_networks.values() for app_network in app_networks]
 
     for network in networks:
