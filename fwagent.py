@@ -915,7 +915,8 @@ class FwagentDaemon(FwObject):
         if self.event_exit:
             self.event_exit.set()
         else:
-            self.log.info(f"agent is being initialized, ignore {sig_name}")
+            self.log.info(f"agent initialization was not finished, exit on {sig_name}")
+            exit(1)
 
     def __enter__(self):
         self.agent = fwglobals.g.create_agent(initialize=False)
