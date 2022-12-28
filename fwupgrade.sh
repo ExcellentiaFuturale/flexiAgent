@@ -21,7 +21,7 @@
 ################################################################################
 
 # Constants
-AGENT_SERVICE_FILE='/etc/systemd/system/multi-user.target.wants/flexiwan-router.service'
+AGENT_SERVICE_FILE='/lib/systemd/system/flexiwan-router.service'
 AGENT_SERVICE='flexiwan-router'
 SW_REPOSITORY='deb.flexiwan.com'
 AGENT_CHECK_TIMEOUT=600
