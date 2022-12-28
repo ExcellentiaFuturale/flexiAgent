@@ -43,7 +43,7 @@ log() {
 
 update_fwjob() {
     log "$1": "$2"
-    fwagent configure fwjobs job update --job_id $JOB_ID --request 'upgrade-device-sw' --command "$1" --job_error "$2"
+    fwagent configure jobs update --job_id $JOB_ID --request 'upgrade-device-sw' --command "$1" --job_error "$2"
 }
 
 #######################################

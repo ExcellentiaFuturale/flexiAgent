@@ -1397,6 +1397,9 @@ def handle_cli_command(args):
         nonlocal cli_func_name
 
         cli_func_name += f'_{step}' # -> _interfaces
+        if not step in args.__dict__:
+            _build_cli_params()
+            return
         next_step = args.__dict__[step] # -> create
         if not next_step in args.__dict__:
             cli_func_name += f'_{next_step}' # -> _interfaces_create

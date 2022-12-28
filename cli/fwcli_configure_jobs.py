@@ -22,19 +22,16 @@
 from fwagent import daemon_rpc
 
 def argparse(configure_subparsers):
-    configure_fwjobs_parser = configure_subparsers.add_parser('fwjobs', help='Configure fwjobs')
-    configure_fwjobs_subparsers = configure_fwjobs_parser.add_subparsers(dest='fwjobs')
+    configure_jobs_parser = configure_subparsers.add_parser('jobs', help='Configure jobs')
+    configure_jobs_subparsers = configure_jobs_parser.add_subparsers(dest='jobs')
 
-    job_parser = configure_fwjobs_subparsers.add_parser('job', help='Configure job')
-    fwjobs_job_subparsers = job_parser.add_subparsers(dest='job')
+    update_jobs_cli = configure_jobs_subparsers.add_parser('update', help='Update job')
+    update_jobs_cli.add_argument('--job_id', dest='params.job_id', help="Job id", required=True)
+    update_jobs_cli.add_argument('--request', dest='params.request', help="Job request", required=True)
+    update_jobs_cli.add_argument('--command', dest='params.command', help="Failed job command", required=True)
+    update_jobs_cli.add_argument('--job_error', dest='params.job_error', help="Job error", required=True)
 
-    update_fwjobs_cli = fwjobs_job_subparsers.add_parser('update', help='Update fwjob')
-    update_fwjobs_cli.add_argument('--job_id', dest='params.job_id', help="Job id", required=True)
-    update_fwjobs_cli.add_argument('--request', dest='params.request', help="Job request", required=True)
-    update_fwjobs_cli.add_argument('--command', dest='params.command', help="Failed job command", required=True)
-    update_fwjobs_cli.add_argument('--job_error', dest='params.job_error', help="Job error", required=True)
-
-def job_update(job_id, request, command, job_error):
+def update(job_id, request, command, job_error):
 
     daemon_rpc(
         'api',
