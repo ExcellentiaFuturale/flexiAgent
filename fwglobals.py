@@ -285,6 +285,7 @@ class Fwglobals(FwObject):
         self.IKEV2_FOLDER        = self.DATA_PATH + 'ikev2/'
         self.ROUTER_LOG_FILE     = '/var/log/flexiwan/agent.log'
         self.APPLICATION_IDS_LOG_FILE = '/var/log/flexiwan/application_ids.log'
+        self.FIREWALL_LOG_FILE = '/var/log/flexiwan/firewall.log'
         self.AGENT_UI_LOG_FILE   = '/var/log/flexiwan/agentui.log'
         self.SYSTEM_CHECKER_LOG_FILE = '/var/log/flexiwan/system_checker.log'
         self.REPO_SOURCE_DIR     = '/etc/apt/sources.list.d/'
@@ -419,9 +420,13 @@ class Fwglobals(FwObject):
         #
         self.logger_add_application = FwLogFile(
             filename=self.APPLICATION_IDS_LOG_FILE, level=log.level)
+        self.logger_add_firewall_policy = FwLogFile(
+            filename=self.FIREWALL_LOG_FILE, level=log.level)
         self.loggers = {
-            'add-application':      self.logger_add_application,
-            'remove-application':   self.logger_add_application,
+            'add-application':        self.logger_add_application,
+            'remove-application':     self.logger_add_application,
+            'add-firewall-policy':    self.logger_add_firewall_policy,
+            'remove-firewall-policy': self.logger_add_firewall_policy,
         }
 
         # Some lte modules have a problem with drivers binding.
