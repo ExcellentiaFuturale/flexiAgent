@@ -29,8 +29,8 @@ from netaddr import *
 import fwglobals
 import fwlte
 import fwutils
-import fwqos
 
+IPSEC_ANTI_REPLAY_WINDOW = 448
 
 # add_tunnel
 # --------------------------------------
@@ -1096,6 +1096,7 @@ def _add_ikev2_common_profile(cmd_list, params, name, cache_key, auth_method, lo
         'args': {
             'name'  :  name,
             'enable':  True,
+            'anti_replay_window_len': IPSEC_ANTI_REPLAY_WINDOW
         }
     }
     cmd_list.append(cmd)

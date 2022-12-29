@@ -285,6 +285,7 @@ class Fwglobals(FwObject):
         self.IKEV2_FOLDER        = self.DATA_PATH + 'ikev2/'
         self.ROUTER_LOG_FILE     = '/var/log/flexiwan/agent.log'
         self.APPLICATION_IDS_LOG_FILE = '/var/log/flexiwan/application_ids.log'
+        self.FIREWALL_LOG_FILE = '/var/log/flexiwan/firewall.log'
         self.AGENT_UI_LOG_FILE   = '/var/log/flexiwan/agentui.log'
         self.SYSTEM_CHECKER_LOG_FILE = '/var/log/flexiwan/system_checker.log'
         self.REPO_SOURCE_DIR     = '/etc/apt/sources.list.d/'
@@ -419,9 +420,13 @@ class Fwglobals(FwObject):
         #
         self.logger_add_application = FwLogFile(
             filename=self.APPLICATION_IDS_LOG_FILE, level=log.level)
+        self.logger_add_firewall_policy = FwLogFile(
+            filename=self.FIREWALL_LOG_FILE, level=log.level)
         self.loggers = {
-            'add-application':      self.logger_add_application,
-            'remove-application':   self.logger_add_application,
+            'add-application':        self.logger_add_application,
+            'remove-application':     self.logger_add_application,
+            'add-firewall-policy':    self.logger_add_firewall_policy,
+            'remove-firewall-policy': self.logger_add_firewall_policy,
         }
 
         # Some lte modules have a problem with drivers binding.
@@ -794,6 +799,34 @@ class Fwglobals(FwObject):
                 return self.loggers[r['message']]
         return None
 
+    def get_object_func(self, object_name, func_name):
+        try:
+            if object_name == 'fwglobals.g':
+                func = getattr(self, func_name)
+            elif object_name == 'fwglobals.g.router_api':
+                func = getattr(self.router_api, func_name)
+            elif object_name == 'fwglobals.g.router_api.vpp_api':
+                func = getattr(self.router_api.vpp_api, func_name)
+            elif object_name == 'fwglobals.g.router_api.frr':
+                func = getattr(self.router_api.frr, func_name)
+            elif object_name == 'fwglobals.g.router_api.multilink':
+                func = getattr(self.router_api.multilink, func_name)
+            elif object_name == 'fwglobals.g.ikev2':
+                func = getattr(self.ikev2, func_name)
+            elif object_name == 'fwglobals.g.traffic_identifications':
+                func = getattr(self.traffic_identifications, func_name)
+            elif object_name == 'fwglobals.g.pppoe':
+                func = getattr(self.pppoe, func_name)
+            elif object_name == 'fwglobals.g.applications_api':
+                func = getattr(self.applications_api, func_name)
+            elif object_name == 'fwglobals.g.qos':
+                func = getattr(self.qos, func_name)
+            else:
+                return None
+        except Exception as e:
+            self.log.excep(f"get_object_func({object_name}, {func_name}): {str(e)}")
+            return None
+        return func
 
 def initialize(log_level=FWLOG_LEVEL_INFO, quiet=False):
     """Initialize global instances of LOG, and GLOBALS.

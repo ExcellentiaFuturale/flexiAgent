@@ -51,6 +51,7 @@ from fwmultilink import FwMultilink
 from fwpolicies import FwPolicies
 from vpp_api import VPP_API
 from tools.common.fw_vpp_startupconf import FwStartupConf
+from fwcfg_request_handler import FwCfgMultiOpsWithRevert
 
 fwrouter_translators = {
     'start-router':             {'module': __import__('fwtranslate_start_router'),    'api':'start_router'},
@@ -1412,15 +1413,30 @@ class FWROUTER_API(FwCfgRequestHandler):
         self._update_cache_sw_if_index(sw_if_index, type, True)
 
     def apply_features_on_interface(self, add, vpp_if_name, if_type=None):
-        # apply firewall
-        # TODO: Should be implemented in the next release.
-        # For RemoteVPN, we rely temporarily on the add-firewall-policy job that expected to arrive after add-app-install.
+        with FwCfgMultiOpsWithRevert() as handler:
+            try:
+                # apply firewall
+                # TODO: Should be implemented in the next release.
+                # For current release, the remote vpn injects pair of remove and add firewall policy job when.
 
-        # apply qos
-        # TODO: Waiting for qos implementation
+                # apply qos classification
+                handler.exec(
+                    func=fwqos.update_interface_qos_classification,
+                    params={ 'vpp_if_name': vpp_if_name, 'add': add },
+                    revert_func=fwqos.update_interface_qos_classification if add else None, # no need revert of revert
+                    revert_params={ 'vpp_if_name': vpp_if_name, 'add': (not add) } if add else None, # no need revert of revert
+                )
 
-        # apply multilink
-        fwglobals.g.policies.vpp_attach_detach_policies(add, vpp_if_name, if_type)
+                # apply multilink
+                handler.exec(
+                    func=fwglobals.g.policies.vpp_attach_detach_policies,
+                    params={ 'attach': add, 'vpp_if_name': vpp_if_name, 'if_type': if_type },
+                    revert_func=fwglobals.g.policies.vpp_attach_detach_policies if add else None, # no need revert of revert
+                    revert_params={ 'attach': (not add), 'vpp_if_name': vpp_if_name, 'if_type': if_type } if add else None, # no need revert of revert
+                )
+            except Exception as e:
+                self.log.error(f"apply_features_on_interface({add, vpp_if_name, if_type}): failed. {str(e)}")
+                handler.revert(e)
 
     def _on_remove_interface_before(self, type, sw_if_index):
         """remove-interface preprocessing

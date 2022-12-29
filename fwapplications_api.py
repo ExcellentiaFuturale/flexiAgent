@@ -255,6 +255,9 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
     def get_interfaces(self, **params):
         return self.call_hook('get_interfaces', params)
 
+    def get_networks(self, **params):
+        return self.call_hook('get_networks', params)
+
     def _get_installation_dir(self, identifier):
         current_dir = str(pathlib.Path(__file__).parent.resolve())
         identifier = identifier.replace('.', '_') # python modules cannot be imported if the path is with dots
@@ -264,12 +267,12 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
     def get_log_filename(self, identifier):
         return self._call_application_api_safe(identifier, 'get_log_filename')
 
-def call_applications_hook(hook, identifier=None):
+def call_applications_hook(hook, identifier=None, params=None):
     '''This function calls a function within applications_api even if the agent object is not initialized
     '''
     # when calling this function from fwdump, there is no "g" in fwglobals
     if hasattr(fwglobals, 'g') and hasattr(fwglobals.g, 'applications_api'):
-        return fwglobals.g.applications_api.call_hook(hook, identifier=identifier)
+        return fwglobals.g.applications_api.call_hook(hook, identifier=identifier, params=params)
 
     with FWAPPLICATIONS_API() as applications_api:
-        return applications_api.call_hook(hook, identifier=identifier)
+        return applications_api.call_hook(hook, identifier=identifier, params=params)
