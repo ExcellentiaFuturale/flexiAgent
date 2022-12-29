@@ -1382,23 +1382,28 @@ class Checker:
             Return flags if VPP and GRUB configurations was modified
         """
         update_vpp = False
+        workers = self.vpp_startup_conf.get_cpu_workers()
         hqos_workers = self.vpp_startup_conf.get_cpu_hqos_workers()
         grub_cores = self._get_grub_cores()
-        cur_vpp_cores = self.vpp_startup_conf.get_cpu_workers() + hqos_workers
         cur_power_saving = self.vpp_startup_conf.get_power_saving()
 
         #If there is no GRUB and VPP core assignements tnan it is single thread mode so assign  = 1
         if grub_cores == 0:
             grub_cores = 1
 
-        if cur_vpp_cores == 0:
+        if hqos_workers == 0 and workers == 0: # single thread mode
             cur_vpp_cores = 1
+        elif hqos_workers > 0 and workers == 0: # if hqos is enabled no workers it means main thread is worker
+            cur_vpp_cores = hqos_workers + 1
+        else:
+            cur_vpp_cores = workers + hqos_workers
 
         if vpp_cores != cur_vpp_cores:
             # if we pass 1 as vRouter cores it means single thread mode and we need to call set_cpu_workers(0)
             if vpp_cores == 1:
                 vpp_cores = 0
-            self.vpp_startup_conf.set_cpu_workers(vpp_cores)
+            hqos_enabled = True if hqos_workers > 0 else False
+            self.vpp_startup_conf.set_cpu_workers(vpp_cores, hqos_enabled=hqos_enabled)
             self.vpp_config_modified = True
             if vpp_cores > grub_cores:
                 self.update_grub = True
