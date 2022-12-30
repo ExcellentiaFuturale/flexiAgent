@@ -19,7 +19,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
-from fwagent import daemon_rpc
+
+import os
+import sys
+agent_root_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..')
+sys.path.append(agent_root_dir)
+
+from fwjobs import FwJobs
 
 def argparse(configure_subparsers):
     configure_jobs_parser = configure_subparsers.add_parser('jobs', help='Configure jobs')
@@ -32,9 +38,5 @@ def argparse(configure_subparsers):
     update_jobs_cli.add_argument('--job_error', dest='params.job_error', help="Job error", required=True)
 
 def update(job_id, request, command, job_error):
-
-    daemon_rpc(
-        'api',
-        api_object='fwglobals.g.jobs',
-        api_name='update_record',
-        job_id=job_id, error={'request': request, 'command': command, 'error': job_error})
+    with FwJobs('/etc/flexiwan/agent/.jobs.sqlite') as jobs:
+        jobs.update_record(job_id, {'request': request, 'command': command, 'error': job_error})

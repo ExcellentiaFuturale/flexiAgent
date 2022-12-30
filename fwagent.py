@@ -1397,6 +1397,9 @@ def handle_cli_command(args):
         nonlocal cli_func_name
 
         cli_func_name += f'_{step}' # -> _interfaces
+        # start building cli params immediately whenever the step argument
+        # IS already a function name, for example, with this command:
+        # fwagent configure jobs update ...
         if not step in args.__dict__:
             _build_cli_params()
             return
