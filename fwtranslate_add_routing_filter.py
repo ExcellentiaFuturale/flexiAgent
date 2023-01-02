@@ -25,25 +25,39 @@
 # Translates following request into list of commands:
 #
 # {
-#     "entity": "agent",
-#     "message": "add-routing-filter",
-#     "params": {
-#         "name": "filterName",
-#         "description": "filterName",
-#         "defaultAction": 'deny',
-#         "rules": [
-#             {
-#                 "network": "100.0.0.1/24"
-#             }
-#         ]
-#     }
+#   "entity":"agent",
+#   "message":"add-routing-filter",
+#   "params":{
+#       "name":"filterName",
+#       "description":"default routing filter",
+#       "rules":[
+#           {
+#               "route":"0.0.0.0/0",
+#               "action":"allow",
+#               "nextHop":"",
+#               "priority":4
+#           },
+#           {
+#               "route":"5.5.5.5/32",
+#               "action":"allow",
+#               "nextHop":"",
+#               "priority":2
+#           },
+#           {
+#               "route":"8.8.8.8/32",
+#               "action":"allow",
+#               "nextHop":"2.2.2.2",
+#               "priority":1
+#           },
+#           {
+#               "route":"9.9.9.9/32",
+#               "action":"allow",
+#               "nextHop":"",
+#               "priority":3
+#           }
+#       ]
+#   }
 # }
-#
-# As generated commands configure the FRR, the FRR terminology is used as follows:
-#
-#   "defaultAction" -
-#       if 'deny' - all routes should be denied except those specified in the "rules".
-#       if 'allow' - all routes should be allowed except those specified in the "rules".
 #
 # FRR has many filtering operations, and basically it is done by "Route Map" and "Access list".
 #
@@ -81,31 +95,22 @@
 #           and go to default which is to deny.
 #
 #
-#       So, when using FRR route maps to achieve the "routing filter" functionally,
-#       here is the way (the names and networks are the params of the request example above):
+# So, when using FRR route maps to achieve the "routing filter" functionally,
+# here is the way (the names and networks are the params of the request example above):
 #
-#       "defaultAction: 'deny'" - Deny all routes, but allow the specified in the "rules":
-#           "
-#           access-list filterName seq 5 permit 100.0.0.1/24
-#           route-map filterName permit 5
-#              match ip address filterName
-#           "
+# We force that the "rules" list will have a route for "0.0.0.0/0".
+# This route will be use as the "default" for all routes except those that they have representation in the "rules" list.
+# If the default route action is "allow", the FRR last route-map will be:
+#     route-map filterName permit 5
+#       description default routing filter
 #
-#           All routes permitted by "filterName" access-list will be matched and *permitted* by route-map
-#           All the others will go to default which is "deny"
+# If the default route action is "deny", the FRR last route-map will be:
+#     route-map filterName deny 5
+#       description default routing filter
 #
-#       "defaultAction: 'allow'" - Allow all routes, but deny the specified in the "rules":
-#           "
-#           access-list filterName seq 5 permit 100.0.0.1/24
-#           route-map filterName deny 5
-#              match ip address filterName
+# We don't have "match" in this last default route-map, hence, all routes considered as "matched" hance they are permitted or denied.
 #
-#           route-map filterName permit 10
-#           "
-#
-#           All routes that permitted by "filterName" access-list will be matched and *denied* by route-map order number 5.
-#           All the others will go to next route-map (order number 10) that has no "Matching Conditions", hence all routes are matched,
-#           And permitted.
+# We analyze the rest of the list and convert it to FRR commands (See explanation in the function below).
 #
 def add_routing_filter(params):
     """Configure Routing Filter.
@@ -115,76 +120,125 @@ def add_routing_filter(params):
     :returns: cmd_list. List of commands.
     """
     cmd_list = []
-    vtysh_commands = []
 
     name = params.get('name')
     description = params.get('description')
-    default_action = params.get('defaultAction', 'deny')
+
     rules = params.get('rules', [])
 
-    # set access list description
-    vtysh_commands.append(f'access-list {name} remark {description}')
-
-    # create acl with name for each rule with "permit"
-    rules = params.get('rules', [])
-    for rule in rules:
-        network = rule.get('network')
-        vtysh_commands.append(f'access-list {name} permit {network}')
+    add_vtysh_commands, remove_vtysh_commands = _convert_params_to_frr_configs(name, description, rules)
 
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['func']    = "frr_vtysh_run"
     cmd['cmd']['module']  = "fwutils"
-    cmd['cmd']['descr']   =  f"add FRR access list. Name={name}"
+    cmd['cmd']['descr']   =  f"add FRR routing filter. Name={name}"
     cmd['cmd']['params'] = {
-                    'commands': vtysh_commands,
-                    'on_error_commands': [f'no access-list {name}'],
+                    'commands': add_vtysh_commands
     }
     cmd['revert'] = {}
     cmd['revert']['func']   = "frr_vtysh_run"
     cmd['revert']['module'] = "fwutils"
     cmd['revert']['params'] = {
-                    'commands': [f'no access-list {name}'],
+                    'commands': remove_vtysh_commands
     }
-    cmd['revert']['descr']   =  f"remove FRR access list. Name={name}"
-    cmd_list.append(cmd)
-
-
-    route_map_vtysh_commands = []
-    if default_action == 'deny':  # deny all
-        route_map_vtysh_commands += [
-            f'route-map {name} permit 5',
-            f'  description {description}',
-            f'  match ip address {name}',
-        ]
-    else: # allow all
-        route_map_vtysh_commands += [
-            f'route-map {name} deny 5',
-            f'  description {description}',
-            f'  match ip address {name}',
-
-            f'route-map {name} permit 10',
-        ]
-
-    cmd = {}
-    cmd['cmd'] = {}
-    cmd['cmd']['func']    = "frr_vtysh_run"
-    cmd['cmd']['module']  = "fwutils"
-    cmd['cmd']['descr']   =  f"add FRR route map. Name={name}"
-    cmd['cmd']['params'] = {
-                    'commands': route_map_vtysh_commands,
-                    'on_error_commands': [f'no route-map {name}'],
-    }
-    cmd['revert'] = {}
-    cmd['revert']['func']   = "frr_vtysh_run"
-    cmd['revert']['module'] = "fwutils"
-    cmd['revert']['params'] = {
-                    'commands': [f'no route-map {name}'],
-    }
-    cmd['revert']['descr']   =  f"remove FRR route map. Name={name}"
+    cmd['revert']['descr']   =  f"remove FRR routing filter. Name={name}"
     cmd_list.append(cmd)
 
     return cmd_list
+
+def _get_rule_params(rule):
+    route = rule.get('route') # "5.5.5.5/32",
+    action = rule.get('action') # "allow",
+    nextHop = rule.get('nextHop') # "",
+    return (route, action, nextHop)
+
+def _get_route_map_frr_commands(name, description, action, seq, match_acl_name=None, next_hop=None):
+    frr_action = 'permit' if action == 'allow' else 'deny'
+    commands = [
+        f'route-map {name} {frr_action} {seq}',
+        f'  description {description}',
+    ]
+
+    if match_acl_name:
+        commands.append(f'  match ip address {match_acl_name}')
+
+    if next_hop:
+        commands.append(f'  set ip next-hop {next_hop}')
+
+    return commands
+
+
+# The logic to convert rules to route-maps and access-lists is as follows:
+#
+# First, we sort the "rules" by "priority" field. As written above, multiple route-map with the same name
+# can be configured. Route that is "matched" early in the chain
+# will not continue to the next steps, but will be permitted/denied according to the policy.
+#
+# Then, we loop over the rules, one by one and creates groups of routes that have the same set of actions.
+# Route has "action" (allow, deny), and "nextHop" (ipv4 address or empty).
+# When looping on the routes, we group all routes that their "action" and "nextHop" are the same.
+#
+# Then, we loop over the groups and we create access-lists and route-maps for each group.
+# We do not create route-map for a group that has same set of actions as the default route.
+#
+def _convert_params_to_frr_configs(name, description, rules):
+    '''Convert flexiManage route map params to FRR add and remove commands.
+
+    :param name:         name of route map.
+    :param description:  description of the route map
+    :param rules:        list of rules.
+
+    :returns: tuple with two lists - add commands and remove commands.
+    '''
+    add_commands    = []
+    remove_commands = []
+
+    groups = {}
+    default_rule = None
+
+    rules = sorted(rules, key=lambda x: x['priority'])
+
+    for rule in rules:
+        route, action, nextHop = _get_rule_params(rule)
+
+        if route == '0.0.0.0/0': # don't create group for default route, we always add it at the end.
+            default_rule = (route, action, nextHop)
+            continue
+
+        group_key = f'{action}_{nextHop}' # "action" and "nextHop" are the key to check if routes should be groups.
+
+        if not group_key in groups:
+            groups[group_key] = []
+
+        groups[group_key].append(route)
+
+    if not default_rule:
+        raise Exception(f'default action for routing filter {name} is missing')
+
+    default_rule_route, default_rule_action, default_rule_nextHop = default_rule
+
+    route_map_seq = 5  # each route-map should have different order number.
+    for idx, group_key in enumerate(groups):
+        routes = groups[group_key]
+        action, nextHop = group_key.split('_')
+
+        if action == default_rule_action and nextHop == default_rule_nextHop:
+            continue # no need a dedicated access list and route maps if they are going to be matched by default rule.
+
+        access_list_name = f'rm_{name}_group_{idx}'
+        for route in routes:
+            add_commands.append(f'access-list {access_list_name} permit {route}')
+            remove_commands.append(f'no access-list {access_list_name} permit {route}')
+
+        add_commands += _get_route_map_frr_commands(name, description, action, route_map_seq, access_list_name, nextHop)
+        route_map_seq += 5
+
+    # add default rule route map at the end
+    add_commands += _get_route_map_frr_commands(name, description, default_rule_action, route_map_seq, None, default_rule_nextHop)
+    remove_commands.append(f'no route-map {name}')
+
+    return add_commands, remove_commands
 
 def get_request_key(params):
     """Get add-routing-filter command.
