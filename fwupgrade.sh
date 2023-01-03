@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2023  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -45,7 +45,14 @@ handle_upgrade_failure() {
     # Revert back to previous version if required
     if [ "$1" == 'revert' ]; then
         log 'Reverting to previous version ('"$prev_ver"')...'
-        res=$(apt-get -y install --allow-downgrades "$AGENT_SERVICE"="$prev_ver")
+        # Set "KillMode" option in the service file, to make sure systemd
+        # doesn't kill the upgrade process when the process is stopped
+        update_service_conf_file
+        if [ ${PIPESTATUS[0]} != 0 ]; then
+            log 'handle_upgrade_failure: failed to update service file during downgrade: exit 1'
+            exit 1
+        fi
+        res=$(apt-get -o Dpkg::Options::="--force-confold" -y install --allow-downgrades "$AGENT_SERVICE"="$prev_ver")
         ret=${PIPESTATUS[0]}
         log $res
 
@@ -54,7 +61,7 @@ handle_upgrade_failure() {
             # Agent must be restarted if revert fails, or otherwise
             # it will remain stopped.
             systemctl restart "$AGENT_SERVICE"
-            log 'handle_upgrade_failure: failed to downgrade ${ret}: exit 1'
+            log "handle_upgrade_failure: failed to downgrade ${ret}: exit 1"
             exit 1
         fi
 
