@@ -138,8 +138,25 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                         # Our IP monitoring thread should detect the change in Linux IPs
                         # and continue with applying rest configuration related to IP changes
                         if fwglobals.g.router_api.state_is_started():
+                            old_gw, _ = fwutils.get_interface_gateway(name)
                             new_gw = fwlte.get_ip_configuration(dev_id, 'gateway')
                             mtu = fwutils.get_linux_interface_mtu(name)
+                            # In order to change ip, we need to call add_remove_netplan_interface
+                            # twice, one with is_add=False, and the other with is_add=True,
+                            # this is because Netplan does not handle netlink messages properly
+                            # and add_remove_netplan_interface function with is_add=False takes care on it.
+                            fwnetplan.add_remove_netplan_interface(\
+                                is_add=False,
+                                dev_id=dev_id,
+                                ip=iface_addr,
+                                gw=old_gw,
+                                metric=int(metric),
+                                dhcp='no',
+                                type='WAN',
+                                dnsServers=fwglobals.g.DEFAULT_DNS_SERVERS,
+                                dnsDomains=None,
+                                mtu=mtu
+                            )
                             fwnetplan.add_remove_netplan_interface(\
                                 is_add=True,
                                 dev_id=dev_id,
