@@ -1,0 +1,171 @@
+[
+    {
+        "entity": "agent",
+        "message": "add-application",
+        "params": {
+            "applications": [
+                {
+                    "rules": [
+                        {
+                            "_id": "610a63d8c654eb5b31bcbf4f",
+                            "ip": "104.154.0.0/15"
+                        }
+                    ],
+                    "name": "custom:company_ranges",
+                    "description": "All company ranges allowed",
+                    "category": "network",
+                    "serviceClass": "default",
+                    "importance": "high",
+                    "id": "610a63d8c654eb5b31bcbf4d"
+                },
+                {
+                    "rules": [
+                        {
+                            "_id": "610a7a3ac654eb5b31bcdbc4",
+                            "ip": "108.175.32.0/20"
+                        }
+                    ],
+                    "name": "custom:range2",
+                    "description": "second company range",
+                    "category": "remote_access",
+                    "serviceClass": "default",
+                    "importance": "high",
+                    "id": "610a7a3ac654eb5b31bcdbc2"
+                },
+                {
+                    "name": "custom:range3",
+                    "description": "third range",
+                    "category": "network",
+                    "serviceClass": "default",
+                    "importance": "high",
+                    "rules": [
+                        {
+                            "_id": "610a86fbc654eb5b31bceecf",
+                            "ip": "178.236.80.0/20"
+                        }
+                    ],
+                    "id": "610a86fbc654eb5b31bceecd"
+                }
+            ]
+        }
+    },
+    {
+        "message": "add-qos-traffic-map",
+        "params": {
+            "default": {
+                "low": "bestEffortQueue",
+                "medium": "bestEffortQueue",
+                "high": "primeSelectQueue"
+            },
+            "real-time": {
+                "low": "bestEffortQueue",
+                "medium": "standardSelectQueue",
+                "high": "realtimeQueue"
+            },
+            "signaling": {
+                "low": "bestEffortQueue",
+                "medium": "standardSelectQueue",
+                "high": "controlSignalingQueue"
+            },
+            "telephony": {
+                "low": "bestEffortQueue",
+                "medium": "standardSelectQueue",
+                "high": "realtimeQueue"
+            },
+            "broadcast-video": {
+                "low": "bestEffortQueue",
+                "medium": "standardSelectQueue",
+                "high": "primeSelectQueue"
+            },
+            "network-control": {
+                "low": "bestEffortQueue",
+                "medium": "standardSelectQueue",
+                "high": "controlSignalingQueue"
+            },
+            "oam": {
+                "low": "bestEffortQueue",
+                "medium": "standardSelectQueue",
+                "high": "controlSignalingQueue"
+            },
+            "high-throughput": {
+                "low": "bestEffortQueue",
+                "medium": "standardSelectQueue",
+                "high": "primeSelectQueue"
+            },
+            "multimedia-conferencing": {
+                "low": "bestEffortQueue",
+                "medium": "standardSelectQueue",
+                "high": "realtimeQueue"
+            },
+            "multimedia-streaming": {
+                "low": "bestEffortQueue",
+                "medium": "standardSelectQueue",
+                "high": "realtimeQueue"
+            },
+            "low-latency": {
+                "low": "bestEffortQueue",
+                "medium": "standardSelectQueue",
+                "high": "realtimeQueue"
+            }
+        }
+    },
+    {
+        "message": "add-qos-policy",
+        "params": {
+            "policies": [
+                {
+                    "name": "Default policy",
+                    "interfaces": [
+                        "__INTERFACE_1__dev_id"
+                    ],
+                    "inbound": {
+                        "policerBandwidthLimitPercent": {
+                            "high": 100,
+                            "medium": 80,
+                            "low": 65
+                        }
+                    },
+                    "outbound": {
+                        "scheduling": {
+                            "realtimeQueue": {
+                                "bandwidthLimitPercent": 30,
+                                "dscpRewrite": "CS0"
+                            },
+                            "controlSignalingQueue": {
+                                "weight": 40,
+                                "dscpRewrite": "CS0"
+                            },
+                            "primeSelectQueue": {
+                                "weight": 30,
+                                "dscpRewrite": "CS0"
+                            },
+                            "standardSelectQueue": {
+                                "weight": 20,
+                                "dscpRewrite": "CS0"
+                            },
+                            "bestEffortQueue": {
+                                "weight": 10,
+                                "dscpRewrite": "CS0"
+                            }
+                        }
+                    }
+                }
+            ]
+    }
+    },            
+    {
+        "entity": "agent",
+        "message": "start-router",
+        "params": {
+            "interfaces": [
+                "__INTERFACE_1__",
+                "__INTERFACE_2__",
+                "__INTERFACE_3__"                
+            ]
+        }
+    },
+    {
+        "entity": "agent",
+        "message": "stop-router"
+    }    
+]
