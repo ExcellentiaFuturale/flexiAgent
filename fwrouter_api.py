@@ -847,7 +847,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                         # Hence, if the default route with the lowest metric
                         # uses the interface, we should reconnect.
                         if not reconnect_agent:
-                            (_, _, default_route_dev_id, _) = fwutils.get_default_route()
+                            (_, _, default_route_dev_id, _, _) = fwutils.get_default_route()
                             if dev_id == default_route_dev_id:
                                 reconnect_agent = True
 

@@ -211,39 +211,48 @@ def get_default_route(if_name=None):
     :param if_name:  name of the interface to return info for.
         if not provided, the route with the lowest metric will return.
 
-    :returns: tuple (<IP of GW>, <name of network interface>, <Dev ID of network interface>, <protocol>).
+    :returns: tuple (<IP of GW>, <name of network interface>, <Dev ID of network interface>, <protocol>, <metric>).
     """
-    (via, dev, metric, proto) = ("", "", 0xffffffff, "")
+    dev = ""
+    metric = None
+
     try:
         output = os.popen('ip route list match default').read()
-        if output:
-            routes = output.splitlines()
-            for r in routes:
-                _dev = ''   if not 'dev '    in r else r.split('dev ')[1].split(' ')[0]
-                _via = ''   if not 'via '    in r else r.split('via ')[1].split(' ')[0]
-                _metric = 0 if not 'metric ' in r else int(r.split('metric ')[1].split(' ')[0])
-                _proto = '' if not 'proto '  in r else r.split('proto ')[1].split(' ')[0]
-
-                if if_name == _dev: # If if_name specified, we return info for that dev even if it has a higher metric
-                    dev    = _dev
-                    via    = _via
-                    metric = _metric
-                    proto  = _proto
-                    return (via, dev, get_interface_dev_id(dev), proto)
-
-                if _metric < metric:  # The default route among default routes is the one with the lowest metric :)
-                    dev    = _dev
-                    via    = _via
-                    metric = _metric
-                    proto = _proto
     except:
-        pass
+        return ("", "", "", "", None)
+
+    if not output:
+        return ("", "", "", "", None)
+
+    routes = output.splitlines()
+    for r in routes:
+        _dev = ''   if not 'dev '    in r else r.split('dev ')[1].split(' ')[0]
+        _via = ''   if not 'via '    in r else r.split('via ')[1].split(' ')[0]
+        _metric = 0 if not 'metric ' in r else int(r.split('metric ')[1].split(' ')[0])
+        _proto = '' if not 'proto '  in r else r.split('proto ')[1].split(' ')[0]
+
+        if if_name == _dev: # If if_name specified, we return info for that dev even if it has a higher metric
+            dev    = _dev
+            via    = _via
+            metric = _metric
+            proto  = _proto
+            return (via, dev, get_interface_dev_id(dev), proto, metric)
+
+        if not metric or _metric < metric:  # The default route among default routes is the one with the lowest metric :)
+            dev    = _dev
+            via    = _via
+            metric = _metric
+            proto = _proto
 
     if not dev:
-        return ("", "", "", "")
+        return ("", "", "", "", None)
+
+    # If no route for a specified interface was found
+    if if_name and if_name != dev:
+        return ("", "", "", "", None)
 
     dev_id = get_interface_dev_id(dev)
-    return (via, dev, dev_id, proto)
+    return (via, dev, dev_id, proto, metric)
 
 def get_gateway_arp_entries(gw):
     try:

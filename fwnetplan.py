@@ -469,8 +469,13 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         _write_to_netplan_file(fname_run, config)
 
         # Remove default route from ip table because Netplan is not doing it.
-        if not is_add and type == 'WAN':
-            fwutils.remove_linux_default_route(ifname)
+        # Note we do that directly by 'ip route del' command
+        # and not relay on 'netplan apply', as in last case VPPSB does not handle
+        # properly kernel NETLINK messsages and does not update VPP FIB.
+        (old_gw,old_ifname,_,_,old_metric) = fwutils.get_default_route(ifname)
+        if old_ifname:
+            if (gw != old_gw) or (metric != old_metric):
+                fwutils.remove_linux_default_route(ifname)
 
         fwutils.netplan_apply('add_remove_netplan_interface')
 
