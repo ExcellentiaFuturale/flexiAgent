@@ -1552,7 +1552,17 @@ def stop_vpp():
                 dpdk.bind_one(dpdk.devices[d]["Slot"], drv, False)
                 break
     fwstats.update_state(False)
-    netplan_apply('stop_vpp')
+
+    reset_traffic_control()                     # Release LTE operations
+    remove_linux_bridges()                      # Release bridges for wifi
+    fwwifi.stop_hostapd()                       # Stop access point service
+
+    # Restore original netplan files.
+    # If no files were restored, run 'netplan apply' to be on safe side
+    #
+    restored_files = fwnetplan.restore_linux_netplan_files()
+    if not restored_files:
+        netplan_apply('stop_vpp')
 
     call_applications_hook('on_router_is_stopped')
 

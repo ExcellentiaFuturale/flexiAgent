@@ -77,6 +77,7 @@ def restore_linux_netplan_files():
 
     if files:
         fwutils.netplan_apply('restore_linux_netplan_files')
+    return files
 
 
 def netplan_get_filepaths():

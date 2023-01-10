@@ -159,10 +159,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             self.vpp_api.disconnect_from_vpp()          # Reset connection to vpp to force connection renewal
             fwutils.stop_vpp()                          # Release interfaces to Linux
 
-            fwutils.reset_traffic_control()             # Release LTE operations.
-            fwutils.remove_linux_bridges()              # Release bridges for wifi.
-            fwwifi.stop_hostapd()                      # Stop access point service
-
             self._restore_vpp()                         # Rerun VPP and apply configuration
 
             self.log.debug("watchdog: restore finished")
@@ -1381,9 +1377,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         :returns: None.
         """
         self.router_stopping = False
-        fwutils.reset_traffic_control()
-        fwutils.remove_linux_bridges()
-        fwwifi.stop_hostapd()
 
         # keep LTE connectivity on linux interface
         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
