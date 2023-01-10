@@ -140,11 +140,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                         if fwglobals.g.router_api.state_is_started():
                             new_gw = fwlte.get_ip_configuration(dev_id, 'gateway')
                             mtu = fwutils.get_linux_interface_mtu(name)
-                            # Remove old default route to generate Netlink message.
-                            # Sole changes to Netplan configuration do not generate
-                            # remove route Netlink message. And as a result
-                            # VPP  default route would point to old LTE gateway.
-                            fwutils.remove_linux_default_route(name)
+
                             fwnetplan.add_remove_netplan_interface(\
                                 is_add=True,
                                 dev_id=dev_id,
