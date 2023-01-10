@@ -2482,9 +2482,9 @@ def vpp_cli_execute_one(cmd, debug = False):
     if debug:
         fwglobals.log.debug(cmd)
     out = _vppctl_read(cmd, wait=False)
-    if debug:
-        fwglobals.log.debug(str(out))
     out = out.strip() if out else out
+    if debug and out:
+        fwglobals.log.debug(str(out))
     return out
 
 def vpp_cli_execute(cmds, debug = False, log_prefix=None, raise_exception_on_error=False):
