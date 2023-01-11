@@ -379,13 +379,20 @@ def add_acl_rules_intf(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids):
     :param ingress_acl_ids: ingress acl ids
     :param egress_acl_ids: egress acl ids
     """
-    for acl_id in ingress_acl_ids:
-        fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_add_del',
-            is_add=is_add, sw_if_index=sw_if_index, is_input=True, acl_index=acl_id)
+    acls = []
+    ingress_count = 0
+    count = 0
 
-    for acl_id in egress_acl_ids:
-        fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_add_del',
-            is_add=is_add, sw_if_index=sw_if_index, is_input=False, acl_index=acl_id)
+    if is_add:
+        if ingress_acl_ids:
+            acls.extend(ingress_acl_ids)
+            ingress_count = len(ingress_acl_ids)
+        if egress_acl_ids:
+            acls.extend(egress_acl_ids)
+        count = len(acls)
+
+    fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_set_acl_list',
+        count=count, sw_if_index=sw_if_index, n_input=ingress_count, acls=acls)
 
 def add_acl_rules_interfaces(is_add, dev_id_params, ingress_acl_ids, egress_acl_ids):
     """
@@ -430,4 +437,6 @@ def add_acl_rules_interfaces(is_add, dev_id_params, ingress_acl_ids, egress_acl_
 
     for dev_id in updated_dev_id_params:
         sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
-        add_acl_rules_intf(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids)
+        ingress_acls = fwglobals.g.acl_cache.get('ingress')
+        egress_acls = fwglobals.g.acl_cache.get('egress')
+        add_acl_rules_intf(is_add, sw_if_index, ingress_acls, egress_acls)
