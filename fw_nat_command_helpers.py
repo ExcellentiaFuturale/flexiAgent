@@ -366,12 +366,11 @@ def run_nat_identity_config(is_add, sw_if_index, protocols, ports):
     """
     Executes command for NAT identity mapping configuration
 
+    :param is_add: add or remove
     :param sw_if_index: device identifier of the WAN interface
-    :type sw_if_index: String
     :param protocols: protocols for which the port forward is applied
-    :type protocols: list
     :param ports: ports for which forwarding is applied
-    :type ports: list
+
     :raises Exception: If protocol value is unsupported
     """
     port_from, port_to = fwutils.ports_str_to_range(ports)
