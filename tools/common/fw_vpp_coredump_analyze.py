@@ -184,7 +184,7 @@ class FwVppCoredumpAnalyze():
                     fw_version_file = basename
                 elif basename.endswith("source.list"):
                     fw_repo_file = basename
-                elif basename.startswith("core-vpp"):
+                elif basename.startswith("core-") and basename.endswith("-dump"):
                     vpp_coredump_file = basename
 
             if not fw_version_file or not fw_repo_file or not vpp_coredump_file:

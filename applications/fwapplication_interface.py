@@ -132,3 +132,13 @@ class FwApplicationInterface(ABC, FwObject):
         :returns: list
         """
         return []
+
+    def get_networks(self, for_bgp=False, for_ospf=False) -> list:
+        """A function that returns the application's networks.
+
+        :param for_bgp:  Get networks tp publish in BGP.
+        :param for_ospf: Get networks tp publish in OSPF.
+
+        :returns: List
+        """
+        return []

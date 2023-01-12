@@ -211,39 +211,56 @@ def get_default_route(if_name=None):
     :param if_name:  name of the interface to return info for.
         if not provided, the route with the lowest metric will return.
 
-    :returns: tuple (<IP of GW>, <name of network interface>, <Dev ID of network interface>, <protocol>).
+    :returns: tuple (<IP of GW>, <name of network interface>, <Dev ID of network interface>, <protocol>, <metric>).
     """
-    (via, dev, metric, proto) = ("", "", 0xffffffff, "")
+    dev = ""
+    metric = None
+
     try:
         output = os.popen('ip route list match default').read()
-        if output:
-            routes = output.splitlines()
-            for r in routes:
-                _dev = ''   if not 'dev '    in r else r.split('dev ')[1].split(' ')[0]
-                _via = ''   if not 'via '    in r else r.split('via ')[1].split(' ')[0]
-                _metric = 0 if not 'metric ' in r else int(r.split('metric ')[1].split(' ')[0])
-                _proto = '' if not 'proto '  in r else r.split('proto ')[1].split(' ')[0]
-
-                if if_name == _dev: # If if_name specified, we return info for that dev even if it has a higher metric
-                    dev    = _dev
-                    via    = _via
-                    metric = _metric
-                    proto  = _proto
-                    return (via, dev, get_interface_dev_id(dev), proto)
-
-                if _metric < metric:  # The default route among default routes is the one with the lowest metric :)
-                    dev    = _dev
-                    via    = _via
-                    metric = _metric
-                    proto = _proto
     except:
-        pass
+        return ("", "", "", "", None)
+
+    if not output:
+        return ("", "", "", "", None)
+
+    routes = output.splitlines()
+    for r in routes:
+        _dev = ''   if not 'dev '    in r else r.split('dev ')[1].split(' ')[0]
+        _via = ''   if not 'via '    in r else r.split('via ')[1].split(' ')[0]
+        _metric = 0 if not 'metric ' in r else int(r.split('metric ')[1].split(' ')[0])
+        _proto = '' if not 'proto '  in r else r.split('proto ')[1].split(' ')[0]
+
+        if if_name == _dev: # If if_name specified, we return info for that dev even if it has a higher metric
+            dev    = _dev
+            via    = _via
+            metric = _metric
+            proto  = _proto
+            return (via, dev, get_interface_dev_id(dev), proto, metric)
+
+        if not metric or _metric < metric:  # The default route among default routes is the one with the lowest metric :)
+            dev    = _dev
+            via    = _via
+            metric = _metric
+            proto = _proto
 
     if not dev:
-        return ("", "", "", "")
+        return ("", "", "", "", None)
+
+    # If no route for a specified interface was found
+    if if_name and if_name != dev:
+        return ("", "", "", "", None)
 
     dev_id = get_interface_dev_id(dev)
-    return (via, dev, dev_id, proto)
+    return (via, dev, dev_id, proto, metric)
+
+def get_gateway_arp_entries(gw):
+    try:
+        out = subprocess.check_output(f'ip neigh show to {gw}', shell=True).decode()
+        return out.splitlines()
+    except Exception as e:
+        fwglobals.log.error(f'get_gateway_arp({gw}): failed to fetch arp for gateway. {str(e)}')
+        return []
 
 def get_interface_gateway(if_name, if_dev_id=None):
     """Get gateway.
@@ -1535,7 +1552,17 @@ def stop_vpp():
                 dpdk.bind_one(dpdk.devices[d]["Slot"], drv, False)
                 break
     fwstats.update_state(False)
-    netplan_apply('stop_vpp')
+
+    reset_traffic_control()                     # Release LTE operations
+    remove_linux_bridges()                      # Release bridges for wifi
+    fwwifi.stop_hostapd()                       # Stop access point service
+
+    # Restore original netplan files.
+    # If no files were restored, run 'netplan apply' to be on safe side
+    #
+    restored_files = fwnetplan.restore_linux_netplan_files()
+    if not restored_files:
+        netplan_apply('stop_vpp')
 
     call_applications_hook('on_router_is_stopped')
 
@@ -2465,9 +2492,9 @@ def vpp_cli_execute_one(cmd, debug = False):
     if debug:
         fwglobals.log.debug(cmd)
     out = _vppctl_read(cmd, wait=False)
-    if debug:
-        fwglobals.log.debug(str(out))
     out = out.strip() if out else out
+    if debug and out:
+        fwglobals.log.debug(str(out))
     return out
 
 def vpp_cli_execute(cmds, debug = False, log_prefix=None, raise_exception_on_error=False):

@@ -99,7 +99,10 @@ def create_tun_in_vpp(addr):
 
         logger.info(f'TUN created in vpp. vpp_if_name={tun_vpp_if_name}')
 
-        data = { 'tun_vpp_if_name': tun_vpp_if_name }
+        data = {
+            'tun_vpp_if_name': tun_vpp_if_name,
+            'tun_vpp_if_addr': addr
+        }
         with open(app_database_file, 'w') as f:
             json.dump(data, f)
 
@@ -122,6 +125,8 @@ def remove_tun_from_vpp(addr):
             # Since in down process the vpn anyway will be stopped, we need to clear the tun name from the database.
             # even if error will be raised below. Hence, database update is done in the 'finally' block
             del data['tun_vpp_if_name']
+            if 'tun_vpp_if_addr' in data:
+                del data['tun_vpp_if_addr']
 
             cmd = f'fwagent configure router interfaces delete --type lan --vpp_if_name {tun_vpp_if_name} --addr {addr}'
             subprocess.check_output(cmd, shell=True)

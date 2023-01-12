@@ -93,7 +93,7 @@ def cmpVer(v1, v2):
 
 def clean_package_dependencies():
     print("Uninstalling device applications")
-    fwapplications_api.call_applications_hook('uninstall')
+    fwapplications_api.call_applications_hook('uninstall', params={'files_only': True})
 
 if __name__ == '__main__':
     try:

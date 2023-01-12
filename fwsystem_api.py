@@ -111,6 +111,17 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                         linux_ifc_name = fwutils.dev_id_to_linux_if(dev_id)
                         os.system('ifconfig %s up' % linux_ifc_name)
 
+                        # if GW exists, ensure ARP entry exists in Linux
+                        if fwglobals.g.router_api.state_is_started():
+                            gw, _ = fwutils.get_interface_gateway(name)
+                            if gw:
+                                arp_entries = fwutils.get_gateway_arp_entries(gw)
+                                valid_arp_entries = list(filter(lambda entry: 'PERMANENT' in entry, arp_entries))
+                                if not valid_arp_entries:
+                                    self.log.debug(f'no valid ARP entry found. gw={gw}, name={name}, dev_id={dev_id}, \
+                                        arp_entries={str(arp_entries)}. adding now')
+                                    fwlte.set_arp_entry(is_add=True, dev_id=dev_id, gw=gw)
+
             # Ensure that provider did not change IP provisioned to modem,
             # so the IP that we assigned to the modem interface is still valid.
             # If it was changed, go and update the interface, vpp, etc.
@@ -129,6 +140,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                         if fwglobals.g.router_api.state_is_started():
                             new_gw = fwlte.get_ip_configuration(dev_id, 'gateway')
                             mtu = fwutils.get_linux_interface_mtu(name)
+
                             fwnetplan.add_remove_netplan_interface(\
                                 is_add=True,
                                 dev_id=dev_id,
