@@ -101,8 +101,8 @@ def netplan_unload_vpp_assigned_ports(assigned_linux_interfaces):
     netplan_apply = False
 
     for fname in files:
-
-        changed = False
+        changed_ethernets = False
+        changed_vlans = False
         config = None
         with open(fname, 'r') as stream:
             config = yaml.safe_load(stream)
@@ -117,11 +117,24 @@ def netplan_unload_vpp_assigned_ports(assigned_linux_interfaces):
                         set_name = ethernets[dev].get('set-name', dev)
                         if set_name in assigned_linux_interfaces:
                             del ethernets_updates[dev]
-                            changed = True
+                            changed_ethernets = True
                             fwglobals.log.debug("netplan_unload_vpp_assigned_ports: Device: %s \
                                 File: %s" % (set_name, fname))
-        if changed:
+                if 'vlans' in network:
+                    vlans = network['vlans']
+                    vlans_updates = copy.deepcopy(vlans)
+                    for dev in vlans:
+                        link = vlans[dev].get('link', '')
+                        if link and link in assigned_linux_interfaces:
+                            del vlans_updates[dev]
+                            changed_vlans = True
+                            fwglobals.log.debug("netplan_unload_vpp_assigned_ports: Vlan: %s \
+                                File: %s" % (dev, fname))
+        if changed_ethernets:
             config['network']['ethernets'] = ethernets_updates
+        if changed_vlans:
+            config['network']['vlans'] = vlans_updates
+        if changed_ethernets or changed_vlans:
             with open(fname, 'w') as file_stream:
                 yaml.dump(config, file_stream)
             netplan_apply = True
@@ -661,31 +674,6 @@ def create_baseline_if_not_exist(fname):
     os.system('cp %s %s.fworig' % (fname, fname))
     os.system('mv %s %s' % (fname, fname_baseline))
     return fname_baseline
-
-def netplan_unload_vlans():
-    files = netplan_get_filepaths()
-    netplan_apply = False
-
-    for fname in files:
-        changed = False
-        config = None
-        with open(fname, 'r') as stream:
-            config = yaml.safe_load(stream)
-            if config is None:
-                continue
-            if 'network' in config:
-                network = config['network']
-                if 'vlans' in network:
-                    del network['vlans']
-                    changed = True
-        if changed:
-            config['network'] = network
-            with open(fname, 'w') as file_stream:
-                yaml.dump(config, file_stream)
-            netplan_apply = True
-
-    if netplan_apply:
-        fwutils.netplan_apply('netplan_unload_vlans')
 
 def _set_netplan_section_vlan(config_section, vlan_id, parent_dev_id):
     ifname = fwutils.dev_id_to_tap(parent_dev_id)

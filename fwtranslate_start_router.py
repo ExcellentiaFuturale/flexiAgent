@@ -231,13 +231,6 @@ def start_router(params=None):
         cmd['cmd']['params']  = { 'assigned_linux_interfaces' : assigned_linux_interfaces }
         cmd_list.append(cmd)
 
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']    = "netplan_unload_vlans"
-        cmd['cmd']['module']  = "fwnetplan"
-        cmd['cmd']['descr']   = "Unload vlans"
-        cmd_list.append(cmd)
-
     #  Create commands that start vpp and configure it with addresses
     #  sudo systemtctl start vpp
     #  <connect to python bindings of vpp and than run the rest>
