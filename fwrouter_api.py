@@ -1417,22 +1417,21 @@ class FWROUTER_API(FwCfgRequestHandler):
         """
         self._update_cache_sw_if_index(sw_if_index, type, True)
 
-        if type == 'lan':
-            vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
-            fwutils.tunnel_change_postprocess(False, vpp_if_name)
-            ingress_acls = fwglobals.g.acl_cache.get('ingress')
-            egress_acls = fwglobals.g.acl_cache.get('egress')
-            fw_acl_command_helpers.add_acl_rules_intf(True, sw_if_index, ingress_acls, egress_acls)
-
-        if type == 'wan':
-            fw_nat_command_helpers.add_nat_rules_intf(True, sw_if_index)
+        vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
+        self.apply_features_on_interface(True, vpp_if_name, type)
 
     def apply_features_on_interface(self, add, vpp_if_name, if_type=None):
         with FwCfgMultiOpsWithRevert() as handler:
             try:
                 # apply firewall
-                # TODO: Should be implemented in the next release.
-                # For current release, the remote vpn injects pair of remove and add firewall policy job when.
+                sw_if_index = fwutils.vpp_if_name_to_sw_if_index(vpp_if_name, if_type)
+                if if_type == 'lan':
+                    ingress_acls = fwglobals.g.acl_cache.get('ingress')
+                    egress_acls = fwglobals.g.acl_cache.get('egress')
+                    fw_acl_command_helpers.add_acl_rules_intf(add, sw_if_index, ingress_acls, egress_acls)
+
+                if if_type == 'wan':
+                    fw_nat_command_helpers.add_nat_rules_intf(add, sw_if_index)
 
                 # apply qos classification
                 handler.exec(
@@ -1459,15 +1458,8 @@ class FWROUTER_API(FwCfgRequestHandler):
         :param type:        "wan"/"lan"
         :param sw_if_index: vpp sw_if_index of the interface
         """
-        if type == 'wan':
-            fw_nat_command_helpers.add_nat_rules_intf(False, sw_if_index)
-
-        if type == 'lan':
-            ingress_acls = fwglobals.g.acl_cache.get('ingress')
-            egress_acls = fwglobals.g.acl_cache.get('egress')
-            fw_acl_command_helpers.add_acl_rules_intf(False, sw_if_index, ingress_acls, egress_acls)
-            vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
-            fwutils.tunnel_change_postprocess(True, vpp_if_name)
+        vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
+        self.apply_features_on_interface(False, vpp_if_name, type)
 
         self._update_cache_sw_if_index(sw_if_index, type, False)
 
