@@ -166,6 +166,7 @@ g_dumpers = {
     'vpp_adj':                      { 'shell_cmd': 'vppctl sh adj > <dumper_out_file>' },
     'vpp_bridge':                   { 'shell_cmd': 'vppctl sh bridge > <dumper_out_file>' },
     'vpp_buffers':                  { 'shell_cmd': 'vppctl sh buffers > <dumper_out_file>' },
+    'vpp_default_gateways':         { 'shell_cmd': 'vppctl sh ip fib 0.0.0.0/0 > <dumper_out_file>' },
     'vpp_ike_profile':              { 'shell_cmd': 'vppctl sh ike profile > <dumper_out_file>' },
     'vpp_ike_sa':                   { 'shell_cmd': 'vppctl sh ike sa details > <dumper_out_file>' },
     'vpp_interfaces_addresses':     { 'shell_cmd': 'vppctl sh int addr > <dumper_out_file>' },

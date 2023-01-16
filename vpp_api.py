@@ -29,6 +29,7 @@ import threading
 import time
 
 from fwobject import FwObject
+import fw_os_utils
 import fwutils
 
 
@@ -118,7 +119,7 @@ class VPP_API(FwObject):
         self.vpp = VPP_API_CLIENT(self.log)
 
         self.connected_to_vpp = False
-        if fwutils.vpp_does_run():
+        if fw_os_utils.vpp_does_run():
             self.connect_to_vpp()
 
     def finalize(self):
@@ -144,7 +145,7 @@ class VPP_API(FwObject):
                 self.vpp.connect('fwagent')
                 break
             except Exception as e:
-                if not fwutils.vpp_does_run():  # No need to retry if vpp crashed
+                if not fw_os_utils.vpp_does_run():  # No need to retry if vpp crashed
                     raise Exception("vpp process not found")
                 if i == num_retries-1:
                     raise e

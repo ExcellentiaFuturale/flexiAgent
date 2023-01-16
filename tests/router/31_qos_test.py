@@ -1,5 +1,6 @@
-#! /usr/bin/python3
-
+'''
+QoS test cases execution - Picked by pytest
+'''
 ################################################################################
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
@@ -20,26 +21,28 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import glob
 import os
-import subprocess
+import sys
 
-def run_linux_commands(commands, exception_on_error=True):
-    for command in commands:
-        ret = os.system(command)
-        if ret and exception_on_error:
-            raise Exception(f'failed to run "{command}". error code is {ret}')
-    return True
+code_root = os.path.realpath(__file__).replace('\\','/').split('/tests/')[0]
+test_root = code_root + '/tests/'
+sys.path.append(test_root)
+import fwtests
 
-def vpp_pid():
-    """Get pid of VPP process.
-
-    :returns:           process identifier.
+def test():
     """
-    try:
-        pid = subprocess.check_output(['pidof', 'vpp'])
-    except:
-        pid = None
-    return pid
+    Test function that gets called by pytest framework
+    """
+    tests_path = __file__.replace('.py', '')
+    test_cases = sorted(glob.glob('%s/*.json' % tests_path))
+    for test_file in test_cases:
+        with fwtests.TestFwagent() as agent:
 
-def router_is_running():
-    return True if vpp_pid() else False
+            print("   " + os.path.basename(test_file))
+            (return_ok,_) = agent.cli('-f %s' % test_file)
+            assert return_ok, "%s failed" % test_file
+
+if __name__ == '__main__':
+
+    test()

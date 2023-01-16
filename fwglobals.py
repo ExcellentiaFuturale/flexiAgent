@@ -21,6 +21,7 @@
 ################################################################################
 
 import copy
+import glob
 import json
 import hashlib
 import os
@@ -30,6 +31,7 @@ import signal
 import traceback
 import yaml
 from fwqos import FwQoS
+import fw_os_utils
 import fwutils
 import threading
 import fw_acl_command_helpers
@@ -69,6 +71,13 @@ modules = {
     'fwrouter_api':       { 'module': __import__('fwrouter_api'),       'sync': True,  'object': 'router_api' },       # fwglobals.g.router_api
     'os_api':             { 'module': __import__('os_api'),             'sync': False, 'object': 'os_api' },           # fwglobals.g.os_api
     'fwapplications_api': { 'module': __import__('fwapplications_api'), 'sync': True,  'object': 'applications_api' }, # fwglobals.g.applications_api,
+}
+
+cli_commands = {
+    'configure':    {'help': 'Configure flexiEdge components', 'modules': []},
+}
+cli_modules = {
+    # Will be filled automatically out of content of the 'cli' folder
 }
 
 request_handlers = {
@@ -255,7 +264,7 @@ class Fwglobals(FwObject):
     def __init__(self, log=None):
         """Constructor method
         """
-        FwObject.__init__(self)
+        FwObject.__init__(self, log=log)
 
         # Set default configuration
         self.RETRY_INTERVAL_MIN  = 5 # seconds - is used for both registration and main connection
@@ -277,6 +286,7 @@ class Fwglobals(FwObject):
         self.IKEV2_FOLDER        = self.DATA_PATH + 'ikev2/'
         self.ROUTER_LOG_FILE     = '/var/log/flexiwan/agent.log'
         self.APPLICATION_IDS_LOG_FILE = '/var/log/flexiwan/application_ids.log'
+        self.FIREWALL_LOG_FILE = '/var/log/flexiwan/firewall.log'
         self.AGENT_UI_LOG_FILE   = '/var/log/flexiwan/agentui.log'
         self.SYSTEM_CHECKER_LOG_FILE = '/var/log/flexiwan/system_checker.log'
         self.REPO_SOURCE_DIR     = '/etc/apt/sources.list.d/'
@@ -356,6 +366,18 @@ class Fwglobals(FwObject):
         self.signal_names = dict((getattr(signal, n), n) \
                                 for n in dir(signal) if n.startswith('SIG') and '_' not in n )
 
+        # Load cli modules
+        #
+        root_dir = os.path.dirname(os.path.realpath(__file__))
+        for cmd_name, cli_command in cli_commands.items():
+            cli_command_files = glob.glob(f'{root_dir}/cli/fwcli_{cmd_name}*.py')
+            for filename in cli_command_files:
+                cli_module_name = os.path.splitext(os.path.basename(filename))[0] # .../cli/fwcli_configure_router.py -> "fwcli_configure_router"
+                cli_command['modules'].append(cli_module_name)
+                cli_import = __import__(f'cli.{cli_module_name}')
+                cli_module = getattr(cli_import, cli_module_name)
+                cli_modules.update({cli_module_name: cli_module})
+
     def load_configuration_from_file(self):
         """Load configuration from YAML file.
 
@@ -388,13 +410,9 @@ class Fwglobals(FwObject):
 
         with open(debug_conf_file, 'r') as debug_conf_file:
             self.cfg.debug = yaml.load(debug_conf_file, Loader=yaml.SafeLoader)
-            if self.cfg.DEBUG:
-                self.log.debug("load_debug_configuration_from_file: \n" + json.dumps(self.cfg.debug, indent=2))
 
-
-    def initialize_agent(self):
-        """Initialize singleton object. Restore VPP if needed.
-
+    def create_agent(self, initialize=True):
+        """Create the fwagent and the rest of supporting objects (that are globals for historical reasons).
         """
         if self.fwagent:
             self.log.warning('Fwglobals.initialize_agent: agent exists')
@@ -404,16 +422,20 @@ class Fwglobals(FwObject):
         #
         self.logger_add_application = FwLogFile(
             filename=self.APPLICATION_IDS_LOG_FILE, level=log.level)
+        self.logger_add_firewall_policy = FwLogFile(
+            filename=self.FIREWALL_LOG_FILE, level=log.level)
         self.loggers = {
-            'add-application':      self.logger_add_application,
-            'remove-application':   self.logger_add_application,
+            'add-application':        self.logger_add_application,
+            'remove-application':     self.logger_add_application,
+            'add-firewall-policy':    self.logger_add_firewall_policy,
+            'remove-firewall-policy': self.logger_add_firewall_policy,
         }
 
         # Some lte modules have a problem with drivers binding.
         # As workaround, we reload the driver to fix it.
         # We run it only if vpp is not running to make sure that we reload the driver
         # only on boot, and not if a user run `systemctl restart flexiwan-router` when vpp is running.
-        if not fwutils.vpp_does_run():
+        if not fw_os_utils.vpp_does_run():
             fwlte.reload_lte_drivers_if_needed()
 
         self.db               = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! Load data at the first place!
@@ -424,7 +446,7 @@ class Fwglobals(FwObject):
         self.agent_api        = FWAGENT_API()
         self.system_api       = FWSYSTEM_API(self.system_cfg)
         self.router_api       = FWROUTER_API(self.router_cfg, self.ROUTER_PENDING_CFG_FILE, self.MULTILINK_DB_FILE, self.FRR_DB_FILE)
-        self.applications_api = FWAPPLICATIONS_API(start_application_stats=True)
+        self.applications_api = FWAPPLICATIONS_API()
         self.os_api           = OS_API()
         self.policies         = FwPolicies(self.POLICY_REC_DB_FILE)
         self.wan_monitor      = FwWanMonitor()
@@ -453,39 +475,15 @@ class Fwglobals(FwObject):
 
         self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
 
-        self.router_api.restore_vpp_if_needed()
-
-        fwutils.get_linux_interfaces(cached=False) # Fill global interface cache
-
-        self.wan_monitor.initialize() # IMPORTANT! The WAN monitor should be initialized after restore_vpp_if_needed!
-        self.pppoe.initialize()   # IMPORTANT! The PPPOE should be initialized after restore_vpp_if_needed!
-        self.system_api.initialize()
-        self.routes.initialize()      # IMPORTANT! The FwRoutes should be initialized after restore_vpp_if_needed!
-
+        if initialize:
+            self.initialize_agent()
         return self.fwagent
 
-    def finalize_agent(self):
-        """Destructor method
+    def destroy_agent(self, finalize=True):
+        """Graceful shutdown...
         """
-        if not self.fwagent:
-            global log
-            log.warning('Fwglobals.finalize_agent: agent does not exists')
-            return
-
-        self.router_threads.teardown = True   # Stop all threads in parallel to speedup gracefull exit
-
-        try:
-            self.qos.finalize()
-            self.routes.finalize()
-            self.pppoe.finalize()
-            self.wan_monitor.finalize()
-            self.stun_wrapper.finalize()
-            self.system_api.finalize()
-            self.router_api.finalize()
-            self.fwagent.finalize()
-            self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
-        except Exception as e:
-            self.log.error(f"finalize_agent: {str(e)}")
+        if finalize:
+            self.finalize_agent()
 
         del self.routes
         del self.pppoe
@@ -502,7 +500,43 @@ class Fwglobals(FwObject):
         del self.fwagent
         self.fwagent = None
         self.db.close()
-        return
+
+    def initialize_agent(self):
+        """Restore VPP if needed and start various features.
+        """
+        self.log.debug('initialize_agent: started')
+
+        self.router_api.restore_vpp_if_needed()
+
+        fwutils.get_linux_interfaces(cached=False) # Fill global interface cache
+
+        # IMPORTANT! Some of the features below should be initialized after restore_vpp_if_needed
+        #
+        self.wan_monitor.initialize()
+        self.pppoe.initialize()
+        self.system_api.initialize()  # This one does not depend on VPP :)
+        self.routes.initialize()
+        self.applications_api.initialize()
+
+        self.log.debug('initialize_agent: completed')
+
+    def finalize_agent(self):
+        self.log.debug('finalize_agent: started')
+        self.router_threads.teardown = True   # Stop all threads in parallel to speedup gracefull exit
+        try:
+            self.qos.finalize()
+            self.routes.finalize()
+            self.pppoe.finalize()
+            self.wan_monitor.finalize()
+            self.stun_wrapper.finalize()
+            self.system_api.finalize()
+            self.router_api.finalize()
+            self.applications_api.finalize()
+            self.fwagent.finalize()
+            self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
+        except Exception as e:
+            self.log.error(f"finalize_agent: {str(e)}")
+        self.log.debug('finalize_agent: completed')
 
     def __str__(self):
         """Get string representation of configuration.
@@ -767,6 +801,34 @@ class Fwglobals(FwObject):
                 return self.loggers[r['message']]
         return None
 
+    def get_object_func(self, object_name, func_name):
+        try:
+            if object_name == 'fwglobals.g':
+                func = getattr(self, func_name)
+            elif object_name == 'fwglobals.g.router_api':
+                func = getattr(self.router_api, func_name)
+            elif object_name == 'fwglobals.g.router_api.vpp_api':
+                func = getattr(self.router_api.vpp_api, func_name)
+            elif object_name == 'fwglobals.g.router_api.frr':
+                func = getattr(self.router_api.frr, func_name)
+            elif object_name == 'fwglobals.g.router_api.multilink':
+                func = getattr(self.router_api.multilink, func_name)
+            elif object_name == 'fwglobals.g.ikev2':
+                func = getattr(self.ikev2, func_name)
+            elif object_name == 'fwglobals.g.traffic_identifications':
+                func = getattr(self.traffic_identifications, func_name)
+            elif object_name == 'fwglobals.g.pppoe':
+                func = getattr(self.pppoe, func_name)
+            elif object_name == 'fwglobals.g.applications_api':
+                func = getattr(self.applications_api, func_name)
+            elif object_name == 'fwglobals.g.qos':
+                func = getattr(self.qos, func_name)
+            else:
+                return None
+        except Exception as e:
+            self.log.excep(f"get_object_func({object_name}, {func_name}): {str(e)}")
+            return None
+        return func
 
 def initialize(log_level=FWLOG_LEVEL_INFO, quiet=False):
     """Initialize global instances of LOG, and GLOBALS.

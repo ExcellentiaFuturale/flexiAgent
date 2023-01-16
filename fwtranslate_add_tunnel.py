@@ -29,8 +29,8 @@ from netaddr import *
 import fwglobals
 import fwlte
 import fwutils
-import fwqos
 
+IPSEC_ANTI_REPLAY_WINDOW = 448
 
 # add_tunnel
 # --------------------------------------
@@ -348,9 +348,9 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     }
     cmd_list.append(cmd)
 
-    # interface.api.json: sw_interface_flexiwan_label_add_del (..., sw_if_index, n_labels, labels, ...)
-    if 'multilink' in iface_params and 'labels' in iface_params['multilink']:
-        labels = iface_params['multilink']['labels']
+    # Configure multilink policy
+    if not internal:
+        labels = iface_params.get('multilink', {}).get('labels', [])
         if len(labels) > 0:
             # next_hop is remote end of tunnel, which is XOR(local_end, 0.0.0.1)
             next_hop = str(IPNetwork(addr).ip ^ IPAddress("0.0.0.1"))
@@ -1096,6 +1096,7 @@ def _add_ikev2_common_profile(cmd_list, params, name, cache_key, auth_method, lo
         'args': {
             'name'  :  name,
             'enable':  True,
+            'anti_replay_window_len': IPSEC_ANTI_REPLAY_WINDOW
         }
     }
     cmd_list.append(cmd)

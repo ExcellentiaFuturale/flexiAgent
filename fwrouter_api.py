@@ -37,6 +37,7 @@ import fw_vpp_coredump_utils
 import fwglobals
 import fwlte
 import fwnetplan
+import fw_os_utils
 import fwpppoe
 import fwrouter_cfg
 import fwroutes
@@ -52,6 +53,7 @@ from fwmultilink import FwMultilink
 from fwpolicies import FwPolicies
 from vpp_api import VPP_API
 from tools.common.fw_vpp_startupconf import FwStartupConf
+from fwcfg_request_handler import FwCfgMultiOpsWithRevert
 
 fwrouter_translators = {
     'start-router':             {'module': __import__('fwtranslate_start_router'),    'api':'start_router'},
@@ -149,7 +151,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         """
         if not self.state_is_started():
             return
-        if not fwutils.vpp_does_run():      # This 'if' prevents debug print by restore_vpp_if_needed() every second
+        if not fw_os_utils.vpp_does_run():      # This 'if' prevents debug print by restore_vpp_if_needed() every second
             self.log.debug("watchdog: initiate restore")
 
             self.state_change(FwRouterState.STOPPED)    # Reset state ASAP, so:
@@ -158,10 +160,6 @@ class FWROUTER_API(FwCfgRequestHandler):
 
             self.vpp_api.disconnect_from_vpp()          # Reset connection to vpp to force connection renewal
             fwutils.stop_vpp()                          # Release interfaces to Linux
-
-            fwutils.reset_traffic_control()             # Release LTE operations.
-            fwutils.remove_linux_bridges()              # Release bridges for wifi.
-            fwwifi.stop_hostapd()                      # Stop access point service
 
             self._restore_vpp()                         # Rerun VPP and apply configuration
 
@@ -347,7 +345,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 or use 'fwagent reset [--soft]' to recover")
 
         # If vpp runs already, or if management didn't request to start it, return.
-        vpp_runs = fwutils.vpp_does_run()
+        vpp_runs = fw_os_utils.vpp_does_run()
         vpp_should_be_started = self.cfg_db.exists({'message': 'start-router'})
         if vpp_runs or not vpp_should_be_started:
             self.log.debug("restore_vpp_if_needed: no need to restore(vpp_runs=%s, vpp_should_be_started=%s)" %
@@ -355,7 +353,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             if vpp_runs:
                 self.state_change(FwRouterState.STARTED)
             if self.state_is_started():
-                self.log.debug("restore_vpp_if_needed: vpp_pid=%s" % str(fwutils.vpp_pid()))
+                self.log.debug("restore_vpp_if_needed: vpp_pid=%s" % str(fw_os_utils.vpp_pid()))
                 self._start_threads()
                 # We use here read_from_disk because we can't fill the netplan cache from scratch when vpp is running.
                 # We use the original interface names in this cache,
@@ -569,7 +567,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         try:
             req = request['message']
 
-            vpp_does_run = fwutils.vpp_does_run()
+            vpp_does_run = fw_os_utils.vpp_does_run()
 
             # The 'add-application' and 'add-multilink-policy' requests should
             # be translated and executed only if VPP runs, as the translations
@@ -856,7 +854,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                         # Hence, if the default route with the lowest metric
                         # uses the interface, we should reconnect.
                         if not reconnect_agent:
-                            (_, _, default_route_dev_id, _) = fwutils.get_default_route()
+                            (_, _, default_route_dev_id, _, _) = fwutils.get_default_route()
                             if dev_id == default_route_dev_id:
                                 reconnect_agent = True
 
@@ -1368,7 +1366,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         #
         self._get_monitor_interfaces(cached=False)
 
-        self.log.info("router was started: vpp_pid=%s" % str(fwutils.vpp_pid()))
+        self.log.info("router was started: vpp_pid=%s" % str(fw_os_utils.vpp_pid()))
 
         fwglobals.g.applications_api.call_hook('on_router_is_started')
 
@@ -1382,7 +1380,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         self._stop_threads()
         fwglobals.g.pppoe.stop(reset_tun_if_params=True)
         fwglobals.g.cache.dev_id_to_vpp_tap_name.clear()
-        self.log.info("router is being stopped: vpp_pid=%s" % str(fwutils.vpp_pid()))
+        self.log.info("router is being stopped: vpp_pid=%s" % str(fw_os_utils.vpp_pid()))
 
         fwglobals.g.applications_api.call_hook('on_router_is_stopping')
 
@@ -1391,9 +1389,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         :returns: None.
         """
         self.router_stopping = False
-        fwutils.reset_traffic_control()
-        fwutils.remove_linux_bridges()
-        fwwifi.stop_hostapd()
 
         # keep LTE connectivity on linux interface
         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
@@ -1431,6 +1426,32 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         if type == 'wan':
             fw_nat_command_helpers.add_nat_rules_intf(True, sw_if_index)
+
+    def apply_features_on_interface(self, add, vpp_if_name, if_type=None):
+        with FwCfgMultiOpsWithRevert() as handler:
+            try:
+                # apply firewall
+                # TODO: Should be implemented in the next release.
+                # For current release, the remote vpn injects pair of remove and add firewall policy job when.
+
+                # apply qos classification
+                handler.exec(
+                    func=fwqos.update_interface_qos_classification,
+                    params={ 'vpp_if_name': vpp_if_name, 'add': add },
+                    revert_func=fwqos.update_interface_qos_classification if add else None, # no need revert of revert
+                    revert_params={ 'vpp_if_name': vpp_if_name, 'add': (not add) } if add else None, # no need revert of revert
+                )
+
+                # apply multilink
+                handler.exec(
+                    func=fwglobals.g.policies.vpp_attach_detach_policies,
+                    params={ 'attach': add, 'vpp_if_name': vpp_if_name, 'if_type': if_type },
+                    revert_func=fwglobals.g.policies.vpp_attach_detach_policies if add else None, # no need revert of revert
+                    revert_params={ 'attach': (not add), 'vpp_if_name': vpp_if_name, 'if_type': if_type } if add else None, # no need revert of revert
+                )
+            except Exception as e:
+                self.log.error(f"apply_features_on_interface({add, vpp_if_name, if_type}): failed. {str(e)}")
+                handler.revert(e)
 
     def _on_remove_interface_before(self, type, sw_if_index):
         """remove-interface preprocessing

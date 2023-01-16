@@ -77,6 +77,7 @@ def restore_linux_netplan_files():
 
     if files:
         fwutils.netplan_apply('restore_linux_netplan_files')
+    return files
 
 
 def netplan_get_filepaths():
@@ -204,6 +205,8 @@ def load_netplan_filenames(read_from_disk=False, get_only=False):
     if get_only:
         return our_files
 
+    fwglobals.g.NETPLAN_FILES.clear()
+
     for fname, devices in list(our_files.items()):
         for dev in devices:
             dev_id = dev.get('dev_id')
@@ -211,7 +214,8 @@ def load_netplan_filenames(read_from_disk=False, get_only=False):
             set_name = dev.get('set-name')
             if dev_id:
                 fwglobals.g.NETPLAN_FILES[dev_id] = {'fname': fname, 'ifname': ifname, 'set-name': set_name}
-                fwglobals.log.debug('load_netplan_filenames: %s(%s) uses %s' % (ifname, dev_id, fname))
+
+    fwglobals.log.debug(f'load_netplan_filenames: {fwglobals.g.NETPLAN_FILES}')
 
     # Save the disk cache for use when needed
     netplan = fwglobals.g.db.get('netplan')
@@ -478,8 +482,13 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         _write_to_netplan_file(fname_run, config)
 
         # Remove default route from ip table because Netplan is not doing it.
-        if not is_add and type == 'WAN':
-            fwutils.remove_linux_default_route(ifname)
+        # Note we do that directly by 'ip route del' command
+        # and not relay on 'netplan apply', as in last case VPPSB does not handle
+        # properly kernel NETLINK messsages and does not update VPP FIB.
+        (old_gw,old_ifname,_,_,old_metric) = fwutils.get_default_route(ifname)
+        if old_ifname:
+            if (gw != old_gw) or (metric != old_metric):
+                fwutils.remove_linux_default_route(ifname)
 
         fwutils.netplan_apply('add_remove_netplan_interface')
 

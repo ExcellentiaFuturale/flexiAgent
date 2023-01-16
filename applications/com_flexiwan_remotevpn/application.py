@@ -22,25 +22,24 @@
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
-import time
 from os.path import exists
 
 from netaddr import IPNetwork
 
-this_dir = os.path.dirname(os.path.realpath(__file__))
-sys.path.append(this_dir)
-
+current_dir = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(current_dir)
 from application_cfg import config as cfg
 
-up_dir   = os.path.dirname(this_dir)
-sys.path.append(up_dir)
-
-import fwapplication_utils
+applications_dir = os.path.join(current_dir, "../")
+sys.path.append(applications_dir)
 from applications.fwapplication_interface import FwApplicationInterface
+
+agent_dir = os.path.join(applications_dir, "../")
+sys.path.append(agent_dir)
+import fw_os_utils
 
 class Application(FwApplicationInterface):
 
@@ -53,7 +52,8 @@ class Application(FwApplicationInterface):
         """
         try:
             installed = os.popen("dpkg -l | grep -E '^ii' | grep openvpn").read()
-            if installed:
+            dir_is_empty = exists('/etc/openvpn/server') and len(os.listdir('/etc/openvpn/server')) == 0
+            if installed and not dir_is_empty:
                 return
 
             os.system('mkdir -p /etc/openvpn/server')
@@ -68,9 +68,20 @@ class Application(FwApplicationInterface):
             shutil.copyfile('{}/scripts/script_utils.py'.format(path), '/etc/openvpn/server/script_utils.py')
             shutil.copyfile('{}/application_cfg.py'.format(path), '/etc/openvpn/server/application_cfg.py')
 
+            try:
+                fw_os_utils.run_linux_commands( [
+                    'wget -O - https://swupdate.openvpn.net/repos/repo-public.gpg|apt-key add -',
+                    'echo "deb http://build.openvpn.net/debian/openvpn/release/2.5 bionic main" > /etc/apt/sources.list.d/openvpn-aptrepo.list',
+                ])
+            except Exception as e:
+                self.log.error(f"failed to install from openvpn repo. trying another way: {str(e)}")
+                fw_os_utils.run_linux_commands([
+                    'wget -O - https://vpnrepo.flexiwan.com/debian/openvpn/release/2.5/pubkey.gpg | apt-key add -',
+                    'echo "deb https://vpnrepo.flexiwan.com/debian/openvpn/release/2.5/ bionic main" > /etc/apt/sources.list.d/openvpn-aptrepo.list'
+                ]
+            )
+
             commands = [
-                'wget -O - https://swupdate.openvpn.net/repos/repo-public.gpg|apt-key add -',
-                'echo "deb http://build.openvpn.net/debian/openvpn/release/2.5 bionic main" > /etc/apt/sources.list.d/openvpn-aptrepo.list',
                 'apt-get update && apt-get install -y openvpn',
 
                 'chmod +x /etc/openvpn/server/auth-script.py',
@@ -78,8 +89,8 @@ class Application(FwApplicationInterface):
                 'chmod +x /etc/openvpn/server/down-script.py',
                 'chmod +x /etc/openvpn/server/client-connect.py',
             ]
-            fwapplication_utils.run_linux_commands(commands)
-            self.log.info("remoteVPN installed successfully")
+            fw_os_utils.run_linux_commands(commands)
+            self.log.info(f'application installed successfully')
 
         except Exception as e:
             self.log.error(f"install(): {str(e)}")
@@ -94,21 +105,6 @@ class Application(FwApplicationInterface):
         except:
             return None
 
-    def _openvpn_stop(self, timeout=5):
-        """Wait OpenVPN process to be stopped.
-        """
-        os.system('sudo killall openvpn')
-        while timeout >= 0:
-            try:
-                _ = subprocess.check_output(['pidof', 'openvpn'])
-                timeout-= 1
-                time.sleep(1)
-            except Exception:
-                self.log.info("remoteVPN server is stopped")
-                return
-
-        self.log.excep('_openvpn_stop(): failed to kill')
-
     def configure(self, params):
         """Configure Open VPN server on host.
 
@@ -117,7 +113,7 @@ class Application(FwApplicationInterface):
         :returns: (True, None) tuple on success, (False, <error string>) on failure.
         """
         try:
-            self.log.info(f"remote vpn configurations: {str(cfg)}")
+            self.log.info(f"application configurations: {str(cfg)}")
 
             commands = [
                 'echo "%s" > /etc/openvpn/server/ca.crt' % params['caCrt'],
@@ -129,7 +125,7 @@ class Application(FwApplicationInterface):
                 'chmod 600 /etc/openvpn/server/server.key',
             ]
 
-            fwapplication_utils.run_linux_commands(commands)
+            fw_os_utils.run_linux_commands(commands)
 
             self._configure_server_file(params)
 
@@ -139,7 +135,7 @@ class Application(FwApplicationInterface):
             self.log.error(f"configure({params}): {str(e)}")
             raise e
 
-    def uninstall(self):
+    def uninstall(self, files_only=False):
         """Remove Open VPN server from host.
 
         :returns: (True, None) tuple on success, (False, <error string>) on failure.
@@ -147,11 +143,11 @@ class Application(FwApplicationInterface):
         try:
             self.stop()
 
-            commands = [
-                'apt-get remove -y openvpn',
-                'rm -rf /etc/openvpn/server/*'
-            ]
-            fwapplication_utils.run_linux_commands(commands)
+            commands = ['rm -rf /etc/openvpn/server/*']
+            if not files_only:
+                commands.append('apt-get remove -y openvpn')
+
+            fw_os_utils.run_linux_commands(commands)
 
         except Exception as e:
             self.log.error(f"uninstall(): {str(e)}")
@@ -279,12 +275,11 @@ class Application(FwApplicationInterface):
             for command in sorted(commands):
                 ret = os.system(f'echo "{command}" >> {cfg["openvpn_server_conf_file"]}')
                 if ret:
-                    raise Exception(f'install: failed to run "{command}". error code is {ret}')
+                    raise Exception(f'Failed to run "{command}". Error code is {ret}')
 
-            self.log.info("remoteVPN server.conf configured successfully")
-
+            self.log.info('the server.conf file configured successfully')
         except Exception as e:
-            self.log.error(f"failed to configure remoteVPN server.conf. err={str(e)}")
+            self.log.error(f'_configure_server_file({str(params)}): failed to configure remoteVPN server.conf. err={str(e)}')
             raise e
 
     def on_router_is_started(self):
@@ -301,50 +296,31 @@ class Application(FwApplicationInterface):
 
     def start(self, restart=False):
         # don't start if vpp is down
-        router_is_running = fwapplication_utils.router_is_running()
+        router_is_running = fw_os_utils.vpp_does_run()
         if not router_is_running:
             return
 
         if self.is_app_running():
             if not restart:
                 return
+            self.log.info(f'start({restart}): restarting daemon')
             self.stop()
 
+        self.log.info(f'daemon is being started')
         os.system(f'sudo openvpn --config {cfg["openvpn_server_conf_file"]} --daemon')
-
-        timeout, pid = 5, None
-        while timeout >= 0:
-            try:
-                pid = subprocess.check_output(['pidof', 'openvpn'])
-                break
-            except:
-                timeout -= 1
-                time.sleep(1)
-        if not pid:
-            raise Exception('removeVPN failed to start')
-
-        self.log.info("remoteVPN server is running")
 
     def stop(self):
         if self.is_app_running():
-            os.system('sudo killall openvpn')
-            timeout = 5
-            while timeout >= 0:
-                try:
-                    _ = subprocess.check_output(['pidof', 'openvpn'])
-                    timeout-= 1
-                    time.sleep(1)
-                except Exception:
-                    self.log.info("remoteVPN server is stopped")
-                    break
-            if timeout < 0:
-                self.log.excep('_openvpn_stop(): failed to kill')
-
-        os.system(f'echo "" > {cfg["openvpn_status_file"]}')
+            killed = fw_os_utils.kill_process('openvpn')
+            if killed:
+                self.log.info(f'daemon is stopped')
+                os.system(f'echo "" > {cfg["openvpn_status_file"]}')
+            else:
+                self.log.excep('stop(): failed to kill openvpn')
 
     def on_watchdog(self):
         vpn_runs = self.is_app_running()
-        router_is_running = fwapplication_utils.router_is_running()
+        router_is_running = fw_os_utils.vpp_does_run()
         if not vpn_runs and router_is_running:
             self.start()
 
@@ -361,7 +337,7 @@ class Application(FwApplicationInterface):
         if not self.is_app_running():
             return []
 
-        if not fwapplication_utils.router_is_running():
+        if not fw_os_utils.vpp_does_run():
             return []
 
         res = []
@@ -433,3 +409,12 @@ class Application(FwApplicationInterface):
             cfg["openvpn_scripts_log_file"],
             cfg["openvpn_log_file"],
         ]
+
+    def get_networks(self, for_bgp=False, for_ospf=False):
+        networks = []
+        with open(cfg['app_database_file'], 'r') as json_file:
+            data = json.load(json_file)
+            tun_vpp_if_addr = data.get('tun_vpp_if_addr')
+            if tun_vpp_if_addr:
+                networks.append(tun_vpp_if_addr)
+        return networks
