@@ -105,6 +105,7 @@ request_handlers = {
     'modify-lte-pin':                    {'name': '_call_agent_api'},
     'get-device-certificate':            {'name': '_call_agent_api'},
     'set-cpu-info':                      {'name': '_call_agent_api'},
+    'get-bgp-status':                    {'name': '_call_agent_api'},
 
     # Aggregated API
     'aggregated':                   {'name': '_call_aggregated', 'sign': True},
