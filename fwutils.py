@@ -52,7 +52,6 @@ import fwlte
 import fwwifi
 import fwqos
 import fwtranslate_add_switch
-import fw_nat_command_helpers
 
 from fwapplications_api import call_applications_hook, FWAPPLICATIONS_API
 from fwfrr          import FwFrr
