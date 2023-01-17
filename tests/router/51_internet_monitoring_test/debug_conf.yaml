@@ -1,5 +1,5 @@
 daemon:
-  standalone: false
+  standalone: true
 agent:
   features:
     stun:
