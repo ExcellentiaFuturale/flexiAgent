@@ -2033,30 +2033,6 @@ def vpp_startup_conf_remove_param(filename, path):
     with FwStartupConf(filename) as conf:
         conf.del_simple_param(path)
 
-def vpp_startup_conf_add_nopci(vpp_config_filename):
-    p = FwStartupConf(vpp_config_filename)
-    config = p.get_root_element()
-
-    if config['dpdk'] == None:
-        tup = p.create_element('dpdk')
-        config.append(tup)
-    if p.get_element(config['dpdk'], 'no-pci') == None:
-        config['dpdk'].append(p.create_element('no-pci'))
-        p.dump(config, vpp_config_filename)
-    return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
-
-def vpp_startup_conf_remove_nopci(vpp_config_filename):
-    p = FwStartupConf(vpp_config_filename)
-    config = p.get_root_element()
-
-    if config['dpdk'] == None:
-       return (True, None)
-    if p.get_element(config['dpdk'], 'no-pci') == None:
-        return (True, None)
-    p.remove_element(config['dpdk'], 'no-pci')
-    p.dump(config, vpp_config_filename)
-    return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
-
 def _vmxnet3_align_to_pow2_and_max_value(x):
     """
     vmxnet3 driver supports RX queues only values pow of 2 and the max value is 16
@@ -2083,23 +2059,30 @@ def _vmxnet3_align_to_pow2_and_max_value(x):
         pw = 1
     return pw
 
-def vpp_startup_conf_add_devices(vpp_config_filename, devices):
+
+def vpp_startup_conf_add_dpdk_config (vpp_config_filename, devices):
+    """
+    Function for setting up of startup-conf's dpdk config on VPP start
+    """
     p = FwStartupConf(vpp_config_filename)
     hqos_capable = True if (p.get_cpu_hqos_workers() > 0) else False
     tap_count = 0
     tun_count = 0
-
+    num_workers = p.get_cpu_workers()
     config = p.get_root_element()
 
-    if config['dpdk'] == None:
-        tup = p.create_element('dpdk')
-        config.append(tup)
+    p.remove_element(config, 'dpdk')
+    tup = p.create_element('dpdk')
+    config.append(tup)
 
-    # Ensure no stale tuntap interfaces created as part of PPPoE setup is left behind
-    tun_config_param = p.get_element(config['dpdk'], 'vdev net_')
-    while (tun_config_param):
-        p.remove_element(config['dpdk'], tun_config_param)
-        tun_config_param = p.get_element(config['dpdk'], 'vdev net_')
+    if len(devices) == 0:
+        # When the list of devices in the startup.conf file is empty, the vpp attempts
+        # to manage all the down linux interfaces.
+        # If all interfaces are non-dpdk interfaces (like WiFi) then this list could be empty.
+        # In order to prevent vpp from doing so, we need to add the "no-pci" flag.
+        config['dpdk'].append(p.create_element('no-pci'))
+        p.dump(config, vpp_config_filename)
+        return (True, None)
 
     for dev in devices:
         wan_if = fwglobals.g.router_cfg.get_interfaces(dev_id=dev, type='wan')
@@ -2109,7 +2092,6 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
         pppoe_if = fwpppoe.is_pppoe_interface(dev_id=dev)
 
         if addr_type == "pci":
-            old_config_param = 'dev %s' % addr_short
 
             custom_config_param = ''
             # For PPPoE interface, QoS is enabled on the corresponding tun interface
@@ -2117,7 +2099,7 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
                 custom_config_param +=' hqos'
             if dev_id_is_vmxnet3(dev):
                 #for vmxnet3 we need to align value to supported numbers (pow of 2 and max is 16)
-                rx_queues = _vmxnet3_align_to_pow2_and_max_value(p.get_cpu_workers())
+                rx_queues = _vmxnet3_align_to_pow2_and_max_value(num_workers)
                 custom_config_param += ' num-rx-queues %s' % (rx_queues)
 
             if custom_config_param:
@@ -2125,11 +2107,8 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
             else:
                 new_config_param = "dev %s" % (addr_short)
 
-            current_config_value = p.get_element(config['dpdk'],old_config_param)
-            if (current_config_value != new_config_param):
-                p.remove_element(config['dpdk'], current_config_value)
-                tup = p.create_element(new_config_param)
-                config['dpdk'].append(tup)
+            tup = p.create_element(new_config_param)
+            config['dpdk'].append(tup)
         elif addr_type == "usb":
             iface_name = dev_id_to_linux_if(dev)
             tap_linux_iface_name = generate_linux_interface_short_name("tap", iface_name)
@@ -2152,24 +2131,18 @@ def vpp_startup_conf_add_devices(vpp_config_filename, devices):
             config['dpdk'].append(tup)
             tun_count += 1
 
-
+    if num_workers > 1:
+        p.set_simple_param('dpdk.dev default.num-rx-queues', num_workers)
     p.dump(config, vpp_config_filename)
     return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
 
-def vpp_startup_conf_remove_devices(vpp_config_filename, devices):
+def vpp_startup_conf_remove_dpdk_config (vpp_config_filename):
+    """
+    Function for removing of startup-conf's dpdk config on VPP stop
+    """
     p = FwStartupConf(vpp_config_filename)
     config = p.get_root_element()
-
-    if config['dpdk'] == None:
-        return
-    for dev in devices:
-        dev = dev_id_to_short(dev)
-        _, addr = dev_id_parse(dev)
-        config_param = 'dev %s' % addr
-        key = p.get_element(config['dpdk'],config_param)
-        if key:
-            p.remove_element(config['dpdk'], key)
-
+    p.remove_element(config, 'dpdk')
     p.dump(config, vpp_config_filename)
     return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
 
