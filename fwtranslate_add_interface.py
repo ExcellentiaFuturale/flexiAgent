@@ -136,6 +136,9 @@ def add_interface(params):
         parts = parts[0].split(".")
         vlan_id = int(parts[1])
 
+        if bridge_addr:
+            iface_addr = ''
+
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']          = "call_vpp_api"
