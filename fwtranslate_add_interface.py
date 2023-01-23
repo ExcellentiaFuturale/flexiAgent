@@ -164,6 +164,31 @@ def add_interface(params):
         cmd['revert']['descr']      = "delete vlan interface"
         cmd_list.append(cmd)
 
+        if bridge_addr:
+            cmd = {}
+            cmd['cmd'] = {}
+            cmd['cmd']['func']          = "call_vpp_api"
+            cmd['cmd']['object']        = "fwglobals.g.router_api.vpp_api"
+            cmd['cmd']['params']        = {
+                            'api':  "l2_interface_vlan_tag_rewrite",
+                            'args': {
+                                'vtr_op': 3, # L2_VTR_POP_1 (vnet/l2/l2_vtr.h)
+                                'substs': [ { 'add_param':'sw_if_index', 'val_by_key':'vlan_cache_key'} ]
+                            },
+            }
+            cmd['cmd']['descr']         = "enable tag rewrite"
+            cmd['revert'] = {}
+            cmd['revert']['func']       = "call_vpp_api"
+            cmd['revert']['object']     = "fwglobals.g.router_api.vpp_api"
+            cmd['revert']['params']     = {
+                            'api':  "l2_interface_vlan_tag_rewrite",
+                            'args': {
+                                'substs': [ { 'add_param':'sw_if_index', 'val_by_key':'vlan_cache_key'} ]
+                            },
+            }
+            cmd['revert']['descr']      = "disable tag rewrite"
+            cmd_list.append(cmd)
+
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']      = "exec"
