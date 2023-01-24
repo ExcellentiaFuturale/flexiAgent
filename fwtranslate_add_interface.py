@@ -468,6 +468,7 @@ def add_interface(params):
             'args': {
                 'enable':   1,
                 'port_type':0,
+                'shg':      1,
                 'substs':   [
                     { 'add_param':'rx_sw_if_index', 'val_by_func':'dev_id_to_vpp_sw_if_index', 'arg':dev_id },
                     { 'add_param':'bd_id', 'val_by_func': 'fwtranslate_add_switch.get_bridge_id', 'arg': bridge_addr }
