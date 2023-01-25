@@ -448,7 +448,7 @@ def dev_id_to_full(dev_id):
 
     if 'vlan' in addr_type:
         vlan_id = addr_type.split('.')[1]
-        dev_id = f'vlan.{vlan_id}.{dev_id}'
+        dev_id = build_vlan_dev_id(vlan_id, dev_id)
 
     return dev_id
 
@@ -794,7 +794,7 @@ def build_interface_dev_id(linux_dev_name, sys_class_net=None):
                 dev_id = dev_id_to_full(dev_id)
 
                 if vlan_id:
-                    dev_id = 'vlan.' + vlan_id + '.' + dev_id
+                    dev_id = build_vlan_dev_id(vlan_id, dev_id)
                 return dev_id
 
     return ""
@@ -1009,7 +1009,7 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
         if sw_if.type == 1: # IF_API_TYPE_SUB
             parent_vpp_if_name = vpp_sw_if_index_to_name(sw_if.sup_sw_if_index)
             parent_dev_id = fwglobals.g.cache.vpp_if_name_to_dev_id[parent_vpp_if_name]
-            pci_addr = f'vlan.{sw_if.sub_outer_vlan_id}.{parent_dev_id}'
+            pci_addr = build_vlan_dev_id(sw_if.sub_outer_vlan_id, parent_dev_id)
             vpp_if_name = sw_if.interface_name.rstrip(' \t\r\n\0')
             fwglobals.g.cache.dev_id_to_vpp_if_name[pci_addr] = vpp_if_name
             fwglobals.g.cache.vpp_if_name_to_dev_id[vpp_if_name] = pci_addr
@@ -4089,3 +4089,8 @@ def is_vlan_interface(dev_id):
     '''Check if dev_id is from vlan interface.
     '''
     return 'vlan' in dev_id
+
+def build_vlan_dev_id(vlan_id, dev_id):
+    '''Build vlan dev_id.
+    '''
+    return f'vlan.{vlan_id}.{dev_id}'
