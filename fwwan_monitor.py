@@ -417,7 +417,7 @@ class FwWanMonitor(FwObject):
                     dnsServers = fwglobals.g.DEFAULT_DNS_SERVERS
                 dnsDomains  = ifc.get('dnsDomains', None)
 
-                if 'vlan' in route.dev_id:
+                if fwutils.is_vlan_interface(route.dev_id):
                     (success, err_str) = fwnetplan.add_remove_netplan_vlan(\
                         True, route.dev_id, ip, via, new_metric, dhcp, 'WAN')
                 else:

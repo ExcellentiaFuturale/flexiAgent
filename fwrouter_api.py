@@ -232,7 +232,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         interfaces = fwglobals.g.router_cfg.get_interfaces()
         for interface in interfaces:
-            if 'vlan' in interface['dev_id']:
+            if fwutils.is_vlan_interface(interface['dev_id']):
                 continue
             tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
             if fwpppoe.is_pppoe_interface(dev_id=interface['dev_id']):

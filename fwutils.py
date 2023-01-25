@@ -4084,3 +4084,8 @@ class FwJsonEncoder(json.JSONEncoder):
         except:
             serialized = o.__dict__  # As a last resort, assume complex object
         return serialized
+
+def is_vlan_interface(dev_id):
+    '''Check if dev_id is from vlan interface.
+    '''
+    return 'vlan' in dev_id
