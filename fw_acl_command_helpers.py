@@ -434,9 +434,9 @@ def add_acl_rules_interfaces(is_add, dev_id_params, ingress_acl_ids, egress_acl_
         interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
         for intf in interfaces:
             updated_dev_id_params.append(intf['dev_id'])
+        ingress_acl_ids = fwglobals.g.acl_cache.get('ingress')
+        egress_acl_ids = fwglobals.g.acl_cache.get('egress')
 
     for dev_id in updated_dev_id_params:
         sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
-        ingress_acls = fwglobals.g.acl_cache.get('ingress')
-        egress_acls = fwglobals.g.acl_cache.get('egress')
-        add_acl_rules_intf(is_add, sw_if_index, ingress_acls, egress_acls)
+        add_acl_rules_intf(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids)

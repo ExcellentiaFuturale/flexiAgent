@@ -73,7 +73,6 @@ def add_firewall_policy(params):
 
     def process_inbound_rules(inbound_rules):
 
-        intf_attachments = {}
         cmd_list = []
 
         for rule_name, rules in inbound_rules.items():
