@@ -606,7 +606,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
             is_pppoe = fwpppoe.is_pppoe_interface(if_name=if_name)
             is_wifi = fwwifi.is_wifi_interface(if_name)
             is_lte = fwlte.is_lte_interface(if_name)
-            is_vlan = 'vlan' in dev_id
+            is_vlan = is_vlan_interface(dev_id)
 
             if is_lte:
                 interface['deviceType'] = 'lte'
