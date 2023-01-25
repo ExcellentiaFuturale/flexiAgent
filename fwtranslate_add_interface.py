@@ -131,10 +131,7 @@ def add_interface(params):
         dhcp = 'no'
 
     if is_vlan:
-        parts = dev_id.split("pci")
-        parent_dev_id = 'pci' + parts[1]
-        parts = parts[0].split(".")
-        vlan_id = int(parts[1])
+        parent_dev_id, vlan_id = fwutils.dev_id_parse_vlan(dev_id)
 
         if bridge_addr:
             iface_addr = ''

@@ -4094,3 +4094,11 @@ def build_vlan_dev_id(vlan_id, dev_id):
     '''Build vlan dev_id.
     '''
     return f'vlan.{vlan_id}.{dev_id}'
+
+def dev_id_parse_vlan(dev_id):
+    '''Parse parent dev_id and vlan id.
+    '''
+    parts = dev_id.split("pci")
+    parent_dev_id = "pci" + parts[1]
+    vlan_id = int(parts[0].split(".")[1])
+    return parent_dev_id, vlan_id

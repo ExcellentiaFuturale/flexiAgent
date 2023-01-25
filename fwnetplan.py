@@ -703,9 +703,7 @@ def add_remove_netplan_vlan(is_add, dev_id, ip, gw, metric, dhcp, type, netplan_
         fwglobals.log.error(err_str)
         return (False, err_str)
 
-    parts = dev_id.split("pci")
-    parent_dev_id = "pci" + parts[1]
-    vlan_id = parts[0].split(".")[1]
+    parent_dev_id, vlan_id = fwutils.dev_id_parse_vlan(dev_id)
 
     fname_run = fwglobals.g.NETPLAN_FILE
     _add_netplan_file(fname_run)
