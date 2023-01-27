@@ -324,8 +324,8 @@ class FwAclCache():
         self.ingress_rules.clear()
         self.egress_rules.clear()
 
-def cache_acl_rule(direction, acl_id):
-    """ Cache ACL rule
+def translate_cache_acl_rule(direction, acl_id):
+    """ Translate cache ACL rule
 
     :param direction: Inbound/outbound
     :param acl_id: ACL identifier
@@ -370,7 +370,7 @@ def update_firewall_cache(is_add, direction, acl_index):
 
     return (True, None)
 
-def add_acl_rules_intf(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids):
+def vpp_add_acl_rules(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids):
     """
     Add/remove ACL rules on the interface
 
@@ -439,4 +439,4 @@ def add_acl_rules_interfaces(is_add, dev_id_params, ingress_acl_ids, egress_acl_
 
     for dev_id in updated_dev_id_params:
         sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
-        add_acl_rules_intf(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids)
+        vpp_add_acl_rules(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids)

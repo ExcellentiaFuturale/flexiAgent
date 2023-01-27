@@ -1426,7 +1426,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 if if_type == 'lan':
                     ingress_acls = fwglobals.g.acl_cache.get('ingress')
                     egress_acls = fwglobals.g.acl_cache.get('egress')
-                    fw_acl_command_helpers.add_acl_rules_intf(add, sw_if_index, ingress_acls, egress_acls)
+                    fw_acl_command_helpers.vpp_add_acl_rules(add, sw_if_index, ingress_acls, egress_acls)
 
                 if if_type == 'wan':
                     fw_nat_command_helpers.add_nat_rules_intf(add, sw_if_index)

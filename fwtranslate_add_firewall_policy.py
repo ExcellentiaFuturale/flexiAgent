@@ -161,14 +161,14 @@ def add_firewall_policy(params):
                 continue
 
             if not dev_id_params:
-                cmd_list.append(fw_acl_command_helpers.cache_acl_rule('ingress', ingress_id))
-                cmd_list.append(fw_acl_command_helpers.cache_acl_rule('egress', egress_id))
+                cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', ingress_id))
+                cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', egress_id))
 
             cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_id, egress_id, dev_id_params))
 
         if outbound_rules['rules']:
-            cmd_list.append(fw_acl_command_helpers.cache_acl_rule('ingress', DEFAULT_ALLOW_ID))
-            cmd_list.append(fw_acl_command_helpers.cache_acl_rule('egress', DEFAULT_ALLOW_ID))
+            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', DEFAULT_ALLOW_ID))
+            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', DEFAULT_ALLOW_ID))
             cmd_list.append(fw_acl_command_helpers.add_interface_attachment(DEFAULT_ALLOW_ID, DEFAULT_ALLOW_ID, []))
 
         return cmd_list
