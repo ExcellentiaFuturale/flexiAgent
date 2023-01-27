@@ -198,7 +198,7 @@ def get_nat_1to1_config(dev_id, internal_ip):
     """
     Generates command for 1:1 NAT configuration
 
-    :param dev_id: device identifier of the WAN interface
+    :param dev_id: device identifier of the WAN interface received from flexiManage
     :type dev_id: String
     :param internal_ip: Internal IP to which WAN IP need to be mapped
     :type internal_ip: String
@@ -319,7 +319,7 @@ def get_nat_port_forward_config(dev_id, protocols, ports, internal_ip,
     return cmd_list
 
 
-def get_nat_identity_config(dev_id_params, protocols, ports):
+def translate_get_nat_identity_config(dev_id_params, protocols, ports):
     """
     Generates command for NAT identity mapping configuration
 
@@ -362,7 +362,7 @@ def get_nat_identity_config(dev_id_params, protocols, ports):
 
     return cmd_list
 
-def run_nat_identity_config(is_add, sw_if_index, protocols, ports):
+def vpp_config_nat_identity(is_add, sw_if_index, protocols, ports):
     """
     Executes command for NAT identity mapping configuration
 
@@ -406,7 +406,7 @@ def run_nat_identity_configs(is_add, dev_id_params, protocols, ports):
 
     for dev_id in dev_id_params:
         sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
-        run_nat_identity_config(is_add, sw_if_index, protocols, ports)
+        vpp_config_nat_identity(is_add, sw_if_index, protocols, ports)
 
 def add_nat_rules_intf(is_add, sw_if_index):
     """
@@ -428,5 +428,5 @@ def add_nat_rules_intf(is_add, sw_if_index):
                 interface = destination.get('interface')
                 if interface:
                     continue
-                run_nat_identity_config(is_add, sw_if_index,
+                vpp_config_nat_identity(is_add, sw_if_index,
                             destination.get('protocols'), destination['ports'])

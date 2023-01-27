@@ -104,7 +104,7 @@ def add_firewall_policy(params):
                     cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_id, None, dev_id_params))
 
                 if rule_type == InboundNatType.IDENTITY_MAPPING:
-                    cmd_list.extend(fw_nat_command_helpers.get_nat_identity_config(
+                    cmd_list.extend(fw_nat_command_helpers.translate_get_nat_identity_config(
                         dev_id_params, destination.get('protocols'), destination['ports']))
 
                 for dev_id in dev_id_params:
