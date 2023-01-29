@@ -2894,10 +2894,8 @@ def get_interface_link_state(if_name, dev_id, device_type=None):
         return 'up' if state == 'yes' else 'down' if state == 'no' else ''
 
     if device_type == 'vlan':
-        parts = if_name.split('.')
-        if len(parts) == 2:
-            if_name = parts[0]
-            return _return_ethtool_value(if_name)
+        # VLAN link status is the same as its parent
+        if_name, _ = if_name_parse_vlan(if_name)
 
     if device_type == 'lte' or device_type == 'wifi':
         # no need to check for tap interface in case of LTE or WiFi
@@ -4100,3 +4098,13 @@ def dev_id_parse_vlan(dev_id):
     parent_dev_id = "pci" + parts[1]
     vlan_id = int(parts[0].split(".")[1])
     return parent_dev_id, vlan_id
+
+def if_name_parse_vlan(if_name):
+    '''Parse parent if_name and vlan id.
+    '''
+    parts = if_name.split('.')
+    if len(parts) != 2:
+        return (None, 0)
+    parent_if_name = parts[0]
+    vlan_id = int(parts[1])
+    return parent_if_name, vlan_id
