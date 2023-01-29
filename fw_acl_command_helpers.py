@@ -299,30 +299,21 @@ class FwAclCache():
     """ Cache of ACL rules used by Firewall feature.
     """
     def __init__(self):
-        self.ingress_rules = []
-        self.egress_rules = []
+        self.rules = {}
+        self.rules['ingress'] = []
+        self.rules['egress']  = []
 
     def add(self, direction, acl_id):
-        if direction == 'ingress':
-            self.ingress_rules.append(acl_id)
-        elif direction == 'egress':
-            self.egress_rules.append(acl_id)
+        self.rules[direction].append(acl_id)
 
     def remove(self, direction, acl_id):
-        if direction == 'ingress':
-            self.ingress_rules = [tup for tup in self.ingress_rules if tup == acl_id]
-        elif direction == 'egress':
-            self.egress_rules = [tup for tup in self.egress_rules if tup == acl_id]
+        self.rules[direction] = [tup for tup in self.rules[direction] if tup == acl_id]
 
     def get(self, direction):
-        if direction == 'ingress':
-            return self.ingress_rules
-        elif direction == 'egress':
-            return self.egress_rules
+        return self.rules[direction]
 
-    def clear(self):
-        self.ingress_rules.clear()
-        self.egress_rules.clear()
+    def clear(self, direction):
+        self.rules[direction].clear()
 
 def translate_cache_acl_rule(direction, acl_id):
     """ Translate cache ACL rule

@@ -127,7 +127,8 @@ def add_firewall_policy(params):
         cmd_list = []
 
         # Clean ACL cache
-        fwglobals.g.acl_cache.clear()
+        fwglobals.g.acl_cache.clear('ingress')
+        fwglobals.g.acl_cache.clear('egress')
 
         for rule_index, rule in enumerate(outbound_rules['rules']):
 
