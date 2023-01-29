@@ -765,9 +765,7 @@ def build_interface_dev_id(linux_dev_name, sys_class_net=None):
         return ""
 
     if '.' in linux_dev_name:
-        name_parts = linux_dev_name.split(".")
-        linux_dev_name = name_parts[0]
-        vlan_id = name_parts[1]
+        linux_dev_name, vlan_id = if_name_parse_vlan(linux_dev_name)
 
     if linux_dev_name.startswith('ppp'):
         return fwpppoe.pppoe_get_dev_id_from_ppp(linux_dev_name)
