@@ -479,7 +479,6 @@ def dev_id_parse(dev_id):
     :returns: Tuple (type, address)
     """
     type_and_addr = dev_id.split(':', 1)
-
     if type_and_addr and len(type_and_addr) == 2:
         return (type_and_addr[0], type_and_addr[1])
 
