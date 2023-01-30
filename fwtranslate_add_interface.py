@@ -120,6 +120,8 @@ def add_interface(params):
     is_vlan = fwutils.is_vlan_interface(dev_id)
     add_to_netplan = True
     if is_vlan or is_pppoe:
+        # PPPoE interface is not added into netplan config.
+        # VLAN interface is added but using dedicated function.
         add_to_netplan = False
 
     if int_type == 'trunk':

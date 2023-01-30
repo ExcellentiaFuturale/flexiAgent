@@ -684,6 +684,7 @@ def create_baseline_if_not_exist(fname):
     os.system('mv %s %s' % (fname, fname_baseline))
     return fname_baseline
 
+
 def _set_netplan_section_vlan(config_section, vlan_id, parent_dev_id):
     ifname = fwutils.dev_id_to_tap(parent_dev_id)
     config_section['id'] = vlan_id
@@ -691,6 +692,13 @@ def _set_netplan_section_vlan(config_section, vlan_id, parent_dev_id):
     return config_section
 
 def add_remove_netplan_vlan(is_add, dev_id, ip, gw, metric, dhcp, type, netplan_apply=True):
+    '''Add vlan section like below into Netplan file.
+        vlans:
+         eth1.10:
+           dhcp4: true
+           id: '10'
+           link: eth1
+    '''
     type = type.upper()
 
     fwglobals.log.debug(
