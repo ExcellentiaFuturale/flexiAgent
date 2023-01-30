@@ -1414,15 +1414,15 @@ class FWROUTER_API(FwCfgRequestHandler):
         :param sw_if_index: vpp sw_if_index of the interface
         """
         self._update_cache_sw_if_index(sw_if_index, type, True)
+        self.apply_features_on_interface(True, None, sw_if_index, type)
 
-        vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
-        self.apply_features_on_interface(True, vpp_if_name, type)
+    def apply_features_on_interface(self, add, vpp_if_name=None, sw_if_index=None, if_type=None):
+        if not vpp_if_name:
+            vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
 
-    def apply_features_on_interface(self, add, vpp_if_name, if_type=None):
         with FwCfgMultiOpsWithRevert() as handler:
             try:
                 # apply firewall
-                sw_if_index = fwutils.vpp_if_name_to_sw_if_index(vpp_if_name, if_type)
                 if if_type == 'lan':
                     ingress_acls = fwglobals.g.acl_cache.get('ingress')
                     egress_acls = fwglobals.g.acl_cache.get('egress')
@@ -1456,9 +1456,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         :param type:        "wan"/"lan"
         :param sw_if_index: vpp sw_if_index of the interface
         """
-        vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
-        self.apply_features_on_interface(False, vpp_if_name, type)
-
+        self.apply_features_on_interface(False, None, sw_if_index, type)
         self._update_cache_sw_if_index(sw_if_index, type, False)
 
     def _on_add_tunnel_after(self, sw_if_index, params):
