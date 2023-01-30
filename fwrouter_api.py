@@ -1429,7 +1429,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                     fw_acl_command_helpers.vpp_add_acl_rules(add, sw_if_index, ingress_acls, egress_acls)
 
                 if if_type == 'wan':
-                    fw_nat_command_helpers.add_nat_rules_intf(add, sw_if_index)
+                    fw_nat_command_helpers.add_nat_rules_interfaces(add, sw_if_index)
 
                 # apply qos classification
                 handler.exec(

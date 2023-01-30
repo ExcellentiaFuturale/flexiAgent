@@ -408,7 +408,7 @@ def config_nat_identities(is_add, dev_id_params, protocols, ports):
         sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
         vpp_config_nat_identity(is_add, sw_if_index, protocols, ports)
 
-def add_nat_rules_intf(is_add, sw_if_index):
+def add_nat_rules_interfaces(is_add, sw_if_index):
     """
     Add/remove NAT identity mapping on the interface
 
