@@ -231,7 +231,7 @@ def add_interface(params):
         cmd['revert']['descr'] = "remove vlan from netplan config file"
         cmd_list.append(cmd)
 
-    if is_wifi:
+    elif is_wifi:
         # Create tap interface in linux and vpp.
         # This command will create three interfaces:
         #   1. linux tap interface.

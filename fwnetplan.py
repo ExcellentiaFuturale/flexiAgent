@@ -104,7 +104,6 @@ def netplan_unload_vpp_assigned_ports(assigned_linux_interfaces):
     for fname in files:
         changed_ethernets = False
         changed_vlans = False
-        config = None
         with open(fname, 'r') as stream:
             config = yaml.safe_load(stream)
             if config is None:
