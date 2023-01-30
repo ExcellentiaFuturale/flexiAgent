@@ -704,6 +704,12 @@ def add_remove_netplan_vlan(is_add, dev_id, ip, gw, metric, dhcp, type, netplan_
         "add_remove_netplan_vlan: is_add=%d, dev_id=%s, ip=%s, gw=%s, metric=%d, dhcp=%s, type=%s" % \
         (is_add, dev_id, ip, gw, metric, dhcp, type))
 
+    fo_metric = get_wan_failover_metric(dev_id, metric)
+    if fo_metric != metric:
+        fwglobals.log.debug(
+            "add_remove_netplan_vlan: dev_id=%s, use wan failover metric %d" % (dev_id, fo_metric))
+        metric = fo_metric
+
     ifname = fwutils.dev_id_to_tap(dev_id)
     if not ifname:
         err_str = "add_remove_netplan_vlan: %s was not found" % dev_id
