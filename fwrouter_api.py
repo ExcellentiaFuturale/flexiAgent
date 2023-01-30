@@ -1426,10 +1426,20 @@ class FWROUTER_API(FwCfgRequestHandler):
                 if if_type == 'lan':
                     ingress_acls = fwglobals.g.acl_cache.get('ingress')
                     egress_acls = fwglobals.g.acl_cache.get('egress')
-                    fw_acl_command_helpers.vpp_add_acl_rules(add, sw_if_index, ingress_acls, egress_acls)
+                    handler.exec(
+                        func=fw_acl_command_helpers.vpp_add_acl_rules,
+                        params={ 'is_add': add, 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': egress_acls },
+                        revert_func=fw_acl_command_helpers.vpp_add_acl_rules if add else None,
+                        revert_params={ 'is_add': (not add), 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': egress_acls } if add else None,
+                    )
 
                 if if_type == 'wan':
-                    fw_nat_command_helpers.add_nat_rules_interfaces(add, sw_if_index)
+                    handler.exec(
+                        func=fw_nat_command_helpers.add_nat_rules_interfaces,
+                        params={ 'is_add': add, 'sw_if_index': sw_if_index },
+                        revert_func=fw_nat_command_helpers.add_nat_rules_interfaces if add else None,
+                        revert_params={ 'is_add': (not add), 'sw_if_index': sw_if_index } if add else None,
+                    )
 
                 # apply qos classification
                 handler.exec(
