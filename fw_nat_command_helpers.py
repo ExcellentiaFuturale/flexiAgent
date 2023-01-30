@@ -337,7 +337,7 @@ def translate_get_nat_identity_config(dev_id_params, protocols, ports):
     cmd = {}
 
     cmd['cmd'] = {}
-    cmd['cmd']['func']   = "run_nat_identity_configs"
+    cmd['cmd']['func']   = "config_nat_identities"
     cmd['cmd']['module'] = "fw_nat_command_helpers"
     cmd['cmd']['descr'] = "Add NAT identity mapping rule"
     cmd['cmd']['params'] = {
@@ -348,7 +348,7 @@ def translate_get_nat_identity_config(dev_id_params, protocols, ports):
     }
 
     cmd['revert'] = {}
-    cmd['revert']['func']   = "run_nat_identity_configs"
+    cmd['revert']['func']   = "config_nat_identities"
     cmd['revert']['module'] = "fw_nat_command_helpers"
     cmd['revert']['descr'] = "Delete NAT identity mapping rule"
     cmd['revert']['params'] = {
@@ -390,7 +390,7 @@ def vpp_config_nat_identity(is_add, sw_if_index, protocols, ports):
                 is_add=is_add, sw_if_index=sw_if_index, protocol=fwutils.proto_map[proto], port=port)
 
 
-def run_nat_identity_configs(is_add, dev_id_params, protocols, ports):
+def config_nat_identities(is_add, dev_id_params, protocols, ports):
     """
     Executes commands for NAT identity mapping configuration
 
