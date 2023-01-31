@@ -442,12 +442,15 @@ def dev_id_to_full(dev_id):
     if addr_type == 'usb':
         return dev_id
 
-    if 'vlan' in addr_type:
-        return dev_id
-
     pc = addr.split('.')
     if len(pc) == 2:
-        return dev_id_add_type(pc[0]+'.'+"%02x"%(int(pc[1],16)))
+        dev_id = dev_id_add_type(pc[0]+'.'+"%02x"%(int(pc[1],16)))
+
+    if 'vlan' in addr_type:
+        vlan_id = addr_type.split('.')[1]
+        dev_id = build_vlan_dev_id(vlan_id, dev_id)
+
+    return dev_id
 
 # Convert 0000:00:08.01 provided by management to 0000:00:08.1 used by Linux
 def dev_id_to_short(dev_id):
