@@ -55,7 +55,8 @@ g_dumpers = {
     # Linux stuff - !!! PLEASE KEEP ALPHABET ORDER !!!
     #
     'linux_apt':                    { 'shell_cmd': 'mkdir -p <temp_folder>/linux_apt/ && ' +
-                                                   'cp /var/log/apt/* <temp_folder>/linux_apt 2>/dev/null ; ' +
+                                                   'cp /var/log/apt/*.log <temp_folder>/linux_apt 2>/dev/null ; ' +
+                                                   'cp /var/log/apt/*.log.1.gz <temp_folder>/linux_apt 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_cpu':                    { 'shell_cmd': 'cat /proc/cpuinfo > <dumper_out_file>' },
     'linux_dhcpd':                  { 'shell_cmd': 'mkdir -p <temp_folder>/linux_dhcpd/ && ' +
