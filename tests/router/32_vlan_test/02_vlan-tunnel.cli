@@ -1,17 +1,6 @@
 [
 {
   "entity": "agent",
-  "message": "add-interface",
-  "params": {
-      "dev_id":"vlan.102.__INTERFACE_1__dev_id",
-      "type":"WAN",
-      "addr":"11.0.0.4/24",
-      "gateway":"11.0.0.1"
-  }
-}
-,
-{
-  "entity": "agent",
   "message": "start-router",
   "params": {
     "interfaces": [
@@ -22,6 +11,17 @@
         "type":"LAN"
       }
     ]
+  }
+}
+,
+{
+  "entity": "agent",
+  "message": "add-interface",
+  "params": {
+      "dev_id":"vlan.102.__INTERFACE_1__dev_id",
+      "type":"WAN",
+      "addr":"11.0.0.4/24",
+      "gateway":"11.0.0.1"
   }
 }
 ,
