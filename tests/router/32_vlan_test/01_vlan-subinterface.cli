@@ -63,6 +63,17 @@
 }
 ,
 {
+    "entity": "agent",
+    "message": "add-route",
+    "params": {
+        "addr": "2.2.2.1/32",
+        "via": "192.168.103.1",
+        "dev_id":"vlan.103.__INTERFACE_1__dev_id",
+        "redistributeViaOSPF": "false"
+    }
+}
+,
+{
   "entity": "agent",
   "message": "start-router",
   "params": {
