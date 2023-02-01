@@ -295,26 +295,6 @@ def add_interface_attachment(ingress_id, egress_id, dev_id_params):
 
     return cmd
 
-class FwAclCache():
-    """ Cache of ACL rules used by Firewall feature.
-    """
-    def __init__(self):
-        self.rules = {}
-        self.rules['ingress'] = []
-        self.rules['egress']  = []
-
-    def add(self, direction, acl_id):
-        self.rules[direction].append(acl_id)
-
-    def remove(self, direction, acl_id):
-        self.rules[direction] = [tup for tup in self.rules[direction] if tup == acl_id]
-
-    def get(self, direction):
-        return self.rules[direction]
-
-    def clear(self, direction):
-        self.rules[direction].clear()
-
 def translate_cache_acl_rule(direction, acl_id):
     """ Translate cache ACL rule
 
@@ -324,42 +304,24 @@ def translate_cache_acl_rule(direction, acl_id):
     cmd = {}
 
     cmd['cmd'] = {}
-    cmd['cmd']['func']   = "update_firewall_cache"
-    cmd['cmd']['module'] = "fw_acl_command_helpers"
+    cmd['cmd']['func']   = "add"
+    cmd['cmd']['object'] = "fwglobals.g.firewall"
     cmd['cmd']['descr']  = "Add Firewall ACL into cache"
     cmd['cmd']['params'] = {
-            'is_add': True,
             'direction': direction,
-            'substs': [ { 'add_param': 'acl_index', 'val_by_key': acl_id } ]
+            'substs': [ { 'add_param': 'acl_id', 'val_by_key': acl_id } ]
     }
 
     cmd['revert'] = {}
-    cmd['revert']['func']   = "update_firewall_cache"
-    cmd['revert']['module'] = "fw_acl_command_helpers"
+    cmd['revert']['func']   = "remove"
+    cmd['revert']['object'] = "fwglobals.g.firewall"
     cmd['revert']['descr']  = "Remove Firewall ACL from cache"
     cmd['revert']['params'] = {
-            'is_add': False,
             'direction': direction,
-            'substs': [ { 'add_param': 'acl_index', 'val_by_key': acl_id } ]
+            'substs': [ { 'add_param': 'acl_id', 'val_by_key': acl_id } ]
     }
 
     return cmd
-
-def update_firewall_cache(is_add, direction, acl_index):
-    """Update cache of firewall rules
-
-    :param is_add: Indicate if to add or remove.
-    :param direction: ingress or egress.
-    :param acl_index: ACL identifier
-
-    :returns: (True, None) tuple on success, (False, <error string>) on failure.
-    """
-    if is_add:
-        fwglobals.g.acl_cache.add(direction, acl_index)
-    else:
-        fwglobals.g.acl_cache.remove(direction, acl_index)
-
-    return (True, None)
 
 def vpp_add_acl_rules(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids):
     """
@@ -425,8 +387,8 @@ def add_acl_rules_interfaces(is_add, dev_id_params, ingress_acl_ids, egress_acl_
         interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
         for intf in interfaces:
             updated_dev_id_params.append(intf['dev_id'])
-        ingress_acl_ids = fwglobals.g.acl_cache.get('ingress')
-        egress_acl_ids = fwglobals.g.acl_cache.get('egress')
+        ingress_acl_ids = fwglobals.g.firewall.get('ingress')
+        egress_acl_ids = fwglobals.g.firewall.get('egress')
 
     for dev_id in updated_dev_id_params:
         sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)

@@ -1424,8 +1424,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             try:
                 # apply firewall
                 if if_type == 'lan':
-                    ingress_acls = fwglobals.g.acl_cache.get('ingress')
-                    egress_acls = fwglobals.g.acl_cache.get('egress')
+                    ingress_acls = fwglobals.g.firewall.get('ingress')
+                    egress_acls = fwglobals.g.firewall.get('egress')
                     handler.exec(
                         func=fw_acl_command_helpers.vpp_add_acl_rules,
                         params={ 'is_add': add, 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': egress_acls },
