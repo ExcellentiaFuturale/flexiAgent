@@ -790,6 +790,8 @@ def build_interface_dev_id(linux_dev_name, sys_class_net=None):
 
                 if vlan_id:
                     dev_id = build_vlan_dev_id(vlan_id, dev_id)
+                    dev_id = dev_id_to_full(dev_id)
+
                 return dev_id
 
     return ""
