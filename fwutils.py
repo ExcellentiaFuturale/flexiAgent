@@ -442,12 +442,9 @@ def dev_id_to_full(dev_id):
     if addr_type == 'usb':
         return dev_id
 
-    if 'vlan' in addr_type:
-        return dev_id
-
     pc = addr.split('.')
     if len(pc) == 2:
-        return dev_id_add_type(pc[0]+'.'+"%02x"%(int(pc[1],16)))
+        return dev_id_add_type(pc[0]+'.'+"%02x"%(int(pc[1],16)), addr_type)
 
 # Convert 0000:00:08.01 provided by management to 0000:00:08.1 used by Linux
 def dev_id_to_short(dev_id):
@@ -481,10 +478,11 @@ def dev_id_parse(dev_id):
 
     return ("", "")
 
-def dev_id_add_type(dev_id):
+def dev_id_add_type(dev_id, addr_type=None):
     """Add address type at the beginning of the address.
 
     :param dev_id:      device bus address.
+    :param addr_type:   device address type.
 
     :returns: device bus address with type.
     """
@@ -495,6 +493,9 @@ def dev_id_add_type(dev_id):
 
         if re.search('usb', dev_id):
             return 'usb:%s' % dev_id
+
+        if addr_type:
+            return '%s:%s' % (addr_type, dev_id)
 
         return 'pci:%s' % dev_id
 
