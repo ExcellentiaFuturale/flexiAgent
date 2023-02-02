@@ -69,6 +69,7 @@ class FwRouterCfg(FwCfgDatabase):
                 'add-routing-filter',
                 'add-routing-bgp',           # BGP should come after frr routing filter, as it might use them!
                 'add-interface',
+                'add-vxlan-config',
                 'add-switch',
                 'add-tunnel',
                 'add-route',		 # routes should come after tunnels, as they might use them
@@ -103,6 +104,7 @@ class FwRouterCfg(FwCfgDatabase):
             'add-multilink-policy': "============= POLICIES =============",
             'add-firewall-policy':  "============= FIREWALL POLICY =============",
             'add-ospf':             "============= OSPF =============",
+            'add-vxlan-config':     "============= VXLAN CONFIG =============",
             'add-routing-bgp':      "============= ROUTING BGP =============",
             'add-routing-filter':   "============= ROUTING FILTERS =============",
             'add-qos-traffic-map':  "============= QOS TRAFFIC MAP =============",
@@ -147,6 +149,14 @@ class FwRouterCfg(FwCfgDatabase):
         if not bgp_req:
             return None
         return bgp_req[0]
+
+    def get_vxlan_config(self):
+        vxlan_config = self.get_requests('add-vxlan-config')
+        # add-vxlan-config is a single request and can't be more than that.
+        # Therefore, convert it from a list to an object or None
+        if not vxlan_config:
+            return None
+        return vxlan_config[0]
 
     def get_tunnel(self, tunnel_id):
         key = 'add-tunnel:%d' % (tunnel_id)

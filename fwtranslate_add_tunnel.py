@@ -768,12 +768,14 @@ def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
                 src = source.split('/')[0]
                 src_addr = ipaddress.ip_address(src)
 
+    source_vxlan_port = fwutils.get_vxlan_source_port()
     cmd_params = {
             'is_add'               : 1,
             'src_address'          : src_addr,
             'dst_address'          : dst_addr,
             'vni'                  : bridge_id,
-            'dest_port'            : int(params.get('dstPort', 4789)),
+            'dst_port'             : int(params.get('dstPort', source_vxlan_port)), # TODO: // Diego changed from "dest" to "dst". Take care on upgrade when vpp is starting with old translation.
+            'src_port'             : source_vxlan_port,
             'substs': [{'add_param': 'next_hop_sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': params['dev_id']},
                        {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [dst, dev_id]},
                        {'add_param': 'qos_hierarchy_id',
