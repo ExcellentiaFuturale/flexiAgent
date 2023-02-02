@@ -547,9 +547,10 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
 
             ifname = set_name
 
-        # For DHCP interfaces wait a bit - give a chance to system get IP
+        # Ensure that IP was assigned by system before next configuration step.
+        # Note, we give 10 seconds to cover DHCP case.
         #
-        if dhcp == 'yes' and is_add:
+        if is_add:
             for _ in range(10):
                 time.sleep(1)
                 if_addr = fwutils.get_interface_address(ifname, log=False)

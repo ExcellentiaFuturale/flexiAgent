@@ -69,7 +69,7 @@ class FwFrr(FwObject):
         dump = [ { key: self.db[key] } for key in db_keys ] # We can't json.dumps(self.db) directly as it is SqlDict and not dict
         return json.dumps(dump, indent=2, sort_keys=True)
 
-    def ospf_network_add(self, dev_id, address=None, area='0.0.0.0'):
+    def ospf_network_add(self, dev_id, address=None, area='0.0.0.0', dhcp=False):
         """Adds network to configuration of FRR, which should be published by OSPF.
         We use addresses of LAN interfaces to describe such networks. As a result,
         the branch networks are exchanged between flexiEdge devices by OSPF over
@@ -89,6 +89,10 @@ class FwFrr(FwObject):
 
         if not address:
              address = fwutils.get_interface_address(None, dev_id)
+
+        if not address and not dhcp:
+            self.log.error(f"ospf_network_add({dev_id}): address for '{dev_id}' was not found, can't deduce network")
+            return (False, f"failed to add OSPF network for {dev_id}")
 
         if address:     # update FRR only if interface has IP (DHCP/cable is plugged/etc)
             ret, err_str =  self.run_ospf_add(address, area)
