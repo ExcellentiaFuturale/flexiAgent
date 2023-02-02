@@ -709,18 +709,15 @@ class FwStartupConf(FwStartupConfParsed):
 			The following memory is reserved for VPP dependening on device available memory:
 				Total Memory     VPP heap size
 				 4G              default (1G)
-				 5G-8G           2G
-				 >8G             (Total memory)/4
+				 >8G             35% of (Total memory)
 			'''
 			_1Gb = 1024 * 1024 * 1024
 			total_mem_Gb = round(psutil.virtual_memory().total/_1Gb)
 
 			if total_mem_Gb < 5:
 				vpp_heap_size = ''
-			elif total_mem_Gb < 8:
-				vpp_heap_size = '2G'
 			else:
-				vpp_heap_size = str(int(round(total_mem_Gb/4))) + 'G'
+				vpp_heap_size = str(int(round(total_mem_Gb*7/20))) + 'G' # 35% of Total
 			return vpp_heap_size
 
 		# To simplify code we just delete all related parameters and than
@@ -730,7 +727,6 @@ class FwStartupConf(FwStartupConfParsed):
 		self.del_simple_param('cpu.corelist-workers')
 		self.del_simple_param('cpu.corelist-hqos-threads')
 		self.del_simple_param('buffers.buffers-per-numa')
-		self.del_simple_param('dpdk.dev default.num-rx-queues')
 		self.del_simple_param('memory.main-heap-size')
 
 		if num_workers < 2:
@@ -749,7 +745,6 @@ class FwStartupConf(FwStartupConfParsed):
 		if num_workers > 1:
 			num_workers_str = "1-%d" % (num_workers)
 			self.set_simple_param('cpu.corelist-workers', num_workers_str)
-			self.set_simple_param('dpdk.dev default.num-rx-queues', num_workers)
 
 		# Based on analysis of vpp extras/vpp_config/extras/vpp_config.py:
 		# 	buffers-per-numa = ((rx_queues * desc_entries) + (tx_queues * desc_entries)) * total_ports_per_numa * 2
