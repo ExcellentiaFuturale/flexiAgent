@@ -51,6 +51,7 @@ import fwlte
 import fwwifi
 import fwqos
 import fwtranslate_add_switch
+import fwutils
 import fw_os_utils
 
 from fwapplications_api import call_applications_hook, FWAPPLICATIONS_API
@@ -2957,6 +2958,8 @@ def is_non_dpdk_interface(dev_id):
     if fwwifi.is_wifi_interface_by_dev_id(dev_id):
         return True
     if fwlte.is_lte_interface_by_dev_id(dev_id):
+        return True
+    if fwutils.is_vlan_interface(dev_id):
         return True
 
     return False
