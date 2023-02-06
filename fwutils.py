@@ -3747,6 +3747,8 @@ def map_keys_to_acl_ids(acl_ids, arg):
     keys = acl_ids['keys']
     out_keys = []
     for key in keys:
+        if not key:
+            continue
         out_keys.append(arg[key])
     return out_keys
 
