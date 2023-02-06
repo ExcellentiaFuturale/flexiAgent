@@ -100,13 +100,22 @@ class FwStunWrap(FwObject):
             self._send_stun_requests()
             self._log_address_cache()
 
-        self.thread_stun = threading.Thread(target=self._stun_thread, name='STUN Thread')
-        self.thread_stun.start()
+        self._initialize_thread()
+
+    def _initialize_thread(self):
+        if not self.thread_stun:
+            self.thread_stun = threading.Thread(target=self._stun_thread, name='STUN Thread')
+            self.thread_stun.start()
+
+    def _finalize_thread(self):
+        if self.thread_stun:
+            self.thread_stun.join()
+            self.thread_stun = None
 
     def restart_stun_thread(self):
         self.log.debug("Restarting STUN thread")
 
-        self.exit_thread_stun = True
+        self.exit_thread_stun = True # Set to True to cause thread to exit
         self._finalize_thread()
         self.exit_thread_stun = False
 
@@ -114,12 +123,7 @@ class FwStunWrap(FwObject):
         self.sym_nat_cache.clear()
         self.sym_nat_tunnels_cache.clear()
 
-        self.initialize()
-
-    def _finalize_thread(self):
-        if self.thread_stun:
-            self.thread_stun.join()
-            self.thread_stun = None
+        self._initialize_thread()
 
     def finalize(self):
         fwstun.finalize()
