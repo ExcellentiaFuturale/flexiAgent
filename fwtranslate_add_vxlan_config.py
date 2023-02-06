@@ -52,8 +52,6 @@ def add_vxlan_config(params):
     cmd['revert']['descr']  = f"remove NAT identity mapping for {port} UDP port from all WAN interfaces"
     cmd_list.append(cmd)
 
-    # TODO: reconstruct tunnels?
-
     return cmd_list
 
 def get_request_key(params):

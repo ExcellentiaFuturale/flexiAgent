@@ -483,7 +483,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             #    In this case we have to ping the GW-s after modification.
             #    See explanations on that workaround later in this function.
             #
-            (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun) = self._analyze_request(request)
+            (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun, recreate_tunnels) = self._analyze_request(request)
 
             # Some requests require preprocessing.
             # For example before handling 'add-application' the currently configured
@@ -520,6 +520,10 @@ class FWROUTER_API(FwCfgRequestHandler):
                 if not restart_router: # on router restart DHCP service is restarted as well
                     cmd = 'systemctl restart isc-dhcp-server'
                     fwutils.os_system(cmd, 'call')
+
+            if recreate_tunnels:
+                if not restart_router: # on router restart tunnels already created, no need again
+                    fwutils.reconstruct_tunnels()
 
             # Reconnect agent if needed
             #
@@ -768,6 +772,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                         "vppctl delete tap") and recreates it back.
                         That causes DHCP service to stop monitoring of the recreated interface.
                         Therefor we have to restart it on modify-interface completion.
+            restart_stun - STUN thread should be restarted if one of parameters it based on
+                        is changed.
+            recreate_tunnels - All device tunnels should be recreated. One of their configuration is
+                        changed by another request. For example, source vxlan port.
+
         """
 
         def _should_reconnect_agent_on_modify_interface(old_params, new_params):
@@ -795,11 +804,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                     return True
             return False
 
-        (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun) = \
-        (False,          False,           [],       False,                False)
+        (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun, recreate_tunnels) = \
+        (False,          False,           [],       False,                False,        False)
 
         def _return_val():
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun)
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun, recreate_tunnels)
 
         if re.match('(add|remove)-interface', request['message']):
             if self.state_is_started():
@@ -811,6 +820,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             return _return_val()
         elif re.match('(add|remove)-vxlan-config', request['message']):
             restart_stun = True
+            recreate_tunnels = True
             return _return_val()
         elif re.match('(add|remove)-qos-policy', request['message']):
             if (_should_restart_on_qos_policy(request) is True):
@@ -827,6 +837,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                     reconnect_agent = True
                 elif re.match('(add|remove)-vxlan-config', _request['message']):
                     restart_stun = True
+                    recreate_tunnels = True
                 elif re.match('(add|remove)-qos-policy', _request['message']):
                     if (_should_restart_on_qos_policy(_request) is True):
                         restart_router  = True

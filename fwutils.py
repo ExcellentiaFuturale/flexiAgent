@@ -4035,6 +4035,22 @@ def get_vxlan_source_port():
         return fwglobals.g.default_vxlan_source_port
     return int(vxlan_config.get('sourcePort', fwglobals.g.default_vxlan_source_port))
 
+def reconstruct_tunnels():
+    fwglobals.log.debug(f"reconstructing all tunnels tunnel")
+    tunnels = fwglobals.g.router_cfg.get_tunnels()
+    for tunnel in tunnels:
+        remove_request = {
+            "message": "remove-tunnel",
+            "params": tunnel
+        }
+        fwglobals.g.handle_request(remove_request)
+
+        add_request = {
+            "message": "add-tunnel",
+            "params": tunnel
+        }
+        fwglobals.g.handle_request(add_request)
+
 class FwJsonEncoder(json.JSONEncoder):
     '''Customization of the JSON encoder that is able to serialize simple
     Python objects, e.g. FwMultilinkLink. This encoder should be used within
