@@ -4035,8 +4035,8 @@ def get_vxlan_source_port():
         return fwglobals.g.default_vxlan_source_port
     return int(vxlan_config.get('sourcePort', fwglobals.g.default_vxlan_source_port))
 
-def reconstruct_tunnels():
-    fwglobals.log.debug(f"reconstructing all tunnels tunnel")
+def recreate_tunnels():
+    fwglobals.log.debug(f"recreating all tunnels")
     tunnels = fwglobals.g.router_cfg.get_tunnels()
     for tunnel in tunnels:
         remove_request = {

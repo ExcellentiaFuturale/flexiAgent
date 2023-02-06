@@ -523,7 +523,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
             if recreate_tunnels:
                 if not restart_router: # on router restart tunnels already created, no need again
-                    fwutils.reconstruct_tunnels()
+                    fwutils.recreate_tunnels()
 
             # Reconnect agent if needed
             #

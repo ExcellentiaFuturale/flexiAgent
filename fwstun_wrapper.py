@@ -123,7 +123,7 @@ class FwStunWrap(FwObject):
         self.sym_nat_cache.clear()
         self.sym_nat_tunnels_cache.clear()
 
-        self._initialize_thread()
+        self.initialize()
 
     def finalize(self):
         fwstun.finalize()
