@@ -718,7 +718,11 @@ def add_remove_netplan_vlan(is_add, dev_id, ip, gw, metric, dhcp, type, netplan_
 
     parent_dev_id, vlan_id = fwutils.dev_id_parse_vlan(dev_id)
 
-    fname_run = fwglobals.g.NETPLAN_FILE
+    entry = fwglobals.g.NETPLAN_FILES.get(parent_dev_id, None)
+    if entry:
+        fname_run = entry.get('fname').replace('yaml', 'fwrun.yaml')
+    else:
+        fname_run = fwglobals.g.NETPLAN_FILE
     _add_netplan_file(fname_run)
 
     try:
