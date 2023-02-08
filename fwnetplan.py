@@ -218,6 +218,11 @@ def _write_to_netplan_file(fname, config, **args):
         stream.flush()
         os.fsync(stream.fileno())
 
+def _revert_netplan_file(fname, config, reason):
+    fwglobals.log.error(reason)
+    _write_to_netplan_file(fname, config)
+    fwutils.netplan_apply(f"add_remove_netplan_interface: {reason}")
+
 def _add_netplan_file(fname):
     if os.path.exists(fname):
         return
@@ -368,6 +373,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
     try:
         with open(fname_run, 'r') as stream:
             config = yaml.safe_load(stream)
+            old_config = copy.deepcopy(config)
             network = config['network']
             network['renderer'] = 'networkd'
 
@@ -547,16 +553,21 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
 
             ifname = set_name
 
-        # Ensure that IP was assigned by system before next configuration step.
+        # Ensure that IP was assigned by system before further configurations.
         # Note, we give 10 seconds to cover DHCP case.
         #
         if is_add:
             for _ in range(10):
-                time.sleep(1)
                 if_addr = fwutils.get_interface_address(ifname, log=False)
                 if if_addr:
-                    fwglobals.log.debug("Interface address from DHCP server is %s, dev_id %s" % (if_addr, dev_id))
+                    if dhcp == 'yes':
+                        fwglobals.log.debug(f"{dev_id}: got DHCP address {if_addr}")
                     break
+                time.sleep(1)
+            if not if_addr and dhcp != 'yes':  # revert netplan on failure
+                err_str = f"{dev_id}: static address was not assigned by kernel"
+                _revert_netplan_file(fname_run, old_config, err_str)
+                return (False, err_str)
 
         # On interface adding or removal update caches interface related caches.
         #

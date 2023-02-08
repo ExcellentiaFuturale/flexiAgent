@@ -466,7 +466,7 @@ def add_interface(params):
         cmd['cmd']['func']    = "ospf_network_add"
         cmd['cmd']['object']  = "fwglobals.g.router_api.frr"
         cmd['cmd']['descr']   =  f"add interface {dev_id} to OSPF"
-        cmd['cmd']['params']  = { 'dev_id': dev_id, 'address': network, 'area': area, 'dhcp': (dhcp=='yes') }
+        cmd['cmd']['params']  = { 'dev_id': dev_id, 'address': network, 'area': area }
         cmd['revert'] = {}
         cmd['revert']['func']   = "ospf_network_remove"
         cmd['revert']['object'] = "fwglobals.g.router_api.frr"
