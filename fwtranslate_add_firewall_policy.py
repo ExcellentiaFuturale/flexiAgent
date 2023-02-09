@@ -92,7 +92,8 @@ def add_firewall_policy(params):
                 action = rule.get('action')
                 destination = classification.get('destination')
                 source = classification.get('source')
-                dev_id_params = destination.get('interface', [])
+                interface = destination.get('interface')
+                dev_id_params = [interface] if interface else []
                 if source:
                     ingress_id = 'fw_wan_ingress__type_%s_rule_%d' % (
                         rule_type, rule_index)
