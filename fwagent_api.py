@@ -410,11 +410,11 @@ class FWAGENT_API(FwObject):
         return fwglobals.g.ikev2.create_private_key(params['days'], params['new'])
 
     def _get_bgp_status(self, params):
-        """IKEv2 certificate generation.
+        """Get BGP Status.
 
         :param params: Parameters from flexiManage.
 
-        :returns: Dictionary with status code.
+        :returns: Dictionary with BGP Status.
         """
         if not fwglobals.g.router_api.state_is_started():
             return {'ok': 1, 'message': { }}
