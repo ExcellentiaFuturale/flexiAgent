@@ -269,15 +269,14 @@ def add_interface_attachment(ingress_id, egress_id, dev_id_params):
     add_params = {
                 'is_add': True,
                 'dev_id_params': dev_id_params,
-                'substs': [{'add_param':            'ingress_acl_ids',
-                            'val_by_func':          'map_keys_to_acl_ids',
-                            'arg':                  {'keys': [ingress_id]},
-                            'func_uses_cmd_cache':  True},
-                           {'add_param':            'egress_acl_ids',
-                            'val_by_func':          'map_keys_to_acl_ids',
-                            'arg':                  {'keys': [egress_id]},
-                            'func_uses_cmd_cache':  True}]
+                'substs': []
     }
+
+    if ingress_id:
+        add_params['substs'].append({ 'add_param': 'ingress_acl_id', 'val_by_key': ingress_id })
+
+    if egress_id:
+        add_params['substs'].append({ 'add_param': 'egress_acl_id', 'val_by_key': egress_id })
 
     revert_params = copy.deepcopy(add_params)
     revert_params['is_add'] = False
@@ -347,15 +346,17 @@ def vpp_add_acl_rules(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids):
     fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_set_acl_list',
         count=count, sw_if_index=sw_if_index, n_input=ingress_count, acls=acls)
 
-def add_acl_rules_interfaces(is_add, dev_id_params, ingress_acl_ids, egress_acl_ids):
+def add_acl_rules_interfaces(is_add, dev_id_params, ingress_acl_id=None, egress_acl_id=None):
     """
     Add/remove ACL rules on the list of interfaces
 
     :param is_add: add or remove
     :param dev_id_params: list of interfaces
-    :param ingress_acl_ids: ingress acl ids
-    :param egress_acl_ids: egress acl ids
+    :param ingress_acl_id: ingress acl id
+    :param egress_acl_id: egress acl id
     """
+    ingress_acl_ids = [ingress_acl_id] if ingress_acl_id else []
+    egress_acl_ids = [egress_acl_id] if egress_acl_id else []
     updated_dev_id_params = []
     if dev_id_params:
         # Get LAN interfaces managed by installed applications.
