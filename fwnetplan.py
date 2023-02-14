@@ -575,7 +575,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
                         fwglobals.log.debug(f"{dev_id}: got DHCP address {if_addr}")
                     break
                 time.sleep(1)
-            if not if_addr and dhcp != 'yes':  # revert netplan on failure
+            if not if_addr and dhcp != 'yes' and ip:  # revert netplan on failure
                 err_str = f"{dev_id}: static address was not assigned by kernel"
                 _revert_netplan_file(fname_run, old_config, err_str)
                 return (False, err_str)
