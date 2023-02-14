@@ -62,7 +62,7 @@ class FwStunWrap(FwObject):
         self.sym_nat_cache = fwglobals.g.cache.sym_nat_cache
         self.sym_nat_tunnels_cache = fwglobals.g.cache.sym_nat_tunnels_cache
         self.thread_stun   = None
-        self.exit_thread_stun = False # if True, stun thread will exit
+        self.thread_stun_active = True
         self.standalone    = not fwglobals.g.cfg.debug['agent']['features']['stun']['enabled']
         self.stun_retry    = 60
         fwstun.set_log(fwglobals.log)
@@ -104,20 +104,20 @@ class FwStunWrap(FwObject):
 
     def _initialize_thread(self):
         if not self.thread_stun:
+            self.thread_stun_active = True
             self.thread_stun = threading.Thread(target=self._stun_thread, name='STUN Thread')
             self.thread_stun.start()
 
     def _finalize_thread(self):
         if self.thread_stun:
+            self.thread_stun_active = False
             self.thread_stun.join()
             self.thread_stun = None
 
     def restart_stun_thread(self):
         self.log.debug("Restarting STUN thread")
 
-        self.exit_thread_stun = True # Set to True to cause thread to exit
         self._finalize_thread()
-        self.exit_thread_stun = False
 
         self.stun_cache.clear()
         self.sym_nat_cache.clear()
@@ -370,7 +370,7 @@ class FwStunWrap(FwObject):
         probe_sym_nat_timeout = 30
         send_sym_nat_timeout = 3
 
-        while not fwglobals.g.router_threads.teardown and not self.exit_thread_stun:
+        while self.thread_stun_active and not fwglobals.g.router_threads.teardown:
 
             try:  # Ensure thread doesn't exit on exception
 

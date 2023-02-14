@@ -4017,7 +4017,9 @@ def vpp_add_remove_nat_identity_mapping_from_wan_interfaces(is_add, port, protoc
     """
     wan_interfaces = fwglobals.g.router_cfg.get_interfaces(type='wan')
     for wan_interface in wan_interfaces:
-        sw_if_index = dev_id_to_vpp_sw_if_index(wan_interface['dev_id'])
+        dev_id = wan_interface.get('dev_id')
+        sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
+        fwglobals.log.info(f'vpp_add_remove_nat_identity_mapping_from_wan_interfaces(): applying on {dev_id}. sw_if_index={sw_if_index}')
         fwglobals.g.router_api.vpp_api.vpp.call(
             'nat44_add_del_identity_mapping',
             sw_if_index=sw_if_index,
@@ -4034,22 +4036,6 @@ def get_vxlan_source_port():
     if not vxlan_config:
         return fwglobals.g.default_vxlan_source_port
     return int(vxlan_config.get('sourcePort', fwglobals.g.default_vxlan_source_port))
-
-def recreate_tunnels():
-    fwglobals.log.debug(f"recreating all tunnels")
-    tunnels = fwglobals.g.router_cfg.get_tunnels()
-    for tunnel in tunnels:
-        remove_request = {
-            "message": "remove-tunnel",
-            "params": tunnel
-        }
-        fwglobals.g.handle_request(remove_request)
-
-        add_request = {
-            "message": "add-tunnel",
-            "params": tunnel
-        }
-        fwglobals.g.handle_request(add_request)
 
 class FwJsonEncoder(json.JSONEncoder):
     '''Customization of the JSON encoder that is able to serialize simple
