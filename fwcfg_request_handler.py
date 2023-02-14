@@ -810,7 +810,7 @@ class FwCfgRequestHandler(FwObject):
             else:
                 self.log.error(f"_sync_device: smart sync failed, go to full sync: {str(reply['message'])}")
         except Exception as e:
-            self.log.error(f"_sync_device: smart sync exception, go to full sync: {str(e)}")
+            self.log.error(f"_sync_device: smart sync exception, go to full sync: {str(e)} {traceback.format_exc()}")
 
         self.sync_full(incoming_requests)
 
