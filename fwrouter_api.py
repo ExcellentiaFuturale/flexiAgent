@@ -921,6 +921,8 @@ class FWROUTER_API(FwCfgRequestHandler):
                     _request['params'] = self.cfg_db.get_request_params(_request)
 
         if self.state_is_stopped():
+            if req == 'aggregated':  # take a care of order of parent & sub-interfaces
+                self._preprocess_reorder(request)
             return request
 
         if req != 'aggregated':
@@ -1094,6 +1096,13 @@ class FWROUTER_API(FwCfgRequestHandler):
             for _request in old_requests:
                 if re.match(req_name, _request['message']):
                     new_requests.append(_request)
+
+        # Reorder 'add-interface'-s and 'remove-interface'-s requests
+        # to ensure that the sub-interfaces are added after the parent
+        # interface was added and are removed before the parent interface
+        # is removed. This is needed for VLAN interfaces.
+        #
+        new_requests = preprocess_reorder_sub_interfaces(new_requests)
 
         # Add 'start-router', 'stop-router' and 'modify-X'-s to the list of 'remove-X'-s
         # and 'add-X'-s: put 'stop-router' at the beginning of list, 'modify-X'-s
@@ -1561,3 +1570,72 @@ class FWROUTER_API(FwCfgRequestHandler):
             fwglobals.g.handle_request({'message': 'start-router'})
 
         self.log.debug("sync_full: router full sync succeeded")
+
+def preprocess_reorder_sub_interfaces(requests):
+    '''Implements part of the _preprocess_aggregated_request() logic.
+    It rearranges 'add-interface'-s and 'remove-interface'-s requests
+    in the aggregation to ensure that the sub-interfaces are added after
+    the parent interface was added and are removed before the parent interface
+    is removed. This is needed for VLAN interfaces.
+
+    :param requests: The list of 'remove-X' and 'add-X' requests.
+    :returns: reordered list of requests.
+    '''
+    # Firstly we build helper hash of indexes of parent and sub-interfaces
+    # by 'dev_id'. Than we just swap the last sub-interface 'remove-interface'
+    # in the list with the parent 'remove-interface', so the parent interface
+    # will be removed at last. And we swap the first sub-interface
+    # 'add-interface' in the list with the parent 'add-interface', so the parent
+    # interface will be added after before any of it's sub-interfaces.
+    #
+    add_remove_interface_indexes = { 'add-interface': {}, 'remove-interface': {}}
+    for index, _request in enumerate(requests):
+
+        req_name, req_params = _request['message'], _request['params']
+        if req_name == "add-interface":
+            indexes = add_remove_interface_indexes['add-interface']
+        elif req_name == "remove-interface":
+            indexes = add_remove_interface_indexes['remove-interface']
+        else:
+            continue
+
+        parent_dev_id, vlan_id = fwutils.dev_id_parse_vlan(req_params['dev_id'])
+        if not parent_dev_id in indexes:
+            indexes[parent_dev_id] = {}
+        dev_indexes = indexes[parent_dev_id]
+
+        # Store index of 'add-interface'/remove-interface' of parent interface.
+        #
+        if not vlan_id:
+            dev_indexes.update({ 'parent_index': index })
+            continue
+
+        # Store index of 'add-interface'/'remove-interface' of VLAN sub-interface.
+        # For 'add-interface' we store the smallest index (the first one),
+        # so 'add-interface' of the parent interface will be swapped with
+        # the first corresponding sub-interface. For 'remove-interface' we
+        # store the largest index (the latest), so 'remove-interface'
+        # of the parent interface will be swapped with the last corresponding
+        # sub-interface.
+        #
+        if req_name == "remove-interface":
+            dev_indexes.update({ 'sub_index': index })
+        elif dev_indexes.get('sub_index') == None:  # and req_name == "add-interface"
+            dev_indexes.update({ 'sub_index': index })
+
+    # Now go over hash keys and modify the aggregation if needed.
+    #
+    for dev_indexes in add_remove_interface_indexes['add-interface'].values():
+        sub_index    = dev_indexes.get('sub_index', -1)
+        parent_index = dev_indexes.get('parent_index', -1)
+        if parent_index > -1 and sub_index > -1 and parent_index > sub_index:
+            requests[parent_index], requests[sub_index] = requests[sub_index], requests[parent_index]
+
+    for dev_indexes in add_remove_interface_indexes['remove-interface'].values():
+        sub_index    = dev_indexes.get('sub_index', -1)
+        parent_index = dev_indexes.get('parent_index', -1)
+        if parent_index > -1 and sub_index > -1 and parent_index < sub_index:
+            requests[parent_index], requests[sub_index] = requests[sub_index], requests[parent_index]
+
+    return requests
+
