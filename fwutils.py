@@ -4069,7 +4069,7 @@ def dev_id_parse_vlan(dev_id):
     '''
     parts = dev_id.split("pci")
     parent_dev_id = "pci" + parts[1]
-    vlan_id = int(parts[0].split(".")[1])
+    vlan_id = int(parts[0].split(".")[1]) if parts[0] else None
     return parent_dev_id, vlan_id
 
 def if_name_parse_vlan(if_name):

@@ -1,0 +1,214 @@
+[
+{
+  "entity": "agent",
+  "message": "aggregated",
+  "params": {
+	"requests": [
+        {
+          "entity": "agent",
+          "message": "add-interface",
+          "params": {
+              "dev_id":"vlan.101.__INTERFACE_2__dev_id",
+              "addr":"192.168.101.1/24",
+              "routing":"ospf",
+              "type":"LAN",
+              "dhcp":"no"
+          }
+        }
+        ,
+        {
+          "entity": "agent",
+          "message": "add-interface",
+          "params": {
+              "dev_id":"__INTERFACE_2__dev_id",
+              "addr":"__INTERFACE_2__addr",
+              "routing":"ospf",
+              "type":"LAN",
+              "dhcp":"no"
+          }
+        }
+        ,
+        {
+          "entity": "agent",
+          "message": "add-interface",
+          "params": {
+              "dev_id":"__INTERFACE_1__dev_id",
+              "addr":"__INTERFACE_1__addr",
+              "gateway": "__INTERFACE_1__gateway",
+              "type":"wan",
+              "dhcp":"no"
+          }
+        }
+        ,
+        {
+          "entity": "agent",
+          "message": "start-router"
+        }
+        ,
+        {
+          "entity": "agent",
+          "message": "add-interface",
+          "params": {
+              "dev_id":"vlan.201.__INTERFACE_1__dev_id",
+              "addr":"192.168.201.1/24",
+              "gateway": "192.168.201.254",
+              "type":"wan",
+              "dhcp":"no"
+          }
+        }
+        ,
+        {
+          "entity": "agent",
+          "message": "add-route",
+          "params": {
+              "addr":   "9.9.9.9",
+              "via":    "192.168.201.254",
+              "dev_id": "vlan.201.__INTERFACE_1__dev_id"
+            }
+        }
+        ,
+        {
+          "entity":  "agent",
+          "message": "add-tunnel",
+          "params": {
+            "src": "192.168.201.1",
+            "dev_id":"vlan.201.__INTERFACE_2__dev_id",
+            "dst": "70.0.0.7",
+            "tunnel-id": 7,
+            "ipsec": {
+              "local-sa": {
+                 "spi": 1070,
+                 "crypto-alg": "aes-cbc-128",
+                 "crypto-key": "7030aa794f574265564551694d653768",
+                 "integr-alg": "sha1-96",
+                 "integr-key": "7030ff4b55523947594d6d3547666b45764e6a58"
+              },
+              "remote-sa": {
+                 "spi": 7010,
+                 "crypto-alg": "aes-cbc-128",
+                 "crypto-key": "7010aa794f574265564551694d653768",
+                 "integr-alg": "sha1-96",
+                 "integr-key": "7010ff4b55523947594d6d3547666b45764e6a58"
+              }
+            },
+            "loopback-iface": {
+              "addr":"10.100.0.7/31",
+              "mac":"08:00:27:fd:00:07",
+              "mtu":1420,
+              "routing":"ospf",
+              "multilink": {
+                "labels": [ "orange" ]
+              }
+            }
+          }
+        }
+    ]
+  }
+}
+,
+{
+  "entity": "agent",
+  "message": "aggregated",
+  "params": {
+	"requests": [
+        {
+          "entity": "agent",
+          "message": "stop-router"
+        }
+        ,
+        {
+          "entity": "agent",
+          "message": "remove-interface",
+          "params": {
+              "dev_id":"__INTERFACE_2__dev_id",
+              "addr":"__INTERFACE_2__addr",
+              "routing":"ospf",
+              "type":"LAN",
+              "dhcp":"no"
+          }
+        }
+        ,
+        {
+          "entity": "agent",
+          "message": "remove-interface",
+          "params": {
+              "dev_id":"__INTERFACE_1__dev_id",
+              "addr":"__INTERFACE_1__addr",
+              "gateway": "__INTERFACE_1__gateway",
+              "type":"wan",
+              "dhcp":"no"
+          }
+        }
+        ,
+        {
+          "entity": "agent",
+          "message": "remove-interface",
+          "params": {
+              "dev_id":"vlan.101.__INTERFACE_2__dev_id",
+              "addr":"192.168.101.1/24",
+              "routing":"ospf",
+              "type":"LAN",
+              "dhcp":"no"
+          }
+        }
+        ,
+        {
+          "entity": "agent",
+          "message": "remove-interface",
+          "params": {
+              "dev_id":"vlan.201.__INTERFACE_1__dev_id",
+              "addr":"192.168.201.1/24",
+              "gateway": "192.168.201.254",
+              "type":"wan",
+              "dhcp":"no"
+          }
+        }
+        ,
+        {
+          "entity": "agent",
+          "message": "remove-route",
+          "params": {
+              "addr":   "9.9.9.9",
+              "via":    "192.168.201.254",
+              "dev_id": "vlan.201.__INTERFACE_1__dev_id"
+            }
+        }
+        ,
+        {
+          "entity":  "agent",
+          "message": "remove-tunnel",
+          "params": {
+            "src": "vlan.201.__INTERFACE_1__addr_no_mask",
+            "dst": "70.0.0.7",
+            "tunnel-id": 7,
+            "ipsec": {
+              "local-sa": {
+                 "spi": 1070,
+                 "crypto-alg": "aes-cbc-128",
+                 "crypto-key": "7030aa794f574265564551694d653768",
+                 "integr-alg": "sha1-96",
+                 "integr-key": "7030ff4b55523947594d6d3547666b45764e6a58"
+              },
+              "remote-sa": {
+                 "spi": 7010,
+                 "crypto-alg": "aes-cbc-128",
+                 "crypto-key": "7010aa794f574265564551694d653768",
+                 "integr-alg": "sha1-96",
+                 "integr-key": "7010ff4b55523947594d6d3547666b45764e6a58"
+              }
+            },
+            "loopback-iface": {
+              "addr":"10.100.0.7/31",
+              "mac":"08:00:27:fd:00:07",
+              "mtu":1420,
+              "routing":"ospf",
+              "multilink": {
+                "labels": [ "orange" ]
+              }
+            }
+          }
+        }
+    ]
+  }
+}
+]
