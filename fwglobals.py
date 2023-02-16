@@ -345,7 +345,7 @@ class Fwglobals(FwObject):
         self.router_threads                = FwRouterThreading() # Primitives used for synchronization of router configuration and monitoring threads
         self.handle_request_lock           = threading.RLock()
         self.is_gcp_vm                     = fwutils.detect_gcp_vm()
-        self.default_vxlan_source_port     = 4789
+        self.default_vxlan_port            = 4789
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)

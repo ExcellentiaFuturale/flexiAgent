@@ -25,7 +25,7 @@ import fwglobals
 #   "entity":"agent"
 #   "message":"add-vxlan-config"
 #   "params":{
-#       "sourcePort":"1212"
+#       "port":"1212"
 #   }
 # }
 def add_vxlan_config(params):
@@ -37,7 +37,7 @@ def add_vxlan_config(params):
     """
     cmd_list = []
 
-    port = int(params.get('sourcePort', 4789))
+    port = int(params.get('port', 4789))
 
     cmd = {}
     cmd['cmd'] = {}

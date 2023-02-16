@@ -4028,14 +4028,14 @@ def vpp_add_remove_nat_identity_mapping_from_wan_interfaces(is_add, port, protoc
             is_add=is_add,
         )
 
-def get_vxlan_source_port():
+def get_vxlan_port():
     """
     Returns integer of vxlan source port.
     """
     vxlan_config = fwglobals.g.router_cfg.get_vxlan_config()
     if not vxlan_config:
-        return fwglobals.g.default_vxlan_source_port
-    return int(vxlan_config.get('sourcePort', fwglobals.g.default_vxlan_source_port))
+        return fwglobals.g.default_vxlan_port
+    return int(vxlan_config.get('port', fwglobals.g.default_vxlan_port))
 
 class FwJsonEncoder(json.JSONEncoder):
     '''Customization of the JSON encoder that is able to serialize simple
