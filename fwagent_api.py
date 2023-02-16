@@ -24,6 +24,8 @@ import yaml
 import sys
 import os
 from shutil import copyfile
+import subprocess
+import json
 import fwglobals
 import fwstats
 import fwutils
@@ -53,6 +55,7 @@ fwagent_api = {
     'sync-device':                   '_sync_device',
     'upgrade-device-sw':             '_upgrade_device_sw',
     'set-cpu-info':                  '_set_cpu_info',
+    'get-bgp-status':                '_get_bgp_status',
 }
 
 class FWAGENT_API(FwObject):
@@ -405,3 +408,24 @@ class FWAGENT_API(FwObject):
         :returns: Dictionary with status code.
         """
         return fwglobals.g.ikev2.create_private_key(params['days'], params['new'])
+
+    def _get_bgp_status(self, params):
+        """Get BGP Status.
+
+        :param params: Parameters from flexiManage.
+
+        :returns: Dictionary with BGP Status.
+        """
+        if not fwglobals.g.router_api.state_is_started():
+            return {'ok': 1, 'message': { }}
+
+        if not fwglobals.g.router_cfg.get_bgp():
+            return {'ok': 1, 'message': { }}
+
+        try:
+            cmd = 'vtysh -c "show bgp summary json"'
+            frr_json_output = subprocess.check_output(cmd, shell=True).decode().strip()
+            data = json.loads(frr_json_output)
+            return {'ok': 1, 'message': data.get('ipv4Unicast', {}) }
+        except Exception as e:
+            return {'ok': 0, 'message': str(e) }
