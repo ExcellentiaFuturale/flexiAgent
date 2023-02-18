@@ -1210,7 +1210,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             if req_name in special_requests:
                 special_requests[req_name]['found'] = True
             elif re.match('remove-', req_name):
-                add_req_name = req_name.replace("remove-", "add_", 1)
+                add_req_name = req_name.replace("remove-", "add-", 1)
                 if add_req_name in special_requests:
                     special_requests[add_req_name]['remove_request_found'] = True
 
@@ -1221,7 +1221,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         #
         for add_req_name, r_info in special_requests.items():
             if r_info['found'] and not r_info['remove_request_found'] and r_info['params']:
-                remove_req_name = add_req_name.replace("add_", "remove-", 1)
+                remove_req_name = add_req_name.replace("add-", "remove-", 1)
                 requests.insert(0, { 'message': remove_req_name, 'params': r_info['params'] })
                 modified = True
         return modified
