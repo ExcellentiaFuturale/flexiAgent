@@ -178,32 +178,39 @@ def check_soft_configuration(checker, fix=False, quiet=False):
         try:
             checker_func = getattr(checker, checker_name)
             severity     = checker_params['severity']
-            result       = checker_func(fix=False, prompt=prompt)
-            report_checker_result(checker.log, result, severity, description)
-            go_and_fix = fix
-            if go_and_fix:
-                # No need to fix if result is OK or None (the check was skipped).
-                if result or result == None:
-                    go_and_fix = False
+            interactive  = checker_params.get('interactive')
 
-                interactive = '' if not 'interactive' in checker_params \
-                                else checker_params['interactive']
+            # Run the checker and cache result to avoid unnecessary runs (and prints)
+            #
+            if 'result' not in checker_params:
+                result = checker_func(fix=False, prompt=prompt)
+                checker_params.update({'result': result})
+            else:
+                result = checker_params['result']
 
-                # If parameter is adjustable and interactive mode was chosen,
-                # fix the parameter even if result is OK. This is to provide
-                # user with ability to change default configuration.
-                if result and not quiet and interactive == 'optional':
-                    go_and_fix = True
-
-                # Don't fix if silent was specified but user interaction is required
-                if not result and quiet and interactive == 'must':
-                    go_and_fix = False
-
-            if not go_and_fix:
-                if not result and severity == 'critical':
-                    succeeded = False
+            # Print result and go to the next check if:
+            #  - no fix was requested
+            #  - check should be skipped (result == None)
+            #  - check succeeded (result == True) and no fix in interactive mode
+            #    was requested or the interactive mode is not supported by this check.
+            #
+            if fix == False or \
+               result == None or \
+               (result == True and (quiet == True or not interactive)):
+                report_checker_result(checker.log, result, severity, description)
                 continue
 
+            # At this point we have to fix the failed check.
+
+            if not result and quiet and interactive == 'must':
+                # If it is not possible to fix as non-interactive mode was requested,
+                # but fix requires interaction, report result and continue.
+                # If the check is critical, fail the system checker.
+                #
+                report_checker_result(checker.log, result, severity, description)
+                if severity == 'critical':
+                    succeeded = False
+                continue
 
             run_check = True
             if not quiet:
@@ -219,13 +226,22 @@ def check_soft_configuration(checker, fix=False, quiet=False):
 
             if run_check:
                 result = checker_func(fix=True, silently=quiet, prompt=prompt)
-                report_checker_result(checker.log, result, severity, description)
+                checker_params.update({'result': result})
                 if not result and severity == 'critical':
                     succeeded = False
+
+            report_checker_result(checker.log, result, severity, description)
 
         except Exception as e:
             report_checker_result(checker.log, None, severity, description, str(e))
 
+    # If we fixed some parameters, reset the cache of results,
+    # so next check will find and print the problems that still exist.
+    if fix:
+        for element in soft_checkers:
+            checker_params = list(element.values())[0]
+            if 'result' in checker_params:
+                del checker_params['result']
     return succeeded
 
 def reset_system_to_defaults(checker):
