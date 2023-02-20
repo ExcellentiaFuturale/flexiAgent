@@ -42,6 +42,8 @@ IPSEC_ANTI_REPLAY_WINDOW = 448
 #      "params": {
 #        "src": "8.8.1.1"
 #        "dst": "8.8.1.2"
+#        "srcPort": "4789"
+#        "dstPort": "4789"
 #        "ipsec": {
 #          "local-sa": {
 #             "spi": 1020,
@@ -768,12 +770,13 @@ def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
                 src = source.split('/')[0]
                 src_addr = ipaddress.ip_address(src)
 
+    vxlan_port = fwutils.get_vxlan_port()
     cmd_params = {
             'is_add'               : 1,
             'src_address'          : src_addr,
             'dst_address'          : dst_addr,
             'vni'                  : bridge_id,
-            'dest_port'            : int(params.get('dstPort', 4789)),
+            'dest_port'            : int(params.get('dstPort', vxlan_port)),
             'substs': [{'add_param': 'next_hop_sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': params['dev_id']},
                        {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [dst, dev_id]},
                        {'add_param': 'qos_hierarchy_id',

@@ -142,6 +142,9 @@ request_handlers = {
     'remove-qos-traffic-map':       {'name': '_call_router_api', 'sign': True},
     'add-qos-policy':               {'name': '_call_router_api', 'sign': True},
     'remove-qos-policy':            {'name': '_call_router_api', 'sign': True},
+    'add-vxlan-config':             {'name': '_call_router_api', 'sign': True},
+    'remove-vxlan-config':          {'name': '_call_router_api', 'sign': True},
+    'modify-vxlan-config':          {'name': '_call_router_api', 'sign': True},
 
     # System API
     'add-lte':                      {'name': '_call_system_api'},
@@ -343,6 +346,7 @@ class Fwglobals(FwObject):
         self.router_threads                = FwRouterThreading() # Primitives used for synchronization of router configuration and monitoring threads
         self.handle_request_lock           = threading.RLock()
         self.is_gcp_vm                     = fwutils.detect_gcp_vm()
+        self.default_vxlan_port            = 4789
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)

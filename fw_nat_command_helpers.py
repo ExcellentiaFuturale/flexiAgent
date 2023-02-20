@@ -25,15 +25,6 @@ Helper functions to convert NAT configurations into VPP NAT commands
 import copy
 import fwutils
 
-# Services enabled for access on WAN interface
-WAN_INTERFACE_SERVICES = {
-  "VXLAN Tunnel":
-    {
-        "port": 4789,
-        "protocol": "udp"
-    },
-}
-
 def get_nat_forwarding_config(enable):
     """
     Generates commands to enable/disable nat44 forwarding configuration
@@ -150,45 +141,6 @@ def get_nat_wan_setup_config(dev_id):
                         'remove': True,
     }
     cmd_list.append(cmd)
-
-    for service_name, service_cfg in WAN_INTERFACE_SERVICES.items():
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']   = "call_vpp_api"
-        cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
-        cmd['cmd']['descr'] = "Add NAT WAN identity mapping for port %s:%d Protocol: %s" % (
-            service_name, service_cfg['port'], service_cfg['protocol'])
-        cmd['cmd']['params'] = {
-                        'api': "nat44_add_del_identity_mapping",
-                        'args': {
-                            'port':     service_cfg['port'],
-                            'protocol': fwutils.proto_map[service_cfg['protocol']],
-                            'is_add':   1,
-                            'substs': [
-                                {'add_param': 'sw_if_index',
-                                'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
-                            ]
-                        },
-        }
-
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "call_vpp_api"
-        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
-        cmd['revert']['descr'] = "Delete NAT WAN identity mapping for port %s:%d Protocol: %s" % (
-            service_name, service_cfg['port'], service_cfg['protocol'])
-        cmd['revert']['params'] = {
-                        'api': "nat44_add_del_identity_mapping",
-                        'args': {
-                            'port': service_cfg['port'],
-                            'protocol': fwutils.proto_map[service_cfg['protocol']],
-                            'is_add': 0,
-                            'substs': [
-                                {'add_param': 'sw_if_index',
-                                'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}
-                            ]
-                        },
-        }
-        cmd_list.append(cmd)
 
     return cmd_list
 

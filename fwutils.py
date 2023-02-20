@@ -4005,6 +4005,48 @@ def create_tun_in_vpp(addr, host_if_name, recreate_if_exists=False):
 def delete_tun_tap_from_vpp(vpp_if_name, ignore_errors):
     vpp_cli_execute([f'delete tap {vpp_if_name}'], raise_exception_on_error=(not ignore_errors))
 
+def vpp_add_remove_nat_identity_mapping_from_wan_interfaces(is_add, port, protocol):
+    """
+    Configure VPP NAT identity mapping for all WAN interfaces.
+
+    :param is_add:    True to set, False to remove.
+    :param port:      Port number.
+    :param protocol:  Protocol name (not number). Valid names are listed in "proto_map".
+
+    :returns: Return list.
+    """
+    wan_interfaces = fwglobals.g.router_cfg.get_interfaces(type='wan')
+    for wan_interface in wan_interfaces:
+        dev_id = wan_interface.get('dev_id')
+        sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
+        fwglobals.log.info(f'vpp_add_remove_nat_identity_mapping_from_wan_interfaces(): applying on {dev_id}. sw_if_index={sw_if_index}')
+        fwglobals.g.router_api.vpp_api.vpp.call(
+            'nat44_add_del_identity_mapping',
+            sw_if_index=sw_if_index,
+            port=port,
+            protocol=proto_map[protocol],
+            is_add=is_add,
+        )
+
+def get_vxlan_port():
+    """
+    Returns integer of vxlan source port.
+    """
+    vxlan_config = fwglobals.g.router_cfg.get_vxlan_config()
+    if not vxlan_config:
+        return fwglobals.g.default_vxlan_port
+    return int(vxlan_config.get('port', fwglobals.g.default_vxlan_port))
+
+def get_version(version_str):
+    source_version = version_str.split('-')[0].split('.')
+    return (int(source_version[0]), int(source_version[1]))
+
+def version_less_than(source_version_str, target_version_str):
+    source_major_version, source_minor_version = get_version(source_version_str)
+    target_major_version, target_minor_version = get_version(target_version_str) 
+    return source_major_version < target_major_version or \
+        (source_major_version == target_major_version and source_minor_version < target_minor_version)
+
 class FwJsonEncoder(json.JSONEncoder):
     '''Customization of the JSON encoder that is able to serialize simple
     Python objects, e.g. FwMultilinkLink. This encoder should be used within
