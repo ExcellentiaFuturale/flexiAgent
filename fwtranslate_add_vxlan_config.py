@@ -35,24 +35,52 @@ def add_vxlan_config(params):
 
     :returns: List of commands.
     """
+    return vxlan_config_translation_command(params)
+
+def modify_vxlan_config(new_params, old_params):
+    return vxlan_config_translation_command(new_params, old_params)
+
+def vxlan_config_translation_command(new_params, old_params=None):
     cmd_list = []
 
-    port = int(params.get('port', 4789))
+    new_port = int(new_params.get('port'))
+    old_port = int(old_params.get('port')) if old_params else fwglobals.g.default_vxlan_port
+
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']    = "exec"
+    cmd['cmd']['module']  = "fwutils"
+    cmd['cmd']['descr']   = f"set {new_port} as the default vxlan port"
+    cmd['cmd']['params']  = {
+                    'cmd': f"sudo vppctl set vxlan default-port {new_port}"
+    }
+    cmd['revert'] = {}
+    cmd['revert']['func']   = "exec"
+    cmd['revert']['module'] = "fwutils"
+    cmd['revert']['params'] = {
+                    'cmd': f"sudo vppctl set vxlan default-port {old_port}"
+    }
+    cmd['revert']['descr']  = f"set {old_port} as the default vxlan port"
+    cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['func']   = "vpp_add_remove_nat_identity_mapping_from_wan_interfaces"
     cmd['cmd']['module'] = "fwutils"
-    cmd['cmd']['params'] = { 'is_add': 1, 'port': port, 'protocol': 'udp' }
-    cmd['cmd']['descr']  = f"add NAT identity mapping for {port} UDP port for all WAN interfaces"
+    cmd['cmd']['params'] = { 'is_add': 1, 'port': new_port, 'protocol': 'udp' }
+    cmd['cmd']['descr']  = f"add NAT identity mapping for {new_port} UDP port for all WAN interfaces"
     cmd['revert'] = {}
     cmd['revert']['func']   = "vpp_add_remove_nat_identity_mapping_from_wan_interfaces"
     cmd['revert']['module'] = "fwutils"
-    cmd['revert']['params'] = { 'is_add': 0, 'port': port, 'protocol': 'udp' }
-    cmd['revert']['descr']  = f"remove NAT identity mapping for {port} UDP port from all WAN interfaces"
+    cmd['revert']['params'] = { 'is_add': 0, 'port': new_port, 'protocol': 'udp' }
+    cmd['revert']['descr']  = f"remove NAT identity mapping for {new_port} UDP port from all WAN interfaces"
     cmd_list.append(cmd)
 
     return cmd_list
+
+modify_vxlan_config_supported_params = {
+    'port': None
+}
 
 def get_request_key(params):
     """Get add-vxlan-config key.

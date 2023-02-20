@@ -92,6 +92,9 @@ fwrouter_translators = {
     'remove-qos-policy':        {'module': __import__('fwtranslate_revert'),          'api':'revert'},
     'add-vxlan-config':         {'module': __import__('fwtranslate_add_vxlan_config'), 'api':'add_vxlan_config'},
     'remove-vxlan-config':      {'module': __import__('fwtranslate_revert'),           'api':'revert'},
+    'modify-vxlan-config':      {'module': __import__('fwtranslate_add_vxlan_config'), 'api':'modify_vxlan_config',
+                                    'supported_params': 'modify_vxlan_config_supported_params'
+                                },
 }
 
 class FwRouterState(enum.Enum):
@@ -812,7 +815,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         elif re.match('(start|stop)-router', request['message']):
             reconnect_agent = True
             return _return_val()
-        elif re.match('(add|remove)-vxlan-config', request['message']):
+        elif re.match('(add|remove|modify)-vxlan-config', request['message']):
             restart_stun = True
             return _return_val()
         elif re.match('(add|remove)-qos-policy', request['message']):
@@ -828,7 +831,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             for _request in request['params']['requests']:
                 if re.match('(start|stop)-router', _request['message']):
                     reconnect_agent = True
-                elif re.match('(add|remove)-vxlan-config', _request['message']):
+                elif re.match('(add|remove|modify)-vxlan-config', _request['message']):
                     restart_stun = True
                 elif re.match('(add|remove)-qos-policy', _request['message']):
                     if (_should_restart_on_qos_policy(_request) is True):
