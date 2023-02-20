@@ -42,6 +42,7 @@ from fw_vpp_startupconf import FwStartupConf
 globals = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , '..')
 sys.path.append(globals)
 import fwglobals
+import fwgrub
 import fwlog
 import fwutils
 import fwnetplan
@@ -97,16 +98,17 @@ class Checker:
         self.vpp_startup_conf       = FwStartupConf(self.CFG_VPP_CONF_FILE)
         self.vpp_configuration      = self.vpp_startup_conf.get_root_element()
         self.vpp_config_modified    = False
-        self.update_grub            = False
+        self.grub                   = fwgrub.FwGrub(self.log)
 
         supported_nics_filename = os.path.join(os.path.dirname(os.path.realpath(__file__)) , 'dpdk_supported_nics.json')
         with open(supported_nics_filename, 'r') as f:
             self.supported_nics = json.load(f)
 
-    def save_config (self):
+    def save_config (self, update_grub=False):
         if self.vpp_config_modified:
             self.vpp_startup_conf.dump(self.vpp_configuration, self.CFG_VPP_CONF_FILE)
-            self.update_grub_file()
+            if update_grub:
+                self.set_cpu_info_into_grub_file()
             self.vpp_config_modified = False
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE, fwglobals.g.VPP_CONFIG_FILE_BACKUP)
 
@@ -764,6 +766,23 @@ class Checker:
             return False
         return True
 
+    def soft_check_iommu_on(self, fix=False, silently=False, prompt=''):
+        """Check if 'iommu=pt' and 'intel_iommu=on' appear in GRUB.
+        They are needed for DPDK to capture interfaces on bootup, when running
+        on virtual machine, so the guest machine could access host driver.
+
+        :param fix:             Fix problem.
+        :param silently:        Do not prompt user.
+        :param prompt:          User prompt prefix.
+
+        :returns: 'True' if check is successful and 'False' otherwise.
+        """
+        if not fwutils.check_if_virtual_environment():
+            return None   # None -> report the check as skipped
+
+        grub_params = [ 'iommu=pt', 'intel_iommu=pt' ]
+        res = self.grub.soft_check(grub_params, fix, prompt)
+        return res
 
     def soft_check_hugepage_number(self, fix=False, silently=False, prompt=''):
         """Check if there is enough hugepages available.
@@ -839,21 +858,14 @@ class Checker:
         os.system('sysctl -p %s' %(vpp_hugepages_file))
         return True
 
-    def update_grub_file(self, reset=False):
-        """Update /etc/default/grub to work with configured number of cores.
-        """
-        # This function does the following:
-        # 1. check how many cores to update
-        # 2. updates "GRUB_CMDLINE_LINUX_DEFAULT" in /etc/defualt/grub
-        # 3. sudo update-grub
-        if self.update_grub == False:
-            return
+    def set_cpu_info_into_grub_file(self, reset=False):
+        """Fetches from the startup.conf the number of CPU cores that should be
+        isolated from kernel toward VPP and updates the /etc/default/grub with it.
 
+        :param reset: if True, the GRUB will be configured with no isolation.
+        """
         num_of_workers_cores = 0
-        # if reset is True, the cfg points to the old configuration while we
-        # already copied the startup.conf.restore to startup.conf, so we can't
-        # take the old number of workers from the current DB. In case of reset,
-        # we need to explicit set the number of cores to zero.
+
         if reset==False:
             cfg = self.vpp_configuration
             if cfg and cfg['cpu']:
@@ -871,85 +883,8 @@ class Checker:
                             corelist_worker_param_max_val = int(corelist_worker_param_val.split('-')[1])
                         num_of_workers_cores = corelist_worker_param_max_val + 1 - corelist_worker_param_min_val
 
-        update_line = ''
-        if num_of_workers_cores == 0:
-            update_line = ''
-        else:
-            if fwutils.check_if_virtual_environment() == True:
-                update_line += 'iommu=pt intel_iommu=on '
-            if num_of_workers_cores == 1:
-                update_line += 'isolcpus=1 nohz_full=1 rcu_nocbs=1'
-            else:
-                update_line += 'isolcpus=1-%d nohz_full=1-%d rcu_nocbs=1-%d' % (num_of_workers_cores, num_of_workers_cores, num_of_workers_cores)
-        grub_read_file  = '/etc/default/grub'
-        grub_write_file = '/etc/default/grub.tmp'
+        self.grub.set_cpu_info(num_of_workers_cores)
 
-        add_grub_line = False
-        grub_line_found = False
-        grub_line = ''
-        prefix_val = "GRUB_CMDLINE_LINUX_DEFAULT"
-        read_file  = open(grub_read_file, "r")
-        write_file = open(grub_write_file, "w")
-        for line in read_file:
-            if prefix_val in line:
-                # no need to handle lines which are remarked
-                if line.startswith("#"):
-                    write_file.write(line)
-                else:
-                    #if line is found, remark it, and save its contents for later processing
-                    grub_line_found = True
-                    grub_line = line
-                    line = "# "+line
-                    write_file.write(line)
-            else:
-                write_file.write(line)
-
-    # remove old values if exist, so we can replace with ours.
-    # zero cores means reset to old line, without our additions
-        if grub_line_found == True:
-            add_grub_line = True
-            # take the list of values after the 'GRUB_CMDLINE_LINUX_DEFAULT=' part, if exist
-            splt = grub_line.split('=\"')
-            if len(splt) > 1:
-                val_line = splt[1].strip().strip('\" ')
-            else:
-                val_line = ''
-            #create a list of tokens from the val_line
-            val_line_list = re.split('\s+', val_line.strip())
-            #remove old values, if exist, so we can replace them with ours
-            results = []
-            for elem in val_line_list:
-                if elem.startswith('iommu'):
-                    continue
-                elif elem.startswith('intel_iommu'):
-                    continue
-                elif elem.startswith('isolcpus'):
-                    continue
-                elif elem.startswith('nohz_full'):
-                    continue
-                elif elem.startswith('rcu_nocbs'):
-                    continue
-                results.append(elem)
-            #regroup val_line
-            val_line = " ".join(results)
-
-            #add our values.
-            if num_of_workers_cores!=0:
-                grub_line = prefix_val+ '=\"' + val_line + " " + update_line + '\"'
-            else:
-                grub_line = prefix_val+ '=\"' + val_line +'\"'
-            write_file.write(grub_line+'\n')
-        else:
-            grub_line = prefix_val+ '=\"' + update_line + '\"'
-            write_file.write(grub_line+'\n')
-
-        write_file.close()
-        read_file.close()
-        shutil.copyfile (grub_write_file, grub_read_file)
-        os.remove (grub_write_file)
-        if add_grub_line == True:
-            os.system ("sudo update-grub")
-        return
 
     def soft_check_lte_mbim_mode(self, fix=False, silently=False, prompt=''):
         lte_interfaces = []
@@ -1269,6 +1204,7 @@ class Checker:
             Return flags if VPP and GRUB configurations was modified
         """
         update_vpp = False
+        update_grub = False
         workers = self.vpp_startup_conf.get_cpu_workers()
         hqos_workers = self.vpp_startup_conf.get_cpu_hqos_workers()
         grub_cores = self._get_grub_cores()
@@ -1293,7 +1229,7 @@ class Checker:
             self.vpp_startup_conf.set_cpu_workers(vpp_cores, hqos_enabled=hqos_enabled)
             self.vpp_config_modified = True
             if vpp_cores > grub_cores:
-                self.update_grub = True
+                update_grub = True
 
         if power_saving != cur_power_saving:
             power_saving_value = 300 if power_saving else 0
@@ -1302,6 +1238,6 @@ class Checker:
 
         if self.vpp_config_modified:
             update_vpp = True
-            self.save_config()
+            self.save_config(update_grub)
 
-        return update_vpp, self.update_grub
+        return update_vpp, update_grub

@@ -70,6 +70,7 @@ soft_checkers = [
     { 'soft_check_disable_linux_autoupgrade'     : { 'severity': 'critical' }},
     { 'soft_check_disable_transparent_hugepages' : { 'severity': 'optional' }},
     { 'soft_check_duplicate_netplan_sections'    : { 'severity': 'critical' }},
+    { 'soft_check_iommu_on'                      : { 'severity': 'critical' }},
     { 'soft_check_hostname_syntax'               : { 'severity': 'critical', 'interactive': 'must' }},   # This check should be before 'soft_check_hostname_in_hosts', as last might insert bad syntax hostname into /etc/hosts file
     { 'soft_check_hostname_in_hosts'             : { 'severity': 'critical' }},
     { 'soft_check_hugepage_number'               : { 'severity': 'optional', 'interactive': 'optional' }},
@@ -181,8 +182,8 @@ def check_soft_configuration(checker, fix=False, quiet=False):
             report_checker_result(checker.log, result, severity, description)
             go_and_fix = fix
             if go_and_fix:
-                # No need to fix if result is OK.
-                if result:
+                # No need to fix if result is OK or None (the check was skipped).
+                if result or result == None:
                     go_and_fix = False
 
                 interactive = '' if not 'interactive' in checker_params \
@@ -246,8 +247,7 @@ def reset_system_to_defaults(checker):
             shutil.copyfile (fwglobals.g.VPP_CONFIG_FILE_RESTORE, fwglobals.g.VPP_CONFIG_FILE)
             if os.path.exists(fwglobals.g.VPP_CONFIG_FILE_BACKUP):
                 shutil.copyfile (fwglobals.g.VPP_CONFIG_FILE_RESTORE, fwglobals.g.VPP_CONFIG_FILE_BACKUP)
-            checker.update_grub = True
-            checker.update_grub_file(True)
+            checker.set_cpu_info_into_grub_file(reset=True)
             reboot_needed = True
             break
 
@@ -340,16 +340,14 @@ def main(args):
                 print ("Please wait..")
                 os.system("sudo systemctl stop flexiwan-router")
                 checker.save_config()
-                if checker.update_grub == True:
+                if checker.grub.requires_reboot:
                     rebootSys = 'x'
                     while not (rebootSys == "n" or rebootSys == 'N' or rebootSys == 'y' or rebootSys == 'Y'):
-                        rebootSys = input("Changes to OS confugration requires system reboot.\n" +
-                                        "Would you like to reboot now (Y/n)?")
+                        rebootSys = input("Changes to kernel configuration requires system reboot.\n" +
+                                        "Would you like to reboot now (Y/n)? ")
                         if rebootSys == 'y' or rebootSys == 'Y' or rebootSys == '':
                             print ("Rebooting...")
                             os.system('reboot now')
-                        else:
-                            print ("Please reboot the system for changes to take effect.")
 
                 os.system("sudo systemctl start flexiwan-router")
                 # Wait two seconds for the agent to reload the LTE drivers
