@@ -839,119 +839,6 @@ class Checker:
         os.system('sysctl -p %s' %(vpp_hugepages_file))
         return True
 
-    def soft_check_multi_core_support_requires_rss(self, fix=False, silently=False, prompt=''):
-        """Check and set number of worker cores to process incoming packets. Requires RSS support
-
-        :param fix:             Fix problem.
-        :param silently:        Do not prompt user.
-        :param prompt:          User prompt prefix.
-
-        :returns: 'True' if check is successful and 'False' otherwise.
-        """
-        # This function does the following:
-        # 1. sets "main-core" and "corelist-workers" in "cpu" section in /etc/vpp/startup.conf
-        # 2. sets "num-rx-queues" in "dpdk" section in /etc/vpp/startup.conf
-        # 3. updates "GRUB_CMDLINE_LINUX_DEFAULT" in /etc/default/grub
-        # 4. sudo update-grub
-
-        if not fix or silently:
-            return True
-        # 'Fix' and 'silently' has no meaning for vpp configuration parameters,
-        # as any value is good for it, and if no value was configured,
-        # the existing values will be used, or zero if none.
-
-        num_worker_cores = psutil.cpu_count() - 1
-        input_cores = 0
-        while True:
-            str_cores = input(prompt + "Enter number of cores to process packets (max: %d): " % num_worker_cores)
-            try:
-                if len(str_cores) == 0:
-                    input_cores = num_worker_cores
-                    break
-                input_cores = int(str_cores)
-                if input_cores > num_worker_cores:
-                    self.log.warning("Number of cores entered (%d) was set to maximum available (%d)" % (input_cores, num_worker_cores))
-                    input_cores = num_worker_cores
-                break
-            except Exception as e:
-                self.log.error(prompt + str(e))
-
-        current_workers = self.vpp_startup_conf.get_cpu_workers()
-        if current_workers == input_cores:
-            return True
-
-        self.vpp_startup_conf.set_cpu_workers(input_cores)
-        self.vpp_config_modified = True
-        self.update_grub = True
-        return True
-
-    def soft_check_cpu_power_saving(self, fix=False, silently=False, prompt=''):
-        """Set power saving on main core: add delay to polling frequancy to main core loop
-
-        :param fix:             Fix problem.
-        :param silently:        Do not prompt user.
-        :param prompt:          User prompt prefix.
-
-        :returns: 'True' if check is successful and 'False' otherwise.
-        """
-        # This function does the following:
-        # 1. Ask the user if to emable power saving mode
-        # 2. If so, set poll-sleep-usec parameter in startup.conf's unix
-        #    section to some TBD value.
-
-        if not fix or silently:
-            return True
-
-        enable_ps_mode  = False
-        usec_rest       = 300
-        usec            = 0
-        conf            = self.vpp_configuration
-        conf_param      = None
-        if conf and conf['unix']:
-            string = self.vpp_startup_conf.get_element(conf['unix'], 'poll-sleep-usec')
-            if string:
-                tup = self.vpp_startup_conf.get_tuple_from_key(conf['unix'],string)
-                if tup:
-                    tmp = re.split('\s+', tup[0].strip())
-                    usec = int(tmp[1])
-                    conf_param = tup[0]
-
-        while True:
-            str_ps_mode = input(prompt + "Enable Power-Saving mode on main core (y/N/q)?")
-            if str_ps_mode == 'Y' or str_ps_mode == 'y':
-                enable_ps_mode = True
-                break
-            elif str_ps_mode == 'N' or str_ps_mode == 'n' or str_ps_mode == '':
-                enable_ps_mode = False
-                break
-            else:
-                return True  #nothing to do
-
-        if enable_ps_mode == True:
-            if usec == usec_rest:
-                return True   #nothing to do
-            elif not conf:
-                    conf = self.vpp_startup_conf.get_root_element()
-                    if conf['unix'] is None:
-                        tup = self.vpp_startup_conf.create_element(conf,'unix')
-                        tup.append(self.vpp_startup_conf.create_element('poll-sleep-usec %d' %(usec_rest)))
-                        self.vpp_config_modified = True
-                        return True
-            else:
-                if conf_param:
-                    self.vpp_startup_conf.remove_element(conf['unix'], conf_param)
-                conf_param = 'poll-sleep-usec %d' % usec_rest
-                conf['unix'].append(self.vpp_startup_conf.create_element(conf_param))
-                self.vpp_config_modified = True
-                return True
-        else: # enable_ps_mode is False
-            if conf_param:
-                self.vpp_startup_conf.remove_element(conf['unix'], conf_param)
-                self.vpp_config_modified = True
-                return True
-
-        return True
-
     def update_grub_file(self, reset=False):
         """Update /etc/default/grub to work with configured number of cores.
         """
@@ -1064,7 +951,7 @@ class Checker:
             os.system ("sudo update-grub")
         return
 
-    def soft_check_lte_modem_configured_in_mbim_mode(self, fix=False, silently=False, prompt=''):
+    def soft_check_lte_mbim_mode(self, fix=False, silently=False, prompt=''):
         lte_interfaces = []
         for nicname, addrs in list(psutil.net_if_addrs().items()):
             driver = fwutils.get_interface_driver(nicname, cache=False)

@@ -55,36 +55,32 @@ FW_EXIT_CODE_ERROR_FAILED_TO_FIX_SYSTEM_CONFIGURATION = 0x4
 FW_EXIT_CODE_ERROR_ABORTED_BY_USER                    = 0x8
 
 hard_checkers = [
-    { 'hard_check_sse42'              : [ True , 'critical' , 'Support in SSE 4.2 is required' ] },
-    { 'hard_check_ram'                : [ 3.9 ,  'critical' , 'At least 4GB RAM is required' ] },
-    { 'hard_check_cpu_number'         : [ 2,     'critical' , 'At least 2 logical CPU-s are required' ] },
-    { 'hard_check_nic_number'         : [ 2,     'critical' , 'At least 2 Network Interfaces are required' ] },
-    { 'hard_check_nic_drivers'        : [ True , 'optional' , 'Supported network cards' ] },
-    { 'hard_check_kernel_io_modules'  : [ True , 'optional' , 'Kernel has i/o modules' ] },
+    { 'hard_check_cpu_number'         : [ 2,    'critical', 'At least 2 logical CPU-s are required' ] },
+    { 'hard_check_kernel_io_modules'  : [ True, 'optional', 'Kernel has i/o modules' ] },
+    { 'hard_check_ram'                : [ 3.9,  'critical', 'At least 4GB RAM is required' ] },
+    { 'hard_check_nic_drivers'        : [ True, 'optional', 'Supported network cards' ] },
+    { 'hard_check_nic_number'         : [ 2,    'critical', 'At least 2 Network Interfaces are required' ] },
+    { 'hard_check_sse42'              : [ True, 'critical', 'Support in SSE 4.2 is required' ] },
 ]
 
 soft_checkers = [
-    { 'soft_check_uuid'               : { 'severity': 'critical' }},
-    { 'soft_check_hostname_syntax'    : { 'severity': 'critical' , 'interactive': 'must' }},   # This check should be before 'soft_check_hostname_in_hosts', as last might insert bad syntax hostname into /etc/hosts file
-    { 'soft_check_hostname_in_hosts'  : { 'severity': 'critical' }},
-    { 'soft_check_default_route'      : { 'severity': 'critical' , 'interactive': 'must' }},
-    { 'soft_check_multiple_interface_definitions': {'severity': 'critical'}},
-    { 'soft_check_duplicate_netplan_sections': {'severity': 'critical'}},
+    { 'soft_check_coredump_settings'             : { 'severity': 'critical' }},
+    { 'soft_check_default_route'                 : { 'severity': 'critical', 'interactive': 'must' }},
     { 'soft_check_default_routes_metric'         : { 'severity': 'critical' }},
-    { 'soft_check_network_manager'    : { 'severity': 'critical' }},
-    { 'soft_check_networkd'           : { 'severity': 'critical' }},
-    { 'soft_check_utc_timezone'       : { 'severity': 'critical' }},
     { 'soft_check_disable_linux_autoupgrade'     : { 'severity': 'critical' }},
     { 'soft_check_disable_transparent_hugepages' : { 'severity': 'optional' }},
-    { 'soft_check_hugepage_number'    : { 'severity': 'optional' , 'interactive': 'optional' }},
-    # Multi core configuration and power saving mode must be configured from FlexiManage.
-    # So these options are removed in fwsystem_checker.
-    # { 'soft_check_multi_core_support_requires_rss'   : { 'severity': 'optional' , 'interactive': 'optional' }},
-    # { 'soft_check_cpu_power_saving' : { 'severity': 'optional' , 'interactive': 'optional' }},
-    { 'soft_check_lte_modem_configured_in_mbim_mode': { 'severity': 'critical' }},
-    { 'soft_check_wifi_driver': { 'severity': 'critical' }},
-    { 'soft_check_coredump_settings': { 'severity': 'critical' }},
-    { 'soft_check_networkd_configuration'           : { 'severity': 'critical' }},
+    { 'soft_check_duplicate_netplan_sections'    : { 'severity': 'critical' }},
+    { 'soft_check_hostname_syntax'               : { 'severity': 'critical', 'interactive': 'must' }},   # This check should be before 'soft_check_hostname_in_hosts', as last might insert bad syntax hostname into /etc/hosts file
+    { 'soft_check_hostname_in_hosts'             : { 'severity': 'critical' }},
+    { 'soft_check_hugepage_number'               : { 'severity': 'optional', 'interactive': 'optional' }},
+    { 'soft_check_multiple_interface_definitions': { 'severity': 'critical' }},
+    { 'soft_check_networkd'                      : { 'severity': 'critical' }},
+    { 'soft_check_networkd_configuration'        : { 'severity': 'critical' }},
+    { 'soft_check_network_manager'               : { 'severity': 'critical' }},
+    { 'soft_check_lte_mbim_mode'                 : { 'severity': 'critical' }},
+    { 'soft_check_utc_timezone'                  : { 'severity': 'critical' }},
+    { 'soft_check_uuid'                          : { 'severity': 'critical' }},
+    { 'soft_check_wifi_driver'                   : { 'severity': 'critical' }},
 ]
 
 class TXT_COLOR:
