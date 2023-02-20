@@ -40,22 +40,15 @@ sys.path.append(common_tools)
 globals = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , '..')
 sys.path.append(globals)
 
+import fwutils
 from fwrouter_api import fwrouter_translators
 from fwrouter_cfg import FwRouterCfg
 
 requests_db_path = "/etc/flexiwan/agent/.requests.sqlite"
 
 def migrate(prev_version=None, new_version=None, upgrade=True):
-    print("Migrating : processing 00018_190223_add_src_port_filed_to_add_tunnel on upgrade from 6.1")
+    print("Migrating : processing 00018_190223_add_src_port_field_to_add_tunnel on upgrade from 6.1")
     try:
-        prev_version = prev_version.split('-')[0].split('.')
-        new_version  = new_version.split('-')[0].split('.')
-
-        new_major_version = int(new_version[0])
-        new_minor_version = int(new_version[1])
-        prev_major_version = int(prev_version[0])
-        prev_minor_version = int(prev_version[1])
-
         if not os.path.exists(requests_db_path):
             return
         with FwRouterCfg(requests_db_path) as router_cfg:
@@ -65,8 +58,8 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
             if not tunnels:
                 return
 
-            is_add = upgrade == 'upgrade' and prev_major_version < 6 or (prev_major_version == 6 and prev_minor_version == 1)
-            is_remove = upgrade == 'downgrade' and new_major_version < 6 or (new_major_version == 6 and new_minor_version == 1)
+            is_add    = upgrade == 'upgrade'   and fwutils.version_less_than(prev_version, '6.2.0')
+            is_remove = upgrade == 'downgrade' and fwutils.version_less_than(new_version, '6.2.0')
 
             if not is_add and not is_remove:
                 return

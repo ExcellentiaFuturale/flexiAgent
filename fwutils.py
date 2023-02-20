@@ -4037,6 +4037,16 @@ def get_vxlan_port():
         return fwglobals.g.default_vxlan_port
     return int(vxlan_config.get('port', fwglobals.g.default_vxlan_port))
 
+def get_version(version_str):
+    source_version = version_str.split('-')[0].split('.')
+    return (int(source_version[0]), int(source_version[1]))
+
+def version_less_than(source_version_str, target_version_str):
+    source_major_version, source_minor_version = get_version(source_version_str)
+    target_major_version, target_minor_version = get_version(target_version_str) 
+    return source_major_version < target_major_version or \
+        (source_major_version == target_major_version and source_minor_version < target_minor_version)
+
 class FwJsonEncoder(json.JSONEncoder):
     '''Customization of the JSON encoder that is able to serialize simple
     Python objects, e.g. FwMultilinkLink. This encoder should be used within
