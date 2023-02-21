@@ -67,7 +67,7 @@ def _migrate_remove_bgp_tunnel_neighbors(upgrade=True):
         with FwRouterCfg(requests_db_path) as router_cfg:
             router_cfg.set_translators(fwrouter_translators)
 
-            bgp = router_cfg.get_bgp()
+            bgp = router_cfg.get_routing_bgp()
             if not bgp:
                 return
 

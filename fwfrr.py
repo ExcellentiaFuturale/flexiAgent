@@ -20,6 +20,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import subprocess
 import json
 
 from sqlitedict import SqliteDict
@@ -206,3 +207,8 @@ class FwFrr(FwObject):
         ret, err_str = fwutils.frr_vtysh_run(["router bgp", 'address-family ipv4 unicast', f"network {address}"])
         return ret, err_str
 
+    def bgp_get_summary_json(self):
+        cmd = 'vtysh -c "show bgp summary json"'
+        frr_json_output = subprocess.check_output(cmd, shell=True).decode().strip()
+        data = json.loads(frr_json_output)
+        return data

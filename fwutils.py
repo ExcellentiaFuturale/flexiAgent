@@ -3918,7 +3918,7 @@ def get_device_networks_json(type=None):
 
 def shutdown_activate_bgp_peer_if_exists(neighbor_ip, shutdown):
     try:
-        bgp_config = fwglobals.g.router_cfg.get_bgp()
+        bgp_config = fwglobals.g.router_cfg.get_routing_bgp()
         if not bgp_config:
             return (True, None)
 

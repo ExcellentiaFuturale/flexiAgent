@@ -142,13 +142,13 @@ class FwRouterCfg(FwCfgDatabase):
             tunnels = result
         return tunnels
 
-    def get_bgp(self):
-        bgp_req = self.get_requests('add-routing-bgp')
+    def get_routing_bgp(self):
+        bgp_routing_req = self.get_requests('add-routing-bgp')
         # add-routing-bgp is a single request and can't be more than that.
         # Therefore, convert it from a list to an object or None
-        if not bgp_req:
+        if not bgp_routing_req:
             return None
-        return bgp_req[0]
+        return bgp_routing_req[0]
 
     def get_vxlan_config(self):
         vxlan_config = self.get_requests('add-vxlan-config')

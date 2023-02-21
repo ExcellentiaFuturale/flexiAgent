@@ -115,7 +115,7 @@ def api_interface_create(type, addr, host_if_name, ospf=True, bgp=True):
                 if not _ret:
                     raise Exception(f'api_interface_create(): Failed to add {addr} network to ospf. err_str={str(err_str)}')
 
-            if bgp and fwglobals.g.router_cfg.get_bgp(): # check if BGP exists
+            if bgp and fwglobals.g.router_cfg.get_routing_bgp(): # check if BGP exists
                 _ret, err_str = handler.exec(
                     func=fwglobals.g.router_api.frr.run_bgp_add_network,
                     params={ 'address': addr },
@@ -144,7 +144,7 @@ def api_interface_delete(vpp_if_name, type, addr, ospf=True, bgp=True, ignore_er
                 else:
                     raise Exception(err_msg)
 
-        if bgp and fwglobals.g.router_cfg.get_bgp():
+        if bgp and fwglobals.g.router_cfg.get_routing_bgp():
             ret, err_str = fwglobals.g.router_api.frr.run_bgp_remove_network(addr)
             if not ret:
                 err_msg = f'api_interface_delete(): Failed to remove {addr} network from bgp. err_str={str(err_str)}'
