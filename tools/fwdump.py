@@ -26,6 +26,13 @@
 # Every piece of data is dumped into dedicated file in temporary folder,
 # than whole folder is tar-ed and is zipped.
 
+import signal
+def fwdump_signal_handler(signum, frame):
+    """Handle SIGINT (CTRL+C) to suppress backtrace print onto screen,
+	   when invoked by user from command line and not as a daemon.
+	"""
+    exit(1)
+signal.signal(signal.SIGINT, fwdump_signal_handler)
 
 import os
 import re
