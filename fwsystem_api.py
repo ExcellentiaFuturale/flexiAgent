@@ -35,6 +35,8 @@ import fwlte
 fwsystem_translators = {
     'add-lte':               {'module': __import__('fwtranslate_add_lte'),    'api':'add_lte'},
     'remove-lte':            {'module': __import__('fwtranslate_revert'),    'api':'revert'},
+    'add-notifications-config':         {'module': __import__('fwtranslate_add_notifications_config'),  'api':'add_notifications_config'},
+    'remove-notifications-config':      {'module':  __import__('fwtranslate_revert'),  'api':'revert'}
 }
 
 class FWSYSTEM_API(FwCfgRequestHandler):

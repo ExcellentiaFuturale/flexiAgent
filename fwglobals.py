@@ -149,6 +149,8 @@ request_handlers = {
     # System API
     'add-lte':                      {'name': '_call_system_api'},
     'remove-lte':                   {'name': '_call_system_api'},
+    'add-notifications-config':     {'name': '_call_system_api'},
+    'remove-notifications-config':  {'name': '_call_system_api'},
 
     # Applications api
     'add-app-install':             {'name': '_call_applications_api', 'sign': True},

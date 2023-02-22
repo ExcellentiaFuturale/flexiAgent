@@ -2016,7 +2016,8 @@ modify_tunnel_supported_params = {
     'remoteBandwidthMbps': {
         'tx' : None,
         'rx' : None
-    }
+    },
+    'notificationsSettings': None
 }
 
 def get_request_key(params):

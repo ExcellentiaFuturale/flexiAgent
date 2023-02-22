@@ -21,6 +21,7 @@
 ################################################################################
 
 # Handle device statistics
+import random
 import fwutils
 import math
 import time
@@ -36,6 +37,19 @@ import fwglobals
 # Globals
 # Keep updates up to 1 hour ago
 UPDATE_LIST_MAX_SIZE = 120
+# Number of success/failure samples to turn off an alert/define a severity to an alert
+CRITICAL_SAMPLES_THRESHOLD = 6
+WARNING_SAMPLES_THRESHOLD = 6
+SUCCESS_SAMPLES_THRESHOLD = 6
+# Numbers to mark success/warning/critical samples in the samples array
+MARKED_AS_SUCCESS = 0
+MARKED_AS_WARNING = 1
+MARKED_AS_CRITICAL = 2
+
+SAMPLES_ARRAY_SIZE = 10
+
+alerts = {}
+event_counts = {}
 
 # Keeps the list of last updates
 updates_list = []
@@ -44,7 +58,97 @@ updates_list = []
 vpp_pid = ''
 
 # Keeps last stats
-stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'lte_stats': {}, 'wifi_stats': {}, 'application_stats': {}}
+stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'lte_stats': {}, 'wifi_stats': {}, 'application_stats': {}, 'alerts':{}}
+
+class EventMonitor:
+    """
+    This class monitors statistics data and updates an alerts dictionary based on the last 10 samples of each event type and tunnel.
+    If there are more than 6 warning or critical samples, an alert is created.
+    Only one active alert can exist per event type or tunnel at a time.
+    Alerts are turned off after counting 6 successes for warning alerts, and after counting 6 warnings and successes for critical alerts.
+    """
+    def __init__(self):
+       global event_counts
+       global alerts
+
+    # add success(0)/warning(1)/critical(2) to the count array of the event_type
+    def add_value(self, event_type, value, warning_threshold=None, critical_threshold=None, tunnel_id=None):
+        # Initialize event type count array if not present
+        if event_type not in event_counts:
+            if tunnel_id:
+                event_counts[event_type] = {tunnel_id: [MARKED_AS_SUCCESS] * SAMPLES_ARRAY_SIZE}
+            else:
+                event_counts[event_type] = [MARKED_AS_SUCCESS] * SAMPLES_ARRAY_SIZE
+
+        if tunnel_id and event_type in event_counts:
+            if tunnel_id not in event_counts[event_type]:
+                event_counts[event_type][tunnel_id] = [MARKED_AS_SUCCESS] * SAMPLES_ARRAY_SIZE
+            else:
+                event_counts[event_type][tunnel_id].pop(0)
+
+        elif event_type in event_counts:
+            event_counts[event_type].pop(0)
+
+        if critical_threshold and value >= critical_threshold:
+            if tunnel_id:
+                event_counts[event_type][tunnel_id].append(MARKED_AS_CRITICAL)
+            else:
+                event_counts[event_type].append(MARKED_AS_CRITICAL)
+        elif warning_threshold and value >= warning_threshold:
+            if tunnel_id:
+                event_counts[event_type][tunnel_id].append(MARKED_AS_WARNING)
+            else:
+                event_counts[event_type].append(MARKED_AS_WARNING)
+        else:
+            if tunnel_id:
+                event_counts[event_type][tunnel_id].append(MARKED_AS_SUCCESS)
+            else:
+                event_counts[event_type].append(MARKED_AS_SUCCESS)
+
+        # Update alerts if necessary
+        self.calculate_alerts(event_type, value, warning_threshold, critical_threshold, tunnel_id)
+
+    def is_critical(self, event_type, tunnel_id=None):
+        if not tunnel_id:
+            count_array = event_counts.get(event_type, [])
+        else:
+            count_array = event_counts.get(event_type[tunnel_id], [])
+        return count_array.count(MARKED_AS_CRITICAL) >= CRITICAL_SAMPLES_THRESHOLD
+
+    def is_warning(self, event_type, tunnel_id=None):
+        if not tunnel_id:
+            count_array = event_counts.get(event_type, [])
+        else:
+            count_array = event_counts.get(event_type[tunnel_id], [])
+        return count_array.count(MARKED_AS_WARNING) + count_array.count(MARKED_AS_CRITICAL) >= WARNING_SAMPLES_THRESHOLD
+
+    def calculate_alerts(self, event_type, value, warning_threshold, critical_threshold, tunnel_id=None):
+        event_samples = event_counts[event_type]
+        if self.is_critical(event_type, tunnel_id):
+            if not tunnel_id:
+                alerts[event_type] = {'value': value,'threshold': critical_threshold, 'severity':'critical'}
+            else:
+                alerts[event_type][tunnel_id] = {'value': value,'threshold': critical_threshold, 'severity':'critical'}
+        elif self.is_warning(event_type, tunnel_id):
+            if not tunnel_id:
+                alerts[event_type] = {'value': value,'threshold': warning_threshold, 'severity':'warning'}
+            else:
+                alerts[event_type][tunnel_id] = {'value': value,'threshold': warning_threshold, 'severity':'warning'}
+        # Turn off alerts if necessary
+        if event_type in alerts:
+            if not tunnel_id:
+                if alerts[event_type]['severity'] == 'warning' and event_samples.count(MARKED_AS_SUCCESS) >= SUCCESS_SAMPLES_THRESHOLD:
+                    del alerts[event_type]
+                elif alerts[event_type]['severity'] == 'critical' and (event_samples.count(MARKED_AS_SUCCESS) + event_samples.count(MARKED_AS_WARNING)) >= SUCCESS_SAMPLES_THRESHOLD:
+                    del alerts[event_type]
+            elif tunnel_id in event_samples:
+                if alerts[event_type][tunnel_id]['severity'] == 'warning' and event_samples[tunnel_id].count(MARKED_AS_SUCCESS) >= SUCCESS_SAMPLES_THRESHOLD:
+                    del alerts[event_type][tunnel_id]
+                elif alerts[event_type][tunnel_id]['severity'] == 'critical' and (event_samples[tunnel_id].count(MARKED_AS_SUCCESS) + event_samples[tunnel_id].count(MARKED_AS_WARNING)) >= SUCCESS_SAMPLES_THRESHOLD:
+                    del alerts[event_type][tunnel_id]
+        return
+
+
 
 def statistics_thread_func(ticks, fwagent):
     if not fwagent.connected:
@@ -140,6 +244,69 @@ def update_stats(renew_lte_wifi_stats=True):
     if len(updates_list) is UPDATE_LIST_MAX_SIZE:
         updates_list.pop(0)
 
+    health_stats = get_system_health()
+
+    def get_threshold(event_type, rule):
+        if event_type != 'Temperature':
+            event_critical_threshold = rule.get('criticalThreshold')
+            event_warning_threshold = rule.get('warningThreshold')
+        else:
+            if health_stats['temp']['high'] != health_stats['temp']['critical']:
+                event_critical_threshold = health_stats['temp']['critical']
+                event_warning_threshold = health_stats['temp']['high']
+            else:
+                event_critical_threshold = health_stats['temp']['critical']
+                event_warning_threshold = None
+        return event_critical_threshold, event_warning_threshold
+
+
+    def get_current_value(event_type, tunnel=None):
+        type_to_stats = {
+            'Device memory usage': 'mem',
+            'Hard drive usage': 'disk',
+            'Temperature':'temp',
+            'Link/Tunnel round trip time':'rtt',
+            'Link/Tunnel default drop rate':'drop_rate'
+        }
+        if tunnel:
+            current_value = tunnel[type_to_stats.get(event_type)]
+        elif event_type != 'Temperature':
+            current_value = health_stats[type_to_stats.get(event_type)]
+        else:
+            current_value = health_stats[type_to_stats.get(event_type)]['value']
+        return current_value
+
+    def calculate_alerts():
+        global alerts
+        health_tracker = EventMonitor()
+        config = fwglobals.g.system_api.cfg_db.get_notifications_config()
+        tunnels = fwglobals.g.router_api.cfg_db.get_tunnels()
+        tunnel_dict = {tunnel['tunnel-id']: tunnel for tunnel in tunnels}
+        if not config:
+            return {}
+        rules = config.get('rules', [])
+        tunnel_rules = {}
+        for rule in rules:
+            event_type = rule.get('event')
+            event_critical_threshold, event_warning_threshold = get_threshold(event_type, rule)
+            if event_type.startswith('Link/Tunnel'):
+                tunnel_rules[event_type]=(event_critical_threshold, event_warning_threshold)
+                continue
+            current_value = get_current_value(event_type)
+            health_tracker.add_value(event_type, current_value, event_warning_threshold, event_critical_threshold)
+        for tunnel_id in tunnel_stats:
+            tunnel = tunnel_stats[tunnel_id]
+            tunnel_notifications = tunnel_dict[tunnel_id].get('notificationsSettings')
+            for tunnel_rule in tunnel_rules:
+                warning = tunnel_rules[tunnel_rule][0]
+                critical = tunnel_rules[tunnel_rule][1]
+                current_value = get_current_value(tunnel_rule, tunnel)
+                if tunnel_notifications:
+                    warning = tunnel_notifications[tunnel_rule].get('warningThreshold')
+                    critical = tunnel_notifications[tunnel_rule].get('criticalThreshold')
+                health_tracker.add_value(tunnel_rule, current_value, warning, critical, tunnel_id)
+        return alerts
+
     updates_list.append({
             'ok': stats['ok'],
             'running': stats['running'],
@@ -148,8 +315,9 @@ def update_stats(renew_lte_wifi_stats=True):
             'tunnel_stats': stats['tunnel_stats'],
             'lte_stats': stats['lte_stats'],
             'wifi_stats': stats['wifi_stats'],
-            'health': get_system_health(),
-            'utc': time.time()
+            'health': health_stats,
+            'utc': time.time(),
+            'alerts': calculate_alerts()
         })
 
 
@@ -224,7 +392,8 @@ def get_stats():
             'health': {},
             'period': 0,
             'utc': time.time(),
-            'reconfig': reconfig
+            'reconfig': reconfig,
+            'alerts': {}
         }
         if fwglobals.g.ikev2.is_private_key_created():
             info['ikev2'] = ikev2_certificate_expiration
@@ -259,5 +428,5 @@ def reset_stats():
     stats = {
         'running': False, 'ok':0, 'last':{}, 'bytes':{}, 'tunnel_stats':{},
         'health':{}, 'period':0, 'reconfig':False, 'ikev2':'',
-        'lte_stats': {}, 'wifi_stats': {}, 'application_stats': {}
+        'lte_stats': {}, 'wifi_stats': {}, 'application_stats': {}, 'alerts':{}
     }
