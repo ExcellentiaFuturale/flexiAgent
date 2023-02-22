@@ -18,174 +18,39 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import glob
 import os
 import sys
+import json
 
 CODE_ROOT = os.path.realpath(__file__).replace('\\', '/').split('/tests/')[0]
 TEST_ROOT = CODE_ROOT + '/tests/'
 sys.path.append(CODE_ROOT)
 sys.path.append(TEST_ROOT)
-from fwtranslate_add_routing_filter import _convert_params_to_frr_configs
+
+cli_path = __file__.replace('.py', '')
+
+import fwglobals
+from fwfrr import FwFrr
 
 route_map_name = 'test_route_map'
 route_map_description = 'test_route_map_description'
 
-test_cases = [
-    {
-        'input': [
-            {
-                "route":"0.0.0.0/0",
-                "action":"allow",
-                "nextHop":"",
-                "priority":4
-            },
-            {
-                "route":"5.5.5.5/32",
-                "action":"allow",
-                "nextHop":"",
-                "priority":2
-            },
-            {
-                "route":"8.8.8.8/32",
-                "action":"allow",
-                "nextHop":"2.2.2.2",
-                "priority":1
-            },
-            {
-                "route":"9.9.9.9/32",
-                "action":"allow",
-                "nextHop":"",
-                "priority":3
-            }
-        ],
-        'expected': [
-            f'access-list rm_test_route_map_group_0 permit 8.8.8.8/32',
-            f'route-map {route_map_name} permit 5',
-            f'  description {route_map_description}',
-            f'  match ip address rm_test_route_map_group_0',
-            f'  set ip next-hop 2.2.2.2',
-            f'route-map {route_map_name} permit 10',
-            f'  description {route_map_description}'
-        ]
-    },
-    {
-        'input': [
-            {
-                "route":"0.0.0.0/0",
-                "action":"deny",
-                "nextHop":"",
-                "priority":4
-            },
-            {
-                "route":"5.5.5.5/32",
-                "action":"allow",
-                "nextHop":"",
-                "priority":2
-            },
-            {
-                "route":"8.8.8.8/32",
-                "action":"allow",
-                "nextHop":"2.2.2.2",
-                "priority":1
-            },
-            {
-                "route":"9.9.9.9/32",
-                "action":"allow",
-                "nextHop":"",
-                "priority":3
-            }
-        ],
-        'expected': [
-            f'access-list rm_test_route_map_group_0 permit 8.8.8.8/32',
-            f'route-map {route_map_name} permit 5',
-            f'  description {route_map_description}',
-            f'  match ip address rm_test_route_map_group_0',
-            f'  set ip next-hop 2.2.2.2',
-            f'access-list rm_test_route_map_group_1 permit 5.5.5.5/32',
-            f'access-list rm_test_route_map_group_1 permit 9.9.9.9/32',
-            f'route-map {route_map_name} permit 10',
-            f'  description {route_map_description}',
-            f'  match ip address rm_test_route_map_group_1',
-            f'route-map {route_map_name} deny 15',
-            f'  description {route_map_description}'
-        ]
-    },
-    {
-        'input': [
-            {
-                "route":"0.0.0.0/0",
-                "action":"allow",
-                "nextHop":"",
-                "priority":4
-            },
-            {
-                "route":"5.5.5.5/32",
-                "action":"deny",
-                "nextHop":"",
-                "priority":2
-            },
-            {
-                "route":"8.8.8.8/32",
-                "action":"deny",
-                "nextHop":"",
-                "priority":1
-            },
-            {
-                "route":"9.9.9.9/32",
-                "action":"allow",
-                "nextHop":"",
-                "priority":3
-            }
-        ],
-        'expected': [
-            f'access-list rm_test_route_map_group_0 permit 8.8.8.8/32',
-            f'access-list rm_test_route_map_group_0 permit 5.5.5.5/32',
-            f'route-map {route_map_name} deny 5',
-            f'  description {route_map_description}',
-            f'  match ip address rm_test_route_map_group_0',
-            f'route-map {route_map_name} permit 10',
-            f'  description {route_map_description}'
-        ]
-    },
-    {
-        'input': [
-            {
-                "route":"0.0.0.0/0",
-                "action":"deny",
-                "nextHop":"",
-                "priority":0
-            },
-        ],
-        'expected': [
-            f'route-map {route_map_name} deny 5',
-            f'  description {route_map_description}',
-        ]
-    },
-    {
-        'input': [
-            {
-                "route":"0.0.0.0/0",
-                "action":"allow",
-                "nextHop":"",
-                "priority":0
-            },
-        ],
-        'expected': [
-            f'route-map {route_map_name} permit 5',
-            f'  description {route_map_description}',
-        ]
-    },
-]
-
 def test():
-    for (idx, test_case) in enumerate(test_cases):
-        if idx == 0:
-            print("")
+    with FwFrr(fwglobals.g.FRR_DB_FILE) as frr:
+        tests  = sorted(glob.glob(cli_path + '/' + '*.json'))
+        for (idx, test_case) in enumerate(tests):
+            if idx == 0:
+                print("")
 
-        input_rules = test_case['input']
-        expected_commands = test_case['expected']
-        add_ret_val, _ = _convert_params_to_frr_configs(route_map_name, route_map_description, input_rules)
-        assert add_ret_val == expected_commands, f'{add_ret_val} is not as expected {expected_commands}'
+            with open(test_case) as json_file:
+                test = json.load(json_file)
+
+                input_rules = test['input']
+                expected_commands = test['expected']
+
+                add_ret_val, _ = frr.translate_routing_filter_to_frr_commands(route_map_name, route_map_description, input_rules)
+                assert add_ret_val == expected_commands, f'{add_ret_val} is not as expected {expected_commands}'
 
 if __name__ == '__main__':
     test()

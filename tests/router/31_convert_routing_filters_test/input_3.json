@@ -1,0 +1,37 @@
+{
+    "input": [
+        {
+            "route":"0.0.0.0/0",
+            "action":"allow",
+            "nextHop":"",
+            "priority":4
+        },
+        {
+            "route":"5.5.5.5/32",
+            "action":"deny",
+            "nextHop":"",
+            "priority":2
+        },
+        {
+            "route":"8.8.8.8/32",
+            "action":"deny",
+            "nextHop":"",
+            "priority":1
+        },
+        {
+            "route":"9.9.9.9/32",
+            "action":"allow",
+            "nextHop":"",
+            "priority":3
+        }
+    ],
+    "expected": [
+        "access-list rm_test_route_map_group_0 permit 8.8.8.8/32",
+        "access-list rm_test_route_map_group_0 permit 5.5.5.5/32",
+        "route-map test_route_map deny 5",
+        "  description test_route_map_description",
+        "  match ip address rm_test_route_map_group_0",
+        "route-map test_route_map permit 10",
+        "  description test_route_map_description"
+    ]
+}

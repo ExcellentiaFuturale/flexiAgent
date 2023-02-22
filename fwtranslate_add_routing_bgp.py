@@ -39,6 +39,7 @@ import fwutils
 #               "outboundFilter": "test-rm",
 #               "holdInterval": "40",
 #               "keepaliveInterval": "40",
+#               "sendCommunity":"all"
 #           },
 #           {
 #               "ip": "9.9.9.9",
@@ -48,6 +49,7 @@ import fwutils
 #               "outboundFilter": "",
 #               "holdInterval": "40",
 #               "keepaliveInterval": "40",
+#               "sendCommunity":""
 #           },
 #       ]
 #       "networks": [
@@ -123,7 +125,7 @@ def add_routing_bgp(params):
         neighbors.append(neighbor)
 
     for neighbor in neighbors:
-        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
+        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_frr_commands(neighbor)
 
     vtysh_commands += [
         'address-family ipv4 unicast',
@@ -283,7 +285,7 @@ def _modify_neighbors(cmd_list, new_params, old_params):
     def _add_cmd_func(neighbor):
         ip = neighbor.get('ip')
         vtysh_commands = [f'router bgp {local_asn}']
-        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
+        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_frr_commands(neighbor)
 
         vtysh_commands.append(f'address-family ipv4 unicast')
 
