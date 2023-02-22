@@ -61,8 +61,6 @@ from fwapplications_api import FWAPPLICATIONS_API
 from fwfrr import FwFrr
 from fwobject import FwObject
 
-from fw_nat_command_helpers import WAN_INTERFACE_SERVICES
-
 system_checker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tools/system_checker/")
 sys.path.append(system_checker_path)
 import fwsystem_checker_common

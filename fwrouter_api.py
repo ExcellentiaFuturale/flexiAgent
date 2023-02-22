@@ -90,6 +90,11 @@ fwrouter_translators = {
     'remove-qos-traffic-map':   {'module': __import__('fwtranslate_revert'),          'api':'revert'},
     'add-qos-policy':           {'module': __import__('fwtranslate_add_qos_policy'),  'api':'add_qos_policy'},
     'remove-qos-policy':        {'module': __import__('fwtranslate_revert'),          'api':'revert'},
+    'add-vxlan-config':         {'module': __import__('fwtranslate_add_vxlan_config'), 'api':'add_vxlan_config'},
+    'remove-vxlan-config':      {'module': __import__('fwtranslate_revert'),           'api':'revert'},
+    'modify-vxlan-config':      {'module': __import__('fwtranslate_add_vxlan_config'), 'api':'modify_vxlan_config',
+                                    'supported_params': 'modify_vxlan_config_supported_params'
+                                },
 }
 
 class FwRouterState(enum.Enum):
@@ -481,7 +486,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             #    In this case we have to ping the GW-s after modification.
             #    See explanations on that workaround later in this function.
             #
-            (restart_router, reconnect_agent, gateways, restart_dhcp_service) = self._analyze_request(request)
+            (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun) = self._analyze_request(request)
 
             # Some requests require preprocessing.
             # For example before handling 'add-application' the currently configured
@@ -501,6 +506,11 @@ class FWROUTER_API(FwCfgRequestHandler):
             #
 
             reply = FwCfgRequestHandler.call(self, request, dont_revert_on_failure)
+
+            # Restart STUN thread if needed
+            #
+            if restart_stun:
+                fwglobals.g.stun_wrapper.restart_stun_thread()
 
             # Start vpp if it should be restarted
             #
@@ -761,6 +771,9 @@ class FWROUTER_API(FwCfgRequestHandler):
                         "vppctl delete tap") and recreates it back.
                         That causes DHCP service to stop monitoring of the recreated interface.
                         Therefor we have to restart it on modify-interface completion.
+            restart_stun - STUN thread should be restarted if one of parameters it based on
+                        is changed.
+
         """
 
         def _should_reconnect_agent_on_modify_interface(old_params, new_params):
@@ -788,31 +801,38 @@ class FWROUTER_API(FwCfgRequestHandler):
                     return True
             return False
 
+        (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun) = \
+        (False,          False,           [],       False,                False)
 
-        (restart_router, reconnect_agent, gateways, restart_dhcp_service) = \
-        (False,          False,           [],       False)
+        def _return_val():
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun)
 
         if re.match('(add|remove)-interface', request['message']):
             if self.state_is_started():
                 restart_router  = True
                 reconnect_agent = True
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+            return _return_val()
         elif re.match('(start|stop)-router', request['message']):
             reconnect_agent = True
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+            return _return_val()
+        elif re.match('(add|remove|modify)-vxlan-config', request['message']):
+            restart_stun = True
+            return _return_val()
         elif re.match('(add|remove)-qos-policy', request['message']):
             if (_should_restart_on_qos_policy(request) is True):
                 restart_router  = True
                 reconnect_agent = True
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+            return _return_val()
         elif request['message'] != 'aggregated':
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+            return _return_val()
         else:   # aggregated request
             add_remove_requests = {}
             modify_requests = {}
             for _request in request['params']['requests']:
                 if re.match('(start|stop)-router', _request['message']):
                     reconnect_agent = True
+                elif re.match('(add|remove|modify)-vxlan-config', _request['message']):
+                    restart_stun = True
                 elif re.match('(add|remove)-qos-policy', _request['message']):
                     if (_should_restart_on_qos_policy(_request) is True):
                         restart_router  = True
@@ -871,7 +891,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 reconnect_agent = True
             if modify_requests and self.state_is_started():
                 restart_dhcp_service = True
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+            return _return_val()
 
     def _preprocess_request(self, request):
         """Some requests require preprocessing. For example before handling
@@ -1053,7 +1073,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         '''
         add_order = [
             'add-ospf', 'add-routing-filter', 'add-routing-bgp', 'add-switch',
-            'add-interface', 'add-tunnel', 'add-route', 'add-dhcp-config',
+            'add-interface', 'add-vxlan-config', 'add-tunnel', 'add-route', 'add-dhcp-config',
             'add-application', 'add-multilink-policy', 'add-firewall-policy',
             'add-qos-traffic-map', 'add-qos-policy'
         ]
@@ -1210,7 +1230,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             if req_name in special_requests:
                 special_requests[req_name]['found'] = True
             elif re.match('remove-', req_name):
-                add_req_name = req_name.replace("remove-", "add_", 1)
+                add_req_name = req_name.replace("remove-", "add-", 1)
                 if add_req_name in special_requests:
                     special_requests[add_req_name]['remove_request_found'] = True
 
@@ -1221,7 +1241,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         #
         for add_req_name, r_info in special_requests.items():
             if r_info['found'] and not r_info['remove_request_found'] and r_info['params']:
-                remove_req_name = add_req_name.replace("add_", "remove-", 1)
+                remove_req_name = add_req_name.replace("add-", "remove-", 1)
                 requests.insert(0, { 'message': remove_req_name, 'params': r_info['params'] })
                 modified = True
         return modified
@@ -1491,6 +1511,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-routing-bgp',             # BGP should come after routing filter, as it might use them!
             'add-switch',
             'add-interface',
+            'add-vxlan-config',            # After interfaces, before tunnels
             'add-tunnel',
             'add-application',
             'add-multilink-policy',
