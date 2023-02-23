@@ -30,6 +30,8 @@ import signal
 def fwdump_signal_handler(signum, frame):
     """Handle SIGINT (CTRL+C) to suppress backtrace print onto screen,
 	   when invoked by user from command line and not as a daemon.
+       Do it ASAP, so CTRL+C in the middle of importing the third-parties
+       will not cause the backtrace to print.
 	"""
     exit(1)
 signal.signal(signal.SIGINT, fwdump_signal_handler)
