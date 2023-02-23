@@ -1578,7 +1578,7 @@ def reset_device_config(pppoe=False):
     reset_agent_cfg()
     reset_router_cfg()
     reset_system_cfg()
-    reset_device_config_signature("empty_cfg", log=False)
+    reset_device_config_signature("empty_cfg")
     if pppoe:
         fwpppoe.pppoe_remove()
 
@@ -1616,14 +1616,14 @@ def reset_router_cfg():
     reset_router_api_db_sa_id() # sa_id-s are used in translations of router configuration, so clean them too.
     reset_router_api_db(enforce=True)
     restore_dhcpd_files()
-    reset_device_config_signature("empty_router_cfg", log=False)
+    reset_device_config_signature("empty_router_cfg")
 
 def reset_system_cfg(reset_lte_db=True):
     with FwSystemCfg(fwglobals.g.SYSTEM_CFG_FILE) as system_cfg:
         system_cfg.clean()
     if 'lte' in fwglobals.g.db and reset_lte_db:
         fwglobals.g.db['lte'] = {}
-    reset_device_config_signature("empty_system_cfg", log=False)
+    reset_device_config_signature("empty_system_cfg")
 
 def reset_router_api_db_sa_id():
     router_api_db = fwglobals.g.db['router_api'] # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
@@ -1768,7 +1768,7 @@ def get_device_config_signature():
         reset_device_config_signature()
     return fwglobals.g.db['signature']
 
-def reset_device_config_signature(new_signature=None, log=True):
+def reset_device_config_signature(new_signature=None, log=None):
     """Resets configuration signature to the empty sting.
 
     :param new_signature: string to be used as a signature of the configuration.
@@ -1783,9 +1783,8 @@ def reset_device_config_signature(new_signature=None, log=True):
     old_signature = fwglobals.g.db.get('signature', '<none>')
     new_signature = "" if new_signature == None else new_signature
     fwglobals.g.db['signature'] = new_signature
-    if log:
-        fwglobals.log.debug("reset signature: '%s' -> '%s'" % \
-                            (old_signature, new_signature))
+    if log and old_signature != new_signature:
+        log.debug(f"reset signature: {old_signature} -> {new_signature}")
 
 def dump_router_config(full=False):
     """Dumps router configuration into list of requests that look exactly
