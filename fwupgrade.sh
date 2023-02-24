@@ -141,13 +141,36 @@ apt_install() {
         return 1
     fi
 
-    res=$(apt-get -o Dpkg::Options::="--force-confold" -y install --allow-downgrades $1)
-    ret=${PIPESTATUS[0]}
-    if [ ${ret} != 0 ]; then
-        log "apt_install: $1 failed: ${ret}: ${res}"
-        return 2
+    install_cmd="apt-get -o Dpkg::Options::="--force-confold" -y install --allow-downgrades $1"
+    out=$(${install_cmd} 2>&1); ret=${PIPESTATUS[0]}
+    if [ ${ret} == 0 ]; then
+        return 0   # return on success
     fi
-    return 0
+
+    # At this point the apt-get failed.
+    # Log the failure and try to recover.
+    #
+    log "apt_install: ${install_cmd}: failed with ${ret}: ${out}"
+
+    # Check, if apt-get proposed to run 'dpkg --configure -a' to fix the problem.
+    # If it did, run the 'dpkg --configure -a' and retry the installation.
+    #
+    if [[ "${out}" == *"dpkg --configure -a"* ]]; then
+        recover_cmd="dpkg --configure -a"
+        out=$(${recover_cmd} 2>&1); ret=${PIPESTATUS[0]}
+        if [ ${ret} != 0 ]; then
+            log "apt_install: ${recover_cmd}: failed with ${ret}: ${out}"
+            return 2
+        fi
+        # retry installation
+        out=$(${install_cmd} 2>&1); ret=${PIPESTATUS[0]}
+        if [ ${ret} == 0 ]; then
+            return 0   # return on success
+        fi
+        log "apt_install: ${install_cmd}: failed with ${ret}: ${out}"
+    fi
+
+    return 66  # we totally failed
 }
 
 # Upgrade process
@@ -169,7 +192,7 @@ fi
 # Quit upgrade process if device is already running the latest version
 dpkg --compare-versions "$TARGET_VERSION" le "$prev_ver"
 if [ $? == 0 ]; then
-    log "Device already running latest version. Quiting upgrade process"
+    log "Device already running latest version ($prev_ver). Quiting upgrade process"
     exit 0
 fi
 
