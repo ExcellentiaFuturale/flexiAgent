@@ -24,6 +24,7 @@ import enum
 import socket
 import ssl
 import threading
+import traceback
 import urllib.parse
 import websocket
 
@@ -129,10 +130,14 @@ class FwWebSocketClient(FwObject):
 
             self.remote_host = remote_host
             if self.on_open:
-                self.lock.release()
-                self.on_open()
-                self.lock.acquire()
-
+                try:
+                    self.lock.release()
+                    self.on_open()
+                except Exception as e:
+                    self.log.excep(f"exception in on_open() callback: {str(e)} ({traceback.format_exc()})")
+                    raise e
+                finally:
+                    self.lock.acquire()
 
         # The try-except is need to exit gracefully , if self.on_open() raises exception
         #
@@ -176,9 +181,13 @@ class FwWebSocketClient(FwObject):
             self.ws.close()
             self.ws = None
         if self.on_close:
-            self.lock.release()
-            self.on_close()
-            self.lock.acquire()
+            try:
+                self.lock.release()
+                self.on_close()
+            except Exception as e:
+                self.log.excep(f"exception in on_close() callback (ignored): {str(e)} ({traceback.format_exc()})")
+            finally:
+                self.lock.acquire()
         self.state = self.FwWebSocketState.IDLE
         self.lock.release()
 
@@ -201,7 +210,7 @@ class FwWebSocketClient(FwObject):
                 try:
                     to_send = self.on_message(received)
                 except Exception as e:
-                    self.log.error(f"run_loop_send_recv: exception in on_message(): {str(e)}")
+                    self.log.error(f"run_loop_send_recv: exception in on_message() callback: {str(e)} ({traceback.format_exc()})")
                     self.close()
                     continue
                 if to_send:
