@@ -921,8 +921,7 @@ class FwagentDaemon(FwObject):
         # caused the `with` statement execution to fail. If the `with`
         # statement finishes without an exception being raised, these
         # arguments will be `None`.
-        fwglobals.g.destroy_agent(finalize=False)
-        self.agent = None
+        self.agent = fwglobals.g.destroy_agent()
 
     def _check_system(self):
         """Check system requirements.
@@ -957,7 +956,7 @@ class FwagentDaemon(FwObject):
             if self._check_system() == False:
                 self.log.excep("system checker failed")
 
-        if self.active_main_loop == False and not fwglobals.g.cfg.debug['daemon']['standalone']:
+        if not fwglobals.g.cfg.debug['daemon']['standalone']:
             self.start_main_loop()
 
         # Keep agent instance on the air until SIGTERM/SIGKILL is received

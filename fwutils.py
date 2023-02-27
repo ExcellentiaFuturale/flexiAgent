@@ -323,7 +323,8 @@ def get_all_interfaces():
         also store gateway, if exists.
         : return : Dictionary of dev_id->IP,GW
     """
-    dev_id_ip_gw = {}
+    dev_id_ip_gw, wan_ips = {}, []
+
     interfaces = psutil.net_if_addrs()
     for nic_name, addrs in list(interfaces.items()):
         dev_id = get_interface_dev_id(nic_name)
@@ -357,7 +358,10 @@ def get_all_interfaces():
                 dev_id_ip_gw[dev_id]['gw'] = gateway if gateway else ''
                 break
 
-    return dev_id_ip_gw
+        if dev_id_ip_gw[dev_id]['addr'] and dev_id_ip_gw[dev_id]['gw']:
+            wan_ips.append(dev_id_ip_gw[dev_id]['addr'])
+
+    return dev_id_ip_gw, wan_ips
 
 def get_interface_address(if_name, if_dev_id=None, log=True, log_on_failure=None):
     """Gets IP address of interface by name found in OS.

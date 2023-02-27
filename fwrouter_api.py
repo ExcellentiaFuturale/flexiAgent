@@ -367,9 +367,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                 fwnetplan.load_netplan_filenames(read_from_disk=vpp_runs)
             else:
                 fwnetplan.restore_linux_netplan_files()
+                fwutils.get_linux_interfaces(cached=False) # Refill global interface cache once netplan was restored
             return False
 
         self._restore_vpp()
+        fwutils.get_linux_interfaces(cached=False) # Refill global interface cache once VPP is on air
         return True
 
     def _restore_vpp(self):

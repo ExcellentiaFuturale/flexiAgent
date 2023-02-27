@@ -459,11 +459,13 @@ class Fwglobals(FwObject):
         self.pppoe            = FwPppoeClient()
         self.routes           = FwRoutes()
         self.qos              = FwQoS()
+        self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 
         fwutils.set_default_linux_reverse_path_filter(2)  # RPF set to Loose mode
         fwutils.disable_ipv6()
+
         # Increase allowed multicast group membership from default 20 to 4096
         # OSPF need that to be able to discover more neighbors on adjacent links
         fwutils.set_linux_igmp_max_memberships(4096)
@@ -475,18 +477,14 @@ class Fwglobals(FwObject):
         # VPPSB need that to handle more netlink events on a heavy load
         fwutils.set_linux_socket_max_receive_buffer_size(2048000)
 
-        self.stun_wrapper.initialize()   # IMPORTANT! The STUN should be initialized before restore_vpp_if_needed!
-
-        self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
-
         if initialize:
             self.initialize_agent()
         return self.fwagent
 
-    def destroy_agent(self, finalize=True):
+    def destroy_agent(self):
         """Graceful shutdown...
         """
-        if finalize:
+        if self.fwagent_initialized:
             self.finalize_agent()
 
         del self.routes
@@ -510,9 +508,11 @@ class Fwglobals(FwObject):
         """
         self.log.debug('initialize_agent: started')
 
-        self.router_api.restore_vpp_if_needed()
+        # IMPORTANT! Some of the features below should be initialized before restore_vpp_if_needed
+        #
+        self.stun_wrapper.initialize()
 
-        fwutils.get_linux_interfaces(cached=False) # Fill global interface cache
+        self.router_api.restore_vpp_if_needed()
 
         # IMPORTANT! Some of the features below should be initialized after restore_vpp_if_needed
         #
@@ -523,9 +523,11 @@ class Fwglobals(FwObject):
         self.applications_api.initialize()
 
         self.log.debug('initialize_agent: completed')
+        self.fwagent_initialized = True
 
     def finalize_agent(self):
         self.log.debug('finalize_agent: started')
+        self.fwagent_initialized = False
         self.router_threads.teardown = True   # Stop all threads in parallel to speedup gracefull exit
         try:
             self.qos.finalize()
