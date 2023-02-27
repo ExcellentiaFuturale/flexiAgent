@@ -145,6 +145,11 @@ class FwStunWrap(FwObject):
         self.log.debug("_update_cache_from_OS: WAN IP list from OS %s" %(str(os_addr_list)))
         self.log.debug("_update_cache_from_OS: WAN IP list from STUN cache %s" %(str(cache_ip_list)))
 
+        # remove entry from cache if interface was removed from OS
+        for dev_id in list(self.stun_cache.keys()):
+            if dev_id not in os_dev_id_dict:
+                del self.stun_cache[dev_id]
+
         # add updated IP from OS to Cache
         changed_flag = False
         for dev_id in os_dev_id_dict:
