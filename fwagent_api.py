@@ -350,7 +350,7 @@ class FWAGENT_API(FwObject):
         if err_str:
             return {'message': err_str, 'ok': 0}
 
-        fwutils.reset_device_config_signature()
+        fwutils.reset_device_config_signature(log=self.log)
         self.log.info("_sync_device FINISHED")
         return {'ok': 1}
 

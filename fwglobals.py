@@ -48,6 +48,7 @@ from fwagent_api import FWAGENT_API
 from fwapplications_api import FWAPPLICATIONS_API
 from os_api import OS_API
 from fwlog import FwLogFile
+from fwlog import FwObjectLogger
 from fwlog import FwSyslog
 from fwlog import FWLOG_LEVEL_INFO
 from fwlog import FWLOG_LEVEL_DEBUG
@@ -425,10 +426,8 @@ class Fwglobals(FwObject):
 
         # Create loggers
         #
-        self.logger_add_application = FwLogFile(
-            filename=self.APPLICATION_IDS_LOG_FILE, level=log.level)
-        self.logger_add_firewall_policy = FwLogFile(
-            filename=self.FIREWALL_LOG_FILE, level=log.level)
+        self.logger_add_application         = FwObjectLogger('add_application',     log=FwLogFile(filename=self.APPLICATION_IDS_LOG_FILE,   level=log.level))
+        self.logger_add_firewall_policy     = FwObjectLogger('add_firewall_policy', log=FwLogFile(filename=self.FIREWALL_LOG_FILE,          level=log.level))
         self.loggers = {
             'add-application':        self.logger_add_application,
             'remove-application':     self.logger_add_application,

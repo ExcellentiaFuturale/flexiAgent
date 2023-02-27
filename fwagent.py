@@ -1354,7 +1354,7 @@ def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None,
             cli.run_loop()
     if clean_request_db:
         fwglobals.g.router_cfg.clean()
-        fwutils.reset_device_config_signature("empty_cfg", log=False)
+        fwutils.reset_device_config_signature("empty_cfg")
         with fwrouter_cfg.FwRouterCfg(fwglobals.g.ROUTER_PENDING_CFG_FILE) as router_pending_cfg:
             router_pending_cfg.clean()
 

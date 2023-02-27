@@ -462,7 +462,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         :returns: dictionary with status code and optional error message.
         """
-        prev_logger = self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
+        self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
         try:
 
             # First of all strip out requests that have no impact on configuration,
@@ -472,7 +472,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             new_request = self._strip_noop_request(request)
             if not new_request:
                 self.log.debug("call: ignore no-op request: %s" % json.dumps(request))
-                self.set_logger(prev_logger)  # Restore logger if was changed
                 return { 'ok': 1, 'message':'request has no impact' }
             request = new_request
 
@@ -560,11 +559,8 @@ class FWROUTER_API(FwCfgRequestHandler):
                     except Exception as e:
                         self.log.debug("call: %s: %s" % (cmd, str(e)))
 
-        except Exception as e:
-            self.set_logger(prev_logger)  # Restore logger if was changed
-            raise e
-
-        self.set_logger(prev_logger)  # Restore logger if was changed
+        finally:
+            self.unset_request_logger()
         return reply
 
     def _call_simple(self, request, execute=False, filter=None):
@@ -1334,7 +1330,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 break
 
         if do_sync:
-            fwutils.reset_device_config_signature("pending_interfaces_got_ip", log=False)
+            fwutils.reset_device_config_signature("pending_interfaces_got_ip")
 
     def _on_start_router_after(self):
         """Handles post start VPP activities.
