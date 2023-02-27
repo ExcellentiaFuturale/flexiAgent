@@ -27,13 +27,11 @@ STUN_SERVERS = (
     'stun.stunprotocol.org:3478',
 )
 
-"""
-for testing none responsive STUN server
-
-STUN_SERVERS = (
- 'stun.voxgratia.org',
+STUN_SERVERS_SHORT_LIST = (   # Used for quick start of fwagent daemon
+    'stun.l.google.com:19302',
+    'stun.gmx.de:3478',
+    'stun.stunprotocol.org:3478',
 )
-"""
 
 stun_servers_list = STUN_SERVERS
 MagicCookie = '2112a442'
@@ -164,9 +162,9 @@ def stun_test(sock, host, port, source_ip, source_port, send_data=""):
             return retVal
         try:
             buf, addr = sock.recvfrom(2048)
-            stun_log("Stun: recvfrom: %s" %(str(addr)))
+            stun_log(f"Stun: recvfrom {host}:{port}: {addr}")
         except Exception as e:
-            stun_log("Stun: recvfrom: %s" %(str(e)), 'warning')
+            stun_log(f"Stun: recvfrom {host}:{port}: {str(e)}", 'warning')
             continue
 
         msgtype = b2a_hexstr(buf[0:2])

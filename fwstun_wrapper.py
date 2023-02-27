@@ -93,7 +93,11 @@ class FwStunWrap(FwObject):
             self.log.debug(f"initialize: WAN IP list from OS: {str(os_wan_ips)}")
             for dev_id in ifaces:
                 self.add_addr(dev_id, ifaces[dev_id].get('addr'), ifaces[dev_id].get('gw'))
+
+            fwstun.stun_servers_list = fwstun.STUN_SERVERS_SHORT_LIST  # reduce initialization time by using a few servers
             self._send_stun_requests()
+            fwstun.stun_servers_list = fwstun.STUN_SERVERS
+
             self._log_address_cache()
 
         self._initialize_thread()

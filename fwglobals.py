@@ -476,8 +476,6 @@ class Fwglobals(FwObject):
         # VPPSB need that to handle more netlink events on a heavy load
         fwutils.set_linux_socket_max_receive_buffer_size(2048000)
 
-        self.stun_wrapper.initialize()   # IMPORTANT! The STUN should be initialized before restore_vpp_if_needed!
-
         if initialize:
             self.initialize_agent()
         return self.fwagent
@@ -508,6 +506,10 @@ class Fwglobals(FwObject):
         """Restore VPP if needed and start various features.
         """
         self.log.debug('initialize_agent: started')
+
+        # IMPORTANT! Some of the features below should be initialized before restore_vpp_if_needed
+        #
+        self.stun_wrapper.initialize()
 
         self.router_api.restore_vpp_if_needed()
 
