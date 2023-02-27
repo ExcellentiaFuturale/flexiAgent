@@ -51,6 +51,7 @@ import fwlte
 import fwwifi
 import fwqos
 import fwtranslate_add_switch
+import fwutils
 import fw_os_utils
 
 from fwapplications_api import call_applications_hook, FWAPPLICATIONS_API
@@ -279,18 +280,12 @@ def get_interface_gateway(if_name, if_dev_id=None):
         pppoe_iface = fwglobals.g.pppoe.get_interface(if_name=if_name)
         return pppoe_iface.gw, str(pppoe_iface.metric)
 
-    try:
-        cmd   = "ip route list match default | grep via | grep 'dev %s'" % if_name
-        route = os.popen(cmd).read()
-        if not route:
-            return '', ''
-    except:
-        return '', ''
+    routes_linux = FwLinuxRoutes(prefix='0.0.0.0/0')
+    for route in routes_linux.values():
+        if route.dev == if_name:
+            return route.via, str(route.metric)
 
-    rip    = route.split('via ')[1].split(' ')[0]
-    metric = '0' if not 'metric ' in route else route.split('metric ')[1].split(' ')[0]
-    return rip, metric
-
+    return '', ''
 
 def get_tunnel_gateway(dst, dev_id):
     interface = get_linux_interfaces(if_dev_id=dev_id)
@@ -450,8 +445,7 @@ def dev_id_to_full(dev_id):
 
     pc = addr.split('.')
     if len(pc) == 2:
-        return dev_id_add_type(pc[0]+'.'+"%02x"%(int(pc[1],16)))
-    return dev_id
+        return dev_id_add_type(pc[0]+'.'+"%02x"%(int(pc[1],16)), addr_type)
 
 # Convert 0000:00:08.01 provided by management to 0000:00:08.1 used by Linux
 def dev_id_to_short(dev_id):
@@ -485,10 +479,11 @@ def dev_id_parse(dev_id):
 
     return ("", "")
 
-def dev_id_add_type(dev_id):
-    """Add address type at the begining of the address.
+def dev_id_add_type(dev_id, addr_type=None):
+    """Add address type at the beginning of the address.
 
     :param dev_id:      device bus address.
+    :param addr_type:   device address type.
 
     :returns: device bus address with type.
     """
@@ -499,6 +494,9 @@ def dev_id_add_type(dev_id):
 
         if re.search('usb', dev_id):
             return 'usb:%s' % dev_id
+
+        if addr_type:
+            return '%s:%s' % (addr_type, dev_id)
 
         return 'pci:%s' % dev_id
 
@@ -606,6 +604,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
             is_pppoe = fwpppoe.is_pppoe_interface(if_name=if_name)
             is_wifi = fwwifi.is_wifi_interface(if_name)
             is_lte = fwlte.is_lte_interface(if_name)
+            is_vlan = is_vlan_interface(dev_id)
 
             if is_lte:
                 interface['deviceType'] = 'lte'
@@ -613,6 +612,8 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                 interface['deviceType'] = 'wifi'
             elif is_pppoe:
                 interface['deviceType'] = 'pppoe'
+            elif is_vlan:
+                interface['deviceType'] = 'vlan'
             else:
                 interface['deviceType'] = 'dpdk'
 
@@ -757,8 +758,12 @@ def build_interface_dev_id(linux_dev_name, sys_class_net=None):
 
     :returns: dev_id or None if interface was created by vppsb
     """
+    vlan_id = None
     if not linux_dev_name:
         return ""
+
+    if '.' in linux_dev_name:
+        linux_dev_name, vlan_id = if_name_parse_vlan(linux_dev_name)
 
     if linux_dev_name.startswith('ppp'):
         return fwpppoe.pppoe_get_dev_id_from_ppp(linux_dev_name)
@@ -783,6 +788,11 @@ def build_interface_dev_id(linux_dev_name, sys_class_net=None):
             if re.search(r'usb|pci', networking_device):
                 dev_id = dev_id_add_type(if_addr)
                 dev_id = dev_id_to_full(dev_id)
+
+                if vlan_id:
+                    dev_id = build_vlan_dev_id(vlan_id, dev_id)
+                    dev_id = dev_id_to_full(dev_id)
+
                 return dev_id
 
     return ""
@@ -992,6 +1002,16 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
             fwglobals.g.cache.dev_id_to_vpp_if_name[pppoe_dev_id] = pppoe_vpp_if_name
             fwglobals.g.cache.vpp_if_name_to_dev_id[pppoe_vpp_if_name] = pppoe_dev_id
 
+    sw_ifs = fwglobals.g.router_api.vpp_api.vpp.call('sw_interface_dump')
+    for sw_if in sw_ifs:
+        if sw_if.type == 1: # IF_API_TYPE_SUB
+            parent_vpp_if_name = vpp_sw_if_index_to_name(sw_if.sup_sw_if_index)
+            parent_dev_id = fwglobals.g.cache.vpp_if_name_to_dev_id[parent_vpp_if_name]
+            pci_addr = build_vlan_dev_id(sw_if.sub_outer_vlan_id, parent_dev_id)
+            vpp_if_name = sw_if.interface_name.rstrip(' \t\r\n\0')
+            fwglobals.g.cache.dev_id_to_vpp_if_name[pci_addr] = vpp_if_name
+            fwglobals.g.cache.vpp_if_name_to_dev_id[vpp_if_name] = pci_addr
+
     if dev_id:
         vpp_if_name = fwglobals.g.cache.dev_id_to_vpp_if_name.get(dev_id)
         if vpp_if_name: return vpp_if_name
@@ -1154,6 +1174,18 @@ def set_dev_id_to_tap(dev_id, tap):
     cache = fwglobals.g.cache.dev_id_to_vpp_tap_name
     cache[dev_id_full] = tap
 
+def unset_dev_id_to_tap(dev_id):
+    """Remove entry from cache.
+
+    :param dev_id:          Bus address.
+    """
+    if not dev_id:
+        return
+
+    dev_id_full = dev_id_to_full(dev_id)
+    cache = fwglobals.g.cache.dev_id_to_vpp_tap_name
+    del cache[dev_id_full]
+
 def tunnel_to_vpp_if_name(params):
     """Finds the name of the tunnel loopback interface in vpp.
     We exploit vpp internals to do it in simple way.
@@ -1263,7 +1295,7 @@ def vpp_get_tap_info(vpp_if_name=None, vpp_sw_if_index=None, tap_if_name=None):
     # ]
     # we use a regex check to get the closest words before and after the arrow
     for line in tap_lines:
-        tap_info = re.search(r'([/\w-]+) -> ([\S]+)', line)
+        tap_info = re.search(r'([/.\w-]+) -> ([\S]+)', line)
         if tap_info:
             vpp_if_name = tap_info.group(1)
             tap = tap_info.group(2)
@@ -1658,7 +1690,7 @@ def reset_router_api_db(enforce=False):
         router_api_db['sw_if_index_to_vpp_if_name'] = {}
     if not 'vpp_if_name_to_sw_if_index' in router_api_db or enforce:
         router_api_db['vpp_if_name_to_sw_if_index'] = {}
-    vpp_if_name_to_sw_if_index_keys = ['tunnel', 'peer-tunnel', 'lan', 'switch-lan', 'wan', 'switch']
+    vpp_if_name_to_sw_if_index_keys = ['tunnel', 'peer-tunnel', 'lan', 'switch-lan', 'wan', 'switch', 'trunk']
     for key in vpp_if_name_to_sw_if_index_keys:
         if not key in router_api_db['vpp_if_name_to_sw_if_index'] or enforce:
             router_api_db['vpp_if_name_to_sw_if_index'][key] = {}
@@ -2506,14 +2538,13 @@ def vpp_set_dhcp_detect(dev_id, remove):
     """
     addr_type, _ = dev_id_parse(dev_id)
 
-    if addr_type != "pci":
+    if  "pci" not in addr_type:
         return (False, "addr type needs to be a pci address")
 
     op = 'del' if remove else ''
 
     sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
     int_name = vpp_sw_if_index_to_name(sw_if_index)
-
 
     vppctl_cmd = 'set dhcp detect intfc %s %s' % (int_name, op)
 
@@ -2833,6 +2864,10 @@ def get_interface_link_state(if_name, dev_id, device_type=None):
         # 'Link detected' field has yes/no values, so conversion is needed
         return 'up' if state == 'yes' else 'down' if state == 'no' else ''
 
+    if device_type == 'vlan':
+        # VLAN link status is the same as its parent
+        if_name, _ = if_name_parse_vlan(if_name)
+
     if device_type == 'lte' or device_type == 'wifi':
         # no need to check for tap interface in case of LTE or WiFi
         return _return_ethtool_value(if_name)
@@ -2923,6 +2958,8 @@ def is_non_dpdk_interface(dev_id):
     if fwwifi.is_wifi_interface_by_dev_id(dev_id):
         return True
     if fwlte.is_lte_interface_by_dev_id(dev_id):
+        return True
+    if fwutils.is_vlan_interface(dev_id):
         return True
 
     return False
@@ -4058,3 +4095,31 @@ class FwJsonEncoder(json.JSONEncoder):
         except:
             serialized = o.__dict__  # As a last resort, assume complex object
         return serialized
+
+def is_vlan_interface(dev_id):
+    '''Check if dev_id is from vlan interface.
+    '''
+    return 'vlan' in dev_id
+
+def build_vlan_dev_id(vlan_id, dev_id):
+    '''Build vlan dev_id.
+    '''
+    return f'vlan.{vlan_id}.{dev_id}'
+
+def dev_id_parse_vlan(dev_id):
+    '''Parse parent dev_id and vlan id.
+    '''
+    parts = dev_id.split("pci")
+    parent_dev_id = "pci" + parts[1]
+    vlan_id = int(parts[0].split(".")[1]) if parts[0] else None
+    return parent_dev_id, vlan_id
+
+def if_name_parse_vlan(if_name):
+    '''Parse parent if_name and vlan id.
+    '''
+    parts = if_name.split('.')
+    if len(parts) != 2:
+        return (None, 0)
+    parent_if_name = parts[0]
+    vlan_id = int(parts[1])
+    return parent_if_name, vlan_id

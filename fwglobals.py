@@ -33,6 +33,7 @@ import yaml
 from fwqos import FwQoS
 import fw_os_utils
 import fwutils
+import fwfirewall
 import threading
 import fw_vpp_coredump_utils
 import fwlte
@@ -346,6 +347,7 @@ class Fwglobals(FwObject):
         self.router_threads                = FwRouterThreading() # Primitives used for synchronization of router configuration and monitoring threads
         self.handle_request_lock           = threading.RLock()
         self.is_gcp_vm                     = fwutils.detect_gcp_vm()
+        self.firewall_acl_cache            = fwfirewall.FwFirewallAclCache()
         self.default_vxlan_port            = 4789
 
         # Load configuration from file
@@ -766,6 +768,9 @@ class Fwglobals(FwObject):
                 elif re.match('start-', op):
                     request['message'] = op.replace('start-','stop-')
 
+                elif re.match('stop-', op):
+                    request['message'] = op.replace('stop-','start-')
+
                 elif re.match('remove-', op):
                     request['message'] = op.replace('remove-','add-')
                     # The "remove-X" might have only subset of configuration parameters.
@@ -826,6 +831,8 @@ class Fwglobals(FwObject):
                 func = getattr(self.applications_api, func_name)
             elif object_name == 'fwglobals.g.qos':
                 func = getattr(self.qos, func_name)
+            elif object_name == 'fwglobals.g.firewall_acl_cache':
+                func = getattr(self.firewall_acl_cache, func_name)
             else:
                 return None
         except Exception as e:

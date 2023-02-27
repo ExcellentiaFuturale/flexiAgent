@@ -221,6 +221,12 @@ class FwCfgDatabase(FwSqliteDict):
                     if keys:
                         request.update({'key': key})
                     cfg.append(request)
+
+        # Ensure proper order of parent and sub-interfaces at this point to save
+        # reordering at various other places.
+        if 'add-interface' in types and cfg:
+            from fwrouter_api import preprocess_reorder_sub_interfaces
+            cfg = preprocess_reorder_sub_interfaces(cfg)
         return cfg
 
     def dumps(self, cfg, sections, full):
