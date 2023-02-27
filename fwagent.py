@@ -20,6 +20,16 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import signal
+def fwagent_signal_handler(signum, frame):
+    """Handle SIGINT (CTRL+C) to suppress backtrace print onto screen,
+	   when invoked by user from command line and not as a daemon.
+       Do it ASAP, so CTRL+C in the middle of importing the third-parties
+       will not cause the backtrace to print.
+	"""
+    exit(1)
+signal.signal(signal.SIGINT, fwagent_signal_handler)
+
 import json
 import os
 import glob
@@ -28,7 +38,6 @@ import socket
 import sys
 import time
 import random
-import signal
 import psutil
 import Pyro4
 import re
@@ -64,19 +73,6 @@ from fwobject import FwObject
 system_checker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tools/system_checker/")
 sys.path.append(system_checker_path)
 import fwsystem_checker_common
-
-# Global signal handler for clean exit
-def global_signal_handler(signum, frame):
-    """Global signal handler for CTRL+C
-
-    :param signum:         Signal type
-    :param frame:          Stack frame.
-
-    :returns: None.
-    """
-    exit(1)
-
-signal.signal(signal.SIGINT, global_signal_handler)
 
 class FwAgent(FwObject):
     """This class implements abstraction of mediator between manager called
