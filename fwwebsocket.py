@@ -85,76 +85,73 @@ class FwWebSocketClient(FwObject):
         sock = None
         ssl_sock = None
 
-        try:
-            self.lock.acquire()
-            self.log.debug(f"connecting to {remote_host}")
-            self.state = self.FwWebSocketState.CONNECTING
-            self.ssl_context.check_hostname = True if check_certificate else False
-            self.ssl_context.verify_mode    = ssl.CERT_REQUIRED if check_certificate else ssl.CERT_NONE
+        with self.lock:
+            try:
+                self.log.debug(f"connecting to {remote_host}")
+                self.state = self.FwWebSocketState.CONNECTING
+                self.ssl_context.check_hostname = True if check_certificate else False
+                self.ssl_context.verify_mode    = ssl.CERT_REQUIRED if check_certificate else ssl.CERT_NONE
 
-            if local_port and not fwglobals.g.loadsimulator:
-                # We create socket explicitly to be able to control the local port
-                # used by it. Fwagent might use it for NAT.
-                # In case of loadsimulator we can't use same port for multiple connections.
-                #
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)  # Avoid 98:EADDRINUSE on reconnect
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Avoid 99:EADDRNOTAVAIL on reconnect
-                sock.bind(('', local_port))
-                sock.settimeout(timeout)
+                if local_port and not fwglobals.g.loadsimulator:
+                    # We create socket explicitly to be able to control the local port
+                    # used by it. Fwagent might use it for NAT.
+                    # In case of loadsimulator we can't use same port for multiple connections.
+                    #
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)  # Avoid 98:EADDRINUSE on reconnect
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Avoid 99:EADDRNOTAVAIL on reconnect
+                    sock.bind(('', local_port))
+                    sock.settimeout(timeout)
 
-                ssl_sock = self.ssl_context.wrap_socket(sock, server_hostname=remote_host)
-                ssl_sock.connect((remote_host, remote_port))
+                    ssl_sock = self.ssl_context.wrap_socket(sock, server_hostname=remote_host)
+                    ssl_sock.connect((remote_host, remote_port))
 
-                # Now upgrade TLS connection to WebSocket
-                #
-                self.ws = websocket.create_connection(
-                                        url,
-                                        socket = ssl_sock,
-                                        enable_multithread = True,
-                                        header = headers)
-            else:
-                # Have create_connection do the socket creation as it also handles proxy case
-                self.ws = websocket.create_connection(
-                        url,
-                        timeout=timeout,
-                        enable_multithread = True,
-                        sslopt={
-                            "cert_reqs": self.ssl_context.verify_mode,
-                            "check_hostname": self.ssl_context.check_hostname
-                        },
-                        header = headers)
+                    # Now upgrade TLS connection to WebSocket
+                    #
+                    self.ws = websocket.create_connection(
+                                            url,
+                                            socket = ssl_sock,
+                                            enable_multithread = True,
+                                            header = headers)
+                else:
+                    # Have create_connection do the socket creation as it also handles proxy case
+                    self.ws = websocket.create_connection(
+                            url,
+                            timeout=timeout,
+                            enable_multithread = True,
+                            sslopt={
+                                "cert_reqs": self.ssl_context.verify_mode,
+                                "check_hostname": self.ssl_context.check_hostname
+                            },
+                            header = headers)
 
-            self.log.debug(f"connected to {remote_host}")
-            self.state = self.FwWebSocketState.CONNECTED
+                self.log.debug(f"connected to {remote_host}")
+                self.state = self.FwWebSocketState.CONNECTED
 
-            self.remote_host = remote_host
-            if self.on_open:
-                try:
-                    self.lock.release()
-                    self.on_open()
-                except Exception as e:
-                    self.log.excep(f"exception in on_open() callback: {str(e)} ({traceback.format_exc()})")
-                    raise e
-                finally:
-                    self.lock.acquire()
+                self.remote_host = remote_host
+                if self.on_open:
+                    try:
+                        self.lock.release()
+                        self.on_open()
+                    except Exception as e:
+                        self.log.excep(f"exception in on_open() callback: {str(e)} ({traceback.format_exc()})")
+                        raise e
+                    finally:
+                        self.lock.acquire()
 
-        # The try-except is need to exit gracefully , if self.on_open() raises exception
-        #
-        except Exception as e:
-            if self.ws:
-                self.ws.close()
-                self.ws = None
-            elif ssl_sock:
-                ssl_sock.close()
-            elif sock:
-                sock.shutdown(socket.SHUT_RDWR)
-                sock.close()
-            self.log.error(f"failed to connect to {remote_host}: {str(e)}")
-            raise e
-
-        finally:
-            self.lock.release()
+            # The try-except is need to exit gracefully , if self.on_open() raises exception
+            #
+            except Exception as e:
+                if self.ws:
+                    self.ws.close()
+                    self.ws = None
+                elif ssl_sock:
+                    ssl_sock.close()
+                elif sock:
+                    sock.shutdown(socket.SHUT_RDWR)
+                    sock.close()
+                self.log.error(f"failed to connect to {remote_host}: {str(e)}")
+                raise e
 
 
     def disconnect(self):
@@ -172,24 +169,23 @@ class FwWebSocketClient(FwObject):
             self.ws.close()     # The close() performs shutdown as well, though not graceful :(
 
     def close(self):
-        self.lock.acquire()
-        if self.state == self.FwWebSocketState.IDLE:
-            self.lock.release()
-            return
-        self.state = self.FwWebSocketState.CLOSING
-        if self.ws:
-            self.ws.close()
-            self.ws = None
-        if self.on_close:
-            try:
+        with self.lock:
+            if self.state == self.FwWebSocketState.IDLE:
                 self.lock.release()
-                self.on_close()
-            except Exception as e:
-                self.log.excep(f"exception in on_close() callback (ignored): {str(e)} ({traceback.format_exc()})")
-            finally:
-                self.lock.acquire()
-        self.state = self.FwWebSocketState.IDLE
-        self.lock.release()
+                return
+            self.state = self.FwWebSocketState.CLOSING
+            if self.ws:
+                self.ws.close()
+                self.ws = None
+            if self.on_close:
+                try:
+                    self.lock.release()
+                    self.on_close()
+                except Exception as e:
+                    self.log.excep(f"exception in on_close() callback (ignored): {str(e)} ({traceback.format_exc()})")
+                finally:
+                    self.lock.acquire()
+            self.state = self.FwWebSocketState.IDLE
 
     def run_loop_send_recv(self, timeout=None):
         """Runs infinite loop of recv/recv-n-send operations.
