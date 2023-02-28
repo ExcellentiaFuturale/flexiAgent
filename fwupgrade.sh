@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2023  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -24,7 +24,7 @@
 AGENT_SERVICE_FILE='/lib/systemd/system/flexiwan-router.service'
 AGENT_SERVICE='flexiwan-router'
 SW_REPOSITORY='deb.flexiwan.com'
-AGENT_CHECK_TIMEOUT=600
+AGENT_CHECK_TIMEOUT=360
 SCRIPT_NAME="$(basename $BASH_SOURCE)"
 
 # Constants passed to the script by fwagent
@@ -46,32 +46,28 @@ update_fwjob() {
     fwagent configure jobs update --job_id $JOB_ID --request 'upgrade-device-sw' --command "$1" --job_error "$2"
 }
 
-#######################################
-# Handles upgrade failure routine
-# Arguments:
-#   Revert flag.
-# Returns:
-#   Exit status
-#######################################
 handle_upgrade_failure() {
-    log 'Software upgrade failed'
+    log "Software upgrade failed"
     update_fwjob "$1" "$2"
 
     # Revert back to previous version if required
     if [ "$3" == 'revert' ]; then
-        log 'Reverting to previous version ('"$prev_ver"')...'
-        res=$(apt-get -y install --allow-downgrades "$AGENT_SERVICE"="$prev_ver")
-        ret=${PIPESTATUS[0]}
-        log $res
+        log "reverting to previous version ${prev_ver} ..."
 
-        if [ ${ret} != 0 ]; then
-            log 'Failed to revert to previous version. Restarting fwagent'
+        apt_install "${AGENT_SERVICE}=${prev_ver}"
+        ret=${PIPESTATUS[0]}
+        if [ ${ret} == 1 ]; then
+            log "failed to revert to ${prev_ver} with ${ret} - exit."
+            exit 1
+        elif [ ${ret} == 2 ]; then
+            log "failed to revert to ${prev_ver} with ${ret} - restart agent"
             # Agent must be restarted if revert fails, or otherwise
             # it will remain stopped.
             systemctl restart "$AGENT_SERVICE"
-            update_fwjob 'revert to previous version' "handle_upgrade_failure: failed to downgrade ${ret}: exit 1"
-            exit 1
+            exit 2
         fi
+
+        log "reverting to previous version ${prev_ver} - restarting agent ..."
 
         # There is a flow, where "handle_upgrade_failure revert" is called on failure of
         # the "apt-get install <new-version>", but the previous version was not uninstalled
@@ -84,8 +80,8 @@ handle_upgrade_failure() {
         #
         systemctl restart "$AGENT_SERVICE"
 
-        log 'handle_upgrade_failure: exit 1'
-        exit 1
+        log "reverting to previous version ${prev_ver} - finished"
+        exit 3
     fi
 
     # Create a file that marks the installation has failed
@@ -95,20 +91,20 @@ handle_upgrade_failure() {
     res=$(fwagent start)
     if [ ${PIPESTATUS[0]} != 0 ]; then
         log $res
-        log 'Failed to to connect to management'
+        log "Failed to to connect to management"
     fi
-    exit 1
+    exit 4
 }
 
 get_prev_version() {
     if [ ! -f "$VERSIONS_FILE" ]; then
-        log 'Device version file' "$VERSIONS_FILE" 'not found'
+        log "Device version file ${VERSIONS_FILE} not found"
         return 1
     fi
 
     ver_entry=`grep device "$VERSIONS_FILE"`
     if [ -z "$ver_entry" ]; then
-        log 'Device version not found in' "$VERSIONS_FILE"
+        log "Device version not found in ${VERSIONS_FILE}"
         return 1
     fi
 
@@ -117,7 +113,7 @@ get_prev_version() {
 
 update_service_conf_file() {
     if [ ! -f "$AGENT_SERVICE_FILE" ]; then
-        log 'Service configuration file' "$AGENT_SERVICE_FILE" 'not found'
+        log "Service configuration file ${AGENT_SERVICE_FILE} not found"
         return 1
     fi
 
@@ -137,8 +133,32 @@ check_connection_to_sw_repo() {
     return 0
 }
 
+apt_install() {
+
+    # Set "KillMode" option in the service file, to make sure systemd
+    # doesn't kill the 'fwupgrade.sh' process itself on stopping the fwagent process,
+    # as today the 'fwupgrade.sh' is invoked by the fwagent on receiving
+    # 'upgrade-device-sw' request from flexiManage. Note, the vpp and rest processes
+    # in the fwagent control group are not stopped too, but we are OK with this for now.
+    #
+    update_service_conf_file
+    ret=${PIPESTATUS[0]}
+    if [ ${ret} != 0 ]; then
+        log "apt_install: update_service_conf_file failed: ${ret}"
+        return 1
+    fi
+
+    res=$(apt-get -o Dpkg::Options::="--force-confold" -y install --allow-downgrades $1)
+    ret=${PIPESTATUS[0]}
+    if [ ${ret} != 0 ]; then
+        log "apt_install: $1 failed: ${ret}: ${res}"
+        return 2
+    fi
+    return 0
+}
+
 # Upgrade process
-log 'Starting software upgrade process...'
+log "Starting software upgrade process..."
 
 # Remove the file that represents upgrade failure. This file
 # is created by either this script (if the failure is during the
@@ -161,14 +181,14 @@ fi
 
 # Stop agent connection loop to the MGMT, to make sure the
 # agent does not prcoess messages during the upgrade process.
-log 'Closing connection to MGMT...'
+log "Closing connection to MGMT..."
 res=$(fwagent stop --dont_stop_vpp --dont_stop_applications)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
     handle_upgrade_failure 'stop agent connection' 'Failed to stop agent connection to management'
 fi
 
-log 'Installing new software...'
+log "Installing new software..."
 
 # Check connection to the software package repository.
 # We have to check excplicitly since the 'apt-get update'
@@ -187,33 +207,29 @@ fi
 
 # Upgrade device package. From this stage on, we should
 # pass 'revert' to handle_upgrade_failure() upon failure
-
-# Set "KillMode" option in the service file, to make sure systemd
-# doesn't kill the upgrade process when the process is stopped
-update_service_conf_file
-if [ ${PIPESTATUS[0]} != 0 ]; then
-    handle_upgrade_failure 'update service configuration file' 'Failed to update service configuration file'
-fi
-
-res=$(apt-get -o Dpkg::Options::="--force-confold" install -y "$AGENT_SERVICE")
-if [ ${PIPESTATUS[0]} != 0 ]; then
-    handle_upgrade_failure 'install' "$res" 'revert'
+#
+apt_install "${AGENT_SERVICE}"
+ret=${PIPESTATUS[0]}
+if [ ${ret} == 1 ]; then
+    handle_upgrade_failure 'install new version' 'apt_install() failed to install new version'
+elif [ ${ret} == 2 ]; then
+    handle_upgrade_failure 'install new version' "failed to install latest version (ret=${ret})" 'revert'
 fi
 
 # Reopen the connection loop in case it is closed
 res=$(fwagent start)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
-    log 'Failed to to reconnect to management'
+    log "Failed to to reconnect to management"
 fi
 
 # Wait to see if service is up and connected to the MGMT
-log 'Finished installing new software. waiting for agent check ('"$AGENT_CHECK_TIMEOUT"' sec)'
+log "Finished installing new software. waiting for agent check (${AGENT_CHECK_TIMEOUT} sec)"
 sleep "$AGENT_CHECK_TIMEOUT"
 
 if [ -f "$UPGRADE_FAILURE_FILE" ]; then
     handle_upgrade_failure 'agent check' 'Agent checks failed' 'revert'
 fi
 
-log 'Software upgrade process finished successfully'
+log "Software upgrade process finished successfully"
 exit 0

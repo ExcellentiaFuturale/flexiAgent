@@ -31,6 +31,8 @@ import traceback
 
 from netaddr import IPAddress, IPNetwork
 
+import fw_acl_command_helpers
+import fw_nat_command_helpers
 import fw_vpp_coredump_utils
 import fwglobals
 import fwlte
@@ -90,6 +92,11 @@ fwrouter_translators = {
     'remove-qos-traffic-map':   {'module': __import__('fwtranslate_revert'),          'api':'revert'},
     'add-qos-policy':           {'module': __import__('fwtranslate_add_qos_policy'),  'api':'add_qos_policy'},
     'remove-qos-policy':        {'module': __import__('fwtranslate_revert'),          'api':'revert'},
+    'add-vxlan-config':         {'module': __import__('fwtranslate_add_vxlan_config'), 'api':'add_vxlan_config'},
+    'remove-vxlan-config':      {'module': __import__('fwtranslate_revert'),           'api':'revert'},
+    'modify-vxlan-config':      {'module': __import__('fwtranslate_add_vxlan_config'), 'api':'modify_vxlan_config',
+                                    'supported_params': 'modify_vxlan_config_supported_params'
+                                },
 }
 
 class FwRouterState(enum.Enum):
@@ -158,10 +165,6 @@ class FWROUTER_API(FwCfgRequestHandler):
 
             self.vpp_api.disconnect_from_vpp()          # Reset connection to vpp to force connection renewal
             fwutils.stop_vpp()                          # Release interfaces to Linux
-
-            fwutils.reset_traffic_control()             # Release LTE operations.
-            fwutils.remove_linux_bridges()              # Release bridges for wifi.
-            fwwifi.stop_hostapd()                      # Stop access point service
 
             self._restore_vpp()                         # Rerun VPP and apply configuration
 
@@ -234,6 +237,8 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         interfaces = fwglobals.g.router_cfg.get_interfaces()
         for interface in interfaces:
+            if fwutils.is_vlan_interface(interface['dev_id']):
+                continue
             tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
             if fwpppoe.is_pppoe_interface(dev_id=interface['dev_id']):
                 status_vpp  = fwutils.get_interface_link_state(tap_name, interface['dev_id'])
@@ -362,9 +367,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                 fwnetplan.load_netplan_filenames(read_from_disk=vpp_runs)
             else:
                 fwnetplan.restore_linux_netplan_files()
+                fwutils.get_linux_interfaces(cached=False) # Refill global interface cache once netplan was restored
             return False
 
         self._restore_vpp()
+        fwutils.get_linux_interfaces(cached=False) # Refill global interface cache once VPP is on air
         return True
 
     def _restore_vpp(self):
@@ -457,7 +464,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         :returns: dictionary with status code and optional error message.
         """
-        prev_logger = self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
+        self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
         try:
 
             # First of all strip out requests that have no impact on configuration,
@@ -467,7 +474,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             new_request = self._strip_noop_request(request)
             if not new_request:
                 self.log.debug("call: ignore no-op request: %s" % json.dumps(request))
-                self.set_logger(prev_logger)  # Restore logger if was changed
                 return { 'ok': 1, 'message':'request has no impact' }
             request = new_request
 
@@ -485,7 +491,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             #    In this case we have to ping the GW-s after modification.
             #    See explanations on that workaround later in this function.
             #
-            (restart_router, reconnect_agent, gateways, restart_dhcp_service) = self._analyze_request(request)
+            (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun) = self._analyze_request(request)
 
             # Some requests require preprocessing.
             # For example before handling 'add-application' the currently configured
@@ -505,6 +511,11 @@ class FWROUTER_API(FwCfgRequestHandler):
             #
 
             reply = FwCfgRequestHandler.call(self, request, dont_revert_on_failure)
+
+            # Restart STUN thread if needed
+            #
+            if restart_stun:
+                fwglobals.g.stun_wrapper.restart_stun_thread()
 
             # Start vpp if it should be restarted
             #
@@ -550,11 +561,8 @@ class FWROUTER_API(FwCfgRequestHandler):
                     except Exception as e:
                         self.log.debug("call: %s: %s" % (cmd, str(e)))
 
-        except Exception as e:
-            self.set_logger(prev_logger)  # Restore logger if was changed
-            raise e
-
-        self.set_logger(prev_logger)  # Restore logger if was changed
+        finally:
+            self.unset_request_logger()
         return reply
 
     def _call_simple(self, request, execute=False, filter=None):
@@ -765,6 +773,9 @@ class FWROUTER_API(FwCfgRequestHandler):
                         "vppctl delete tap") and recreates it back.
                         That causes DHCP service to stop monitoring of the recreated interface.
                         Therefor we have to restart it on modify-interface completion.
+            restart_stun - STUN thread should be restarted if one of parameters it based on
+                        is changed.
+
         """
 
         def _should_reconnect_agent_on_modify_interface(old_params, new_params):
@@ -792,37 +803,49 @@ class FWROUTER_API(FwCfgRequestHandler):
                     return True
             return False
 
+        (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun) = \
+        (False,          False,           [],       False,                False)
 
-        (restart_router, reconnect_agent, gateways, restart_dhcp_service) = \
-        (False,          False,           [],       False)
+        def _return_val():
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun)
 
         if re.match('(add|remove)-interface', request['message']):
             if self.state_is_started():
-                restart_router  = True
-                reconnect_agent = True
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+                if not fwutils.is_vlan_interface(request['params']['dev_id']):
+                    restart_router  = True
+                    reconnect_agent = True
+            return _return_val()
         elif re.match('(start|stop)-router', request['message']):
             reconnect_agent = True
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+            return _return_val()
+        elif re.match('(add|remove|modify)-vxlan-config', request['message']):
+            restart_stun = True
+            return _return_val()
         elif re.match('(add|remove)-qos-policy', request['message']):
             if (_should_restart_on_qos_policy(request) is True):
                 restart_router  = True
                 reconnect_agent = True
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+            return _return_val()
         elif request['message'] != 'aggregated':
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+            return _return_val()
         else:   # aggregated request
             add_remove_requests = {}
             modify_requests = {}
+            only_vlans = True
             for _request in request['params']['requests']:
                 if re.match('(start|stop)-router', _request['message']):
                     reconnect_agent = True
+                elif re.match('(add|remove|modify)-vxlan-config', _request['message']):
+                    restart_stun = True
                 elif re.match('(add|remove)-qos-policy', _request['message']):
                     if (_should_restart_on_qos_policy(_request) is True):
                         restart_router  = True
                         reconnect_agent = True
                 elif re.match('(add|remove)-interface', _request['message']):
                     dev_id = _request['params']['dev_id']
+                    # Track vlans. If only vlans in add/remove requests do not restart router
+                    if not fwutils.is_vlan_interface(dev_id):
+                        only_vlans = False
                     # check if requests list contains remove-interface and add-interface for the same dev_id.
                     # If found, it means that these two requests were created for modify-interface
                     if not dev_id in add_remove_requests:
@@ -847,7 +870,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                         # Hence, if the default route with the lowest metric
                         # uses the interface, we should reconnect.
                         if not reconnect_agent:
-                            (_, _, default_route_dev_id, _) = fwutils.get_default_route()
+                            (_, _, default_route_dev_id, _, _) = fwutils.get_default_route()
                             if dev_id == default_route_dev_id:
                                 reconnect_agent = True
 
@@ -871,11 +894,12 @@ class FWROUTER_API(FwCfgRequestHandler):
                         modify_requests[dev_id] = _request
 
             if add_remove_requests and self.state_is_started():
-                restart_router = True
+                if not only_vlans:
+                    restart_router = True
                 reconnect_agent = True
             if modify_requests and self.state_is_started():
                 restart_dhcp_service = True
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+            return _return_val()
 
     def _preprocess_request(self, request):
         """Some requests require preprocessing. For example before handling
@@ -899,7 +923,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         """
         req     = request['message']
         params  = request.get('params')
-        changes = {}
 
         # For aggregated request go over all remove-X requests and replace their
         # parameters with current configuration for X stored in database.
@@ -915,49 +938,35 @@ class FWROUTER_API(FwCfgRequestHandler):
                 if re.match('remove-', _request['message']):
                     _request['params'] = self.cfg_db.get_request_params(_request)
 
-        ########################################################################
-        # The code below preprocesses 'add-application' and 'add-multilink-policy'
-        # requests. This preprocessing just adds 'remove-application' and
-        # 'remove-multilink-policy' requests to clean vpp before original
-        # request. This should happen only if vpp was started and
-        # initial configuration was applied to it during start. If that is not
-        # the case, there is nothing to remove yet, so removal will fail.
-        ########################################################################
         if self.state_is_stopped():
-            if changes.get('insert'):
-                self.log.debug("_preprocess_request: Simple request was \
-                        replaced with %s" % json.dumps(request))
+            if req == 'aggregated':  # take a care of order of parent & sub-interfaces
+                self._preprocess_reorder(request)
             return request
 
-        multilink_policy_params = self.cfg_db.get_multilink_policy()
-        firewall_policy_params = self.cfg_db.get_firewall_policy()
-
-        # 'add-application' preprocessing:
-        # 1. The currently configured applications should be removed firstly.
-        #    We do that by adding simulated 'remove-application' request in
-        #    front of the original 'add-application' request.
-        # 2. The multilink policy should be re-installed: if exists, the policy
-        #    should be removed before application removal/adding and should be
-        #    added again after it.
-        #
-        application_params = self.cfg_db.get_applications()
-        if application_params:
-            if req == 'add-application':
-                pre_requests = [ { 'message': 'remove-application', 'params' : application_params } ]
-                process_requests = [ { 'message': 'add-application', 'params' : params } ]
-                if multilink_policy_params:
-                    pre_requests.insert(0, { 'message': 'remove-multilink-policy', 'params' : multilink_policy_params })
-                    process_requests.append({ 'message': 'add-multilink-policy', 'params' : multilink_policy_params })
-                if firewall_policy_params:
-                    pre_requests.insert(0, { 'message': 'remove-firewall-policy', 'params' : firewall_policy_params })
-                    process_requests.append({ 'message': 'add-firewall-policy', 'params' : firewall_policy_params })
-
-                updated_requests = pre_requests + process_requests
-                params = { 'requests' : updated_requests }
-                request = {'message': 'aggregated', 'params': params}
-                self.log.debug("_preprocess_request: Application request \
-                        was replaced with %s" % json.dumps(request))
+        if req != 'aggregated':
+            request = self._preprocess_simple_request(request)
+            #
+            # Preprocessing might turn simple request to be aggregated.
+            # In this case more processing is needed. Hence the 'if' below.
+            #
+            if request['message'] != 'aggregated':
                 return request
+
+        request = self._preprocess_aggregated_request(request)
+        return request
+
+    def _preprocess_simple_request(self, request):
+        '''Enhancement of the _preprocess_request() for simple requests.
+
+        :param request: The original request received from flexiManage
+        :returns: The new aggregated request and it's parameters.
+                        Note the parameters are list of requests that might be
+                        a mix of simulated requests and original requests.
+                        This mix should include one original request and one or
+                        more simulated requests.
+                        If no preprocessing was needed, the original request is
+                        returned.
+        '''
 
         def _single_message_add_corresponding_remove (add_request, current_params, new_params):
             remove_request = add_request.replace('add-', 'remove-')
@@ -966,301 +975,293 @@ class FWROUTER_API(FwCfgRequestHandler):
                 { 'message': add_request,    'params' : new_params }
             ]
             request = {'message': 'aggregated', 'params': { 'requests' : updated_requests }}
-            self.log.debug("_preprocess_request: %s request \
+            self.log.debug("_preprocess_simple_request: %s request \
                     was replaced with %s" % (add_request, json.dumps(request)))
             return request
 
-        # 'add-multilink-policy' preprocessing:
+
+        req     = request['message']
+        params  = request.get('params')
+
+        application_params      = self.cfg_db.get_applications()
+        multilink_policy_params = self.cfg_db.get_multilink_policy()
+        firewall_policy_params  = self.cfg_db.get_firewall_policy()
+        qos_policy_params       = self.cfg_db.get_qos_policy()
+        qos_traffic_map_params  = self.cfg_db.get_qos_traffic_map()
+
+        # 'add-application'/'remove-application' preprocessing:
+        # 1. The multilink/firewall/etc policy should be re-installed:
+        #    if exists, the policy should be removed before application removal & adding
+        #    and it should be added again after it.
+        # 2. For 'add-application', the currently configured applications if exist,
+        #    should be removed firstly. We do that by adding simulated
+        #    'remove-application' request in front of the original 'add-application' request.
+        #
+        if req == 'add-application' or req == 'remove-application':
+            pre_requests, post_requests  = [], []
+            if req == 'add-application' and application_params:
+                pre_requests  = [ { 'message': 'remove-application', 'params' : application_params } ]
+            if multilink_policy_params:
+                pre_requests.insert(0, { 'message': 'remove-multilink-policy', 'params' : multilink_policy_params })
+                post_requests.append({ 'message': 'add-multilink-policy', 'params' : multilink_policy_params })
+            if firewall_policy_params:
+                pre_requests.insert(0, { 'message': 'remove-firewall-policy', 'params' : firewall_policy_params })
+                post_requests.append({ 'message': 'add-firewall-policy', 'params' : firewall_policy_params })
+
+            if pre_requests == [] and post_requests == []:
+                return request
+            new_params  = { 'requests' : pre_requests + request + post_requests }
+            new_request = {'message': 'aggregated', 'params': new_params}
+            self.log.debug("_preprocess_simple_request: request was replaced with %s" % json.dumps(new_request))
+            return new_request
+
+        # 'add-X-policy' preprocessing:
         # 1. The currently configured policy should be removed firstly.
-        #    We do that by adding simulated 'remove-multilink-policy' request in
-        #    front of the original 'add-multilink-policy' request.
+        #    We do that by adding simulated 'remove-X-policy' request in
+        #    front of the original 'add-X-policy' request.
         #
         if multilink_policy_params and req == 'add-multilink-policy':
             return _single_message_add_corresponding_remove(req, multilink_policy_params, params)
-
-        # Setup remove-firewall-policy before executing add-firewall-policy
         if firewall_policy_params and req == 'add-firewall-policy':
             return _single_message_add_corresponding_remove(req, firewall_policy_params, params)
-
-        qos_policy_params = self.cfg_db.get_qos_policy()
-        # Setup remove-qos-policy before executing add-qos-policy
         if qos_policy_params and req == 'add-qos-policy':
             return _single_message_add_corresponding_remove(req, qos_policy_params, params)
-
-        qos_traffic_map_params = self.cfg_db.get_qos_traffic_map()
-        # Setup remove-qos-traffic-map before executing add-qos-traffic-map
         if qos_traffic_map_params and req == 'add-qos-traffic-map':
             return _single_message_add_corresponding_remove(req, qos_traffic_map_params, params)
 
-        # 'add/remove-application' preprocessing:
-        # 1. The multilink policy should be re-installed: if exists, the policy
-        #    should be removed before application removal/adding and should be
-        #    added again after it.
-        #
-        if multilink_policy_params or firewall_policy_params:
-            if re.match('(add|remove)-(application)', req):
-                if multilink_policy_params and firewall_policy_params:
-                    pre_add_requests = [
-                        { 'message': 'remove-multilink-policy', 'params' : multilink_policy_params },
-                        { 'message': 'remove-firewall-policy', 'params' : firewall_policy_params },
-                    ]
-                    post_add_requests = [
-                        { 'message': 'add-multilink-policy', 'params' : multilink_policy_params },
-                        { 'message': 'add-firewall-policy', 'params' : firewall_policy_params },
-                    ]
-                elif multilink_policy_params:
-                    pre_add_requests = [
-                        { 'message': 'remove-multilink-policy', 'params' : multilink_policy_params }
-                    ]
-                    post_add_requests = [
-                        { 'message': 'add-multilink-policy', 'params' : multilink_policy_params }
-                    ]
-                else:
-                    pre_add_requests = [
-                        { 'message': 'remove-firewall-policy', 'params' : firewall_policy_params }
-                    ]
-                    post_add_requests = [
-                        { 'message': 'add-firewall-policy', 'params' : firewall_policy_params },
-                    ]
-                params['requests'] = pre_add_requests
-                params['requests'].append({ 'message': req, 'params' : params })
-                params['requests'].extend(post_add_requests)
-                request = {'message': 'aggregated', 'params': params}
-                self.log.debug("_preprocess_request: Aggregated request \
-                        with application config was replaced with %s" % json.dumps(request))
-                return request
+        return request
 
-        # No preprocessing is needed for rest of simple requests, return.
-        if req != 'aggregated':
-            return request
+    def _preprocess_aggregated_request(self, request):
+        '''Enhancement of the _preprocess_request() for aggregated requests.
+        In addition to the logic implemented in _preprocess_request() and
+        in _preprocess_simple_request(), this function reorders requests inside
+        of aggregation to ensure proper configuration of VPP.
 
-        ########################################################################
-        # Handle 'aggregated' request.
-        # Perform same preprocessing for aggregated requests, either
-        # original or created above.
-        ########################################################################
+        :param request: The original request received from flexiManage,
+                        or the aggregated request output-ed by the _preprocess_simple_request().
+        :returns: request - The new aggregated request and it's parameters.
+                        Note the parameters are list of requests that might be
+                        a mix of simulated requests and original requests.
+                        This mix should include one original request and one or
+                        more simulated requests.
+                        If no preprocessing was needed, the original request is
+                        returned.
+        '''
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        # !!!!!!! Order of function calls in this function is important !!!!!!!
+        # !!!!!!! Every function might modify request, thus changing    !!!!!!!
+        # !!!!!!! input for next function! And, as a result impacting   !!!!!!!
+        # !!!!!!! on output of the next function!                       !!!!!!!
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-        # Go over all requests and rearrange them, as order of requests is
-        # important for proper configuration of VPP!
-        # The list should start with the 'remove-X' requests in following order:
-        #   [ 'add-firewall-policy', 'add-multilink-policy', 'add-application',
-        #     'add-dhcp-config', 'add-route', 'add-tunnel', 'add-interface' ]
-        # Than the 'add-X' requests should follow in opposite order:
-        #   [ 'add-interface', 'add-tunnel', 'add-route', 'add-dhcp-config',
-        #     'add-application', 'add-multilink-policy', 'add-firewall-policy' ]
-        #
+        changed = self._preprocess_reinstall_policies_if_needed(request)
+
+        changed |= self._preprocess_insert_simulated_requests(request)
+
+        changed |= self._preprocess_reorder(request)
+
+        if changed:
+            self.log.debug("_preprocess_aggregated_request: request was replaced with %s" % json.dumps(request))
+        return request
+
+    def _preprocess_reorder(self, request):
+        '''Implements part of the _preprocess_aggregated_request() logic.
+        It rearranges requests in the aggregation to be in following order:
+        the first should be 'stop-router' (if exist in the aggregation),
+        then the 'remove-X' requests, after that the 'add-X'-s,
+        then the 'modify-X'-s and at the end the 'start-router'.
+            Moreover, the order of 'add-X' requests is important too, as there
+        might be dependencies between configured items. For example,
+        'add-interface'-s should be executed before the 'add-tunnel'-s
+        as the latest uses the formers, the 'add-route'-s should come after
+        the 'add-tunnel'-s as route rules might use tunnels, etc.
+        Order of the 'remove-X' requests is important as well, and it should be
+        opposite to this of the 'add-X' requests.
+
+        :param request: The aggregated request.
+        :returns: 'True' if aggregation was modified by this function, 'False' o/w.
+        '''
         add_order = [
             'add-ospf', 'add-routing-filter', 'add-routing-bgp', 'add-switch',
-            'add-interface', 'add-tunnel', 'add-route', 'add-dhcp-config',
+            'add-interface', 'add-vxlan-config', 'add-tunnel', 'add-route', 'add-dhcp-config',
             'add-application', 'add-multilink-policy', 'add-firewall-policy',
             'add-qos-traffic-map', 'add-qos-policy'
         ]
         remove_order = [ re.sub('add-','remove-', name) for name in add_order ]
         remove_order.reverse()
-        requests     = []
-        for req_name in remove_order:
-            for _request in params['requests']:
-                if re.match(req_name, _request['message']):
-                    requests.append(_request)
-        for req_name in add_order:
-            for _request in params['requests']:
-                if re.match(req_name, _request['message']):
-                    requests.append(_request)
 
-        start_router_request = None
-        stop_router_request = None
-        # append modify-x after all remove-x and add-x
-        for _request in params['requests']:
-            if _request['message'] == 'start-router':
-                start_router_request = _request
-                continue
-            elif _request['message'] == 'stop-router':
-                stop_router_request = _request
-                continue
-            if re.match('modify-', _request['message']):
-                requests.append(_request)
+        old_requests = request['params']['requests']
+        new_requests = []
 
-        # append start-router at the end
-        if start_router_request:
-            requests.append(start_router_request)
-
-        # insert stop-router as the first request
-        if stop_router_request:
-            requests.insert(0, stop_router_request)
-
-        if requests != params['requests']:
-            params['requests'] = requests
-        requests = params['requests']
-
-
-        # We do few passes on requests to find insertion points if needed.
-        # It is based on the first appearance of the preprocessor requests.
+        # First of all ensure that all received 'add/remove-X' are listed
+        # in the dependency tables.
         #
-        indexes = {
-            'remove-switch'           : -1,
-            'add-switch'              : -1,
-            'remove-interface'        : -1,
-            'add-interface'           : -1,
-            'remove-application'      : -1,
-            'add-application'         : -1,
-            'remove-multilink-policy' : -1,
-            'add-multilink-policy'    : -1,
-            'remove-firewall-policy'  : -1,
-            'add-firewall-policy'     : -1,
-            'remove-qos-traffic-map'  : -1,
-            'add-qos-traffic-map'     : -1,
-            'remove-qos-policy'       : -1,
-            'add-qos-policy'          : -1,
+        for _request in old_requests:
+            req_name = _request['message']
+            if re.match('add-', req_name) and not (req_name in add_order):
+                raise Exception(f'{req_name}: dependencies are not defined')
+            elif re.match('remove-', req_name) and not (req_name in remove_order):
+                raise Exception(f'{req_name}: dependencies are not defined')
+
+        # Reorder 'remove-X'-s to be before 'add-X'-s, while ensuring order
+        # between 'remove-X'-s and order between 'add-X'-s.
+        #
+        for req_name in remove_order:
+            for _request in old_requests:
+                if re.match(req_name, _request['message']):
+                    new_requests.append(_request)
+        for req_name in add_order:
+            for _request in old_requests:
+                if re.match(req_name, _request['message']):
+                    new_requests.append(_request)
+
+        # Reorder 'add-interface'-s and 'remove-interface'-s requests
+        # to ensure that the sub-interfaces are added after the parent
+        # interface was added and are removed before the parent interface
+        # is removed. This is needed for VLAN interfaces.
+        #
+        new_requests = preprocess_reorder_sub_interfaces(new_requests)
+
+        # Add 'start-router', 'stop-router' and 'modify-X'-s to the list of 'remove-X'-s
+        # and 'add-X'-s: put 'stop-router' at the beginning of list, 'modify-X'-s
+        # after the 'remove-X'-s & 'add-X'-s and the 'start-router' at the end.
+        #
+        start_router_request = None
+        for _request in old_requests:
+            if re.match('modify-', _request['message']):
+                new_requests.append(_request)
+            elif _request['message'] == 'stop-router':
+                new_requests.insert(0, _request)
+            elif _request['message'] == 'start-router':
+                start_router_request = _request
+        if start_router_request:
+            new_requests.append(start_router_request)
+
+        request['params']['requests'] = new_requests
+        return (old_requests != new_requests)
+
+    def _preprocess_reinstall_policies_if_needed(self, request):
+        '''Implements part of the _preprocess_aggregated_request() logic.
+        It adds 'remove-X-policy' and 'add-X-policy' requests to aggregation,
+        if the aggregation has either 'add/remove-application' or 'add/remove-interface'
+        requests. The policy will be removed before application/interface change
+        and will be installed after it again.
+
+        :param request: The aggregated request.
+        :returns: 'True' if aggregation was modified by this function, 'False' o/w.
+        '''
+        modified = False
+        requests = request['params']['requests']
+
+        # If aggregation has 'remove-X-policy' request, there is no need to
+        # reinstall the policy, it will be removed anyway. Find out
+        # the 'remove-X-policy' requests.
+        #
+        policies = {
+            'multilink': {
+                'remove_policy_found' : False,
+                'params': self.cfg_db.get_multilink_policy()
+                },
+            'firewall': {
+                'remove_policy_found' : False,
+                'params': self.cfg_db.get_firewall_policy()
+                },
         }
 
-        reinstall_multilink_policy = True
-        reinstall_firewall_policy = True
-
-        for (idx , _request) in enumerate(requests):
-            for req_name in indexes:
-                if req_name == _request['message']:
-                    if indexes[req_name] == -1:
-                        indexes[req_name] = idx
-                    if req_name == 'remove-multilink-policy':
-                        reinstall_multilink_policy = False
-                    if req_name == 'remove-firewall-policy':
-                        reinstall_firewall_policy = False
-                    break
-
-        def _insert_request(requests, idx, req_name, params):
-            requests.insert(idx, { 'message': req_name, 'params': params })
-            # Update indexes
-            indexes[req_name] = idx
-            for name in indexes:
-                if name != req_name and indexes[name] >= idx:
-                    indexes[name] += 1
-            changes['insert'] = True
-
-        # Now preprocess 'add-application': insert 'remove-application' if:
-        # - there are applications to be removed
-        # - the 'add-application' was found in requests
+        # Find out if policies should be reinstalled.
         #
-        if application_params and indexes['add-application'] > -1:
-            if indexes['remove-application'] == -1:
-                # If list has no 'remove-application' at all just add it before 'add-applications'.
-                idx = indexes['add-application']
-                _insert_request(requests, idx, 'remove-application', application_params)
-            elif indexes['remove-application'] > indexes['add-application']:
-                # If list has 'remove-application' after the 'add-applications',
-                # it is not supported yet ;) Implement on demand
-                raise Exception("_preprocess_request: 'remove-application' was found after 'add-application': NOT SUPPORTED")
+        reinstall = False
+        for _request in requests:
+            req_name = _request['message']
+            if re.match('(add|remove)-(interface|switch|application)', req_name):
+                reinstall = True
+            elif req_name == 'remove-multilink-policy':
+                policies['multilink']['remove_policy_found'] = True
+            elif req_name == 'remove-firewall-policy':
+                policies['firewall']['remove_policy_found'] = True
 
-        # Now preprocess 'add-multilink-policy': insert 'remove-multilink-policy' if:
-        # - there are policies to be removed
-        # - there are interfaces to be removed or to be added
-        # - the 'add-multilink-policy' was found in requests
+        if not reinstall:
+            return False   # False -> request was not modified
+
+        # Go and add reinstall requests for policies, that are installed
+        # (policy['params'] is True) and that are not going to be removed anyway
+        # by this aggregation (policy['remove_policy_found'] is False)
         #
-        def add_corresponding_remove_policy_message(requests, indexes, request_name, params):
-            if request_name == 'multilink':
-                add_request_name = 'add-multilink-policy'
-                remove_request_name = 'remove-multilink-policy'
-            elif request_name == 'firewall':
-                add_request_name = 'add-firewall-policy'
-                remove_request_name = 'remove-firewall-policy'
-            elif request_name == 'qos':
-                add_request_name = 'add-qos-policy'
-                remove_request_name = 'remove-qos-policy'
-            elif request_name == 'qos-traffic-map':
-                add_request_name = 'add-qos-traffic-map'
-                remove_request_name = 'remove-qos-traffic-map'
-            if params and indexes[add_request_name] > -1:
-                if indexes[remove_request_name] == -1:
-                    # If list has no 'remove-X-policy' at all just add it before 'add-X-policy'.
-                    idx = indexes[add_request_name]
-                    _insert_request(requests, idx, remove_request_name, params)
-                    changes['insert'] = True
-                elif indexes[remove_request_name] > indexes[add_request_name]:
-                    # If list has 'remove-X-policy' after the 'add-X-policy',
-                    # it is not supported yet ;) Implement on demand
-                    raise Exception("_preprocess_request: 'remove-X-policy' was found after \
-                            'add-X-policy': NOT SUPPORTED")
-                self.log.debug("_add_corresponding_remove_policy_message: %s" % request_name)
+        for p_name, policy in policies.items():
+            if policy['params'] and policy['remove_policy_found'] == False:
+                requests.insert(0, { 'message': f'remove-{p_name}-policy', 'params': policy['params'] })
+                requests.append(   { 'message': f'add-{p_name}-policy',    'params': policy['params'] })
+                modified = True
+        return modified
 
-        add_corresponding_remove_policy_message(requests, indexes, 'multilink',
-                multilink_policy_params)
+    def _preprocess_insert_simulated_requests(self, request):
+        '''Implements part of the _preprocess_aggregated_request() logic.
+        It inserts new requests into aggregation, thus simulating receiving
+        requests from flexiManage. This is needed for 'add-X' requests that have
+        neither complementing 'remove-X' nor 'modify-X' requests.
+        That kind of 'add-X' requests just replaces completely the previously
+        configured item.
+        An examples of such requests are 'add-application', 'add-multilink-policy', etc.
+            To implement the described logic we insert new correspondent 'remove-X'
+        request into list of aggregated requests at any point before the corresponding
+        'add-X' request.
 
-        add_corresponding_remove_policy_message(requests, indexes, 'firewall',
-                firewall_policy_params)
+        :param request: The aggregated request.
+        :returns: 'True' if aggregation was modified by this function, 'False' o/w.
+        '''
+        modified = False
+        requests = request['params']['requests']
 
-        add_corresponding_remove_policy_message(requests, indexes, 'qos',
-                qos_policy_params)
-
-        add_corresponding_remove_policy_message(requests, indexes, 'qos-traffic-map',
-                qos_traffic_map_params)
-
-        # Now preprocess 'add/remove-application' and 'add/remove-interface':
-        # reinstall multilink policy if:
-        # - any of 'add/remove-application', 'add/remove-interface' appears in request
-        # - the original request does not have 'remove-multilink-policy'
+        # Pass over requests and detect presence of special requests.
+        # On the way collect some more info for further pre-processing.
         #
-        if multilink_policy_params or firewall_policy_params:
-            # Firstly find the right place to insert the 'remove-multilink-policy' - idx.
-            # It should be the first appearance of one of the preprocessing requests.
-            # As well find the right place to insert the 'add-multilink-policy' - idx_last.
-            # It should be the last appearance of one of the preprocessing requests.
-            #
-            idx = 10000
-            idx_last = -1
-            for req_name in indexes:
-                if indexes[req_name] > -1:
-                    if indexes[req_name] < idx:
-                        idx = indexes[req_name]
-                    if indexes[req_name] > idx_last:
-                        idx_last = indexes[req_name]
-            if idx == 10000:
-                # No requests to preprocess were found, return
-                return request
+        special_requests = {
+            'add-application': {
+                'found':                False,
+                'remove_request_found': False,
+                'params':               self.cfg_db.get_applications()
+            },
+            'add-multilink-policy': {
+                'found':                False,
+                'remove_request_found': False,
+                'params':               self.cfg_db.get_multilink_policy()
+            },
+            'add-firewall-policy': {
+                'found':                False,
+                'remove_request_found': False,
+                'params':               self.cfg_db.get_firewall_policy()
+            },
+            'add-qos-traffic-map': {
+                'found':                False,
+                'remove_request_found': False,
+                'params':               self.cfg_db.get_qos_traffic_map()
+            },
+            'add-qos-policy': {
+                'found':                False,
+                'remove_request_found': False,
+                'params':               self.cfg_db.get_qos_policy()
+            },
+        }
+        for _request in requests:
+            req_name = _request['message']
+            if req_name in special_requests:
+                special_requests[req_name]['found'] = True
+            elif re.match('remove-', req_name):
+                add_req_name = req_name.replace("remove-", "add-", 1)
+                if add_req_name in special_requests:
+                    special_requests[add_req_name]['remove_request_found'] = True
 
-
-            def update_policy_message_positions(requests, request_name, params,
-                    indexes, max_idx, reinstall_needed):
-                insert_count = 0
-                if request_name == 'multilink':
-                    add_request_name = 'add-multilink-policy'
-                    remove_request_name = 'remove-multilink-policy'
-                elif request_name == 'firewall':
-                    add_request_name = 'add-firewall-policy'
-                    remove_request_name = 'remove-firewall-policy'
-
-                if indexes[remove_request_name] > idx:
-                    # Move 'remove-X-policy' to the min position:
-                    # insert it as the min position and delete the original 'remove-X-policy'.
-                    idx_policy = indexes[remove_request_name]
-                    _insert_request(requests, idx, remove_request_name, params)
-                    del requests[idx_policy + 1]
-                if indexes[add_request_name] > -1 and indexes[add_request_name] < max_idx:
-                    # We exploit the fact that only one 'add-X-policy' is possible
-                    # Move 'add-multilink-policy' to the idx_last+1 position to be after all other 'add-X':
-                    # insert it at the idx_last position and delete the original 'add-multilink-policy'.
-                    idx_policy = indexes[add_request_name]
-                    _insert_request(requests, max_idx + 1, add_request_name, params)
-                    del requests[idx_policy]
-                if indexes[remove_request_name] == -1:
-                    _insert_request(requests, idx, remove_request_name, params)
-                    insert_count += 1
-                    max_idx += 1
-                if indexes[add_request_name] == -1 and reinstall_needed:
-                    _insert_request(requests, max_idx + 1, add_request_name, params)
-                    insert_count += 1
-                return insert_count
-
-            # Now add policy reinstallation if needed.
-            if multilink_policy_params:
-                idx_last +=update_policy_message_positions(requests, 'multilink',
-                        multilink_policy_params, indexes, idx_last, reinstall_multilink_policy)
-
-            if firewall_policy_params:
-                update_policy_message_positions(requests, 'firewall', firewall_policy_params,
-                        indexes, idx_last, reinstall_firewall_policy)
-
-        if changes.get('insert'):
-            self.log.debug("_preprocess_request: request was replaced with %s" % json.dumps(request))
-        return request
+        # Preprocess special requests: insert 'remove-X' if:
+        # - the 'add-X' was found in requests
+        # - the 'remove-X' was not found in requests
+        # - there are configuration to be removed
+        #
+        for add_req_name, r_info in special_requests.items():
+            if r_info['found'] and not r_info['remove_request_found'] and r_info['params']:
+                remove_req_name = add_req_name.replace("add-", "remove-", 1)
+                requests.insert(0, { 'message': remove_req_name, 'params': r_info['params'] })
+                modified = True
+        return modified
 
     def _start_threads(self):
         """Start all threads.
@@ -1331,7 +1332,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 break
 
         if do_sync:
-            fwutils.reset_device_config_signature("pending_interfaces_got_ip", log=False)
+            fwutils.reset_device_config_signature("pending_interfaces_got_ip")
 
     def _on_start_router_after(self):
         """Handles post start VPP activities.
@@ -1381,9 +1382,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         :returns: None.
         """
         self.router_stopping = False
-        fwutils.reset_traffic_control()
-        fwutils.remove_linux_bridges()
-        fwwifi.stop_hostapd()
 
         # keep LTE connectivity on linux interface
         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
@@ -1411,13 +1409,32 @@ class FWROUTER_API(FwCfgRequestHandler):
         :param sw_if_index: vpp sw_if_index of the interface
         """
         self._update_cache_sw_if_index(sw_if_index, type, True)
+        self.apply_features_on_interface(True, None, sw_if_index, type)
 
-    def apply_features_on_interface(self, add, vpp_if_name, if_type=None):
+    def apply_features_on_interface(self, add, vpp_if_name=None, sw_if_index=None, if_type=None):
+        if not vpp_if_name:
+            vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
+
         with FwCfgMultiOpsWithRevert() as handler:
             try:
                 # apply firewall
-                # TODO: Should be implemented in the next release.
-                # For current release, the remote vpn injects pair of remove and add firewall policy job when.
+                if if_type == 'lan':
+                    ingress_acls = fwglobals.g.firewall_acl_cache.get('ingress')
+                    egress_acls = fwglobals.g.firewall_acl_cache.get('egress')
+                    handler.exec(
+                        func=fw_acl_command_helpers.vpp_add_acl_rules,
+                        params={ 'is_add': add, 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': egress_acls },
+                        revert_func=fw_acl_command_helpers.vpp_add_acl_rules if add else None,
+                        revert_params={ 'is_add': (not add), 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': egress_acls } if add else None,
+                    )
+
+                if if_type == 'wan':
+                    handler.exec(
+                        func=fw_nat_command_helpers.add_nat_rules_interfaces,
+                        params={ 'is_add': add, 'sw_if_index': sw_if_index },
+                        revert_func=fw_nat_command_helpers.add_nat_rules_interfaces,
+                        revert_params={ 'is_add': (not add), 'sw_if_index': sw_if_index },
+                    )
 
                 # apply qos classification
                 handler.exec(
@@ -1444,6 +1461,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         :param type:        "wan"/"lan"
         :param sw_if_index: vpp sw_if_index of the interface
         """
+        self.apply_features_on_interface(False, None, sw_if_index, type)
         self._update_cache_sw_if_index(sw_if_index, type, False)
 
     def _on_add_tunnel_after(self, sw_if_index, params):
@@ -1530,6 +1548,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-routing-bgp',             # BGP should come after routing filter, as it might use them!
             'add-switch',
             'add-interface',
+            'add-vxlan-config',            # After interfaces, before tunnels
             'add-tunnel',
             'add-application',
             'add-multilink-policy',
@@ -1570,3 +1589,72 @@ class FWROUTER_API(FwCfgRequestHandler):
             fwglobals.g.handle_request({'message': 'start-router'})
 
         self.log.debug("sync_full: router full sync succeeded")
+
+def preprocess_reorder_sub_interfaces(requests):
+    '''Implements part of the _preprocess_aggregated_request() logic.
+    It rearranges 'add-interface'-s and 'remove-interface'-s requests
+    in the aggregation to ensure that the sub-interfaces are added after
+    the parent interface was added and are removed before the parent interface
+    is removed. This is needed for VLAN interfaces.
+
+    :param requests: The list of 'remove-X' and 'add-X' requests.
+    :returns: reordered list of requests.
+    '''
+    # Firstly we build helper hash of indexes of parent and sub-interfaces
+    # by 'dev_id'. Than we just swap the last sub-interface 'remove-interface'
+    # in the list with the parent 'remove-interface', so the parent interface
+    # will be removed at last. And we swap the first sub-interface
+    # 'add-interface' in the list with the parent 'add-interface', so the parent
+    # interface will be added after before any of it's sub-interfaces.
+    #
+    add_remove_interface_indexes = { 'add-interface': {}, 'remove-interface': {}}
+    for index, _request in enumerate(requests):
+
+        req_name, req_params = _request['message'], _request['params']
+        if req_name == "add-interface":
+            indexes = add_remove_interface_indexes['add-interface']
+        elif req_name == "remove-interface":
+            indexes = add_remove_interface_indexes['remove-interface']
+        else:
+            continue
+
+        parent_dev_id, vlan_id = fwutils.dev_id_parse_vlan(req_params['dev_id'])
+        if not parent_dev_id in indexes:
+            indexes[parent_dev_id] = {}
+        dev_indexes = indexes[parent_dev_id]
+
+        # Store index of 'add-interface'/remove-interface' of parent interface.
+        #
+        if not vlan_id:
+            dev_indexes.update({ 'parent_index': index })
+            continue
+
+        # Store index of 'add-interface'/'remove-interface' of VLAN sub-interface.
+        # For 'add-interface' we store the smallest index (the first one),
+        # so 'add-interface' of the parent interface will be swapped with
+        # the first corresponding sub-interface. For 'remove-interface' we
+        # store the largest index (the latest), so 'remove-interface'
+        # of the parent interface will be swapped with the last corresponding
+        # sub-interface.
+        #
+        if req_name == "remove-interface":
+            dev_indexes.update({ 'sub_index': index })
+        elif dev_indexes.get('sub_index') == None:  # and req_name == "add-interface"
+            dev_indexes.update({ 'sub_index': index })
+
+    # Now go over hash keys and modify the aggregation if needed.
+    #
+    for dev_indexes in add_remove_interface_indexes['add-interface'].values():
+        sub_index    = dev_indexes.get('sub_index', -1)
+        parent_index = dev_indexes.get('parent_index', -1)
+        if parent_index > -1 and sub_index > -1 and parent_index > sub_index:
+            requests[parent_index], requests[sub_index] = requests[sub_index], requests[parent_index]
+
+    for dev_indexes in add_remove_interface_indexes['remove-interface'].values():
+        sub_index    = dev_indexes.get('sub_index', -1)
+        parent_index = dev_indexes.get('parent_index', -1)
+        if parent_index > -1 and sub_index > -1 and parent_index < sub_index:
+            requests[parent_index], requests[sub_index] = requests[sub_index], requests[parent_index]
+
+    return requests
+

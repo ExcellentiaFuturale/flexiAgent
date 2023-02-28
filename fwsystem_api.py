@@ -140,6 +140,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                         if fwglobals.g.router_api.state_is_started():
                             new_gw = fwlte.get_ip_configuration(dev_id, 'gateway')
                             mtu = fwutils.get_linux_interface_mtu(name)
+
                             fwnetplan.add_remove_netplan_interface(\
                                 is_add=True,
                                 dev_id=dev_id,
