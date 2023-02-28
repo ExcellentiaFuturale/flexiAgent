@@ -149,8 +149,8 @@ request_handlers = {
     'modify-vxlan-config':          {'name': '_call_router_api', 'sign': True},
 
     # System API
-    'add-lte':                      {'name': '_call_system_api'},
-    'remove-lte':                   {'name': '_call_system_api'},
+    'add-lte':                      {'name': '_call_system_api', 'sign': True},
+    'remove-lte':                   {'name': '_call_system_api', 'sign': True},
 
     # Applications api
     'add-app-install':             {'name': '_call_applications_api', 'sign': True},
