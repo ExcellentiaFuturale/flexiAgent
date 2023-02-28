@@ -4112,6 +4112,9 @@ def build_vlan_dev_id(vlan_id, dev_id):
 def dev_id_parse_vlan(dev_id):
     '''Parse parent dev_id and vlan id.
     '''
+    if not 'pci' in dev_id:
+        # lte dev_id does not have 'pci'
+        return None, None
     parts = dev_id.split("pci")
     parent_dev_id = "pci" + parts[1]
     vlan_id = int(parts[0].split(".")[1]) if parts[0] else None
