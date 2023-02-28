@@ -170,7 +170,7 @@ apt_install() {
         log "apt_install: ${install_cmd}: failed with ${ret}: ${out}"
     fi
 
-    return 66  # we totally failed
+    return 100  # we totally failed
 }
 
 # Upgrade process
