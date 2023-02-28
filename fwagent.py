@@ -20,6 +20,16 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import signal
+def fwagent_signal_handler(signum, frame):
+    """Handle SIGINT (CTRL+C) to suppress backtrace print onto screen,
+	   when invoked by user from command line and not as a daemon.
+       Do it ASAP, so CTRL+C in the middle of importing the third-parties
+       will not cause the backtrace to print.
+	"""
+    exit(1)
+signal.signal(signal.SIGINT, fwagent_signal_handler)
+
 import json
 import os
 import glob
@@ -28,7 +38,6 @@ import socket
 import sys
 import time
 import random
-import signal
 import psutil
 import Pyro4
 import re
@@ -64,19 +73,6 @@ from fwobject import FwObject
 system_checker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tools/system_checker/")
 sys.path.append(system_checker_path)
 import fwsystem_checker_common
-
-# Global signal handler for clean exit
-def global_signal_handler(signum, frame):
-    """Global signal handler for CTRL+C
-
-    :param signum:         Signal type
-    :param frame:          Stack frame.
-
-    :returns: None.
-    """
-    exit(1)
-
-signal.signal(signal.SIGINT, global_signal_handler)
 
 class FwAgent(FwObject):
     """This class implements abstraction of mediator between manager called
@@ -925,8 +921,7 @@ class FwagentDaemon(FwObject):
         # caused the `with` statement execution to fail. If the `with`
         # statement finishes without an exception being raised, these
         # arguments will be `None`.
-        fwglobals.g.destroy_agent(finalize=False)
-        self.agent = None
+        self.agent = fwglobals.g.destroy_agent()
 
     def _check_system(self):
         """Check system requirements.
@@ -961,7 +956,7 @@ class FwagentDaemon(FwObject):
             if self._check_system() == False:
                 self.log.excep("system checker failed")
 
-        if self.active_main_loop == False and not fwglobals.g.cfg.debug['daemon']['standalone']:
+        if not fwglobals.g.cfg.debug['daemon']['standalone']:
             self.start_main_loop()
 
         # Keep agent instance on the air until SIGTERM/SIGKILL is received
@@ -1354,7 +1349,7 @@ def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None,
             cli.run_loop()
     if clean_request_db:
         fwglobals.g.router_cfg.clean()
-        fwutils.reset_device_config_signature("empty_cfg", log=False)
+        fwutils.reset_device_config_signature("empty_cfg")
         with fwrouter_cfg.FwRouterCfg(fwglobals.g.ROUTER_PENDING_CFG_FILE) as router_pending_cfg:
             router_pending_cfg.clean()
 

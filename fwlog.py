@@ -152,6 +152,9 @@ class FwSyslog(Fwlog):
         Fwlog.__init__(self, level=level, name="syslog(ident=fwagent)")
         syslog.openlog(ident=identification)
 
+    def __str__(self):
+        return "syslog"
+
     def _log(self, log_message, to_terminal=True, to_syslog=True):
         """Print log message.
 
@@ -189,6 +192,9 @@ class FwLogFile(Fwlog):
         if os.path.exists(filename):
             self.cur_size = os.path.getsize(filename)
         self.f = open(filename, 'a')
+
+    def __str__(self):
+        return os.path.join(self.filepath, self.filename)
 
     def _rotate(self):
         self.f.close()
@@ -248,6 +254,12 @@ class FwObjectLogger:
         import fwglobals
         self.log = log if log else fwglobals.log if fwglobals.g_initialized else FwSyslog()
         self.prefix = f"{object_name}: "
+
+    def __str__(self):
+        return str(self.log)
+
+    def __ne__(self, other):
+        return str(self.log) != str(other.log)
 
     def excep(self, log_message, to_terminal=True, to_syslog=True):
         self.log.excep(self.prefix + log_message, to_terminal=to_terminal, to_syslog=to_syslog)
