@@ -38,7 +38,7 @@ import subprocess
 
 import getopt
 import importlib
-import platform
+import distro
 import sys
 import shutil
 import time
@@ -56,13 +56,11 @@ FW_EXIT_CODE_ERROR_ABORTED_BY_USER                    = 0x8
 
 hard_checkers = [
     { 'hard_check_sse42'              : [ True , 'critical' , 'Support in SSE 4.2 is required' ] },
-    { 'hard_check_ram'                : [ 4 ,    'critical' , 'At least 4GB RAM is required' ] },
+    { 'hard_check_ram'                : [ 3.9 ,  'critical' , 'At least 4GB RAM is required' ] },
     { 'hard_check_cpu_number'         : [ 2,     'critical' , 'At least 2 logical CPU-s are required' ] },
     { 'hard_check_nic_number'         : [ 2,     'critical' , 'At least 2 Network Interfaces are required' ] },
     { 'hard_check_nic_drivers'        : [ True , 'optional' , 'Supported network cards' ] },
     { 'hard_check_kernel_io_modules'  : [ True , 'optional' , 'Kernel has i/o modules' ] },
-    { 'hard_check_wan_connectivity'   : [ True , 'optional' , 'WAN connectivity is required' ] },
-    { 'hard_check_default_route_connectivity' : [ True, 'optional' ,  'Default route should have WAN connectivity' ] }
 ]
 
 soft_checkers = [
@@ -73,17 +71,20 @@ soft_checkers = [
     { 'soft_check_multiple_interface_definitions': {'severity': 'critical'}},
     { 'soft_check_duplicate_netplan_sections': {'severity': 'critical'}},
     { 'soft_check_default_routes_metric'         : { 'severity': 'critical' }},
-    { 'soft_check_resolvconf'         : { 'severity': 'optional' }},
+    { 'soft_check_network_manager'    : { 'severity': 'critical' }},
     { 'soft_check_networkd'           : { 'severity': 'critical' }},
     { 'soft_check_utc_timezone'       : { 'severity': 'critical' }},
     { 'soft_check_disable_linux_autoupgrade'     : { 'severity': 'critical' }},
     { 'soft_check_disable_transparent_hugepages' : { 'severity': 'optional' }},
     { 'soft_check_hugepage_number'    : { 'severity': 'optional' , 'interactive': 'optional' }},
-    { 'soft_check_dpdk_num_buffers'   : { 'severity': 'optional' , 'interactive': 'optional' }},
-    { 'soft_check_multi_core_support_requires_rss'   : { 'severity': 'optional' , 'interactive': 'optional' }},
-    { 'soft_check_cpu_power_saving' : { 'severity': 'optional' , 'interactive': 'optional' }},
+    # Multi core configuration and power saving mode must be configured from FlexiManage.
+    # So these options are removed in fwsystem_checker.
+    # { 'soft_check_multi_core_support_requires_rss'   : { 'severity': 'optional' , 'interactive': 'optional' }},
+    # { 'soft_check_cpu_power_saving' : { 'severity': 'optional' , 'interactive': 'optional' }},
     { 'soft_check_lte_modem_configured_in_mbim_mode': { 'severity': 'critical' }},
     { 'soft_check_wifi_driver': { 'severity': 'critical' }},
+    { 'soft_check_coredump_settings': { 'severity': 'critical' }},
+    { 'soft_check_networkd_configuration'           : { 'severity': 'critical' }},
 ]
 
 class TXT_COLOR:
@@ -110,7 +111,7 @@ def checker_name_to_description(checker_name):
     # convert first character to uppercase
     return result_string[0].upper() + result_string[1:]
 
-def report_checker_result(succeeded, severity, description, failure_reason=None):
+def report_checker_result(logger, succeeded, severity, description, failure_reason=None):
     """Report checker results.
 
     :param succeeded:       Success status.
@@ -132,7 +133,7 @@ def report_checker_result(succeeded, severity, description, failure_reason=None)
     result_string = '%s: %s : %s' % (status, severity.upper(), description)
     if failure_reason:
         result_string = result_string + ' : %s' % failure_reason
-    print(result_string)
+    logger.info(result_string)
 
 def check_hard_configuration(checker, check_only):
     """Check hard configuration.
@@ -159,7 +160,7 @@ def check_hard_configuration(checker, check_only):
         result = checker_func(args)
         if not result and severity == 'critical':
             succeeded = False
-        report_checker_result(result, severity, description)
+        report_checker_result(checker.log, result, severity, description)
     return succeeded
 
 def check_soft_configuration(checker, fix=False, quiet=False):
@@ -181,7 +182,7 @@ def check_soft_configuration(checker, fix=False, quiet=False):
             checker_func = getattr(checker, checker_name)
             severity     = checker_params['severity']
             result       = checker_func(fix=False, prompt=prompt)
-            report_checker_result(result, severity, description)
+            report_checker_result(checker.log, result, severity, description)
             go_and_fix = fix
             if go_and_fix:
                 # No need to fix if result is OK.
@@ -221,12 +222,12 @@ def check_soft_configuration(checker, fix=False, quiet=False):
 
             if run_check:
                 result = checker_func(fix=True, silently=quiet, prompt=prompt)
-                report_checker_result(result, severity, description)
+                report_checker_result(checker.log, result, severity, description)
                 if not result and severity == 'critical':
                     succeeded = False
 
         except Exception as e:
-            report_checker_result(None, severity, description, str(e))
+            report_checker_result(checker.log, None, severity, description, str(e))
 
     return succeeded
 
@@ -272,8 +273,7 @@ def main(args):
 
     :returns: Bitmask with status codes.
     """
-    (flavor, version, _) = platform.linux_distribution()
-    module_name = (flavor + version.replace('.', '')).lower()
+    module_name = distro.name().lower()
     module = importlib.import_module(module_name)
     with module.Checker(args.debug) as checker:
 

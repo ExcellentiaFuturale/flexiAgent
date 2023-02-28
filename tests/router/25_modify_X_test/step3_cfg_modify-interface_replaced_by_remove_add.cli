@@ -1,0 +1,20 @@
+[
+{
+  "entity":  "agent",
+  "message": "modify-interface",
+  "params": {
+    "dev_id":"__INTERFACE_1__dev_id",
+    "addr":"__INTERFACE_1__addr",
+    "gateway": "__INTERFACE_1__gateway",
+    "type":"wan",
+    "multilink": {
+            "labels": [
+                "green",
+                "blue",
+                "red"]
+    },
+    "PublicPort": 7777,
+    "mtu": 6666
+  }
+}
+]

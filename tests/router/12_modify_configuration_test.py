@@ -69,12 +69,14 @@ def test():
             assert ok, err_str
 
         # Ensure that vpp was restarted if needed.
-        # For now only steps #4, #5 and #6 require restarts, so we expect 3
-        # vpp starts to be printed in log for this steps. And one more start
-        # for initial configuration - step #1.
+        # For now only steps #4 and #5 require restarts, so we expect 2 vpp starts
+        # to be printed in log for this steps. And one more start for initial
+        # configuration - step #1. Note remove-interface & add-interface in step
+        # #6 does not change interface actually, so it was just stripped out and
+        # did not cause restart.
         #
         lines = agent.grep_log('router was started: vpp_pid=', print_findings=False)
-        assert len(lines) == 4, "log has not expected number (4) of VPP starts: %d:%s" % \
+        assert len(lines) == 3, "log has not expected number (%d, should be 3) of VPP starts: %d: %s" % \
                                 (len(lines), '\n'.join(lines))
 
 

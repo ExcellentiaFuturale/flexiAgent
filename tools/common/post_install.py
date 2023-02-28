@@ -46,6 +46,12 @@ import glob
 import pathlib
 import re
 
+globals = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , '..')
+sys.path.append(globals)
+
+import fwutils
+import fwapplications_api
+
 FW_EXIT_CODE_OK      = 0
 FW_EXIT_CODE_ERROR   = 0x1
 
@@ -85,6 +91,10 @@ def cmpVer(v1, v2):
         return [toInt(x) for x in re.split(r'[\.-]',re.sub(r'(\.0+)*$','', v))]
     return cmp(normalize(v1), normalize(v2))
 
+def clean_package_dependencies():
+    print("Uninstalling device applications")
+    fwapplications_api.call_applications_hook('uninstall', params={'files_only': True})
+
 if __name__ == '__main__':
     try:
         if len(sys.argv) < 4:
@@ -103,6 +113,10 @@ if __name__ == '__main__':
             # In case of from < to (upgrade) - run only on install
             elif cv == -1 and upgrade =='install':
                 run_migrations(prev_version, new_version, 'upgrade')
+
+        # If new_version is NULL, it means we are in the process of removing the package
+        if prev_version != 'NULL' and new_version == 'NULL' and upgrade == 'remove':
+            clean_package_dependencies()
 
     except Exception as e:
         print("Post install error: %s" % (str(e)))

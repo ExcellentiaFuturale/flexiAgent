@@ -20,11 +20,18 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+from logging.handlers import SysLogHandler
+
+import copy
 import os
 import fnmatch
-import fwglobals
-import fwutils
+import threading
 import time
+
+from fwobject import FwObject
+import fw_os_utils
+import fwutils
+
 
 try:
     from vpp_papi import VPPApiClient
@@ -34,14 +41,85 @@ except Exception as e:
     from vpp_papi_dummy import VPPApiClient
     vppWrapper = True
 
-class VPP_API:
-    """This is VPP API class representation.
+class VPP_API_CLIENT(VPPApiClient):
+    """This object wraps the fdio VPPApiClient object.
+    It's main method is call(), it invokes VPP API functions.
     """
-    def __init__(self):
+    def __init__(self, log, vpp_json_dir='/usr/share/vpp/api/'):
         """Constructor method
         """
+        self.jsonfiles = []
+        for root, _, filenames in os.walk(vpp_json_dir):
+            for filename in fnmatch.filter(filenames, '*.api.json'):
+                self.jsonfiles.append(os.path.join(root, filename))
+        if not self.jsonfiles and not vppWrapper:
+            raise Exception("VPP_API_CLIENT: no vpp *.api.json files were found")
+        VPPApiClient.__init__(self, apifiles=self.jsonfiles, use_socket=False, read_timeout=30, loglevel='WARNING')
+        self.logger.addHandler(SysLogHandler(address='/dev/log'))
+        self.lock = threading.RLock()
+
+#        vpp_methods = []
+#        for method_name in dir(self):
+#            if callable(getattr(self, method_name)):
+#                vpp_methods.append(method_name)
+#        print("vpp.methods: " + format(vpp_methods))
+#        vpp_api_methods = []
+#        for method_name in dir(self.api):
+#            if callable(getattr(self.api, method_name)):
+#                vpp_api_methods.append(method_name)
+#        print("vpp.api.methods: " + format(vpp_api_methods))
+
+
+    def call(self, api_name, **kwargs):
+        """Calls VPP API.
+
+        :param api_name:       name of the VPP API to be called.
+        :param kwargs:         the parameters to be provided to the VPP API.
+
+        :returns: value returned by the VPP API call.
+        """
+        # Lock VPP access to ensure no simultaneous VPP API calls from different
+        # python threads, libvppapiclient.so does not support this. Actually we
+        # should use separate instance of the VPPApiClient in any thread that
+        # calls VPP API-s. Alternatively, we could use same VPPApiClient instance
+        # that runs dedicated thread, where all VPP API-s are called from within.
+        # For now (Dec-2021), it was decided to serialize access to
+        # VPP using lock and to pray :)
+
+        with self.lock:
+            api_func = getattr(self.api, api_name)
+            assert api_func, 'vpp_api: api=%s not found' % (api_name)
+
+            rv = api_func(**kwargs)
+            if isinstance(rv, type) == False:  # If returned value is built-in type
+                return rv
+            else:                              # If returned value is object that represents VPP API reply
+                if rv.retval == 0:
+                    return rv
+                else:
+                    self.log.error('rv=%s: %s(%s)' % (rv.retval, api_name, str(**kwargs)))
+                    return None
+
+    def connect(self, name):
+        with self.lock:
+            return VPPApiClient.connect(self, name)
+
+    def disconnect(self):
+        with self.lock:
+            return VPPApiClient.disconnect(self)
+
+class VPP_API(FwObject):
+    """This is VPP API class representation.
+    """
+    def __init__(self, vpp_json_dir='/usr/share/vpp/api/'):
+        """Constructor method
+        """
+        FwObject.__init__(self)
+
+        self.vpp = VPP_API_CLIENT(self.log)
+
         self.connected_to_vpp = False
-        if fwutils.vpp_does_run():
+        if fw_os_utils.vpp_does_run():
             self.connect_to_vpp()
 
     def finalize(self):
@@ -50,49 +128,32 @@ class VPP_API:
         if self.connected_to_vpp:
             self.disconnect_from_vpp()
 
-    def connect_to_vpp(self, vpp_json_dir='/usr/share/vpp/api/'):
+    def connect_to_vpp(self):
         """Connect to VPP.
 
         :param vpp_json_dir:         Path to json files with API description.
         """
         if self.connected_to_vpp:
+            self.log.debug("connect_to_vpp: already connected")
             return True
-        fwglobals.log.debug("connect_to_vpp: loading VPP API files")
-        self.jsonfiles = []
-        for root, _, filenames in os.walk(vpp_json_dir):
-            for filename in fnmatch.filter(filenames, '*.api.json'):
-                self.jsonfiles.append(os.path.join(root, filename))
-        if not self.jsonfiles and not vppWrapper:
-            raise Exception("connect_to_vpp: no vpp api files were found")
-        fwglobals.log.debug("connect_to_vpp: connecting")
+        self.log.debug("connect_to_vpp: connecting")
 
-        self.vpp = VPPApiClient(apifiles=self.jsonfiles, use_socket=False, read_timeout=30)
-        num_retries = 5
+        num_retries = 7
         for i in range(num_retries):
             try:
-                fwglobals.log.debug("connect_to_vpp: trying to connect, num " + str(i))
+                self.log.debug("connect_to_vpp: trying to connect, num " + str(i))
                 self.vpp.connect('fwagent')
                 break
             except Exception as e:
-                if not fwutils.vpp_does_run():  # No need to retry if vpp crashed
+                if not fw_os_utils.vpp_does_run():  # No need to retry if vpp crashed
                     raise Exception("vpp process not found")
                 if i == num_retries-1:
                     raise e
                 else:
                     time.sleep(20)
         self.connected_to_vpp = True
-        fwglobals.log.debug("connect_to_vpp: connected")
+        self.log.debug("connect_to_vpp: connected")
 
-#        vpp_methods = []
-#        for method_name in dir(self.vpp):
-#            if callable(getattr(self.vpp, method_name)):
-#                vpp_methods.append(method_name)
-#        print("vpp.methods: " + format(vpp_methods))
-#        vpp_api_methods = []
-#        for method_name in dir(self.vpp.api):
-#            if callable(getattr(self.vpp.api, method_name)):
-#                vpp_api_methods.append(method_name)
-#        print("vpp.api.methods: " + format(vpp_api_methods))
 
     def disconnect_from_vpp(self):
         """Disconnect from VPP.
@@ -102,48 +163,39 @@ class VPP_API:
         if self.connected_to_vpp:
             self.vpp.disconnect()
             self.connected_to_vpp = False
-            fwglobals.log.debug("disconnect_from_vpp: disconnected")
+            self.log.debug("disconnect_from_vpp: disconnected")
         else:
-            fwglobals.log.debug("disconnect_from_vpp: not connected")
+            self.log.debug("disconnect_from_vpp: not connected")
 
-    # result - describes what field of the object returned by the API,
-    #          should be stored in cache, what cache and what key
-    #          should be used for that:
-    #           {
-    #               'result_attr' : <name of attribute of returned object> ,
-    #               'cache'       : <cache to store the value of the attribute in> ,
-    #               'key'         : <key by which to store the value>
-    #           }
-    #
-    def call_simple(self, request, result=None):
-        """Call VPP command.
+    def call_vpp_api(self, api, args={}, result_cache=None):
+        """Calls VPP API specified by function name.
 
-        :param api:            API name.
-        :param params:         Parameters.
-        :param result:         Cache to store results.
+        :param api:           Name of the VPP API function to be called.
+        :param args:          The arguments to be provided to the VPP API. Dict.
+        :param result_cache:  Cache to store return value of the VPP API.
+                              It describes what field of the object returned
+                              by the VPP API should be stored in cache, and what
+                              cache and what key should be used for that.
+                              Example:
+                                {
+                                  'result_attr' : <name of attribute of returned object>,
+                                  'cache'       : <cache to store the value of the attribute in>,
+                                  'key'         : <key by which to store the value>
+                                }
 
-        :returns: Reply message.
+        :returns: result of VPP API invocation in format of the flexiManage reply.
         """
-        api    = request['message']
-        params = request.get('params')
-
         if not self.connected_to_vpp:
-            reply = {'message':"vpp doesn't run", 'ok':0}
-            return reply
+            return (False, "vpp doesn't run")
 
-        api_func = getattr(self.vpp.api, api)
-        assert api_func, 'vpp_api: api=%s not found' % (api)
-
-        rv = api_func(**params) if params else api_func()
-        if rv and rv.retval == 0:
-            if result:      # If asked to store some attribute of the returned object in cache
-                res = getattr(rv, result['result_attr'])
-                result['cache'][result['key']] = res
-            reply = {'ok':1}
+        rv = self.vpp.call(api, **args)
+        if rv:
+            if result_cache:  # If asked to store some attribute of the returned object in cache
+                res = getattr(rv, result_cache['result_attr'])
+                result_cache['cache'][result_cache['key']] = res
+            return (True, '')
         else:
-            fwglobals.log.error('rv=%s: %s(%s)' % (rv.retval, api, format(params)))
-            reply = {'message':api + ' failed', 'ok':0}
-        return reply
+            return (False, f'{api} failed')
 
     def cli(self, cmd):
         """Execute command in VPP CLI.
@@ -153,9 +205,9 @@ class VPP_API:
         :returns: Reply message.
         """
         if not self.connected_to_vpp:
-            fwglobals.log.excep("cli: not connected to VPP")
+            self.log.excep("cli: not connected to VPP")
             return None
-        res = self.vpp.api.cli_inband(cmd=cmd)
+        res = self.vpp.call('cli_inband', cmd=cmd)
         if res is None:
             return None
         return res.reply

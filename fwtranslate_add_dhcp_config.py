@@ -34,22 +34,16 @@ def _change_dhcpd_conf(params, cmd_list):
     """
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "python"
+    cmd['cmd']['func']      = "modify_dhcpd"
+    cmd['cmd']['module']    = "fwutils"
     cmd['cmd']['descr']     = "update dhcpd config file"
-    cmd['cmd']['params']    = {
-                                'module': 'fwutils',
-                                'func':   'modify_dhcpd',
-                                'args':   { 'is_add': 1, 'params': params }
-                              }
+    cmd['cmd']['params']    = { 'is_add': 1, 'params': params }
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
+    cmd['revert']['func']   = "modify_dhcpd"
+    cmd['revert']['module'] = "fwutils"
     cmd['revert']['descr']  = "clean dhcpd config file"
     cmd['revert']['filter'] = 'must'   # When 'remove-XXX' commands are generated out of the 'add-XXX' commands, run this command even if vpp doesn't run
-    cmd['revert']['params'] = {
-                                'module': 'fwutils',
-                                'func':   'modify_dhcpd',
-                                'args':   { 'is_add': 0, 'params': params }
-                              }
+    cmd['revert']['params'] = { 'is_add': 0, 'params': params }
     cmd_list.append(cmd)
 
 
@@ -62,13 +56,14 @@ def _restart_dhcp_server(cmd_list):
     """
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name'] = "exec"
-    cmd['cmd']['params'] = ["sudo systemctl restart isc-dhcp-server"]
+    cmd['cmd']['func']   = "os_system"
+    cmd['cmd']['module'] = "fwutils"
+    cmd['cmd']['params'] = { 'cmd': 'systemctl restart isc-dhcp-server', 'log_prefix': '_restart_dhcp_server' }
     cmd['cmd']['descr'] = "restart dhcp service"
     cmd['revert'] = {}
-    cmd['revert']['name'] = 'exec'
-    cmd['revert']['params'] = ["sudo systemctl restart isc-dhcp-server"]
-    cmd['revert']['filter'] = 'must'   # When 'remove-XXX' commands are generated out of the 'add-XXX' commands, run this command even if vpp doesn't run
+    cmd['revert']['func']   = "os_system"
+    cmd['revert']['module'] = "fwutils"
+    cmd['revert']['params'] = { 'cmd': 'systemctl restart isc-dhcp-server', 'log_prefix': '_restart_dhcp_server' }
     cmd['revert']['descr'] = "restart dhcp service"
     cmd_list.append(cmd)
 

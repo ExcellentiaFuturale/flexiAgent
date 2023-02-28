@@ -33,36 +33,39 @@ import fwtests
 
 cli_path = __file__.replace('.py', '')
 
+cli_step1 = os.path.join(cli_path, 'step1_cfg_initial.cli')
+step1_expected_dump_configuration = os.path.join(cli_path, 'step1_expected_dump_configuration.json')
+
+cli_step2 = os.path.join(cli_path, 'step2_start-router.cli')
+step2_expected_dump_configuration = os.path.join(cli_path, 'step2_expected_dump_configuration.json')
+step2_expected_vpp_configuration = os.path.join(cli_path, 'step2_expected_vpp_configuration.json')
+
 ######################################################################
 # This test checks lte system api requests combined with router api
 ######################################################################
 
 def test():
     with fwtests.TestFwagent() as agent:
+        print("")
+        print("   " + os.path.basename(cli_step1))
 
-        steps             = sorted(glob.glob(cli_path + '/' + 'step*.cli'))
-        expected_vpp_cfg  = sorted(glob.glob(cli_path + '/' + 'step*vpp*.json'))
-        expected_dump_cfg = sorted(glob.glob(cli_path + '/' + 'step*dump*.json'))
+        (ok, err_str) = agent.cli('-f %s' % cli_step1, expected_router_cfg=step1_expected_dump_configuration)
+        assert ok, err_str
 
-        for (idx,step) in enumerate(steps):
+        # Ensure system api requests executed before router api
+        #
+        lines = agent.grep_log('FWROUTER_API|FWSYSTEM_API')
+        system_api_index = [i for i, s in enumerate(lines) if 'FWSYSTEM_API' in s][0]
+        router_api_index = [i for i, s in enumerate(lines) if 'FWROUTER_API' in s][0]
+        assert system_api_index < router_api_index, "System api requests must expected before router api: %s" % '\n'.join(lines)
 
-            if idx == 0:
-                print("")
-            print("   " + os.path.basename(step))
+        # now start the router
+        print("   " + os.path.basename(cli_step2))
 
-            # Inject request.
-            (ok, err_str) = agent.cli('-f %s' % step,
-                                    expected_vpp_cfg=expected_vpp_cfg[idx],
-                                    expected_router_cfg=expected_dump_cfg[idx])
-            assert ok, err_str
-
-            if idx == 0:
-                # Ensure system api requests executed before router api
-                #
-                lines = agent.grep_log('FWROUTER_API|FWSYSTEM_API')
-                system_api_index = [i for i, s in enumerate(lines) if 'FWSYSTEM_API' in s][0]
-                router_api_index = [i for i, s in enumerate(lines) if 'FWROUTER_API' in s][0]
-                assert system_api_index < router_api_index, "System api requests must expected before router api: %s" % '\n'.join(lines)
+        (ok, err_str) = agent.cli('-f %s' % cli_step2,
+                expected_vpp_cfg=step2_expected_vpp_configuration,
+                expected_router_cfg=step2_expected_dump_configuration)
+        assert ok, err_str
 
 
 if __name__ == '__main__':

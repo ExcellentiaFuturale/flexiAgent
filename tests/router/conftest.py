@@ -9,6 +9,7 @@ import sys, select
 CODE_ROOT = os.path.realpath(__file__).replace('\\', '/').split('/tests/')[0]
 sys.path.append(CODE_ROOT)
 import fwutils
+import fwwifi
 
 @pytest.fixture
 def netplan_backup():
@@ -52,6 +53,10 @@ def run_lte(currpath):
             driver = fwutils.get_ethtool_value(nicname, 'driver')
             if driver and driver in ['cdc_mbim', 'qmi_wwan']:
                 exists = True
+
+                # store LTE dev it in a global scope
+                pytest.lte_dev_id = fwutils.build_interface_dev_id(nicname)
+
                 break
         if not exists:
             pytest.skip('LTE card does not exist on the current machine')
@@ -62,7 +67,7 @@ def run_wifi(currpath):
     if 'wifi_' in currpath:
         exists = False
         for nicname, addrs in psutil.net_if_addrs().items():
-            if fwutils.is_wifi_interface(nicname):
+            if fwwifi.is_wifi_interface(nicname):
                 exists = True
                 break
         if not exists:

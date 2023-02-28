@@ -24,6 +24,7 @@ import os
 import fwglobals
 import fwtranslate_revert
 import fwutils
+import fwroutes
 
 # add_route
 # --------------------------------------
@@ -58,34 +59,67 @@ def add_route(params):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['name']      = "python"
+    cmd['cmd']['func']      = "add_remove_route"
+    cmd['cmd']['module']    = "fwroutes"
     cmd['cmd']['descr']     = "ip route add %s via %s dev %s" % (params['addr'], params['via'], str(params.get('dev_id')))
     cmd['cmd']['params']    = {
-                                'module': 'fwutils',
-                                'func':   'add_static_route',
-                                'args':   {
                                     'addr'  : params['addr'],
                                     'via'   : params['via'],
                                     'metric': params.get('metric'),
                                     'remove': False,
-                                    'dev_id': params.get('dev_id')
-                                }
+                                    'dev_id': params.get('dev_id'),
+                                    'on_link': params.get('onLink'),
                               }
     cmd['revert'] = {}
-    cmd['revert']['name']   = "python"
+    cmd['revert']['func']   = "add_remove_route"
+    cmd['revert']['module'] = "fwroutes"
     cmd['revert']['descr']  = "ip route del %s via %s dev %s" % (params['addr'], params['via'], str(params.get('dev_id')))
     cmd['revert']['params'] = {
-                                'module': 'fwutils',
-                                'func':   'add_static_route',
-                                'args':   {
                                     'addr'  : params['addr'],
                                     'via'   : params['via'],
                                     'metric': params.get('metric'),
                                     'remove': True,
-                                    'dev_id': params.get('dev_id')
-                                }
+                                    'dev_id': params.get('dev_id'),
+                                    'on_link': params.get('onLink'),
                               }
     cmd_list.append(cmd)
+
+    # Add this static route to the ACL permit filter
+    if params.get('redistributeViaOSPF'):
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']   = "frr_vtysh_run"
+        cmd['cmd']['module'] = "fwutils"
+        cmd['cmd']['params'] = {
+                    'commands': [f"access-list {fwglobals.g.FRR_OSPF_ACL} permit {params['addr']}"]
+        }
+        cmd['cmd']['descr']   =  "add %s to the allowed OSPF redistribution filter list" % params['addr']
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "frr_vtysh_run"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['params'] = {
+                    'commands': ["no access-list %s permit %s" % (fwglobals.g.FRR_OSPF_ACL, params['addr'])]
+        }
+        cmd['revert']['descr']   =  "remove %s from the allowed OSPF redistribution filter list" % params['addr']
+        cmd_list.append(cmd)
+
+    if params.get('redistributeViaBGP'):
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']   = "frr_vtysh_run"
+        cmd['cmd']['module'] = "fwutils"
+        cmd['cmd']['params'] = {
+                    'commands': [f"access-list {fwglobals.g.FRR_BGP_ACL} permit {params['addr']}"]
+        }
+        cmd['cmd']['descr']   =  "add %s to the allowed BGP redistribution filter list" % params['addr']
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "frr_vtysh_run"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['params'] = {
+                'commands': [f"no access-list {fwglobals.g.FRR_BGP_ACL} permit {params['addr']}"]
+        }
+        cmd['revert']['descr']   =  "remove %s from the BGP allowed redistribution filter list" % params['addr']
+        cmd_list.append(cmd)
     return cmd_list
 
 def get_request_key(params):

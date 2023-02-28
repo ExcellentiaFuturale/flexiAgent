@@ -11,27 +11,30 @@ sys.path.append(globals)
 __version__ = '1.0.0'
 
 g_stun_log = None # log object
+g_stun_socket = None
+g_stun_teardown = False
 
-# FLEXIWAN_FIX: updated list of STUN server, as some are not working any more
 STUN_SERVERS = (
+    'stun.l.google.com:19302',
+    'stun1.l.google.com:19302',
     'stun2.l.google.com:19302',
     'stun3.l.google.com:19302',
     'stun4.l.google.com:19302',
-    'stunserver.org:3478',
-    'stun.ekiga.net',
-    'stun.pjsip.org',
-    'stun.voipstunt.com',
+    'stun.ekiga.net:3478',
+    'stun.cheapvoip.com:3478',
+    'stun.gmx.de:3478',
+    'stun.gmx.net:3478',
+    'stun.stunprotocol.org:3478',
 )
 
-"""
-for testing none responsive STUN server
-
-STUN_SERVERS = (
- 'stun.voxgratia.org',
+STUN_SERVERS_SHORT_LIST = (   # Used for quick start of fwagent daemon
+    'stun.l.google.com:19302',
+    'stun.gmx.de:3478',
+    'stun.stunprotocol.org:3478',
 )
-"""
 
 stun_servers_list = STUN_SERVERS
+MagicCookie = '2112a442'
 
 DEFAULTS = {
     'stun_port': 3478,
@@ -52,7 +55,7 @@ ErrorCode = '0009'
 UnknownAttribute = '000A'
 ReflectedFrom = '000B'
 XorOnly = '0021'
-XorMappedAddress = '8020'
+XorMappedAddress = '0020'
 ServerName = '8022'
 SecondaryAddress = '8050'  # Non standard extension
 
@@ -99,25 +102,45 @@ Blocked = "Blocked"
 OpenInternet = "Open Internet"
 FullCone = "Full Cone"
 SymmetricUDPFirewall = "Symmetric UDP Firewall"
-RestricNAT = "Restric NAT"
-RestricPortNAT = "Restric Port NAT"
+RestricNAT = "Restricted NAT"
+RestricPortNAT = "Restricted Port NAT"
 SymmetricNAT = "Symmetric NAT"
 ChangedAddressError = "Error"
 
 def b2a_hexstr(abytes):
     return binascii.b2a_hex(abytes).decode("ascii")
 
+def xor_convert(abytes, xor_str):
+    bytes_len = len(abytes)
+    if (bytes_len != len(xor_str)/2 or len(xor_str)%2 !=0):
+        stun_log("Stun: missmatch xor_convert. %s, %s" % (str(abytes), xor_str))
+        return abytes
+    xor_bytes = binascii.a2b_hex(xor_str)
+    res = bytearray(bytes_len)
+    for i in range(bytes_len):
+        res[i] = abytes[i] ^ xor_bytes[i]
+    return res
+
 def _initialize():
     global dictValToAttr, dictValToMsgType
     dictValToAttr= {v: k for k, v in list(dictAttrToVal.items())}
     dictValToMsgType = {v: k for k, v in list(dictMsgTypeToVal.items())}
+
+def finalize():
+    global g_stun_socket, g_stun_teardown
+    stun_log(f"Stun: teardown")
+    g_stun_teardown = True
+    if g_stun_socket:
+        stun_log(f"Stun: kill g_stun_socket={g_stun_socket})")
+        g_stun_socket.close()   # Break waiting in s.recvfrom() for response from dead server
+        g_stun_socket = None
 
 def set_log(log):
     global g_stun_log
     g_stun_log = log
 
 def gen_tran_id():
-    a = ''.join(random.choice('0123456789ABCDEF') for i in range(32))
+    a = ''.join(random.choice('0123456789ABCDEF') for i in range(24))
     # return binascii.a2b_hex(a)
     return a
 
@@ -126,7 +149,7 @@ def stun_test(sock, host, port, source_ip, source_port, send_data=""):
               'SourceIP': None, 'SourcePort': None, 'ChangedIP': None,
               'ChangedPort': None}
     str_len = "%#04d" % (len(send_data) / 2)
-    trans_id = gen_tran_id()
+    trans_id = MagicCookie + gen_tran_id()
     str_data = ''.join([BindRequestMsg, str_len, trans_id, send_data])
     data = binascii.a2b_hex(str_data)
 
@@ -139,9 +162,9 @@ def stun_test(sock, host, port, source_ip, source_port, send_data=""):
             return retVal
         try:
             buf, addr = sock.recvfrom(2048)
-            stun_log("Stun: recvfrom: %s" %(str(addr)))
+            stun_log(f"Stun: recvfrom {host}:{port}: {addr}")
         except Exception as e:
-            stun_log("Stun: recvfrom: %s" %(str(e)), 'warning')
+            stun_log(f"Stun: recvfrom {host}:{port}: {str(e)}", 'warning')
             continue
 
         msgtype = b2a_hexstr(buf[0:2])
@@ -173,6 +196,16 @@ def stun_test(sock, host, port, source_ip, source_port, send_data=""):
                     str(int(b2a_hexstr(buf[base + 9:base + 10]), 16)),
                     str(int(b2a_hexstr(buf[base + 10:base + 11]), 16)),
                     str(int(b2a_hexstr(buf[base + 11:base + 12]), 16))
+                ])
+                retVal['ExternalIP'] = ip
+                retVal['ExternalPort'] = port
+            if attr_type == XorMappedAddress:
+                port = int(b2a_hexstr(xor_convert(buf[base + 6:base + 8], MagicCookie[0:4])), 16)
+                ip = ".".join([
+                    str(int(b2a_hexstr(xor_convert(buf[base + 8:base + 9], MagicCookie[0:2])), 16)),
+                    str(int(b2a_hexstr(xor_convert(buf[base + 9:base + 10], MagicCookie[2:4])), 16)),
+                    str(int(b2a_hexstr(xor_convert(buf[base + 10:base + 11], MagicCookie[4:6])), 16)),
+                    str(int(b2a_hexstr(xor_convert(buf[base + 11:base + 12], MagicCookie[6:8])), 16))
                 ])
                 retVal['ExternalIP'] = ip
                 retVal['ExternalPort'] = port
@@ -216,6 +249,12 @@ def get_nat_type(s, source_ip, source_port, stun_host, stun_port, idx_start):
     else:
         list_len = len(stun_servers_list)
         for idx in range(idx_start, idx_start+list_len):
+
+            global g_stun_teardown
+            if g_stun_teardown:
+                stun_log(f"Stun: get_nat_type: break loop on teardown")
+                return None, None, None
+
             stun_host_ = stun_servers_list[idx%list_len]
             #FLEXIWAN_FIX: handle STUN server addresses in the form of ip:port
             stun_info = stun_host_.split(':')
@@ -297,9 +336,12 @@ def get_ip_info(source_ip="0.0.0.0", source_port=4789, stun_host=None,
     : param idx         : index in list of STUN servers, pointing to the server to send STUN from
 
     """
+    global g_stun_socket
+
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(3)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    g_stun_socket = s
     try:
         stun_log("get_ip_info, binding to %s:%d" %(source_ip, source_port))
         if dev_name != None:
@@ -307,13 +349,17 @@ def get_ip_info(source_ip="0.0.0.0", source_port=4789, stun_host=None,
         s.bind((source_ip, source_port))
     except Exception as e:
         stun_log("get_ip_info: bind: %s" % str(e))
+        g_stun_socket = None
         s.close()
         return ('', '', '', '')
 
     nat_type, nat, stun_idx = get_nat_type(s, source_ip, source_port, \
                                 stun_host=stun_host, stun_port=stun_port, idx_start = idx)
+    if not nat:
+        return '', '', '', ''
     external_ip = nat['ExternalIP'] if nat['ExternalIP'] != None else ''
     external_port = nat['ExternalPort'] if nat['ExternalPort'] != None else ''
+    g_stun_socket = None
     s.close()
     nat_type = '' if nat_type == None else nat_type
     return (nat_type, external_ip, external_port, stun_idx)

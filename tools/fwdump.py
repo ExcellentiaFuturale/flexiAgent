@@ -26,6 +26,15 @@
 # Every piece of data is dumped into dedicated file in temporary folder,
 # than whole folder is tar-ed and is zipped.
 
+import signal
+def fwdump_signal_handler(signum, frame):
+    """Handle SIGINT (CTRL+C) to suppress backtrace print onto screen,
+	   when invoked by user from command line and not as a daemon.
+       Do it ASAP, so CTRL+C in the middle of importing the third-parties
+       will not cause the backtrace to print.
+	"""
+    exit(1)
+signal.signal(signal.SIGINT, fwdump_signal_handler)
 
 import os
 import re
@@ -37,8 +46,14 @@ agent_root_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..'
 sys.path.append(agent_root_dir)
 import fwutils
 import fwglobals
+from fw_vpp_coredump_utils import vpp_coredump_copy_cores
+from fwobject import FwObject
+import fwapplications_api
+import fwlte
 
 g = fwglobals.Fwglobals()
+
+fwglobals.initialize()
 
 # Special variables in the dumper commands are substituted in run time as follows:
 #   <dumper_out_file> -> '<temporary_folder>/<dumper>.log'
@@ -48,6 +63,10 @@ g_dumpers = {
     ############################################################################
     # Linux stuff - !!! PLEASE KEEP ALPHABET ORDER !!!
     #
+    'linux_apt':                    { 'shell_cmd': 'mkdir -p <temp_folder>/linux_apt/ && ' +
+                                                   'cp /var/log/apt/*.log <temp_folder>/linux_apt 2>/dev/null ; ' +
+                                                   'cp /var/log/apt/*.log.1.gz <temp_folder>/linux_apt 2>/dev/null ; ' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_cpu':                    { 'shell_cmd': 'cat /proc/cpuinfo > <dumper_out_file>' },
     'linux_dhcpd':                  { 'shell_cmd': 'mkdir -p <temp_folder>/linux_dhcpd/ && ' +
                                                    'cp /etc/dhcp/dhcpd.conf* <temp_folder>/linux_dhcpd 2>/dev/null ; ' +
@@ -57,10 +76,14 @@ g_dumpers = {
     'linux_dpdk_devbind_status':    { 'shell_cmd': 'dpdk-devbind -s > <dumper_out_file>' },
     'linux_grub':                   { 'shell_cmd': 'cp /etc/default/grub <temp_folder>/linux_grub.log 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'linux_hardware':               { 'shell_cmd': 'dmidecode > <dumper_out_file>' },
     'linux_interfaces':             { 'shell_cmd': 'ip addr > <dumper_out_file>' },
+    'linux_wifi':                   { 'shell_cmd': 'iwconfig > <dumper_out_file> 2>/dev/null ;' },
     'linux_lsb_release':            { 'shell_cmd': 'cp /etc/lsb-release <temp_folder>/linux_lsb-release.log 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_lspci':                  { 'shell_cmd': 'lspci -Dvmmn > <dumper_out_file>' },
+    'linux_lspci_vnn':              { 'shell_cmd': 'lspci -vnn > <dumper_out_file>' },
+    'linux_meminfo':                { 'shell_cmd': 'cat /proc/meminfo > <dumper_out_file>' },
     'linux_neighbors':              { 'shell_cmd': 'ip neigh > <dumper_out_file>' },
     'linux_netplan':                { 'shell_cmd': 'mkdir -p <temp_folder>/linux_netplan/etc/ && ' +
                                                    'cp /etc/netplan/*yaml* <temp_folder>/linux_netplan/etc 2>/dev/null && ' +
@@ -70,8 +93,11 @@ g_dumpers = {
                                                    'cp /run/netplan/*yaml* <temp_folder>/linux_netplan/run 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_pidof_vpp':              { 'shell_cmd': 'echo "vpp: $(pidof vpp)" > <dumper_out_file>; ' +
-                                                   'echo "vppctl: $(pidof vppctl)" >> <dumper_out_file>; ' +
-                                                   'ps -elf | grep vpp >> <dumper_out_file>' },
+                                                   'echo "vppctl: $(pidof vppctl)" >> <dumper_out_file>; '},
+    'linux_pppoe':                  { 'shell_cmd': 'mkdir -p <temp_folder>/linux_pppoe/etc/ && ' +
+                                                   'cp -r /etc/ppp/ <temp_folder>/linux_pppoe/etc 2>/dev/null && ' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'linux_ps':                     { 'shell_cmd': 'ps -ww -elf > <dumper_out_file>' },
     'linux_ram':                    { 'shell_cmd': 'free > <dumper_out_file>' },
     'linux_resolvconf':             { 'shell_cmd': 'mkdir -p <temp_folder>/linux_resolvconf/ && ' +
                                                    'cp /etc/resolv.conf <temp_folder>/linux_resolvconf 2>/dev/null ; ' +
@@ -84,6 +110,8 @@ g_dumpers = {
     'linux_syslog':                 { 'shell_cmd': 'cp /var/log/syslog <temp_folder>/linux_syslog.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_syslog.1':               { 'shell_cmd': 'cp /var/log/syslog.1 <temp_folder>/linux_syslog_1.log 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'linux_uuid':                   { 'shell_cmd': 'cp /sys/class/dmi/id/product_uuid <temp_folder>/linux_uuid.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     ############################################################################
@@ -98,6 +126,14 @@ g_dumpers = {
     # FRR stuff - !!! PLEASE KEEP ALPHABET ORDER !!!
     #
     'frr_conf':                     { 'shell_cmd': 'mkdir -p <temp_folder>/frr && cp /etc/frr/* <temp_folder>/frr/ 2>/dev/null' },
+    'frr_bgp_summary':              { 'shell_cmd': f'vtysh -c "show bgp summary" > <temp_folder>/frr_bgp_summary.json 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'frr_ip_route':                 { 'shell_cmd': f'vtysh -c "show ip route json" > <temp_folder>/frr_ip_route.json 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'frr_log':                      { 'shell_cmd': f'cp {g.FRR_LOG_FILE} <temp_folder>/frr.log 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'frr_ospf_neighbors':           { 'shell_cmd': f'vtysh -c "show ip ospf neighbor all json" > <temp_folder>/frr_ip_ospf_neighbors.json 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     ############################################################################
     # flexiEdge agent stuff - !!! PLEASE KEEP ALPHABET ORDER !!!
@@ -106,21 +142,10 @@ g_dumpers = {
     'fwagent_conf':                 { 'shell_cmd': 'mkdir -p <temp_folder>/fwagent && ' +
                                                    'cp -r /etc/flexiwan/agent/* <temp_folder>/fwagent/ 2>/dev/null' },
     'fwagent_device_signature':     { 'shell_cmd': 'fwagent show --configuration signature > <dumper_out_file>' },
-    'fwagent_log':                  { 'shell_cmd': 'cp %s <temp_folder>/fwagent.log 2>/dev/null ;' % (g.ROUTER_LOG_FILE) +
+    'fwagent_logs': 				{ 'shell_cmd': 'mkdir -p <temp_folder>/flexiwan_logs && ' +
+                                                   'cp /var/log/flexiwan/*.log /var/log/flexiwan/*.log.1 <temp_folder>/flexiwan_logs/ 2>/dev/null ;' +
+                                                   'mv <temp_folder>/flexiwan_logs/agent.log <temp_folder>/fwagent.log 2>/dev/null ;' +  # Move main log into root folder for convenience
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'fwagent_log.1':                { 'shell_cmd': 'cp %s.1 <temp_folder>/fwagent_1.log 2>/dev/null ;' % (g.ROUTER_LOG_FILE) +
-                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-
-    'fwagent_ui_log':               { 'shell_cmd': 'cp %s <temp_folder>/fwagent_ui.log 2>/dev/null ;' % (g.AGENT_UI_LOG_FILE) +
-                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'fwagent_ui_log.1':             { 'shell_cmd': 'cp %s.1 <temp_folder>/fwagent_ui_1.log 2>/dev/null ;' % (g.AGENT_UI_LOG_FILE) +
-                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-
-    'fwsystem_checker_log':         { 'shell_cmd': 'cp %s <temp_folder>/fwsystem_checker.log 2>/dev/null ;' % (g.SYSTEM_CHECKER_LOG_FILE) +
-                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'fwsystem_checker_log.1':       { 'shell_cmd': 'cp %s.1 <temp_folder>/fwsystem_checker_1.log 2>/dev/null ;' % (g.SYSTEM_CHECKER_LOG_FILE) +
-                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-
     'dpkg_log':                     { 'shell_cmd': 'cp /var/log/dpkg.log <temp_folder>/dpkg.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'dpkg_log.1':                   { 'shell_cmd': 'cp /var/log/dpkg.log.1 <temp_folder>/dpkg_1.log 2>/dev/null ;' +
@@ -129,28 +154,40 @@ g_dumpers = {
     'hostapd.log':                  { 'shell_cmd': 'cp %s <temp_folder>/hostapd.log 2>/dev/null ;' % (g.HOSTAPD_LOG_FILE) +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
+    'fwagent_db_applications':      { 'shell_cmd': 'fwagent show --database applications > <dumper_out_file>' },
+    'fwagent_db_frr':               { 'shell_cmd': 'fwagent show --database frr > <dumper_out_file>' },
     'fwagent_db_general':           { 'shell_cmd': 'fwagent show --database general > <dumper_out_file>' },
     'fwagent_db_multilink':         { 'shell_cmd': 'fwagent show --database multilink > <dumper_out_file>' },
+    'fwagent_qos':                  { 'shell_cmd': 'fwagent show --database qos > <dumper_out_file>' },
     'fwagent_multilink_cfg':        { 'shell_cmd': 'fwagent show --configuration multilink-policy > <dumper_out_file>' },
     'fwagent_router_cfg':           { 'shell_cmd': 'fwagent show --configuration router > <dumper_out_file>' },
+    'fwagent_router_pending_cfg':   { 'shell_cmd': 'fwagent show --configuration router-pending > <dumper_out_file>' },
     'fwagent_system_configuration': { 'shell_cmd': 'fwagent show --configuration system > <dumper_out_file>' },
+    'fwagent_jobs':                 { 'shell_cmd': 'fwagent show --database jobs > <dumper_out_file>' },
 
     'fwagent_threads':              { 'shell_cmd': 'fwagent show --agent threads > <dumper_out_file>' },
     'fwagent_version':              { 'shell_cmd': 'fwagent version > <dumper_out_file>' },
-
-    'fwsystem_checker':             { 'shell_cmd': 'fwsystem_checker --check_only > <dumper_out_file>' },
 
     ############################################################################
     # VPP stuff - !!! PLEASE KEEP ALPHABET ORDER !!!
     #
     'vpp_acl_dump':                 { 'shell_cmd': 'echo acl_dump > vat.txt && vpp_api_test script in vat.txt > <dumper_out_file> 2>&1 ; rm -rf vat.txt' },
+    'vpp_acl_plugin_interface_acl': { 'shell_cmd': 'vppctl show acl-plugin interface > <dumper_out_file>' },
+    'vpp_acl_plugin_lookup_context':{ 'shell_cmd': 'vppctl show acl-plugin lookup context > <dumper_out_file>' },
+    'vpp_acl_plugin_sessions':      { 'shell_cmd': 'vppctl show acl-plugin sessions > <dumper_out_file>' },
+    'vpp_acl_plugin_tables':        { 'shell_cmd': 'vppctl show acl-plugin tables > <dumper_out_file>' },
     'vpp_adj':                      { 'shell_cmd': 'vppctl sh adj > <dumper_out_file>' },
     'vpp_bridge':                   { 'shell_cmd': 'vppctl sh bridge > <dumper_out_file>' },
-    'vpp_ike_sa':                   { 'shell_cmd': 'vppctl sh ike sa > <dumper_out_file>' },
-    'vpp_interfaces_hw':            { 'shell_cmd': 'vppctl sh hard > <dumper_out_file>' },
-    'vpp_interfaces_sw':            { 'shell_cmd': 'vppctl sh int > <dumper_out_file>' },
+    'vpp_buffers':                  { 'shell_cmd': 'vppctl sh buffers > <dumper_out_file>' },
+    'vpp_default_gateways':         { 'shell_cmd': 'vppctl sh ip fib 0.0.0.0/0 > <dumper_out_file>' },
+    'vpp_ike_profile':              { 'shell_cmd': 'vppctl sh ike profile > <dumper_out_file>' },
+    'vpp_ike_sa':                   { 'shell_cmd': 'vppctl sh ike sa details > <dumper_out_file>' },
     'vpp_interfaces_addresses':     { 'shell_cmd': 'vppctl sh int addr > <dumper_out_file>' },
-    'vpp_interfaces_vmxnet3':       { 'shell_cmd': 'vppctl show vmxnet3 > <dumper_out_file>' },
+    'vpp_interfaces_hw':            { 'shell_cmd': 'vppctl sh hard > <dumper_out_file>' },
+    'vpp_interfaces_rx_placement':  { 'shell_cmd': 'vppctl sh int rx > <dumper_out_file>' },
+    'vpp_interfaces_sw':            { 'shell_cmd': 'vppctl sh int > <dumper_out_file>' },
+    'vpp_interfaces_vmxnet3':       { 'shell_cmd': 'vppctl sh vmxnet3 > <dumper_out_file>' },
+    'vpp_ipip_tunnel':              { 'shell_cmd': 'vppctl sh ipip tunnel > <dumper_out_file>' },
     'vpp_ipsec_sa':                 { 'shell_cmd': 'vppctl sh ipsec sa > <dumper_out_file>' },
     'vpp_ipsec_tunnel':             { 'shell_cmd': 'vppctl sh ipsec tunnel > <dumper_out_file>' },
     'vpp_fib_entries':              { 'shell_cmd': 'vppctl sh fib entry > <dumper_out_file>' },
@@ -160,23 +197,33 @@ g_dumpers = {
     'vpp_fwabf_links':              { 'shell_cmd': 'vppctl sh fwabf link > <dumper_out_file>' },
     'vpp_fwabf_policies':           { 'shell_cmd': 'vppctl sh fwabf policy > <dumper_out_file>' },
     'vpp_fwabf_attachments':        { 'shell_cmd': 'vppctl sh fwabf attach > <dumper_out_file>' },
-    'vpp_nat44_addresses':          { 'shell_cmd': 'vppctl show nat44 addresses > <dumper_out_file>' },
+    'vpp_neighbors':                { 'shell_cmd': 'vppctl sh ip neighbors > <dumper_out_file>' },
+    'vpp_nat44_addresses':          { 'shell_cmd': 'vppctl show nat44 addresses verbose > <dumper_out_file>' },
     'vpp_nat44_hash_tables':        { 'shell_cmd': 'vppctl show nat44 hash tables > <dumper_out_file>' },
     'vpp_nat44_interfaces':         { 'shell_cmd': 'vppctl show nat44 interfaces > <dumper_out_file>' },
     'vpp_nat44_interface_address':  { 'shell_cmd': 'vppctl show nat44 interface address > <dumper_out_file>' },
     'vpp_nat44_static_mappings':    { 'shell_cmd': 'vppctl show nat44 static mappings > <dumper_out_file>' },
+    'vpp_nat44_sessions':           { 'shell_cmd': 'vppctl show nat44 sessions > <dumper_out_file>' },
+    'vpp_nat44_summary':            { 'shell_cmd': 'vppctl show nat44 summary > <dumper_out_file>' },
     'vpp_tap_inject':               { 'shell_cmd': 'vppctl show tap-inject > <dumper_out_file>' },
     'vpp_vxlan_tunnel':             { 'shell_cmd': 'vppctl sh vxlan tunnel > <dumper_out_file>' },
+    'vpp_qos_interface_config':     { 'shell_cmd': 'vppctl show dpdk interface hqos > <dumper_out_file>' },
+    'vpp_qos_interface_stats':      { 'shell_cmd': 'vppctl show dpdk hqos queue > <dumper_out_file>' },
+    'vpp_qos_egress_map':           { 'shell_cmd': 'vppctl show qos egress map > <dumper_out_file>' },
+    'vpp_qos_egress_mark':          { 'shell_cmd': 'vppctl show qos mark > <dumper_out_file>' },
 }
 
-class FwDump:
-    def __init__(self, temp_folder=None, quiet=False):
+class FwDump(FwObject):
+    def __init__(self, temp_folder=None, quiet=False, include_vpp_core=None):
+
+        FwObject.__init__(self)
 
         self.temp_folder    = temp_folder
         self.quiet          = quiet
         self.prompt         = 'fwdump>> '
         self.zip_file       = None
         self.hostname       = os.uname()[1]
+        self.include_vpp_core = include_vpp_core
 
         if not temp_folder:
             timestamp = fwutils.build_timestamped_filename('')
@@ -234,6 +281,18 @@ class FwDump:
                 except Exception as e:
                     print(self.prompt + 'warning: dumper %s failed, error %s' % (dumper, str(e)))
                     continue
+            if 'python' in g_dumpers[dumper]:
+                python_func = g_dumpers[dumper]['python']['func']
+                python_args = g_dumpers[dumper]['python']['args']
+                module_name, func_name = python_func.split('.')
+
+                try:
+                    func  = getattr(__import__(module_name), func_name)
+                    func(**python_args)
+                except Exception as e:
+                    print(self.prompt + 'warning: dumper %s failed, error %s' % (dumper, str(e)))
+                    continue
+
 
     def zip(self, filename=None, path=None, delete_temp_folder=True):
         if not filename:
@@ -250,9 +309,43 @@ class FwDump:
         except Exception as e:
             print(self.prompt + 'ERROR: "%s" failed: %s' % (cmd, str(e)))
 
+    def add_application_files(self):
+        try:
+            apps = fwapplications_api.call_applications_hook('get_fwdump_files')
+            for app_identifier, app_files in apps.items():
+                directory = f'<temp_folder>/applications/{app_identifier}'
+                for app_file in app_files:
+                    file_name = app_file.split('/')[-1] # get the filename out of the file full path
+                    g_dumpers[file_name] = {
+                        'shell_cmd': f'mkdir -p {directory} && cat {app_file} > {directory}/{file_name}'
+                    }
+        except:
+            pass # Do not crash in case of application code error
+
+    def add_lte_files(self):
+        try:
+            lte_interfaces = fwlte.get_lte_interfaces_dev_ids()
+            for dev_id in lte_interfaces:
+                lte_if_name = lte_interfaces[dev_id]
+                file_name = f'lte_{lte_if_name}'
+                g_dumpers[file_name] = {
+                    'python': {
+                        'func': 'fwlte.dump',
+                        'args': { 'dev_id': dev_id, 'lte_if_name': lte_if_name, 'prefix_path': f'{self.temp_folder}/{file_name}' } }
+                }
+        except:
+            pass # Do not crash in case of LTE code error
+
     def dump_all(self):
+        self.add_application_files()
+        self.add_lte_files()
+
         dumpers = list(g_dumpers.keys())
         self._dump(dumpers)
+        if self.include_vpp_core:
+            corefile_dir = self.temp_folder + "/corefiles/"
+            os.makedirs(corefile_dir)
+            vpp_coredump_copy_cores(corefile_dir, self.include_vpp_core)
 
     def dump_multilink(self):
         dumpers = [
@@ -279,7 +372,8 @@ class FwDump:
         self._dump(dumpers)
 
 def main(args):
-    with FwDump(temp_folder=args.temp_folder, quiet=args.quiet) as dump:
+    with FwDump(temp_folder=args.temp_folder, quiet=args.quiet,
+                include_vpp_core=args.include_vpp_core) as dump:
 
         if args.feature:
             method_name = 'dump_'+ args.feature
@@ -318,5 +412,7 @@ if __name__ == '__main__':
                         help="folder where to keep not zipped dumped info")
     parser.add_argument('--zip_file', default=None,
                         help="filename to be used for the final archive, can be full/relative. If not specified, default name will be used and printed on exit.")
+    parser.add_argument('-c', '--include_vpp_core', nargs='?', const=3, type=int, choices=range(1, 4),
+                        help="Include VPP coredumps to be part of fwdump")
     args = parser.parse_args()
     main(args)

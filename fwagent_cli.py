@@ -20,18 +20,14 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import os
 import Pyro4
-import re
-import time
-import traceback
 
-import fwagent
 import fwglobals
-import fwutils
+
+from fwobject import FwObject
 
 
-class FwagentCli:
+class FwagentCli(FwObject):
     """This class implements abstraction of fwagent shell.
     On construction it connects to agent that runs on background,
     and than runs infinite read-and-execute loop:
@@ -48,6 +44,8 @@ class FwagentCli:
     def __init__(self):
         """Constructor.
         """
+        FwObject.__init__(self)
+
         self.daemon       = None
         self.agent        = None
         self.prompt       = 'fwagent> '
@@ -56,12 +54,12 @@ class FwagentCli:
             self.daemon = Pyro4.Proxy(fwglobals.g.FWAGENT_DAEMON_URI)
             self.daemon.ping()   # Check if daemon runs. If it does not, create local instance of Fwagent
         except Pyro4.errors.CommunicationError:
-            fwglobals.log.warning("no daemon Fwagent was found, use local instance")
+            self.log.warning("no daemon Fwagent was found, use local instance")
             self.daemon = None
 
     def __enter__(self):
         if not self.daemon:
-	        self.agent = fwglobals.g.initialize_agent(standalone=True)
+	        self.agent = fwglobals.g.create_agent()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -73,7 +71,7 @@ class FwagentCli:
             # If we used local instance of Fwagent and not daemon, kill it.
             # Otherwise we might hang up in vpp watchdog,
             # if router was started by cli execution.
-            self.agent = fwglobals.g.finalize_agent()
+            self.agent = fwglobals.g.destroy_agent()
 
     def run_loop(self):
         while True:
@@ -90,10 +88,10 @@ class FwagentCli:
                 else:
                     ret = self.execute(api_str)
                     if ret['succeeded']:
-                        fwglobals.log.info(self.prompt + 'SUCCESS')
+                        self.log.info(self.prompt + 'SUCCESS')
                     else:
-                        fwglobals.log.info(self.prompt + 'FAILURE')
-                        fwglobals.log.error(self.prompt + ret['error'])
+                        self.log.info(self.prompt + 'FAILURE')
+                        self.log.error(self.prompt + ret['error'])
             except Exception as e:
                 print(self.prompt + 'FAILURE: ' + str(e))
 
@@ -107,11 +105,11 @@ class FwagentCli:
         try:
             # Convert list of "<name>=<val>" elements into dictionary
             api_name = api_args[0]
-            api_args = { arg.split("=")[0] : arg.split("=")[1] for arg in api_args[1:] }
+            api_args = { arg.split("=", 1)[0] : arg.split("=", 1)[1] for arg in api_args[1:] }
 
             if self.daemon:
                 rpc_api_func = getattr(self.daemon, 'api')
-                ret = rpc_api_func(api_name, api_args)
+                ret = rpc_api_func(api_name, None, **api_args)
             elif self.agent:
                 api_func = getattr(self.agent, api_name)
                 ret = api_func(**api_args)

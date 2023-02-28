@@ -39,6 +39,9 @@ TEST_ROOT = CODE_ROOT + '/tests/'
 sys.path.append(CODE_ROOT)
 sys.path.append(TEST_ROOT)
 import fwutils
+import fwglobals
+
+g = fwglobals.Fwglobals()
 
 template_path = os.path.abspath(TEST_ROOT + '/fwtemplates.yaml')
 
@@ -65,8 +68,8 @@ class TestFwagent:
         if daemon_pid:
             os.system('kill -9 %s' % daemon_pid)                # Ensure daemon by previous failed test does not run
         if vpp_does_run():
-            self.fwkill()         # The kill shot - ensure vpp does not run
-        os.system('%s reset --soft --quiet' % self.fwagent_py)  # Clean fwagent files like persistent configuration database
+            os.system('%s --quiet' % self.fwkill_py)            # The kill shot - ensure vpp does not run
+        os.system('%s reset --soft --quiet --pppoe' % self.fwagent_py)  # Clean fwagent files like persistent configuration database
 
         # Print exception if it is not caused by 'assert' statement
         # The 'assert' is printed by pytest.
@@ -88,11 +91,7 @@ class TestFwagent:
         time.sleep(1)   # Ensure that all further log times are greater than now()
                         # The now() uses microseconds, when log uses seconds only.
 
-    def fwagent_cmd(self, args):
-        ret = os.system('%s %s' % (self.fwagent_py, args))
-        return (ret == 0, None)
-
-    def cli(self, args, daemon=False, expected_vpp_cfg=None, expected_router_cfg=None, check_log=False):
+    def cli(self, args, daemon=False, debug_conf_file=None, standalone=True, expected_vpp_cfg=None, expected_router_cfg=None, check_log=False):
         '''Invokes fwagent API.
 
         :param args:   the API function name and parameters to be invoked.
@@ -100,6 +99,14 @@ class TestFwagent:
         :param daemon: if True the fwagent will be created and run by background
                     process. Otherwise, the local instance of agent will be created,
                     the API will be invoked on it and the instance will be destroyed.
+
+        :param debug_conf_file: the debug_conf.yaml file to be fed to agent.
+                    Can be relative or absolute path including file name.
+                    Applicable only if daemon=True.
+
+        :param standalone: if True the tests/debug_conf.yaml.standalone_no_features
+                    file will be fed to daemon as a debug_conf_file.
+                    Applicable only if daemon=True and debug_conf_file=None.
 
         :param expected_vpp_cfg: The name of the JSON file with dictionary or
                     the python list of VPP configuration items that describes
@@ -153,7 +160,10 @@ class TestFwagent:
         # Create instance of background fwagent if asked.
         if daemon:
             try:
-                cmd = '%s daemon --dont_connect &' % (self.fwagent_py)
+                if not debug_conf_file and standalone:
+                    debug_conf_file = os.path.abspath(TEST_ROOT + '/debug_conf.yaml.standalone_no_features')
+                debug_conf = f"--debug_conf={debug_conf_file}" if debug_conf_file else ''
+                cmd = f'{self.fwagent_py} daemon {debug_conf} &'
                 os.system(cmd)
 
                 # Poll daemon status until it becomes 'running'
@@ -212,12 +222,16 @@ class TestFwagent:
         out = subprocess.check_output(cmd, shell=True).decode()
         return out.rstrip()
 
+    def clean_log(self):
+        os.system(f"sudo echo '' > {g.ROUTER_LOG_FILE}")
+        os.system(f"sudo echo '' > {g.SYSLOG_FILE}")
+
     def grep_log(self, pattern, print_findings=True, since=None):
         found = []
         if not since:
             since = self.start_time
 
-        grep_cmd = "sudo grep -a -E '%s' /var/log/flexiwan/agent.log" % pattern
+        grep_cmd = "sudo grep -a -E '%s' %s" % (pattern, g.ROUTER_LOG_FILE)
         try:
             out = subprocess.check_output(grep_cmd, shell=True).decode()
             if out:
@@ -268,12 +282,13 @@ def vpp_pid():
     return pid
 
 def fwagent_daemon_pid():
-    try:
-        cmd = "ps -ef | egrep 'fwagent.* daemon' | grep -v grep | tr -s ' ' | cut -d ' ' -f2"
-        pid = subprocess.check_output(cmd, shell=True).decode()
-    except:
-        pid = None
-    return pid
+    for p in psutil.process_iter(["pid", "cmdline"]):
+        # {'cmdline': ['python3', '/path-to-fwagent/fwagent.py', 'daemon', '--dont_connect'], 'pid': 8428}
+        if 'daemon' in p.info['cmdline']:
+            for arg in p.info['cmdline']:
+                if 'fwagent' in arg:
+                    return str(p.info['pid'])
+    return None
 
 def linux_interfaces_count():
     cmd = 'ls -A /sys/class/net | wc -l'
@@ -289,7 +304,7 @@ def linux_interfaces_are_configured(expected_count, print_error=True):
 
 def vpp_is_configured(config_entities, print_error=True):
 
-    def _run_command(cmd, print_error=True):
+    def _run_command(cmd, count_out_lines=False):
         # This function simulates subprocess.check_output() using the Popen
         # object in order to avoid excpetions when process exits with non-zero
         # status. Otherwise pytest intercepts the exception and fails the test.
@@ -298,42 +313,43 @@ def vpp_is_configured(config_entities, print_error=True):
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
         out = p.communicate()[0].decode()
         retcode = p.poll()
+        if count_out_lines:
+            return (retcode, len(out.splitlines()))
         return (retcode, out.rstrip())
 
-    def _check_command_output(cmd, expected_out, descr='', cmd_on_error=None, print_error=True):
+    def _check_command_output(cmd, expected_out, descr='', cmd_on_error=None, print_error=True, ignore_cmd_failure=False):
         # Can't use 'subprocess.check_output' as it raises exception on non-zero return code
         # due to 'clib_socket_init: connect (fd 3, '/run/vpp/cli.sock'): Connection refused' error.
         # Use Popen instead and collect output using communicate() method.
-        (retcode, out) = _run_command(cmd)
-        if retcode != 0 or out != expected_out:
+        (retcode, out) = _run_command(cmd, count_out_lines=True)
+        if out != int(expected_out):
             if print_error:
-                if retcode != 0:
-                    print("ERROR: cmd=%s: exit code=%s" % (cmd, str(retcode)))
-                else:
-                    print("ERROR: number %s doesn't match: expected %s, found %s" % (descr, expected_out, out))
-                    print("ERROR: cmd=%s" % (cmd))
-                    print("ERROR: out=%s" % (out))
-                    if cmd_on_error:
-                        (retcode, out) = _run_command(cmd_on_error)
-                        print("ERROR: (%s):\n%s" % (cmd_on_error, str(out)))
+                print("ERROR: number %s doesn't match: expected %s, found %s" % (descr, expected_out, out))
+                print("ERROR: cmd=%s" % (cmd))
+                print("ERROR: out=%s" % (out))
+                if cmd_on_error:
+                    (retcode, out) = _run_command(cmd_on_error)
+                    print("ERROR: (%s):\n%s" % (cmd_on_error, str(out)))
             return False
+        if retcode != 0 and not ignore_cmd_failure:
+            print("WARN: cmd=%s: exit code=%s" % (cmd, str(retcode)))
         return True
 
     for (e, amount) in config_entities:
         output = str(amount)
         if e == 'interfaces':
             # Count number of interfaces that are UP
-            cmd          = r"sudo vppctl sh int addr | grep -E '^(loop|Gigabit|TenGigabit|vmxnet3|tapcli).* \(up\)' | wc -l"  # Don't use 'grep -c'! It exits with failure if not found!
-            cmd_on_error = r"sudo vppctl sh int addr | grep -E '^(loop|Gigabit|TenGigabit|vmxnet3|tapcli).* \(up\)'"
-            if not _check_command_output(cmd, output, 'UP interfaces', cmd_on_error, print_error):
+            cmd          = r"sudo vppctl sh int addr | grep -E '^(loop|Gigabit|TenGigabit|vmxnet3|tap|dpdk-tap).* \(up\)'"
+            cmd_on_error = r"sudo vppctl sh int addr"
+            if not _check_command_output(cmd, output, 'UP interfaces', cmd_on_error, print_error, ignore_cmd_failure=True):
                 return False
         if e == 'tunnels':
             # Count number of existing tunnel
             # Firstly try ipsec gre tunnels. If not found, try the vxlan tunnels.
-            cmd          = "sudo vppctl sh gre tunnel | grep src | wc -l"
+            cmd          = "sudo vppctl sh gre tunnel | grep src "
             cmd_on_error = "sudo vppctl sh gre tunnel"
-            if not _check_command_output(cmd, output, 'tunnels', cmd_on_error, print_error):
-                cmd          = "sudo vppctl show vxlan tunnel | grep src | wc -l"
+            if not _check_command_output(cmd, output, 'tunnels', cmd_on_error, print_error, ignore_cmd_failure=True):
+                cmd          = "sudo vppctl show vxlan tunnel | grep src "
                 cmd_on_error = "sudo vppctl show vxlan tunnel"
                 if not _check_command_output(cmd, output, 'tunnels', cmd_on_error, print_error) and print_error:
                     return False
@@ -345,14 +361,14 @@ def vpp_is_configured(config_entities, print_error=True):
         if e == 'multilink-policies':
             # Count number of existing tunnel
             # Firstly try  tunnels. If not found, try the vxlan tunnels.
-            cmd          = "sudo vppctl show fwabf policy | grep fwabf: | wc -l"
+            cmd          = "sudo vppctl show fwabf policy | grep fwabf: "
             cmd_on_error = "sudo vppctl show fwabf policy"
-            if not _check_command_output(cmd, output, 'multilink-policies', cmd_on_error, print_error):
+            if not _check_command_output(cmd, output, 'multilink-policies', cmd_on_error, print_error, ignore_cmd_failure=True):
                 return False
         if e == 'dhcp-servers':
             # Count number of existing tunnel
             # Firstly try ipsec gre tunnels. If not found, try the vxlan tunnels.
-            cmd          = "sudo grep -E '^subnet [0-9.]+ netmask' /etc/dhcp/dhcpd.conf | wc -l"
+            cmd          = "sudo grep -E '^subnet [0-9.]+ netmask' /etc/dhcp/dhcpd.conf"
             cmd_on_error = "sudo cat /etc/dhcp/dhcpd.conf"
             if not _check_command_output(cmd, output, 'dhcp-servers', cmd_on_error, print_error):
                 return False
@@ -370,11 +386,11 @@ def wait_vpp_to_start(timeout=1000000):
         return False
 
     # Wait for vpp to be ready to process cli requests
-    res = subprocess.call("sudo vppctl sh version", shell=True)
+    res = subprocess.call("sudo vppctl sh version > /dev/null 2>&1", shell=True)
     while res != 0 and timeout > 0:
         time.sleep(3)
         timeout -= 1
-        res = subprocess.call("sudo vppctl sh version", shell=True)
+        res = subprocess.call("sudo vppctl sh version > /dev/null 2>&1", shell=True)
     if timeout == 0:
         return False
     return True
@@ -465,6 +481,37 @@ def router_is_configured(expected_cfg_dump_filename,
             print("ERROR: %s does not match %s" % (replaced_expected_cfg_dump_filename, actual_cfg_dump_filename))
     return ok
 
+def router_is_pending_configured(expected_cfg_dump_filename,
+                         fwagent_py='python3 /usr/share/flexiwan/agent/fwagent.py',
+                         print_error=True):
+    # Dumps current router pending configuration into temporary file and checks
+    # if the dump file is equal to the provided expected dump file.
+    actual_cfg_dump_filename = expected_cfg_dump_filename + ".actual.txt"
+    replaced_expected_cfg_dump_filename = expected_cfg_dump_filename + ".replaced.txt"
+
+    dump_configuration = subprocess.check_output("sudo %s show --configuration router-pending" % fwagent_py, shell=True).decode().replace('\t', '').replace('\n', '').strip()
+    actual_json = json.loads(dump_configuration) if dump_configuration else {}
+
+    expected_json = fwutils.replace_file_variables(template_path, expected_cfg_dump_filename)
+
+    actual_json_dump = json.dumps(actual_json, indent=2, sort_keys=True)
+    expected_json_dump = json.dumps(expected_json, indent=2, sort_keys=True)
+
+    ok = actual_json_dump == expected_json_dump
+    if ok:
+        if os.path.exists(actual_cfg_dump_filename):
+            os.remove(actual_cfg_dump_filename)
+        if os.path.exists(replaced_expected_cfg_dump_filename):
+            os.remove(replaced_expected_cfg_dump_filename)
+    else:
+        with open(actual_cfg_dump_filename, 'w+') as f:
+            f.write(actual_json_dump)
+        with open(replaced_expected_cfg_dump_filename, 'w+') as f:
+            f.write(expected_json_dump)
+        if print_error:
+            print("ERROR: %s does not match %s" % (replaced_expected_cfg_dump_filename, actual_cfg_dump_filename))
+    return ok
+
 def get_log_line_time(log_line):
     # Jul 29 15:57:19 localhost fwagent: error: _preprocess_request: current requests: [{"message": ...
     tokens = log_line.split()[0:3]
@@ -495,7 +542,7 @@ def adjust_environment_variables():
     for netplan in netplan_paths:
         with open(netplan, "r+") as fd:
             netplan_json = yaml.load(fd)
-            for if_name, val in netplan_json['network']['ethernets'].items():
+            for if_name, val in dict(netplan_json['network']['ethernets']).items():
                 replaced_name = str(data[if_name.split('name')[0]]['name'])
                 netplan_json['network']['ethernets'][replaced_name] = netplan_json['network']['ethernets'].pop(if_name)
                 interface = netplan_json['network']['ethernets'][replaced_name]
@@ -507,3 +554,7 @@ def adjust_environment_variables():
             fd.seek(0)
             fd.write(netplan_str)
             fd.truncate()
+
+def get_pppoe_info():
+    data = fwutils.get_template_data_by_hw(template_path)
+    return data['__PPPoE__']['if_name'], data['__PPPoE__']['dev_id']

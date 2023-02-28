@@ -26,8 +26,13 @@ import glob
 import os
 import subprocess
 
-class FwIKEv2:
+import fw_os_utils
+from fwobject import FwObject
+
+class FwIKEv2(FwObject):
     def __init__(self):
+        FwObject.__init__(self)
+
         self.IKEV2_PRIVATE_KEY_FILE = self.private_key_filename_get()
         self.IKEV2_PUBLIC_CERTIFICATE_FILE = self.certificate_filename_get()
         self.private_key_created = False
@@ -79,16 +84,19 @@ class FwIKEv2:
         if not os.path.exists(public_pem):
             return {'certificateExpiration': '', 'error': 'Public key is missing'}
 
-        cmd = "openssl x509 -enddate -noout -in %s" % public_pem
-        res = subprocess.check_output(cmd, shell=True).decode().strip()
-        if not res:
-            return {'certificateExpiration': '', 'error': 'No enddate for public certificate'}
-        end_date = res.split('=')[1]
+        try:
+            cmd = "openssl x509 -enddate -noout -in %s" % public_pem
+            res = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT).decode().strip()
+            if not res:
+                return {'certificateExpiration': '', 'error': 'No enddate for public certificate'}
+            end_date = res.split('=')[1]
 
-        cmd = "openssl rsa -check -noout -in %s" % private_pem
-        res = subprocess.check_output(cmd, shell=True).decode().strip()
-        if res != "RSA key ok":
-            return {'certificateExpiration': '', 'error': 'RSA key is not ok'}
+            cmd = "openssl rsa -check -noout -in %s" % private_pem
+            res = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT).decode().strip()
+            if res != "RSA key ok":
+                return {'certificateExpiration': '', 'error': 'RSA key is not ok'}
+        except subprocess.CalledProcessError as e:
+            return {'certificateExpiration': '', 'error': e.output.splitlines()[0].decode().strip()}
 
         return {'certificateExpiration': end_date}
 
@@ -96,10 +104,10 @@ class FwIKEv2:
         '''This function modifies private key.
         '''
         try:
-            fwglobals.g.router_api.vpp_api.vpp.api.ikev2_set_local_key(key_file=private_pem)
+            fwglobals.g.router_api.vpp_api.vpp.call('ikev2_set_local_key', key_file=private_pem)
 
         except Exception as e:
-            fwglobals.log.error("%s" % str(e))
+            self.log.error("%s" % str(e))
             return False
 
         return True
@@ -122,12 +130,12 @@ class FwIKEv2:
                 os.makedirs(fwglobals.g.IKEV2_FOLDER)
 
             cmd = "openssl req -new -newkey rsa:4096 -days %u -nodes -x509 -subj '/CN=%s' -keyout %s -out %s" % (days, machine_id, private_pem, public_pem)
-            fwglobals.log.debug(cmd)
+            self.log.debug(cmd)
             ok = not subprocess.call(cmd, shell=True)
             if not ok:
                 return {'ok': 0, 'message': 'Cannot create certificate'}
 
-            if fwutils.vpp_does_run():
+            if fw_os_utils.vpp_does_run():
                 ok = self.modify_private_key(private_pem)
                 if not ok:
                     return {'ok': 0, 'message': 'Cannot set private key in VPP'}
@@ -158,13 +166,14 @@ class FwIKEv2:
             public_pem = self.remote_certificate_filename_get(device_id)
             profile = self.profile_name_get(tunnel_id)
 
-            fwglobals.g.router_api.vpp_api.vpp.api.ikev2_profile_set_auth(name=profile,
+            fwglobals.g.router_api.vpp_api.vpp.call('ikev2_profile_set_auth',
+                                                            name=profile,
                                                             auth_method=1,
                                                             data=public_pem.encode(),
                                                             data_len=len(public_pem))
 
         except Exception as e:
-            fwglobals.log.error("%s" % str(e))
+            self.log.error("%s" % str(e))
             pass
 
     def add_public_certificate(self, device_id, certificate):
@@ -190,8 +199,8 @@ class FwIKEv2:
 
         try:
             if role == 'initiator':
-                fwglobals.g.router_api.vpp_api.vpp.api.ikev2_initiate_sa_init(name=profile)
+                fwglobals.g.router_api.vpp_api.vpp.call('ikev2_initiate_sa_init', name=profile)
 
         except Exception as e:
-            fwglobals.log.error("%s" % str(e))
+            self.log.error("%s" % str(e))
             pass

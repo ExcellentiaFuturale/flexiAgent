@@ -31,6 +31,9 @@ import sys
 import uuid
 import yaml
 import shutil
+import stat
+import serial
+import time
 
 common_tools = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , 'common')
 sys.path.append(common_tools)
@@ -39,8 +42,12 @@ from fw_vpp_startupconf import FwStartupConf
 globals = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , '..')
 sys.path.append(globals)
 import fwglobals
+import fwlog
 import fwutils
 import fwnetplan
+import fwlte
+import fwwifi
+from fw_vpp_coredump_utils import FW_VPP_COREDUMP_FOLDER, FW_VPP_COREDUMP_PERMISSIONS
 from fwsystem_checker import TXT_COLOR
 
 from yaml.constructor import ConstructorError
@@ -76,17 +83,19 @@ class Checker:
     def __init__(self, debug=False):
         """Constructor method
         """
-        fwglobals.initialize()
+        fwglobals.initialize(quiet=True)
+
+        self.log = fwlog.FwLogFile(fwglobals.g.SYSTEM_CHECKER_LOG_FILE, level=fwlog.FWLOG_LEVEL_DEBUG)
+        self.log.set_target(to_terminal=True)
 
         self.CFG_VPP_CONF_FILE      = fwglobals.g.VPP_CONFIG_FILE
         self.CFG_FWAGENT_CONF_FILE  = fwglobals.g.FWAGENT_CONF_FILE
-        self.debug                  = debug   # Don't use fwglobals.g.cfg.DEBUG to prevent temporary checker files even DEBUG is enabled globally
-        self.wan_interfaces         = None
+        self.debug                  = debug   # Don't use fwglobals.g.cfg.jmDEBUG to prevent temporary checker files even DEBUG is enabled globally
         self.nameservers            = None
         self.detected_nics          = None
         self.supported_nics         = None
-        self.fw_ac_db               = FwStartupConf()
-        self.vpp_configuration      = self.fw_ac_db.load(self.CFG_VPP_CONF_FILE)
+        self.vpp_startup_conf       = FwStartupConf(self.CFG_VPP_CONF_FILE)
+        self.vpp_configuration      = self.vpp_startup_conf.get_root_element()
         self.vpp_config_modified    = False
         self.update_grub            = False
 
@@ -96,11 +105,13 @@ class Checker:
 
     def save_config (self):
         if self.vpp_config_modified:
-            self.fw_ac_db.dump(self.vpp_configuration, self.CFG_VPP_CONF_FILE)
+            self.vpp_startup_conf.dump(self.vpp_configuration, self.CFG_VPP_CONF_FILE)
             self.update_grub_file()
+            self.vpp_config_modified = False
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE, fwglobals.g.VPP_CONFIG_FILE_BACKUP)
 
     def __enter__(self):
+        self.log.info("=== system checker starts ====")
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -109,7 +120,8 @@ class Checker:
         # statement finishes without an exception being raised, these
         # arguments will be `None`.
         if self.vpp_config_modified:
-            self.fw_ac_db.dump(self.vpp_configuration, self.CFG_VPP_CONF_FILE)
+            self.vpp_startup_conf.dump(self.vpp_configuration, self.CFG_VPP_CONF_FILE)
+        self.log.info("=== system checker ended ====")
 
     def hard_check_sse42(self, supported):
         """Check SSE 4.2 support.
@@ -162,31 +174,6 @@ class Checker:
             return False
         return True
 
-    def hard_check_wan_connectivity(self, supported):
-        """Check WAN connectivity.
-
-        :param supported:       Unused.
-
-        :returns: 'True' if check is successful and 'False' otherwise.
-        """
-        def _print_without_line_feed(str):
-            # So odd print is needed to enforce no line feed, so next print()
-            # will override this line.
-            print (str,)
-            sys.stdout.flush() # Need this as tail ',' removes the 'newline' in print(), so the print is not flushed immediately
-
-        self.wan_interfaces = []
-        interfaces = [ str(iface) for iface in psutil.net_if_addrs() if str(iface) != "lo" ]
-        for iface in interfaces:
-            for _ in range(5):
-                ret = os.system("ping -c 1 -I %s 8.8.8.8 > /dev/null 2>&1" % iface)
-                if ret == 0:
-                    self.wan_interfaces.append(str(iface))
-                    return True
-                _print_without_line_feed("\rcheck WAN connectivity on %s" % iface)
-            _print_without_line_feed("\r                                              \r")  # Clean the line on screen
-        return False
-
     def hard_check_kernel_io_modules(self, supported):
         """Check kernel IP modules presence.
 
@@ -200,10 +187,12 @@ class Checker:
         ]
         succeeded = True
         for mod in modules:
-            ret = os.system('modinfo %s > /dev/null 2>&1' %  mod)
+            ret = os.system(f'modinfo {mod} > /dev/null 2>&1')
             if ret:
-                print(mod + ' not found')
-                succeeded = False
+                out = subprocess.check_output(f'find /lib/modules -name modules.builtin -exec grep {mod} {{}} \;', shell=True)
+                if not out:
+                    self.log.error(mod + ' not found')
+                    succeeded = False
         return succeeded
 
     def hard_check_nic_drivers(self, supported):
@@ -234,8 +223,8 @@ class Checker:
                         continue
                     match = re.search('([^ ]+) .*\\[02..\\]: ([^ ]+)', params[0])
                     if not match:
-                        print("device: %s" % (str(device)))
-                        print("params[0]: %s" % (str(params[0])))
+                        self.log.excep("device: %s" % (str(device)))
+                        self.log.excep("params[0]: %s" % (str(params[0])))
                         raise Exception("not supported format of 'lspci -vnn' output")
                     pci          = match.group(1)
                     manufacturer = match.group(2)
@@ -257,7 +246,7 @@ class Checker:
                         'driver' : driver,
                         'supported' : supported }
             except Exception as e:
-                print(str(e))
+                self.log.error(str(e))
                 return False
 
         # Now go over found network cards and ensure that they are supported
@@ -265,7 +254,7 @@ class Checker:
         for pci in self.detected_nics:
             device = self.detected_nics[pci]
             if not device['supported']:
-                print('%s %s driver is not supported' % (device['manufacturer'], device['driver']))
+                self.log.error('%s %s driver is not supported' % (device['manufacturer'], device['driver']))
                 succeeded = False
         return succeeded
 
@@ -278,6 +267,14 @@ class Checker:
 
         :returns: 'True' if check is successful and 'False' otherwise.
         """
+
+        # Firstly check if user (or fwsystem_checker) configured UUID explicitly.
+        #
+        with open(self.CFG_FWAGENT_CONF_FILE, 'r') as f:
+            conf = yaml.load(f, Loader=yaml.SafeLoader)
+            if conf.get('agent') and conf['agent'].get('uuid'):
+                return True
+
         uuid_filename = '/sys/class/dmi/id/product_uuid'
         try:
             found_uuid = subprocess.check_output(['cat', uuid_filename]).decode().split('\n')[0].strip()
@@ -295,15 +292,7 @@ class Checker:
             return True
 
         except Exception as e:
-            print(prompt + str(e))
-
-            # Check if fwagent configuration file has the simulated uuid
-            with open(self.CFG_FWAGENT_CONF_FILE, 'r') as f:
-                conf = yaml.load(f, Loader=yaml.SafeLoader)
-                if conf.get('agent') and conf['agent'].get('uuid'):
-                    return True
-
-            print(prompt + "UUID was found neither in system nor in %s" % self.CFG_FWAGENT_CONF_FILE)
+            self.log.error(prompt + str(e))
             if not fix:
                 return False
 
@@ -324,37 +313,6 @@ class Checker:
             f.close()
             return True
 
-    def hard_check_default_route_connectivity(self, fix=False, silently=False, prompt=''):
-        """Check route connectivity.
-
-        :param fix:             Fix problem.
-        :param silently:        Do not prompt user.
-        :param prompt:          User prompt prefix.
-
-        :returns: 'True' if check is successful and 'False' otherwise.
-        """
-        try:
-            # If self.wan_interfaces was not filled yet (by hard_soft_checker), fill it
-            if self.wan_interfaces is None:
-                self.hard_check_wan_connectivity(True)
-
-            # Find all default routes and ensure that configured interface has WAN connectivity
-            default_routes = subprocess.check_output('ip route | grep default', shell=True).decode().strip().split('\n')
-            if len(default_routes) == 0:
-                print(prompt + "no default route was found")
-                return False
-            for route in default_routes:
-                # The 'route' should be in 'default via 192.168.1.1 dev enp0s3 proto static' format
-                # Extracts the interface name from this line and ensure that it presents in self.wan_interfaces.
-                iface_name = route.split(' ')[4]
-                if iface_name in self.wan_interfaces:
-                    return True
-            print(prompt + "default route has no WAN connectivity")
-            return False
-        except Exception as e:
-            print(prompt + str(e))
-            return False
-
     def soft_check_default_route(self, fix=False, silently=False, prompt=''):
         """Check if default route is present.
 
@@ -371,7 +329,7 @@ class Checker:
                 raise Exception("no default route was found")
             return True
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             if not fix:
                 return False
             else:
@@ -383,7 +341,7 @@ class Checker:
                         out = subprocess.check_output('ip route add default via %s' % ip, shell=True).decode().strip()
                         return True
                     except Exception as e:
-                        print(prompt + str(e))
+                        self.log.error(prompt + str(e))
                         while True:
                             choice = input(prompt + "repeat? [Y/n]: ")
                             if choice == 'y' or choice == 'Y' or choice == '':
@@ -426,7 +384,7 @@ class Checker:
         return gws
 
     def _add_netplan_interface(self, fname, dev, metric):
-        print("%s is assigned metric %u" % (dev, metric))
+        self.log.debug("%s is assigned metric %u" % (dev, metric))
         with open(fname, 'r') as stream:
             config = yaml.safe_load(stream)
             network = config['network']
@@ -461,9 +419,7 @@ class Checker:
         files = fwnetplan.load_netplan_filenames(get_only=True)
         metric = 100
         for fname, devices in list(files.items()):
-            os.system('cp %s %s.fworig' % (fname, fname))
-            fname_baseline = fname.replace('yaml', 'baseline.yaml')
-            os.system('mv %s %s' % (fname, fname_baseline))
+            fname = fwnetplan.create_baseline_if_not_exist(fname)
 
             for dev in devices:
                 ifname = dev.get('ifname')
@@ -471,9 +427,9 @@ class Checker:
                 if gateway is None:
                     continue
                 if primary_gw is not None and gateway == primary_gw:
-                    self._add_netplan_interface(fname_baseline, ifname, 0)
+                    self._add_netplan_interface(fname, ifname, 0)
                 else:
-                    self._add_netplan_interface(fname_baseline, ifname, metric)
+                    self._add_netplan_interface(fname, ifname, metric)
                     metric += 100
 
         subprocess.check_call('sudo netplan apply', shell=True)
@@ -498,13 +454,13 @@ class Checker:
             try:
                 self._check_duplicate_netplan_sections()
             except:
-                print("Please fix duplicate netplan sections first")
+                self.log.error("Please fix duplicate netplan sections first")
                 return False
             duplicates = self._get_duplicate_interface_definitions()
             if duplicates:
-                print("Please fix duplicate interface definition in netplan first")
+                self.log.error("Please fix duplicate interface definition in netplan first")
                 return False
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             if not fix:
                 return False
             else:
@@ -513,19 +469,19 @@ class Checker:
                     return self._fix_duplicate_metric(gws[0])
                 while True:
                     try:
-                        print("\nGateways to choose from:")
+                        self.log.debug("\nGateways to choose from:")
                         gws = self._get_gateways()
                         id = 1
                         for gw in gws:
-                            print("         %u  - %s" % (id, gw))
+                            self.log.debug("         %u  - %s" % (id, gw))
                             id += 1
                         id = int(input(prompt + "please choose the gw number: "))
                         if id > len(gws):
-                            print("Wrong number chosen!")
+                            self.log.error("Wrong number chosen!")
                             return False
                         return self._fix_duplicate_metric(gws[id-1])
                     except Exception as e:
-                        print(prompt + str(e))
+                        self.log.error(prompt + str(e))
                         while True:
                             choice = input(prompt + "repeat? [Y/n]: ")
                             if choice == 'y' or choice == 'Y' or choice == '':
@@ -581,7 +537,7 @@ class Checker:
             self._check_duplicate_netplan_sections()
             return True
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             return False
         return True
 
@@ -605,7 +561,7 @@ class Checker:
                 raise Exception(message)
             return True
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             return False
         return True
 
@@ -633,7 +589,7 @@ class Checker:
                 raise Exception("hostname '%s' does not comply standard" % hostname)
             result = True
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             hostname = ''
             result = False
 
@@ -645,13 +601,13 @@ class Checker:
             new_hostname = input(prompt + "enter hostname: ")
             if re.match(pattern, new_hostname):
                 break
-            print(prompt + "hostname '%s' does not comply standard (%s)" % (new_hostname, pattern))
+            self.log.error(prompt + "hostname '%s' does not comply standard (%s)" % (new_hostname, pattern))
 
         # Write it into /etc/hostname
         hostname_filename = '/etc/hostname'
         ret = os.system('printf "%s\n" > %s' % (new_hostname, hostname_filename))
         if ret != 0:
-            print(prompt + "failed to write '%s' into %s" % (new_hostname, hostname_filename))
+            self.log.error(prompt + "failed to write '%s' into %s" % (new_hostname, hostname_filename))
             return False
 
         # On Ubuntu 18.04 server we should ensure 'preserve_hostname: true'
@@ -660,10 +616,10 @@ class Checker:
         if os.path.isfile(cloud_cfg_filename):
             ret = os.system('sed -i -E "s/(^[ ]*)preserve_hostname:.*/\\1preserve_hostname: true/" %s' % cloud_cfg_filename)
             if ret != 0:
-                print(prompt + 'failed to modify %s' % cloud_cfg_filename)
+                self.log.error(prompt + 'failed to modify %s' % cloud_cfg_filename)
                 return False
 
-        print(prompt + "please reboot upon configuration completion")
+        self.log.debug(prompt + "please reboot upon configuration completion")
         return True
 
 
@@ -684,7 +640,7 @@ class Checker:
             if not hostname:
                 raise Exception("empty hostname was retrieved by 'hostname'")
         except Exception as e:
-            print(prompt + str(e))
+            self.log.error(prompt + str(e))
             return False
 
         ret_ipv4 = os.system("grep --perl-regex '^[0-9.]+[\t ]+.*%s' %s > /dev/null 2>&1" % (hostname, hosts_file))
@@ -693,7 +649,7 @@ class Checker:
             return True
 
         if not fix:
-            print(prompt + "hostname '%s' not found in %s" % (hostname, hosts_file))
+            self.log.error(prompt + "hostname '%s' not found in %s" % (hostname, hosts_file))
             return False
 
         def _add_record(address):
@@ -705,13 +661,13 @@ class Checker:
                 record = out + '\t' + hostname
                 ret = os.system('sed -i -E "s/%s/%s/" %s' % (out, record, hosts_file))
                 if ret != 0:
-                    print(prompt + "failed to add '%s  %s' to %s" % (address, hostname, hosts_file))
+                    self.log.error(prompt + "failed to add '%s  %s' to %s" % (address, hostname, hosts_file))
                     return False
             except Exception as e:
                 # At this point we have no 127.0.0.1 line, just go and add new record to the file
                 ret = os.system('printf "%s\t%s\n" >> %s' % (address, hostname, hosts_file))
                 if ret != 0:
-                    print(prompt + "failed to add '%s  %s' to %s" % (address, hostname, hosts_file))
+                    self.log.error(prompt + "failed to add '%s  %s' to %s" % (address, hostname, hosts_file))
                     return False
             return True
 
@@ -752,7 +708,7 @@ class Checker:
             pass
 
         if not fix:
-            print(prompt + "'never' is neither chosen in %s nor defined in %s" % (thp_filename, grub_filename))
+            self.log.error(prompt + "'never' is neither chosen in %s nor defined in %s" % (thp_filename, grub_filename))
             return False
 
         # Disable transparent hugepages:
@@ -796,7 +752,7 @@ class Checker:
         cmd = 'echo never > ' + thp_filename
         ret = os.system(cmd)
         if ret != 0:
-            print(prompt + "%s - failed (%d)" % (cmd,ret))
+            self.log.error(prompt + "%s - failed (%d)" % (cmd,ret))
             return False
 
         # Update the grub file
@@ -804,7 +760,7 @@ class Checker:
         cmd = 'sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=\\\"/GRUB_CMDLINE_LINUX_DEFAULT=\\\"transparent_hugepage=never /" ' + grub_filename
         ret = os.system(cmd)
         if ret != 0:
-            print(prompt + "%s - failed (%d)" % (cmd,ret))
+            self.log.error(prompt + "%s - failed (%d)" % (cmd,ret))
             return False
         return True
 
@@ -833,7 +789,7 @@ class Checker:
                         num_hugepages = int(match.group(1))
                         break
         except Exception as e:
-            print(prompt + str(e))      # File should be created during vpp installation, so return if not exists!
+            self.log.error(prompt + str(e))      # File should be created during vpp installation, so return if not exists!
             return False
 
 
@@ -843,7 +799,7 @@ class Checker:
 
         if not fix:
             if num_hugepages is None:
-                print(prompt + "'hugepages' was not found in %s" % vpp_hugepages_file)
+                self.log.error(prompt + "'hugepages' was not found in %s" % vpp_hugepages_file)
                 return False
             return True
 
@@ -851,7 +807,7 @@ class Checker:
             if num_hugepages is None:   # If not found in file
                 ret = os.system('\nprintf "# Number of 2MB hugepages desired\nvm.nr_hugepages=%d\n" >> %s' % (default_hugepages, vpp_hugepages_file))
                 if ret != 0:
-                    print(prompt + "failed to write hugepages=%d into %s" % (default_hugepages, vpp_hugepages_file))
+                    self.log.error(prompt + "failed to write hugepages=%d into %s" % (default_hugepages, vpp_hugepages_file))
                     return False
                 os.system('sysctl -p %s' %(vpp_hugepages_file))
                 return True
@@ -867,81 +823,20 @@ class Checker:
                 hugepages = int(str_hugepages)
                 break
             except Exception as e:
-                print(prompt + str(e))
+                self.log.error(prompt + str(e))
 
         if num_hugepages:   # If not None, that means it was found in file, delete it firstly from file
             os.system('sed -i -E "/Number of .* hugepages desired/d" %s' % (vpp_hugepages_file))
             ret = os.system('sed -i -E "/vm.nr_hugepages.*=/d" %s' % (vpp_hugepages_file))
             if ret != 0:
-                print(prompt + "failed to remove old hugepages from %s" % (vpp_hugepages_file))
+                self.log.error(prompt + "failed to remove old hugepages from %s" % (vpp_hugepages_file))
                 return False
         # Now add parameter by new line
         ret = os.system('\nprintf "# Number of 2MB hugepages desired\nvm.nr_hugepages=%d\n" >> %s' % (default_hugepages, vpp_hugepages_file))
         if ret != 0:
-            print(prompt + "failed to write hugepages=%d into %s" % (hugepages, vpp_hugepages_file))
+            self.log.error(prompt + "failed to write hugepages=%d into %s" % (hugepages, vpp_hugepages_file))
             return False
         os.system('sysctl -p %s' %(vpp_hugepages_file))
-        return True
-
-    def soft_check_dpdk_num_buffers(self, fix=False, silently=False, prompt=''):
-        """Check if there is enough DPDK buffers available.
-
-        :param fix:             Fix problem.
-        :param silently:        Do not prompt user.
-        :param prompt:          User prompt prefix.
-
-        :returns: 'True' if check is successful and 'False' otherwise.
-        """
-        # This function sets "num-mbufs 16384" into "dpdk" section in /etc/vpp/startup.conf
-
-        # 'Fix' and 'silently' has no meaning for vpp configuration parameters,
-        # as any value is good for it, and if no value was configured,
-        # the default will be used.
-        if not fix or silently:
-            return True
-
-        # Fetch current value if exists
-        buffers = 16384  # Set default
-        conf    = self.vpp_configuration
-        conf_param = None
-        if conf and conf['dpdk'] != None:
-            key = self.fw_ac_db.get_element(conf['dpdk'], 'num-mbufs')
-            if key:
-                tup = self.fw_ac_db.get_tuple_from_key(conf['dpdk'], key)
-                if tup:
-                    buffers = int(tup[0].split(' ')[1])
-                    conf_param = tup[0]
-
-        old = buffers
-        while True:
-            str_buffers = input(prompt + "Enter number of memory buffers per CPU core [%d]: " % (buffers))
-            try:
-                if len(str_buffers) == 0:
-                    break
-                buffers = int(str_buffers)
-                break
-            except Exception as e:
-                print(prompt + str(e))
-
-        if old == buffers:
-            return True     # No need to update
-
-        if conf_param:
-            self.fw_ac_db.remove_element(conf['dpdk'], conf_param)
-            conf_param = 'num-mbufs %d' % (buffers)
-            tup = self.fw_ac_db.create_element(conf_param)
-            conf['dpdk'].append(tup)
-            self.vpp_config_modified = True
-            return True
-
-        if not conf:
-            conf = self.fw_ac_db.get_main_list()
-        if conf['dpdk'] == None:
-            tup = self.fw_ac_db.create_element('dpdk')
-            conf.append(tup)
-
-        conf['dpdk'].append(self.fw_ac_db.create_element('num-mbufs %d' %(buffers)))
-        self.vpp_config_modified = True
         return True
 
     def soft_check_multi_core_support_requires_rss(self, fix=False, silently=False, prompt=''):
@@ -975,163 +870,19 @@ class Checker:
                     break
                 input_cores = int(str_cores)
                 if input_cores > num_worker_cores:
-                    print ("Number of cores entered (%d) was set to maximum available (%d)" % (input_cores, num_worker_cores))
+                    self.log.warning("Number of cores entered (%d) was set to maximum available (%d)" % (input_cores, num_worker_cores))
                     input_cores = num_worker_cores
                 break
             except Exception as e:
-                print(prompt + str(e))
+                self.log.error(prompt + str(e))
 
-        conf = self.vpp_configuration
-        need_to_update = False
-
-        main_core_param                 = None
-        main_core_param_val             = 0
-        corelist_worker_param_min_val   = 0
-        corelist_worker_param_max_val   = 0
-        corelist_worker_param           = None
-        corelist_worker_param_val       = None
-        num_of_rx_queues_param          = None
-        num_of_rx_queues_param_val      = -1
-        dev_default_key                 = 'dev default' # to avoid errors and mistypes
-
-        # if configuration files does not exist, create it, and create the 'cpu' and 'dpdk' sections.
-        if not conf:
-            conf = self.fw_ac_db.get_main_list()
-            tup = self.fw_ac_db.create_element('cpu')
-            conf.append(tup)
-            conf['cpu'].append(self.fw_ac_db.create_element('main-core 0'))
-            if input_cores == 0:
-                conf['cpu'].append(self.fw_ac_db.create_element('corelist-workers 0'))
-            elif input_cores == 1:
-                conf['cpu'].append(self.fw_ac_db.create_element('corelist-workers 1'))
-            else:
-                conf['cpu'].append(self.fw_ac_db.create_element('corelist-workers 1-%d' % (input_cores)))
-            conf['cpu'].append(self.fw_ac_db.create_element('workers %d' % (input_cores)))
-            self.vpp_config_modified = True
-
-            conf.append(self.fw_ac_db.create_element('dpdk'))
-            self._add_tup_to_dpdk(input_cores)
-            self.vpp_config_modified = True
-            self.update_grub = True
+        current_workers = self.vpp_startup_conf.get_cpu_workers()
+        if current_workers == input_cores:
             return True
 
-        # configuration file exist
-        if conf and conf['cpu'] == None:
-            conf.append(self.fw_ac_db.create_element('cpu'))
-        string = self.fw_ac_db.get_element(conf['cpu'],'main-core')
-        if string:
-            tup_main_core = self.fw_ac_db.get_tuple_from_key(conf['cpu'],string)
-            if tup_main_core:
-                main_core_param = tup_main_core[0]
-                tmp = re.split('\s+', main_core_param.strip())
-                main_core_param_val = int(tmp[1])
-
-        string = self.fw_ac_db.get_element(conf['cpu'],'corelist-workers')
-        if string:
-            tup_core_list = self.fw_ac_db.get_tuple_from_key(conf['cpu'],string)
-            if tup_core_list:
-                corelist_worker_param = tup_core_list[0]
-                tmp = re.split('\s+', corelist_worker_param.strip())
-                corelist_worker_param_val = tmp[1]
-                if corelist_worker_param_val.isdigit():
-                    corelist_worker_param_min_val = corelist_worker_param_max_val = corelist_worker_param_val
-                else:
-                    corelist_worker_param_min_val = int(corelist_worker_param_val.split('-')[0])
-                    corelist_worker_param_max_val = int(corelist_worker_param_val.split('-')[1])
-
-        if conf and conf['dpdk'] == None:
-            conf.append(self.fw_ac_db.create_element('dpdk'))
-        if conf['dpdk'][dev_default_key] != None:
-            string = self.fw_ac_db.get_element(conf['dpdk'][dev_default_key],'num-rx-queues')
-            if string:
-                tup_num_rx = self.fw_ac_db.get_tuple_from_key(conf['dpdk'][dev_default_key], string)
-                if tup_num_rx:
-                    num_of_rx_queues_param = tup_num_rx[0]
-                    tmp = re.split('\s+', num_of_rx_queues_param.strip())
-                    num_of_rx_queues_param_val = int(tmp[1])
-
-        # we assume the following configuration in 'cpu' and 'dpdk' sections:
-        # main-core 0
-        # corelist_workers 1-%input_cores
-        # num-rx-queues %input_cores
-
-        # in case no multi core requested
-        if input_cores == 0:
-            if main_core_param:
-                self.fw_ac_db.remove_element(conf['cpu'], main_core_param)
-
-            if corelist_worker_param:
-                self.fw_ac_db.remove_element(conf['cpu'], corelist_worker_param)
-
-            if num_of_rx_queues_param:
-                if conf['dpdk'][dev_default_key] != None:
-                    self.fw_ac_db.remove_element(conf['dpdk'][dev_default_key], num_of_rx_queues_param)
-                    if len(conf['dpdk'][dev_default_key]) == 0:
-                        self.fw_ac_db.remove_element(conf['dpdk'],dev_default_key)
-            self.vpp_config_modified = True
-            self.update_grub = True
-            return True
-
-        # in case multi core configured
-        if input_cores != 0:
-            new_main_core_param = 'main-core 0'
-            if main_core_param:
-                if main_core_param_val != 0:
-                    self.fw_ac_db.remove_element(conf['cpu'], main_core_param)
-                    conf['cpu'].append(self.fw_ac_db.create_element(new_main_core_param))
-                    self.vpp_config_modified = True
-            else:
-                conf['cpu'].append(self.fw_ac_db.create_element(new_main_core_param))
-                self.vpp_config_modified = True
-
-            if input_cores == 1:
-                new_corelist_worker_param = 'corelist-workers 1'
-            else:
-                new_corelist_worker_param = 'corelist-workers 1-%d' % (input_cores)
-            if corelist_worker_param:
-                if corelist_worker_param_min_val != 1 or corelist_worker_param_max_val != input_cores:
-                    self.fw_ac_db.remove_element(conf['cpu'], corelist_worker_param)
-                    conf['cpu'].append(self.fw_ac_db.create_element(new_corelist_worker_param))
-                    self.vpp_config_modified = True
-            else:
-                conf['cpu'].append(self.fw_ac_db.create_element(new_corelist_worker_param))
-                self.vpp_config_modified = True
-
-            if num_of_rx_queues_param_val != input_cores:
-                if conf['dpdk'] != None:
-                    if conf['dpdk'][dev_default_key] != None:
-                        new_num_of_rx_queues_param = 'num-rx-queues %d' % (input_cores)
-                        string = self.fw_ac_db.get_element(conf['dpdk'][dev_default_key], 'num-rx-queues')
-                        if string:
-                            tup = self.fw_ac_db.get_tuple_from_key(conf['dpdk'][dev_default_key], string)
-                            if tup:
-                                self.fw_ac_db.remove_element(conf['dpdk'][dev_default_key], string)
-                        conf['dpdk'][dev_default_key].append(self.fw_ac_db.create_element(new_num_of_rx_queues_param))
-                    else:
-                        self._add_tup_to_dpdk(input_cores)
-                        self.vpp_config_modified = True
-
-            if self.vpp_config_modified == True:
-                self.update_grub = True
-            return True
-
-    def _add_tup_to_dpdk(self, num_of_cores):
-        """
-        adds 'def default' tuple to 'dpdk' and sets 'num-rx-queue' value
-
-        :param num_of_cores:  num of cores to handle incoming traffic
-
-        :returns True
-        """
-        # This function does the following:
-        # 1. create a new sub tuple in 'dpdk'
-        # 2. populated it with num-rx-queues %value
-        cfg = self.vpp_configuration
-        dev_default_key = 'dev default'
-        if cfg['dpdk'][dev_default_key] == None:
-            cfg['dpdk'].append(self.fw_ac_db.create_element(dev_default_key))
-            cfg['dpdk'][dev_default_key].append(self.fw_ac_db.create_element('num-rx-queues %d' % (num_of_cores)))
-
+        self.vpp_startup_conf.set_cpu_workers(input_cores)
+        self.vpp_config_modified = True
+        self.update_grub = True
         return True
 
     def soft_check_cpu_power_saving(self, fix=False, silently=False, prompt=''):
@@ -1157,9 +908,9 @@ class Checker:
         conf            = self.vpp_configuration
         conf_param      = None
         if conf and conf['unix']:
-            string = self.fw_ac_db.get_element(conf['unix'], 'poll-sleep-usec')
+            string = self.vpp_startup_conf.get_element(conf['unix'], 'poll-sleep-usec')
             if string:
-                tup = self.fw_ac_db.get_tuple_from_key(conf['unix'],string)
+                tup = self.vpp_startup_conf.get_tuple_from_key(conf['unix'],string)
                 if tup:
                     tmp = re.split('\s+', tup[0].strip())
                     usec = int(tmp[1])
@@ -1180,22 +931,22 @@ class Checker:
             if usec == usec_rest:
                 return True   #nothing to do
             elif not conf:
-                    conf = self.fw_ac_db.get_main_list()
+                    conf = self.vpp_startup_conf.get_root_element()
                     if conf['unix'] is None:
-                        tup = self.fw_ac_db.create_element(conf,'unix')
-                        tup.append(self.fw_ac_db.create_elemen('poll-sleep-usec %d' %(usec_rest)))
+                        tup = self.vpp_startup_conf.create_element(conf,'unix')
+                        tup.append(self.vpp_startup_conf.create_element('poll-sleep-usec %d' %(usec_rest)))
                         self.vpp_config_modified = True
                         return True
             else:
                 if conf_param:
-                    self.fw_ac_db.remove_element(conf['unix'], conf_param)
+                    self.vpp_startup_conf.remove_element(conf['unix'], conf_param)
                 conf_param = 'poll-sleep-usec %d' % usec_rest
-                conf['unix'].append(self.fw_ac_db.create_element(conf_param))
+                conf['unix'].append(self.vpp_startup_conf.create_element(conf_param))
                 self.vpp_config_modified = True
                 return True
         else: # enable_ps_mode is False
             if conf_param:
-                self.fw_ac_db.remove_element(conf['unix'], conf_param)
+                self.vpp_startup_conf.remove_element(conf['unix'], conf_param)
                 self.vpp_config_modified = True
                 return True
 
@@ -1219,9 +970,9 @@ class Checker:
         if reset==False:
             cfg = self.vpp_configuration
             if cfg and cfg['cpu']:
-                string = self.fw_ac_db.get_element(cfg['cpu'],'corelist-workers')
+                string = self.vpp_startup_conf.get_element(cfg['cpu'],'corelist-workers')
                 if string:
-                    tup_core_list = self.fw_ac_db.get_tuple_from_key(cfg['cpu'],string)
+                    tup_core_list = self.vpp_startup_conf.get_tuple_from_key(cfg['cpu'],string)
                     if tup_core_list:
                         corelist_worker_param = tup_core_list[0]
                         tmp = re.split('\s+', corelist_worker_param.strip())
@@ -1329,7 +1080,7 @@ class Checker:
             if inf['driver'] == 'qmi_wwan':
                 if not fix:
                     return False
-                success, _ = fwutils.lte_set_modem_to_mbim(inf['dev_id'])
+                success, _ = self.lte_set_modem_to_mbim(inf['dev_id'])
                 if not success:
                     return False
         return True
@@ -1337,17 +1088,17 @@ class Checker:
     def soft_check_wifi_driver(self, fix=False, silently=False, prompt=''):
         other_wifi_drivers = False
         for nicname, addrs in list(psutil.net_if_addrs().items()):
-            if not fwutils.is_wifi_interface(nicname):
+            if not fwwifi.is_wifi_interface(nicname):
                 continue
-                
+
             driver = fwutils.get_interface_driver(nicname, cache=False)
             if not driver in ['ath10k_pci', 'ath9k_pci']:
                 other_wifi_drivers = True
                 continue
-            
+
             # Check if driver is a kernel driver or a dkms driver
-            driver_info = subprocess.check_output('modinfo %s | grep filename' % driver, shell=True).decode().strip()               
-            
+            driver_info = subprocess.check_output('modinfo %s | grep filename' % driver, shell=True).decode().strip()
+
             # If driver is already dkms, we can return True
             if 'dkms' in driver_info:
                 return True
@@ -1355,20 +1106,20 @@ class Checker:
             # Make sure that driver is a kernel driver
             if not 'kernel' in driver_info:
                 continue
-            
+
             # At this point, we sure that we need to replace the existing driver with our one
             if not fix:
                 return False
-            
+
             if silently:
-                print(TXT_COLOR.BG_WARNING + "Installing new driver... that might takes a few minutes" + TXT_COLOR.END)
+                self.log.debug(TXT_COLOR.BG_WARNING + "Installing new driver... that might takes a few minutes" + TXT_COLOR.END)
                 choice = "Y"
             else:
                 choice = input(TXT_COLOR.BG_WARNING + "New driver installation is needed, that takes a few minutes. Continue? [Y/N]: " + TXT_COLOR.END)
 
             if choice != 'y' and choice != 'Y':
                 return False
-            
+
             modules = [
                 'ath10k_pci',
                 'ath10k_core',
@@ -1380,7 +1131,10 @@ class Checker:
 
             try:
                 os.system('apt update >> %s 2>&1' % fwglobals.g.SYSTEM_CHECKER_LOG_FILE)
-                os.system('apt install -y flexiwan-%s-dkms >> %s 2>&1' % (driver.split('_')[0], fwglobals.g.SYSTEM_CHECKER_LOG_FILE))
+                rc = os.system('apt install -y flexiwan-%s-dkms >> %s 2>&1' % (driver.split('_')[0], fwglobals.g.SYSTEM_CHECKER_LOG_FILE))
+
+                if rc:
+                    raise Exception("An error occurred while installing the driver")
 
                 for module in modules:
                     os.system('rmmod %s 2>/dev/null' % module)
@@ -1388,13 +1142,13 @@ class Checker:
                 for module in modules:
                     os.system('modprobe %s 2>/dev/null' % module)
             except Exception as e:
-                print('Error: %s' % str(e))
+                self.log.error('Error: %s' % str(e))
                 for module in modules:
                     os.system('modprobe %s 2>/dev/null' % module)
                 return False
-                
-            # At this point, the driver installed and compailed successfully. 
-            # We can return True even we are inside the loop, 
+
+            # At this point, the driver installed and compailed successfully.
+            # We can return True even we are inside the loop,
             # since wo don't need to run it for each WiFi interface.
             return True
 
@@ -1402,3 +1156,265 @@ class Checker:
             return True
 
         raise Exception("No WiFi device was detected")
+
+    def soft_check_coredump_settings(self, fix=False, silently=False, prompt=''):
+        """Create coredump settings to collect VPP crash dumps
+
+        :param fix:             Fix problem.
+        :param silently:        Do not prompt user.
+        :param prompt:          User prompt prefix.
+
+        :returns: 'True' if check is successful and 'False' otherwise.
+        """
+        result = False
+        is_file = False
+        dir_exists = False
+
+        try:
+            file_status = os.stat(FW_VPP_COREDUMP_FOLDER)
+            if stat.S_ISDIR(file_status.st_mode):
+                if (file_status.st_mode & 0o777) == FW_VPP_COREDUMP_PERMISSIONS:
+                    result = True
+                else:
+                    dir_exists = True
+            else:
+                # File with same name seen
+                is_file = True
+        except:
+            pass
+
+        if not fix:
+            return result
+
+        if not result:
+            if is_file:
+                os.remove(FW_VPP_COREDUMP_FOLDER)
+
+            if dir_exists:
+                # set permissions
+                # FW_VPP_COREDUMP_FOLDER folder user is root
+                os.chmod(FW_VPP_COREDUMP_FOLDER, FW_VPP_COREDUMP_PERMISSIONS)
+            else:
+                # create folder with write permissions for user (root here) and group
+                # os.makedirs(..mode=) is not taking effect - Looks like, parent folder mode is used
+                os.makedirs(FW_VPP_COREDUMP_FOLDER)
+                os.chmod(FW_VPP_COREDUMP_FOLDER, FW_VPP_COREDUMP_PERMISSIONS)
+
+        return True
+
+    def soft_check_networkd_configuration(self, fix=False, silently=False, prompt=''):
+        """Ensures that the /lib/systemd/system/systemd-networkd.service file has no
+        restart limit, as networkd is restarted by every "netplan apply" invocation,
+        and fwagent might invoke it too frequently, if it has many interfaces.
+        If it does, we will modify it to big enough value.
+        Note, name of the restart limit parameter and it's location was changed
+        few times during systemd developing. The Ubuntu 18.04 comes with systemd v237,
+        where it should be called "StartLimitIntervalUSec" according documentation.
+        But! On AWS machines it is called "StartLimitIntervalSec", and it should be
+        placed under the "[Unit]" section.
+
+        :param fix:             Fix problem.
+        :param silently:        Do not prompt user.
+        :param prompt:          User prompt prefix.
+
+        :returns: 'True' if check is successful and 'False' otherwise.
+        """
+        needed_start_limit_interval = 10
+        needed_start_limit_burst    = 20
+        found_start_limit_interval  = None
+        found_start_limit_burst     = None
+
+        networkd_filename = '/lib/systemd/system/systemd-networkd.service'
+        if not os.path.exists(networkd_filename):
+            raise Exception(f'file not found: {networkd_filename}')
+
+        try:
+            cmd = f"systemctl show systemd-networkd | grep StartLimitInterval"
+            out = subprocess.check_output(cmd, shell=True).decode().strip()
+            match = re.search('=[ ]*([0-9]+)', out)
+            if not match:
+                raise Exception(f"malformed StartLimitInterval line in {networkd_filename}: {out}")
+            found_start_limit_interval = int(match.group(1))
+        except subprocess.CalledProcessError:
+            return True   # restart limit is not configured at all, so we are OK
+
+        try:
+            cmd = f"systemctl show systemd-networkd | grep StartLimitBurst"
+            out = subprocess.check_output(cmd, shell=True).decode().strip()
+            match = re.search('=[ ]*([0-9]+)', out)
+            if not match:
+                raise Exception(f"malformed StartLimitBurst line in {networkd_filename}: {out}")
+            found_start_limit_burst = int(match.group(1))
+        except subprocess.CalledProcessError:
+            found_start_limit_burst = 1
+
+        if not found_start_limit_interval:  # If it is configured to '0', we are OK
+            return True
+
+        result = True if \
+            float(found_start_limit_interval)/float(found_start_limit_burst) <= \
+            float(needed_start_limit_interval)/float(needed_start_limit_burst) else False
+
+        if result or not fix:
+            return result
+
+        # At this point we have the problem and we should fix it.
+        # Firstly delete all appearances of the StartLimitInterval* and
+        # StartLimitBurst parameters.
+        #
+        ret = os.system(f'sed -i -E "/StartLimitInterval/d" {networkd_filename}')
+        ret = os.system(f'sed -i -E "/StartLimitBurst/d"    {networkd_filename}')
+
+        # Now add new parameters under the [Unit] section by replacement.
+        #
+        cmd = f'sed -i -E "s/\[Unit\]/[Unit]\\nStartLimitIntervalSec={needed_start_limit_interval}\\nStartLimitBurst={needed_start_limit_burst}/" {networkd_filename}'
+        ret = os.system(cmd)
+        if ret != 0:
+            self.log.error(prompt + "%s - failed (%d)" % (cmd,ret))
+            return False
+        os.system('systemctl daemon-reload')
+        return True
+
+    def lte_get_vendor_and_model(self, dev_id):
+        hardware_info, err = fwlte.get_hardware_info(dev_id)
+        if err:
+            # This seems strange, but sometimes (especially after switching from MBIM mode to QMI mode),
+            # the first qmicli command that runs throws a timeout error,
+            # and it succeeds for the second time. So below is a workaround for this strange issue.
+            hardware_info, err = fwlte.get_hardware_info(dev_id)
+        if err:
+            # If there is still an error, ask the user to reset the modem and try again
+            msg = 'An error occurred while identifying your modem. Resetting the modem can help'
+            choice = input(msg + ". Reset it? ? [Y/n]: ")
+            if choice != 'y' and choice != 'Y' and choice != '':
+                raise Exception(f'We are unable to detect your modem. {dev_id}')
+
+            self.log.debug(f'Resetting the modem. Please wait')
+            fwlte.reset_modem(dev_id)
+
+            # after reset try once again but last
+            hardware_info, err = fwlte.get_hardware_info(dev_id)
+            if err:
+                raise Exception(f'We are unable to detect your modem. {dev_id}')
+
+        return hardware_info
+
+    def lte_set_modem_to_mbim(self, dev_id):
+        """Switch LTE modem to the MBIM mode
+        """
+        try:
+            if_name = fwutils.dev_id_to_linux_if(dev_id)
+            lte_driver = fwutils.get_interface_driver(if_name)
+            if lte_driver == 'cdc_mbim':
+                return (True, None)
+
+            self.log.debug('Please wait a few moments...')
+
+            hardware_info = self.lte_get_vendor_and_model(dev_id)
+
+            vendor = hardware_info['vendor']
+            model =  hardware_info['model']
+
+            self.log.debug(f'The modem is found. Vendor: {vendor}. Model: {model}')
+
+            at_commands = []
+            if 'Quectel' in vendor or re.match('Quectel', model, re.IGNORECASE): # Special fix for Quectel ec25 mini pci card
+                at_commands = ['AT+QCFG="usbnet",2']
+                at_serial_port = fwlte.get_at_port(dev_id)
+                if at_serial_port and len(at_serial_port) > 0:
+                    self.log.debug(f'The serial port is found. {at_serial_port[0]}')
+                    ser = serial.Serial(at_serial_port[0])
+                    for at in at_commands:
+                        at_cmd = bytes(at + '\r', 'utf-8')
+                        ser.write(at_cmd)
+                        time.sleep(0.5)
+                    ser.close()
+                else:
+                    raise Exception(f'The serial port is not found. dev_id: {dev_id}')
+            elif 'Sierra Wireless' in vendor:
+                fwlte._run_qmicli_command(dev_id, 'dms-swi-set-usb-composition=8')
+            else:
+                self.log.error("Your card is not officially supported. It might work, But you have to switch manually to the MBIM modem")
+                raise Exception('vendor or model are not supported. (vendor: %s, model: %s)' % (vendor, model))
+
+            self.log.debug(f'Modem was switched to MBIM. Resetting the modem')
+
+            # at this point the modem switched to mbim mode without errors
+            # but we have to reset the modem in order to apply it
+            fwlte.reset_modem(dev_id)
+
+            self.log.debug(f'The reset process was completed successfully')
+
+            os.system('modprobe cdc_mbim') # sometimes driver doesn't regirsted to the device after reset
+
+            return (True, None)
+        except Exception as e:
+            # Modem cards sometimes get stuck and recover only after disconnecting the router from the power supply
+            self.log.error("Failed to switch modem to MBIM. You can unplug the router, wait a few seconds and try again. (%s)" % str(e))
+            return (False, str(e))
+
+    def _get_grub_cores(self):
+        """ Return number of cores dedicated for VPP workers parsed from current GRUB cmdline
+        """
+        grub_cores = 0
+        cmd = 'sudo cat /proc/cmdline'
+        try:
+            out = subprocess.check_output(cmd, shell=True).decode()
+            isolcpus = re.search(r'isolcpus=1-(\d+)', out)
+            grub_cores  = int(isolcpus.group(1)) if isolcpus else 0
+        except Exception as e:
+            self.log.error(f"Cannot parse isolated cored from GRUB cmdline: {str(e)}")
+        return grub_cores
+
+    def get_cpu_info(self):
+        """ Collect CPU info
+        """
+
+        cpu_info = {}
+        cpu_info['hwCores'] = psutil.cpu_count()
+        cpu_info['grubCores'] = self._get_grub_cores()
+        cpu_info['vppCores'] = self.vpp_startup_conf.get_cpu_workers() + self.vpp_startup_conf.get_cpu_hqos_workers()
+        cpu_info['powerSaving'] = self.vpp_startup_conf.get_power_saving()
+        return cpu_info
+
+    def set_cpu_info(self, vpp_cores, power_saving):
+        """ Setup CPU info
+            Return flags if VPP and GRUB configurations was modified
+        """
+        update_vpp = False
+        workers = self.vpp_startup_conf.get_cpu_workers()
+        hqos_workers = self.vpp_startup_conf.get_cpu_hqos_workers()
+        grub_cores = self._get_grub_cores()
+        cur_power_saving = self.vpp_startup_conf.get_power_saving()
+
+        #If there is no GRUB and VPP core assignements tnan it is single thread mode so assign  = 1
+        if grub_cores == 0:
+            grub_cores = 1
+
+        if hqos_workers == 0 and workers == 0: # single thread mode
+            cur_vpp_cores = 1
+        elif hqos_workers > 0 and workers == 0: # if hqos is enabled no workers it means main thread is worker
+            cur_vpp_cores = hqos_workers + 1
+        else:
+            cur_vpp_cores = workers + hqos_workers
+
+        if vpp_cores != cur_vpp_cores:
+            # if we pass 1 as vRouter cores it means single thread mode and we need to call set_cpu_workers(0)
+            if vpp_cores == 1:
+                vpp_cores = 0
+            hqos_enabled = True if hqos_workers > 0 else False
+            self.vpp_startup_conf.set_cpu_workers(vpp_cores, hqos_enabled=hqos_enabled)
+            self.vpp_config_modified = True
+            if vpp_cores > grub_cores:
+                self.update_grub = True
+
+        if power_saving != cur_power_saving:
+            power_saving_value = 300 if power_saving else 0
+            self.vpp_startup_conf.set_power_saving(power_saving_value)
+            self.vpp_config_modified = True
+
+        if self.vpp_config_modified:
+            update_vpp = True
+            self.save_config()
+
+        return update_vpp, self.update_grub

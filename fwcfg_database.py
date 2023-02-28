@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2022  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -20,28 +20,15 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import hashlib
 import json
-import pickle
 import re
-import sqlite3
 import traceback
 import copy
 
-from sqlitedict import SqliteDict
-
-import fwglobals
+from fwsqlitedict import FwSqliteDict
 import fwutils
 
-def decode(obj):
-    """Deserialize objects retrieved from SQLite."""
-    return pickle.loads(bytes(obj), encoding="latin1")
-
-def encode(obj):
-    """Deserialize objects retrieved from SQLite."""
-    return sqlite3.Binary(pickle.dumps(obj, protocol=2))
-
-class FwCfgDatabase:
+class FwCfgDatabase(FwSqliteDict):
     """This is requests DB class representation.
     Persistent database that is used to keep configuration requests received from flexiManage.
     The requests are stored along with their translations into command list.
@@ -51,7 +38,7 @@ class FwCfgDatabase:
         {
             "Executed": { Indicates if command are already executed },
             "Key": { The unique key for each request from flexiManage. e.g. "add-interface:pci:0000:08:01" },
-            "Params": { Dictonery with params received from flexiManage },
+            "Params": { Dictionary with params received from flexiManage },
             "Commands": [ list of translated commands ]
         }
     ]
@@ -61,43 +48,11 @@ class FwCfgDatabase:
     def __init__(self, db_file):
         """Constructor method
         """
-        self.db_filename = db_file
-        self.db = SqliteDict(db_file, autocommit=True, encode=encode, decode=decode)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        # The three arguments to `__exit__` describe the exception
-        # caused the `with` statement execution to fail. If the `with`
-        # statement finishes without an exception being raised, these
-        # arguments will be `None`.
-        self.finalize()
-
-    def finalize(self):
-        """Destructor method
-        """
-        self.db.close()
-
-    def close(self):
-        self.db.close()
-
-    def clean(self):
-        """Clean DB
-
-        :returns: None.
-        """
-        for req_key in self.db:
-            del self.db[req_key]
-
-        # Reset configuration to the value, that differs from one calculated
-        # by the flexiManage. This is to enforce flexiManage to issue 'sync-device'
-        # in order to fill the configuration database again with most updated
-        # configuration.
-        fwutils.reset_device_config_signature("empty_cfg", log=False)
+        FwSqliteDict.__init__(self, db_file)
+        self.translators = None
 
     def set_translators(self, translators):
-       self.translators = translators
+        self.translators = translators
 
     def is_same_cfg_item(self, request1, request2):
         """Checks if provided requests stand for the same configuration item.
@@ -122,7 +77,7 @@ class FwCfgDatabase:
         key_func = getattr(self.translators[src_req]['module'], 'get_request_key')
         return key_func(params)
 
-    def update(self, request, cmd_list=None, executed=False, whitelist=None):
+    def update(self, request, cmd_list=None, executed=False):
         """Save configuration request into DB.
         The 'add-X' configuration requests are stored in DB, the 'remove-X'
         requests are not stored but remove the correspondent 'add-X' requests.
@@ -135,7 +90,6 @@ class FwCfgDatabase:
         :param executed:    The 'executed' flag - True if the configuration
                             request was translated and executed, False if it was
                             translated but was not executed.
-        :param whitelist:   White list of parameters allowed to be modified.
         :returns: None.
         """
         req     = request['message']
@@ -144,29 +98,40 @@ class FwCfgDatabase:
 
         try:
             if re.match('add-', req):
-                self.db[req_key] = { 'request' : req , 'params' : params , 'cmd_list' : cmd_list , 'executed' : executed }
-            elif re.match('modify-interface', req):
-                entry = self.db[req_key]
-                entry.update({'params' : params})
-                self.db[req_key] = entry
+                self[req_key] = { 'request' : req , 'params' : params , 'cmd_list' : cmd_list , 'executed' : executed }
             elif re.match('modify-', req):
-                if whitelist:
-                    entry = self.db[req_key]
-                    for key, value in params.items():
-                        if isinstance(value, dict):
-                            for key2, value2 in value.items():
-                                if key2 in whitelist:
-                                    entry['params'][key][key2] = value2
-                    self.db[req_key] = entry  # Can't update self.db[req_key] directly, sqldict will ignore such modification
+                    entry = self[req_key]
+                    fwutils.dict_deep_update(entry['params'], params)
+                    if cmd_list:
+                        updated_cmd_list = entry.get('cmd_list', []) + cmd_list
+                        entry.update({'cmd_list' : updated_cmd_list})
+                    self[req_key] = entry  # Can't update self[req_key] directly, sqldict will ignore such modification
             else:
-                del self.db[req_key]
+                del self[req_key]
 
         except KeyError:
             pass
         except Exception as e:
-            fwglobals.log.error("update(%s) failed: %s, %s" % \
+            self.log.error("update(%s) failed: %s, %s" % \
                         (req_key, str(e), str(traceback.format_exc())))
             raise Exception('failed to update request database')
+
+    def remove(self, request):
+        """Removes configuration request from DB.
+        The request can be in either form of 'add-X', 'remove-X' or 'modify-X'.
+
+        :param request:     The request as it would be received from flexiManage.
+        :returns: None.
+        """
+        try:
+            req_key = self._get_request_key(request)
+            del self[req_key]
+        except KeyError:
+            pass
+        except Exception as e:
+            self.log.error("remove(%s) failed: %s, %s" % \
+                        (req_key, str(e), str(traceback.format_exc())))
+            raise Exception('failed to remove request from database')
 
     def get_request_params(self, request):
         req_key = self._get_request_key(request)
@@ -177,17 +142,17 @@ class FwCfgDatabase:
         return self.get_cmd_list(req_key)
 
     def get_cmd_list(self, req_key):
-        """Retrives translation of the request to list of commands.
+        """Retrieves translation of the request to list of commands.
 
         :param request: The request as it would be received on network,
-                        including name (request['message']) and parmateres
+                        including name (request['message']) and parameters
                         (request['params']) if exist.
 
         :returns: the tuple of the command list and the 'executed' flag
         """
-        if not req_key in self.db:
+        if not req_key in self:
             return (None, None)
-        return (self.db[req_key].get('cmd_list'), self.db[req_key].get('executed'))
+        return (self[req_key].get('cmd_list'), self[req_key].get('executed'))
 
     def exists(self, request):
         """Check if entry exists in DB.
@@ -197,7 +162,7 @@ class FwCfgDatabase:
         :returns: 'True' if request exists and 'False' otherwise.
         """
         req_key = self._get_request_key(request)
-        res = True if req_key in self.db else False
+        res = True if req_key in self else False
         return res
 
     def get_params(self, req_key):
@@ -208,8 +173,8 @@ class FwCfgDatabase:
         :param request: The configuration request, e.g. modify-interface.
         :returns: parameters of the request stored in the database.
         """
-        if req_key in self.db:
-            return self.db[req_key].get('params')
+        if req_key in self:
+            return self[req_key].get('params')
         return None
 
     def dump(self, types, escape=None, full=False, keys=False):
@@ -236,23 +201,29 @@ class FwCfgDatabase:
 
         # The dump is O(num_types x n) - improve that on demand!
         cfg     = []
-        db_keys = sorted(self.db.keys())  # The key order might be affected by dictionary content, so sort it
+        db_keys = sorted(self.keys())  # The key order might be affected by dictionary content, so sort it
         for req in types:
             for key in db_keys:
                 if re.match(req, key):
                     request = {
-                        'message': self.db[key].get('request',""),
-                        'params':  self.db[key].get('params', "")
+                        'message': self[key].get('request',""),
+                        'params':  self[key].get('params', "")
                     }
                     if request['params'] == None:  # flexiManage team doesn't like None :)
                         request['params'] = {}
                     if full:
                         request.update({
-                            'cmd_list': self.db[key].get('cmd_list', ""),
-                            'executed': self.db[key].get('executed', "")})
+                            'cmd_list': self[key].get('cmd_list', ""),
+                            'executed': self[key].get('executed', "")})
                     if keys:
                         request.update({'key': key})
                     cfg.append(request)
+
+        # Ensure proper order of parent and sub-interfaces at this point to save
+        # reordering at various other places.
+        if 'add-interface' in types and cfg:
+            from fwrouter_api import preprocess_reorder_sub_interfaces
+            cfg = preprocess_reorder_sub_interfaces(cfg)
         return cfg
 
     def dumps(self, cfg, sections, full):
@@ -285,7 +256,7 @@ class FwCfgDatabase:
         return json.dumps(out, indent=2, sort_keys=True)
 
     def get_requests(self, req):
-        """Retrives list of configuration requests parameters for requests with
+        """Retrieves list of configuration requests parameters for requests with
         the 'req' name.
         This is generic function wrapped by request specific one-line APIs,
         like get_tunnels().
@@ -294,9 +265,9 @@ class FwCfgDatabase:
         :returns: list of request parameters.
         """
         requests = []
-        for key in self.db:
+        for key in self:
             if re.match(req, key):
-                requests.append(self.db[key]['params'])
+                requests.append(self[key]['params'])
         return requests
 
     def get_sync_list(self, requests):

@@ -21,16 +21,17 @@
 ################################################################################
 
 # Handle device statistics
-import fwikev2
 import fwutils
 import math
 import time
-import loadsimulator
+import threading
+import traceback
 import psutil
-
+import fwlte
+import fw_os_utils
+import fwwifi
 from fwtunnel_stats import tunnel_stats_get
 import fwglobals
-import fwtunnel_stats
 
 # Globals
 # Keep updates up to 1 hour ago
@@ -43,9 +44,20 @@ updates_list = []
 vpp_pid = ''
 
 # Keeps last stats
-stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0}
+stats = {'ok':0, 'running':False, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'lte_stats': {}, 'wifi_stats': {}, 'application_stats': {}}
 
-def update_stats():
+def statistics_thread_func(ticks, fwagent):
+    if not fwagent.connected:
+        return
+    timeout = 30
+    if (ticks % timeout) == 0:
+        if fwglobals.g.loadsimulator:
+            fwglobals.g.loadsimulator.update_stats()
+        else:
+            renew_lte_wifi_stats = ticks % (timeout * 2) == 0 # Renew LTE and WiFi statistics every second update
+            update_stats(renew_lte_wifi_stats=renew_lte_wifi_stats)
+
+def update_stats(renew_lte_wifi_stats=True):
     """Update statistics dictionary using values retrieved from VPP interfaces.
 
     :returns: None.
@@ -55,19 +67,19 @@ def update_stats():
 
     # If vpp is not running or has crashed (at least one of its process
     # IDs has changed), reset the statistics and update the vpp pids list
-    current_vpp_pid = fwutils.vpp_pid()
+    current_vpp_pid = fw_os_utils.vpp_pid()
     if not current_vpp_pid or current_vpp_pid != vpp_pid:
         reset_stats()
         vpp_pid = current_vpp_pid
 
-    if not vpp_pid:
+    prev_stats = dict(stats)  # copy of prev stats
+    if not vpp_pid or not fwglobals.g.router_api.state_is_started():
         stats['ok'] = 0
     else:
         new_stats = fwutils.get_vpp_if_count()
         if not new_stats:
             stats['ok'] = 0
         else:
-            prev_stats = dict(stats)  # copy of prev stats
             stats['time'] = time.time()
             stats['last'] = new_stats
             stats['ok'] = 1
@@ -78,7 +90,9 @@ def update_stats():
                 fwglobals.g.stun_wrapper.handle_down_tunnels(tunnel_stats)
                 for intf, counts in list(stats['last'].items()):
                     if (intf.startswith('gre') or
-                        intf.startswith('loop')): continue
+                        intf.startswith('loop') or
+                        intf.startswith('ppp') or
+                        intf.startswith('tun')): continue
                     prev_stats_if = prev_stats['last'].get(intf, None)
                     if prev_stats_if != None:
                         rx_bytes = 1.0 * (counts['rx_bytes'] - prev_stats_if['rx_bytes'])
@@ -97,6 +111,12 @@ def update_stats():
                             t_stats = tunnel_stats.get(tunnel_id)
                             if t_stats:
                                 t_stats.update(calc_stats)
+                        elif (intf.startswith('ipip')):
+                            ipip_id = int(intf[4:])
+                            tunnel_id = math.floor(ipip_id/2)
+                            t_stats = tunnel_stats.get(tunnel_id)
+                            if t_stats:
+                                t_stats.update(calc_stats)
                         else:
                             # For other interfaces try to get interface id
                             dev_id = fwutils.vpp_if_name_to_dev_id(intf)
@@ -106,7 +126,14 @@ def update_stats():
                 stats['bytes'] = if_bytes
                 stats['tunnel_stats'] = tunnel_stats
                 stats['period'] = stats['time'] - prev_stats['time']
-                stats['running'] = True if fwutils.vpp_does_run() else False
+                stats['running'] = True if fw_os_utils.vpp_does_run() else False
+
+    if renew_lte_wifi_stats:
+        stats['lte_stats'] = fwlte.get_stats()
+        stats['wifi_stats'] = fwwifi.get_stats()
+    else:
+        stats['lte_stats'] = prev_stats['lte_stats']
+        stats['wifi_stats'] = prev_stats['wifi_stats']
 
     # Add the update to the list of updates. If the list is full,
     # remove the oldest update before pushing the new one
@@ -114,14 +141,17 @@ def update_stats():
         updates_list.pop(0)
 
     updates_list.append({
-            'ok': stats['ok'], 
-            'running': stats['running'], 
-            'stats': stats['bytes'], 
+            'ok': stats['ok'],
+            'running': stats['running'],
+            'stats': stats['bytes'],
             'period': stats['period'],
             'tunnel_stats': stats['tunnel_stats'],
+            'lte_stats': stats['lte_stats'],
+            'wifi_stats': stats['wifi_stats'],
             'health': get_system_health(),
             'utc': time.time()
         })
+
 
 def get_system_health():
     # Get CPU info
@@ -167,18 +197,19 @@ def get_stats():
 
     reconfig = fwutils.get_reconfig_hash()
     ikev2_certificate_expiration = fwglobals.g.ikev2.get_certificate_expiration()
+    apps_stats = fwglobals.g.applications_api.get_stats()
 
     # If the list of updates is empty, append a dummy update to
     # set the most up-to-date status of the router. If not, update
     # the last element in the list with the current status of the router
-    if loadsimulator.g.enabled():
+    if fwglobals.g.loadsimulator:
         status = True
         state = 'running'
         reason = ''
         reconfig = ''
     else:
-        status = True if fwutils.vpp_does_run() else False
-        (state, reason) = fwutils.get_router_state()
+        status = True if fw_os_utils.vpp_does_run() else False
+        (state, reason) = fwutils.get_router_status()
     if not res_update_list:
         info = {
             'ok': stats['ok'],
@@ -186,7 +217,10 @@ def get_stats():
             'state': state,
             'stateReason': reason,
             'stats': {},
+            'application_stats': apps_stats,
             'tunnel_stats': {},
+            'lte_stats': {},
+            'wifi_stats': {},
             'health': {},
             'period': 0,
             'utc': time.time(),
@@ -200,6 +234,7 @@ def get_stats():
         res_update_list[-1]['state'] = state
         res_update_list[-1]['stateReason'] = reason
         res_update_list[-1]['reconfig'] = reconfig
+        res_update_list[-1]['application_stats'] = apps_stats
         res_update_list[-1]['health'] = get_system_health()
         if fwglobals.g.ikev2.is_private_key_created():
             res_update_list[-1]['ikev2'] = ikev2_certificate_expiration
@@ -221,4 +256,8 @@ def reset_stats():
     :returns: None.
     """
     global stats
-    stats = {'running': False, 'ok':0, 'last':{}, 'bytes':{}, 'tunnel_stats':{}, 'health':{}, 'period':0, 'reconfig':False, 'ikev2':''}
+    stats = {
+        'running': False, 'ok':0, 'last':{}, 'bytes':{}, 'tunnel_stats':{},
+        'health':{}, 'period':0, 'reconfig':False, 'ikev2':'',
+        'lte_stats': {}, 'wifi_stats': {}, 'application_stats': {}
+    }

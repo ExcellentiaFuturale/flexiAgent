@@ -5,12 +5,36 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": ["t_remotevpn", "1500", "1621", "78.78.78.1", "255.255.255.192", "init"]
+        },
+        {
             "name": "fwagent daemon",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/fwagent.py",
             "args": [
                 "daemon"
+            ],
+            "subProcess": true,
+            "sudo": true,
+            "justMyCode": false,
+            "cwd": "${workspaceRoot}",
+            "env": {
+                "PYTHONPATH": "${workspaceRoot}/flexiagent"
+            }
+        },
+        {
+            "name": "loadsimulator",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/fwagent.py",
+            "args": [
+                "simulate", "-c", "2"
             ],
             "cwd": "${workspaceRoot}",
             "env": {
@@ -61,16 +85,42 @@
             }
         },
         {
-            "name": "fwagent show --agent cache",
+            "name": "fwagent show CLI",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/fwagent.py",
             "args": [
-                "show",
-                "--agent",
-                "cache",
+                "show", "${input:showCli}", "${input:showCli1}",
             ],
             "cwd": "${workspaceRoot}",
+            "env": {
+                "PYTHONPATH": "${workspaceRoot}/flexiagent"
+            }
+        },
+        {
+            "name": "fwagent configure CLI",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/fwagent.py",
+            "args": [
+                "configure", "router", "interfaces", "create", "--type", "lan", "--host_if_name", "${input:showCli}", "--addr", "${input:showCli1}"
+            ],
+            "cwd": "${workspaceRoot}",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceRoot}/flexiagent"
+            }
+        },
+        {
+            "name": "fwagent configure delete CLI",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/fwagent.py",
+            "args": [
+                "configure", "router", "interfaces", "delete", "--ignore_errors", "--type", "lan", "--vpp_if_name", "${input:showCli}", "--addr", "${input:showCli1}"
+            ],
+            "cwd": "${workspaceRoot}",
+            "justMyCode": false,
             "env": {
                 "PYTHONPATH": "${workspaceRoot}/flexiagent"
             }
@@ -117,7 +167,7 @@
             "args": [
                 "cli",
                 "-f",
-                "${workspaceFolder}/tests/router/16_lte_watchdog_test/add-lte.cli",
+                "${input:testCliPath}",
                 "-t",
                 "${workspaceFolder}/tests/fwtemplates.yaml"
             ],
@@ -132,7 +182,8 @@
             "request": "launch",
             "program": "${workspaceFolder}/fwagent.py",
             "args": [
-                "daemon", "--dont_connect"
+                "daemon",
+                "--debug_conf", "/root/flexiagent/tests/debug_conf.yaml.standalone_no_features"
             ],
             "cwd": "${workspaceRoot}",
             "env": {
@@ -145,12 +196,61 @@
             "request": "launch",
             "module": "pytest",
             "args": [
-                "-rs"
+                "-rs", "-k", "30_"
             ],
             "cwd": "${workspaceRoot}/tests",
             "env": {
                 "PYTHONPATH": "${workspaceRoot}"
             }
+        },
+        {
+            "name": "Post Install - Migration",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/common/post_install.py",
+            "args": [
+                "${input:fromVersion}",
+                "${input:toVersion}",
+                "${input:operation}"
+            ],
+            "cwd": "${workspaceRoot}",
+            "env": {
+                "PYTHONPATH": "${workspaceRoot}/"
+            },
+            "sudo": true,
+        }
+    ],
+    "inputs": [
+        {
+            "id": "fromVersion",
+            "type": "promptString",
+            "description": "From which version?",
+        },
+        {
+            "id": "toVersion",
+            "type": "promptString",
+            "description": "To which version?",
+        },
+        {
+            "id": "operation",
+            "type": "promptString",
+            "description": "install or remove?",
+            "default": "install"
+        },
+        {
+            "id": "showCli",
+            "type": "promptString",
+            "description": "Show cli flags"
+        },
+        {
+            "id": "showCli1",
+            "type": "promptString",
+            "description": "Show cli flags"
+        },
+        {
+            "id": "testCliPath",
+            "type": "promptString",
+            "description": "Paste full path of cli file to inject"
         }
     ]
 }

@@ -1,4 +1,6 @@
-.vscode
+.vscode/*
+!.vscode/settings.json
+!.vscode/cSpell.json
 
 # Byte-compiled
 __pycache__/
@@ -23,3 +25,6 @@ pytestdebug.log
 
 #Swap files
 *.sw[g-p]
+
+# Backup files by Notepad++
+*.bak
