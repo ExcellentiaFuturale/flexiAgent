@@ -45,5 +45,15 @@
     },
     "__INTERFACE_2__"
   ]
+},
+{
+  "entity":  "agent",
+  "message": "start-router",
+  "params": {
+    "dev_id": [
+      "__INTERFACE_1__dev_id",
+      "__INTERFACE_2__dev_id"
+    ]
+  }
 }
 ]

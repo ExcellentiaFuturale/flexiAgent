@@ -30,55 +30,47 @@ import fwtests
 import fwutils
 
 cli_path = __file__.replace('.py', '')
-cli_add_config_file = os.path.join(cli_path, 'add-config.cli')
-cli_remove_config_file = os.path.join(cli_path, 'remove-config.cli')
-cli_start_router_file = os.path.join(cli_path, 'start-router.cli')
-cli_stop_router_file = os.path.join(cli_path, 'stop-router.cli')
+cli_add_config_start_router_file = os.path.join(cli_path, 'cli_add_config_start_router_file.cli')
 
-# "vpp_should_run" and "database_expected_empty" are the expected results of running the command when VPP is running
 tests = [
-    { 'api': 'fwagent_cmd', 'args': 'reset -q',     'vpp_should_run': False, 'database_expected_empty': True },
-    { 'api': 'fwagent_cmd', 'args': 'reset -s',     'vpp_should_run': True,  'database_expected_empty': False },
-    { 'api': 'fwkill',      'args': None,           'vpp_should_run': False, 'database_expected_empty': False },
-    { 'api': 'fwkill',      'args': '--clean_cfg',  'vpp_should_run': False, 'database_expected_empty': True }
+    { 'cmd': f'fwagent reset -q',   'expected_result': { 'vpp_runs': False, 'cfg_cleaned': True  } },
+    { 'cmd': f'fwagent reset -s',   'expected_result': { 'vpp_runs': True,  'cfg_cleaned': False } },
+    { 'cmd': f'fwkill',             'expected_result': { 'vpp_runs': False, 'cfg_cleaned': False } },
+    { 'cmd': f'fwkill --clean_cfg', 'expected_result': { 'vpp_runs': False, 'cfg_cleaned': True  } },
 ]
-
-def call(agent, test):
-    handler_func = getattr(agent, test['api'])
-    if test['args']:
-        (ok, _) = handler_func(test['args'])
-    else:
-        (ok, _) = handler_func()
-    return (ok, _)
 
 def test():
     for (idx,test) in enumerate(tests):
         with fwtests.TestFwagent() as agent:
             if idx == 0:
                 print("")
-            print("   api: %s, args: %s" % (test['api'], test['args']))
+            cmd = test['cmd']
+            if 'fwagent' in cmd:
+                cmd = cmd.replace('fwagent', agent.fwagent_py)
+            elif 'fwkill' in cmd:
+                cmd = cmd.replace('fwkill', agent.fwkill_py)
 
-            # cmd when vpp isn't running
-            (ok, _) = call(agent, test)
+            print(f"   cmd: {cmd}")
+
+            # cmd before starting vpp
+            ok = os.system(cmd) == 0
             assert ok
 
-            daemon = True if idx == 0 else False
-            (ok, _) = agent.cli('-f %s' % cli_add_config_file, daemon=daemon)
-            assert ok
-            (ok, _) = agent.cli('-f %s' % cli_start_router_file)
+            (ok, _) = agent.cli('-f %s' % cli_add_config_start_router_file)
             assert ok
 
-            # cmd when vpp is running
-            (ok, _) = call(agent, test)
+            # cmd after starting vpp
+            ok = os.system(cmd) == 0
             assert ok
 
-            is_run = fwtests.vpp_does_run()
-            assert test['vpp_should_run'] == is_run, \
-                'VPP should be %s after %s' % ('run' if test['vpp_should_run'] else 'stopped', test['args'])
+            expected_vpp_runs = test['expected_result']['vpp_runs']
+            expected_cfg_cleaned = test['expected_result']['cfg_cleaned']
+
+            is_vpp_runs = fwtests.vpp_does_run()
+            assert expected_vpp_runs == is_vpp_runs, f'VPP should{"" if expected_vpp_runs else " not"} run after {cmd}'
 
             dump_configuration = agent.show("--configuration")
-            assert test['database_expected_empty'] == (dump_configuration ==''), \
-                'Device DB should be %s after %s' % ('empty' if test['expected_database'] == '' else 'stopped', test['args'])
+            assert expected_cfg_cleaned == (dump_configuration == ''), f'agent configuration should {"" if expected_cfg_cleaned else "not"} be empty after {cmd}'
 
 if __name__ == '__main__':
     test()
