@@ -62,7 +62,6 @@ class FwStunWrap(FwObject):
         self.sym_nat_cache = fwglobals.g.cache.sym_nat_cache
         self.sym_nat_tunnels_cache = fwglobals.g.cache.sym_nat_tunnels_cache
         self.thread_stun   = None
-        self.thread_stun_active = True
         self.standalone    = not fwglobals.g.cfg.debug['agent']['features']['stun']['enabled']
         self.stun_retry    = 60
         fwstun.set_log(fwglobals.log)
@@ -96,35 +95,22 @@ class FwStunWrap(FwObject):
 
         self._log_address_cache()
 
-        self._initialize_thread()
+        self.thread_stun = threading.Thread(target=self._stun_thread, name='STUN Thread')
+        self.thread_stun.start()
 
     def _initialize_stun_cache(self):
+        self.stun_cache.clear()
         ifaces, os_wan_ips = fwutils.get_all_interfaces()
         if ifaces:
             self.log.debug(f"_initialize_stun_cache: WAN IP list from OS: {str(os_wan_ips)}")
             for dev_id in ifaces:
                 self.add_addr(dev_id, ifaces[dev_id].get('addr'), ifaces[dev_id].get('gw'))
 
-
-    def _initialize_thread(self):
-        if not self.thread_stun:
-            self.thread_stun_active = True
-            self.thread_stun = threading.Thread(target=self._stun_thread, name='STUN Thread')
-            self.thread_stun.start()
-
-    def _finalize_thread(self):
-        if self.thread_stun:
-            self.thread_stun_active = False
-            self.thread_stun.join()
-            self.thread_stun = None
-
     def update_vxlan_port(self, port):
         if port == self.vxlan_port:
             return
-
         self.vxlan_port = port
 
-        self.stun_cache.clear()
         self.sym_nat_cache.clear()
         self.sym_nat_tunnels_cache.clear()
 
@@ -132,7 +118,9 @@ class FwStunWrap(FwObject):
 
     def finalize(self):
         fwstun.finalize()
-        self._finalize_thread()
+        if self.thread_stun:
+            self.thread_stun.join()
+            self.thread_stun = None
 
     def _update_cache_from_OS(self):
         """ Check the OS to find newly added/removed WAN interfaces and add/remove them
@@ -354,7 +342,7 @@ class FwStunWrap(FwObject):
         probe_sym_nat_timeout = 30
         send_sym_nat_timeout = 3
 
-        while self.thread_stun_active and not fwglobals.g.router_threads.teardown:
+        while not fwglobals.g.router_threads.teardown:
 
             try:  # Ensure thread doesn't exit on exception
 
