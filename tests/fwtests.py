@@ -91,6 +91,10 @@ class TestFwagent:
         time.sleep(1)   # Ensure that all further log times are greater than now()
                         # The now() uses microseconds, when log uses seconds only.
 
+    def fwagent_cmd(self, args):
+        ret = os.system('%s %s' % (self.fwagent_py, args))
+        return (ret == 0, None)
+
     def cli(self, args, daemon=False, debug_conf_file=None, standalone=True, expected_vpp_cfg=None, expected_router_cfg=None, check_log=False):
         '''Invokes fwagent API.
 
