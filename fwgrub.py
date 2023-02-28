@@ -102,9 +102,10 @@ class FwGrub:
                 self.set_param('isolcpus',  f'1-{cores}')
                 self.set_param('nohz_full', f'1-{cores}')
                 self.set_param('rcu_nocbs', f'1-{cores}')
-            if fwutils.check_if_virtual_environment():
-                self.set_param('iommu', 'pt')
-                self.set_param('intel_iommu', 'on')
+
+        if fwutils.check_if_virtual_environment(): # to be on safe side - ensure presence of IOMMU parameters
+            self.set_param('iommu', 'pt')
+            self.set_param('intel_iommu', 'on')
         self.flush()
 
     def soft_check(self, params, fix, prompt=''):

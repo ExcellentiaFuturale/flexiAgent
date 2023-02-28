@@ -780,7 +780,7 @@ class Checker:
         if not fwutils.check_if_virtual_environment():
             return None   # None -> report the check as skipped
 
-        grub_params = [ 'iommu=pt', 'intel_iommu=pt' ]
+        grub_params = [ 'iommu=pt', 'intel_iommu=on' ]
         res = self.grub.soft_check(grub_params, fix, prompt)
         return res
 
