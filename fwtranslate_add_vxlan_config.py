@@ -76,6 +76,21 @@ def vxlan_config_translation_command(new_params, old_params=None):
     cmd['revert']['descr']  = f"remove NAT identity mapping for {new_port} UDP port from all WAN interfaces"
     cmd_list.append(cmd)
 
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['object']  = "fwglobals.g.stun_wrapper"
+    cmd['cmd']['func']    = "update_vxlan_port"
+    cmd['cmd']['params']  = { 'port': new_port }
+    cmd['cmd']['descr']   = "update STUN vxlan port"
+    cmd['cmd']['filter']  = "must"
+    cmd['revert'] = {}
+    cmd['revert']['object'] = "fwglobals.g.stun_wrapper"
+    cmd['revert']['func']   = "update_vxlan_port"
+    cmd['revert']['params'] = { 'port': old_port }
+    cmd['revert']['descr']  = f"update STUN vxlan port"
+    cmd['revert']['filter'] = "must"
+    cmd_list.append(cmd)
+
     return cmd_list
 
 modify_vxlan_config_supported_params = {

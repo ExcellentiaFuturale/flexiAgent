@@ -89,18 +89,22 @@ class FwStunWrap(FwObject):
         self.vxlan_port = fwutils.get_vxlan_port()
 
         self.log.debug("Start sending STUN requests for all WAN interfaces")
+        self._initialize_stun_cache()
+
+        self._send_stun_requests()
+        self._log_address_cache()
+
+        self._initialize_thread()
+
+    def _initialize_stun_cache(self):
         ifaces = fwutils.get_all_interfaces()
         if ifaces:
             ips = [ifaces[dev_id]['addr'] for dev_id in ifaces if ifaces[dev_id]['addr'] != '' \
                                 and ifaces[dev_id]['gw'] != '']
 
-            self.log.debug("stun_thread initialize: collected WAN IPs: %s" %(str(ips)))
+            self.log.debug("_initialize_stun_cache: collected WAN IPs: %s" %(str(ips)))
             for dev_id in ifaces:
                 self.add_addr(dev_id, ifaces[dev_id].get('addr'), ifaces[dev_id].get('gw'))
-            self._send_stun_requests()
-            self._log_address_cache()
-
-        self._initialize_thread()
 
     def _initialize_thread(self):
         if not self.thread_stun:
@@ -114,16 +118,17 @@ class FwStunWrap(FwObject):
             self.thread_stun.join()
             self.thread_stun = None
 
-    def restart_stun_thread(self):
-        self.log.debug("Restarting STUN thread")
+    def update_vxlan_port(self, port):
+        if port == self.vxlan_port:
+            return
 
-        self._finalize_thread()
+        self.vxlan_port = port
 
         self.stun_cache.clear()
         self.sym_nat_cache.clear()
         self.sym_nat_tunnels_cache.clear()
 
-        self.initialize()
+        self._initialize_stun_cache()
 
     def finalize(self):
         fwstun.finalize()
