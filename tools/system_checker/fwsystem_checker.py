@@ -38,7 +38,7 @@ import subprocess
 
 import getopt
 import importlib
-import platform
+import distro
 import sys
 import shutil
 import time
@@ -273,8 +273,7 @@ def main(args):
 
     :returns: Bitmask with status codes.
     """
-    (flavor, version, _) = platform.linux_distribution()
-    module_name = (flavor + version.replace('.', '')).lower()
+    module_name = distro.name().lower()
     module = importlib.import_module(module_name)
     with module.Checker(args.debug) as checker:
 

@@ -628,23 +628,6 @@ class FwStartupConf(FwStartupConfParsed):
 	API-s for access file parameters with the one-liner functions that modify
 	specific parameter.
 	"""
-
-	def get_cpu_workers(self):
-		'''Retrieves number of worker threads based on value of the cpu.corelist-workers field
-		'''
-		corelist_workers_string = self.get_simple_param('cpu.corelist-workers')
-		if not corelist_workers_string:
-			return 0
-
-		# Parse "corelist-workers 1-5" or "corelist-workers 2" string into list
-		#
-		corelist_workers_list = re.split('[-|\s]+', corelist_workers_string.strip())
-		if len(corelist_workers_list) < 3:
-			raise Exception("get_cpu_workers: not supported format: '%s'" % corelist_workers_string)
-		if len(corelist_workers_list) == 3:
-			return 1
-		return int(corelist_workers_list[3]) - int(corelist_workers_list[2]) + 1
-
 	def get_cpu_hqos_workers(self):
 		'''Retrieves number of hqos worker threads based on value of the cpu.corelist-hqos-threads field
 		'''
@@ -661,6 +644,27 @@ class FwStartupConf(FwStartupConfParsed):
 			return 1
 		return int(corelist_workers_list[4]) - int(corelist_workers_list[3]) + 1
 
+	def get_cpu_workers(self):
+		'''Retrieves number of worker threads based on value of the cpu.corelist-workers field
+		'''
+		corelist_workers_string = self.get_simple_param('cpu.corelist-workers')
+		if not corelist_workers_string:
+			hqos_workers = self.get_cpu_hqos_workers()
+			# if there is no workers but hqos_workers is configured we account main thread as worker
+			if hqos_workers > 0:
+				return 1
+			else:
+				return 0
+
+		# Parse "corelist-workers 1-5" or "corelist-workers 2" string into list
+		#
+		corelist_workers_list = re.split('[-|\s]+', corelist_workers_string.strip())
+		if len(corelist_workers_list) < 3:
+			raise Exception("get_cpu_workers: not supported format: '%s'" % corelist_workers_string)
+		if len(corelist_workers_list) == 3:
+			return 1
+		return int(corelist_workers_list[3]) - int(corelist_workers_list[2]) + 1
+
 	def set_cpu_workers(self, num_workers, num_interfaces=2, rx_queues=None, tx_queues=None, commit=False, hqos_enabled=False):
 		'''Sets worker threads related parameters:
 			- cpu.main-core
@@ -669,12 +673,26 @@ class FwStartupConf(FwStartupConfParsed):
 			- dpdk.dev default.num-rx-queues4
 		Worker threads forward received packets.
 
-		If num_workers is 0, deletes all these parameters,
+		If num_workers is 0 or 1, deletes all these parameters (single thread mode),
 		otherwise sets them as follows:
 			- cpu.main-core = 0	 (main thread always runs on core #0, workers - on the rest)
 			- cpu.corelist-workers = 1-<num_workers>
+			- cpu.corelist-hqos-threads = <num_workers>
 			- dpdk.dev default.num-rx-queues = <num_workers>
 			- buffers.buffers-per-numa = see in code documentation
+
+			/etc/vpp/startup.conf
+			please use the following table as reference for expected values:
+			vRouter Cores    hqos enabled    main   workers   hqos
+				1                no          -       -         -
+				1                yes                 NA
+				2                no          0       1-2       -
+				2                yes         1       -         2
+				3                no          0       1-3       -
+				3                yes         0       1-2       3
+				4                no          0       1-4       -
+				4                yes         0       1-3       4
+				...
 
 		:param num_workers:    number of worker threads to be configured
 		:param num_interfaces: number of interfaces served by workers
@@ -684,6 +702,24 @@ class FwStartupConf(FwStartupConfParsed):
 		:param tx_queues: 	   number of TX queues.
 		                       Default value is 'num_workers'.
 		'''
+		def _get_vpp_heap_size():
+			'''
+			Default VPP heap size is 1G (2G - DPDK, 1G - VPP, 1G - Apps + Linux)
+			We need at least 2G in multi-thread mode to support 1000+ tunnels
+			The following memory is reserved for VPP dependening on device available memory:
+				Total Memory     VPP heap size
+				 4G              default (1G)
+				 >8G             35% of (Total memory)
+			'''
+			_1Gb = 1024 * 1024 * 1024
+			total_mem_Gb = round(psutil.virtual_memory().total/_1Gb)
+
+			if total_mem_Gb < 5:
+				vpp_heap_size = ''
+			else:
+				vpp_heap_size = str(int(round(total_mem_Gb*7/20))) + 'G' # 35% of Total
+			return vpp_heap_size
+
 		# To simplify code we just delete all related parameters and than
 		# recreate them if needed
 		#
@@ -691,11 +727,24 @@ class FwStartupConf(FwStartupConfParsed):
 		self.del_simple_param('cpu.corelist-workers')
 		self.del_simple_param('cpu.corelist-hqos-threads')
 		self.del_simple_param('buffers.buffers-per-numa')
-		self.del_simple_param('dpdk.dev default.num-rx-queues')
 		self.del_simple_param('memory.main-heap-size')
 
-		if num_workers == 0:
+		if num_workers < 2:
 			return
+
+		if hqos_enabled and num_workers == 2:
+			self.set_simple_param('cpu.main-core', 1)
+		else:
+			self.set_simple_param('cpu.main-core', 0)
+
+		if hqos_enabled:
+			hqos_workers_str = "%d" % (num_workers)
+			self.set_simple_param('cpu.corelist-hqos-threads', hqos_workers_str)
+			num_workers -= 1
+
+		if num_workers > 1:
+			num_workers_str = "1-%d" % (num_workers)
+			self.set_simple_param('cpu.corelist-workers', num_workers_str)
 
 		# Based on analysis of vpp extras/vpp_config/extras/vpp_config.py:
 		# 	buffers-per-numa = ((rx_queues * desc_entries) + (tx_queues * desc_entries)) * total_ports_per_numa * 2
@@ -709,19 +758,9 @@ class FwStartupConf(FwStartupConfParsed):
 		buffers = (rx_queues + tx_queues) * desc_entries * total_ports_per_numa * 2
 		self.set_simple_param('buffers.buffers-per-numa', buffers)
 
-		# Default VPP heap size is 1G, we need at least 2G in multi-thread mode to support 1000+ tunnels
-		if psutil.virtual_memory().total >= 5 * 1024 * 1024 * 1024: # > 5G (2G - DPDK, 2G - VPP, 1G - Apps + Linux)
-			self.set_simple_param('memory.main-heap-size', '2G')
-
-		self.set_simple_param('cpu.main-core', 0)
-		if hqos_enabled and num_workers > 1:
-			hqos_workers_str = "%d" % (num_workers)
-			self.set_simple_param('cpu.corelist-hqos-threads', hqos_workers_str)
-			num_workers -= 1
-
-		num_workers_str = "1" if num_workers == 1 else "1-%d" % (num_workers)
-		self.set_simple_param('cpu.corelist-workers', num_workers_str)
-		self.set_simple_param('dpdk.dev default.num-rx-queues', num_workers)
+		vpp_heap_size = _get_vpp_heap_size()
+		if vpp_heap_size:
+			self.set_simple_param('memory.main-heap-size', vpp_heap_size)
 
 	def get_power_saving(self):
 		'''Retrieves power saving on main core based on value of the unix.poll-sleep-usec field

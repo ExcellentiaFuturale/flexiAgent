@@ -418,8 +418,10 @@ class FwWanMonitor(FwObject):
                 dnsDomains  = ifc.get('dnsDomains', None)
 
                 (success, err_str) = fwnetplan.add_remove_netplan_interface(\
-                                        True, route.dev_id, ip, via, new_metric, dhcp, 'WAN', dnsServers, dnsDomains,
-                                        mtu, if_name=route.dev)
+                                     True, route.dev_id, ip, via, new_metric, dhcp,
+                                     'WAN', dnsServers, dnsDomains,
+                                     mtu, if_name=route.dev)
+
                 if not success:
                     route.ok = prev_ok
                     self.log.error("failed to update metric in netplan: %s" % err_str)

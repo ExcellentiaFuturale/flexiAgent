@@ -70,21 +70,14 @@ class FwCfgRequestHandler(FwObject):
     def __enter__(self):
         return self
 
-    def set_logger(self, logger=None):
-        if self.log != logger:
-            new_logger = logger if logger else self.log
-            self.cfg_db.set_logger(new_logger)
-            self.log = new_logger
-            new_logger.debug("logging switched back from %s ..." % str(logger))
-
     def set_request_logger(self, request):
-        old_logger = self.log
         new_logger = fwglobals.g.loggers.get(request['message'], self.log)
-        if old_logger != new_logger:
-            self.cfg_db.set_logger(new_logger)
-            self.log = new_logger
-            old_logger.debug("logging switched to %s ..." % str(new_logger))
-        return old_logger
+        self.cfg_db.push_logger(new_logger)
+        self.push_logger(new_logger)
+
+    def unset_request_logger(self):
+        self.cfg_db.pop_logger()
+        self.pop_logger()
 
     def call(self, request, dont_revert_on_failure=False):
         if request['message'] == 'aggregated':
@@ -109,7 +102,7 @@ class FwCfgRequestHandler(FwObject):
 
         :returns: dictionary with status code and optional error message.
         """
-        prev_logger = self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
+        self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
         try:
             # Translate request to list of commands to be executed
             cmd_list = self._translate(request)
@@ -132,15 +125,14 @@ class FwCfgRequestHandler(FwObject):
                 self.cfg_db.update(request, cmd_list, execute)
             except Exception as e:
                 self._revert(cmd_list)
-                self.set_logger(prev_logger)
                 raise e
         except Exception as e:
             err_str = "_call_simple: %s" % str(traceback.format_exc())
             self.log.error(err_str)
-            self.set_logger(prev_logger)
             raise e
+        finally:
+            self.unset_request_logger()
 
-        self.set_logger(prev_logger)
         return {'ok':1}
 
     def _call_aggregated(self, requests, dont_revert_on_failure=False):
@@ -810,7 +802,7 @@ class FwCfgRequestHandler(FwObject):
             else:
                 self.log.error(f"_sync_device: smart sync failed, go to full sync: {str(reply['message'])}")
         except Exception as e:
-            self.log.error(f"_sync_device: smart sync exception, go to full sync: {str(e)}")
+            self.log.error(f"_sync_device: smart sync exception, go to full sync: {str(e)} {traceback.format_exc()}")
 
         self.sync_full(incoming_requests)
 
