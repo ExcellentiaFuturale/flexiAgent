@@ -153,7 +153,7 @@ def api_interface_delete(vpp_if_name, type, addr, ospf=True, bgp=True, ignore_er
                 else:
                     raise Exception(err_msg)
 
-        fwglobals.g.router_api.apply_features_on_interface(False, vpp_if_name, type)
+        fwglobals.g.router_api.apply_features_on_interface(False, type, vpp_if_name=vpp_if_name)
 
         fwutils.delete_tun_tap_from_vpp(vpp_if_name, ignore_errors)
     except Exception as e:

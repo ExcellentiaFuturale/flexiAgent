@@ -1400,11 +1400,18 @@ class FWROUTER_API(FwCfgRequestHandler):
         :param sw_if_index: vpp sw_if_index of the interface
         """
         self._update_cache_sw_if_index(sw_if_index, type, True)
-        self.apply_features_on_interface(True, None, sw_if_index, type)
+        self.apply_features_on_interface(True, type, vpp_if_name=None, sw_if_index=sw_if_index)
 
-    def apply_features_on_interface(self, add, vpp_if_name=None, sw_if_index=None, if_type=None):
+    def apply_features_on_interface(self, add, if_type, vpp_if_name=None, sw_if_index=None):
+        if not vpp_if_name and not sw_if_index:
+            err_msg = 'vpp_if_name and sw_if_index were not provided'
+            self.log.error(f"apply_features_on_interface({add, if_type}): failed. {err_msg}")
+            raise Exception(err_msg)
+
         if not vpp_if_name:
             vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
+        if not sw_if_index:
+            sw_if_index = fwutils.vpp_if_name_to_sw_if_index(vpp_if_name, if_type)
 
         with FwCfgMultiOpsWithRevert() as handler:
             try:
@@ -1443,7 +1450,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                     revert_params={ 'attach': (not add), 'vpp_if_name': vpp_if_name, 'if_type': if_type } if add else None, # no need revert of revert
                 )
             except Exception as e:
-                self.log.error(f"apply_features_on_interface({add, vpp_if_name, if_type}): failed. {str(e)}")
+                self.log.error(f"apply_features_on_interface({add, if_type, vpp_if_name, sw_if_index}): failed. {str(e)}")
                 handler.revert(e)
 
     def _on_remove_interface_before(self, type, sw_if_index):
@@ -1452,7 +1459,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         :param type:        "wan"/"lan"
         :param sw_if_index: vpp sw_if_index of the interface
         """
-        self.apply_features_on_interface(False, None, sw_if_index, type)
+        self.apply_features_on_interface(False, type, vpp_if_name=None, sw_if_index=sw_if_index)
         self._update_cache_sw_if_index(sw_if_index, type, False)
 
     def _on_add_tunnel_after(self, sw_if_index, params):
