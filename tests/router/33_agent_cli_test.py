@@ -67,10 +67,10 @@ def test():
             expected_cfg_cleaned = test['expected_result']['cfg_cleaned']
 
             is_vpp_runs = fwtests.vpp_does_run()
-            assert expected_vpp_runs == is_vpp_runs, f'VPP should{"" if expected_vpp_runs else " not"} run after {cmd}'
+            assert expected_vpp_runs == is_vpp_runs, 'VPP should %srun after "%s"' % ("" if expected_vpp_runs else "not ", cmd)
 
             dump_configuration = agent.show("--configuration")
-            assert expected_cfg_cleaned == (dump_configuration == ''), f'agent configuration should {"" if expected_cfg_cleaned else "not"} be empty after {cmd}'
+            assert expected_cfg_cleaned == (dump_configuration == ''), 'agent configuration should %sbe empty after "%s"' % ("" if expected_cfg_cleaned else "not ", cmd)
 
 if __name__ == '__main__':
     test()
