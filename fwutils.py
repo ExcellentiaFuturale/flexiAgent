@@ -1439,7 +1439,11 @@ def vpp_if_name_to_sw_if_index(vpp_if_name, type):
      """
     router_api_db  = fwglobals.g.db['router_api']
     cache_by_name  = router_api_db['vpp_if_name_to_sw_if_index'][type]
-    sw_if_index  = cache_by_name[vpp_if_name]
+    if vpp_if_name in cache_by_name:
+        return cache_by_name[vpp_if_name]
+
+    # go to heavy operation
+    sw_if_index = vpp_if_name_to_vpp_sw_if_index(vpp_if_name)
     return sw_if_index
 
 def vpp_sw_if_index_to_tap(sw_if_index):

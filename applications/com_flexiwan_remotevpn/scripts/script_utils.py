@@ -106,9 +106,6 @@ def create_tun_in_vpp(addr):
         with open(app_database_file, 'w') as f:
             json.dump(data, f)
 
-        cmd = f'fwagent configure router firewall restart'
-        subprocess.check_output(cmd, shell=True)
-        logger.info(f'Firewall rules restarted')
     except Exception as e:
         logger.error(f'create_tun_in_vpp({addr}): out={str(out)}. {str(e)}')
         raise e
