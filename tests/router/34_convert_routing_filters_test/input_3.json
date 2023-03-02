@@ -31,7 +31,11 @@
         "route-map test_route_map deny 5",
         "  description test_route_map_description",
         "  match ip address rm_test_route_map_group_0",
+        "access-list rm_test_route_map_group_1 permit 9.9.9.9/32",
         "route-map test_route_map permit 10",
+        "  description test_route_map_description",
+        "  match ip address rm_test_route_map_group_1",
+        "route-map test_route_map permit 15",
         "  description test_route_map_description"
     ]
 }
