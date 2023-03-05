@@ -1083,9 +1083,22 @@ def dev_id_to_vpp_sw_if_index(dev_id, verbose=True):
     vpp_if_name = dev_id_to_vpp_if_name(dev_id)
     if verbose or not vpp_if_name:
         fwglobals.log.debug("dev_id_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (dev_id, str(vpp_if_name)))
-    return vpp_if_name_to_vpp_sw_if_index(vpp_if_name)
+    return vpp_if_name_to_sw_if_index(vpp_if_name)
 
-def vpp_if_name_to_vpp_sw_if_index(vpp_if_name):
+def vpp_if_name_to_cached_sw_if_index(vpp_if_name, type):
+    """Convert VPP interface name into the cached VPP sw_if_index.
+
+     :param vpp_if_name:      VPP interface name.
+     :param type:             Interface type.
+
+     :returns: VPP sw_if_index.
+     """
+    router_api_db  = fwglobals.g.db['router_api']
+    cache_by_name  = router_api_db['vpp_if_name_to_sw_if_index'][type]
+    sw_if_index  = cache_by_name[vpp_if_name]
+    return sw_if_index
+
+def vpp_if_name_to_sw_if_index(vpp_if_name):
     """Convert VPP interface name into VPP sw_if_index.
 
     This function maps interface referenced by vpp interface name, e.g tun0
@@ -1102,7 +1115,7 @@ def vpp_if_name_to_vpp_sw_if_index(vpp_if_name):
     for sw_if in sw_ifs:
         if re.match(vpp_if_name, sw_if.interface_name):    # Use regex, as sw_if.interface_name might include trailing whitespaces
             return sw_if.sw_if_index
-    fwglobals.log.debug("vpp_if_name_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (vpp_if_name, yaml.dump(sw_ifs, canonical=True)))
+    fwglobals.log.debug("vpp_if_name_to_sw_if_index(%s): vpp_if_name: %s" % (vpp_if_name, yaml.dump(sw_ifs, canonical=True)))
 
     return None
 
@@ -1428,23 +1441,6 @@ def vpp_sw_if_index_to_name(sw_if_index):
         fwglobals.log.debug(f"vpp_sw_if_index_to_name({sw_if_index}): not found")
         return None
     return sw_interfaces[0].interface_name.rstrip(' \t\r\n\0')
-
-def vpp_if_name_to_sw_if_index(vpp_if_name, type):
-    """Convert VPP interface name into VPP sw_if_index.
-
-     :param vpp_if_name:      VPP interface name.
-     :param type:             Interface type.
-
-     :returns: VPP sw_if_index.
-     """
-    router_api_db  = fwglobals.g.db['router_api']
-    cache_by_name  = router_api_db['vpp_if_name_to_sw_if_index'][type]
-    if vpp_if_name in cache_by_name:
-        return cache_by_name[vpp_if_name]
-
-    # go to heavy operation
-    sw_if_index = vpp_if_name_to_vpp_sw_if_index(vpp_if_name)
-    return sw_if_index
 
 def vpp_sw_if_index_to_tap(sw_if_index):
     """Convert VPP sw_if_index into Linux TAP interface name created by 'vppctl enable tap-inject' command.
