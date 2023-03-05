@@ -81,7 +81,7 @@ def api_interface_create(type, addr, host_if_name, ospf=True, bgp=True):
             )
             handler.add_revert_func(
                 revert_func=fwutils.delete_tun_tap_from_vpp,
-                revert_params={ 'vpp_if_name': '$1', 'ignore_errors': False }
+                revert_params={ 'vpp_if_name': tun_vpp_if_name, 'ignore_errors': False }
             )
             ret['tun_vpp_if_name'] = tun_vpp_if_name
 
