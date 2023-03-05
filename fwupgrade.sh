@@ -57,10 +57,10 @@ handle_upgrade_failure() {
         apt_install "${AGENT_SERVICE}=${prev_ver}"
         ret=${PIPESTATUS[0]}
         if [ ${ret} == 1 ]; then
-            log "failed to revert to ${prev_ver} with ${ret} - exit."
+            update_fwjob 'revert to previous version' "failed to revert to ${prev_ver} with ${ret}"
             exit 1
         elif [ ${ret} == 2 ]; then
-            log "failed to revert to ${prev_ver} with ${ret} - restart agent"
+            update_fwjob 'revert to previous version' "failed to revert to ${prev_ver} with ${ret}"
             # Agent must be restarted if revert fails, or otherwise
             # it will remain stopped.
             systemctl restart "$AGENT_SERVICE"
