@@ -1439,7 +1439,11 @@ def vpp_if_name_to_sw_if_index(vpp_if_name, type):
      """
     router_api_db  = fwglobals.g.db['router_api']
     cache_by_name  = router_api_db['vpp_if_name_to_sw_if_index'][type]
-    sw_if_index  = cache_by_name[vpp_if_name]
+    if vpp_if_name in cache_by_name:
+        return cache_by_name[vpp_if_name]
+
+    # go to heavy operation
+    sw_if_index = vpp_if_name_to_vpp_sw_if_index(vpp_if_name)
     return sw_if_index
 
 def vpp_sw_if_index_to_tap(sw_if_index):
@@ -4112,6 +4116,9 @@ def build_vlan_dev_id(vlan_id, dev_id):
 def dev_id_parse_vlan(dev_id):
     '''Parse parent dev_id and vlan id.
     '''
+    if not 'pci' in dev_id:
+        # lte dev_id does not have 'pci'
+        return None, None
     parts = dev_id.split("pci")
     parent_dev_id = "pci" + parts[1]
     vlan_id = int(parts[0].split(".")[1]) if parts[0] else None

@@ -65,14 +65,14 @@ def vpp_startup_conf_remove_nat(vpp_config_filename):
 
 def migrate(prev_version, new_version, upgrade):
     try:
-        print("* Migrating remove-nat...")
-
         if upgrade == 'upgrade':
+            print("* Migrating remove-nat...")
             major_version = int(prev_version.split('-')[0].split('.')[0])
             if major_version < 4:
                 vpp_startup_conf_remove_nat(VPP_CONFIG_FILE)
 
         if upgrade == 'downgrade':
+            print("* Migrating remove-nat...")
             major_version = int(new_version.split('-')[0].split('.')[0])
             if major_version < 4:
                 vpp_startup_conf_add_nat(VPP_CONFIG_FILE)

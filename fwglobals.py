@@ -149,8 +149,8 @@ request_handlers = {
     'modify-vxlan-config':          {'name': '_call_router_api', 'sign': True},
 
     # System API
-    'add-lte':                      {'name': '_call_system_api'},
-    'remove-lte':                   {'name': '_call_system_api'},
+    'add-lte':                      {'name': '_call_system_api', 'sign': True},
+    'remove-lte':                   {'name': '_call_system_api', 'sign': True},
 
     # Applications api
     'add-app-install':             {'name': '_call_applications_api', 'sign': True},
@@ -834,6 +834,8 @@ class Fwglobals(FwObject):
                 func = getattr(self.qos, func_name)
             elif object_name == 'fwglobals.g.firewall_acl_cache':
                 func = getattr(self.firewall_acl_cache, func_name)
+            elif object_name == 'fwglobals.g.stun_wrapper':
+                func = getattr(self.stun_wrapper, func_name)
             elif object_name == 'fwglobals.g.jobs':
                 func = getattr(self.jobs, func_name)
             else:

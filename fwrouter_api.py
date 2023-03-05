@@ -491,7 +491,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             #    In this case we have to ping the GW-s after modification.
             #    See explanations on that workaround later in this function.
             #
-            (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun) = self._analyze_request(request)
+            (restart_router, reconnect_agent, gateways, restart_dhcp_service) = self._analyze_request(request)
 
             # Some requests require preprocessing.
             # For example before handling 'add-application' the currently configured
@@ -511,11 +511,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             #
 
             reply = FwCfgRequestHandler.call(self, request, dont_revert_on_failure)
-
-            # Restart STUN thread if needed
-            #
-            if restart_stun:
-                fwglobals.g.stun_wrapper.restart_stun_thread()
 
             # Start vpp if it should be restarted
             #
@@ -619,6 +614,9 @@ class FWROUTER_API(FwCfgRequestHandler):
             if vpp_does_run or req == 'start-router':
                 execute = True
             elif re.match('remove-',  req):
+                filter = 'must'
+                execute = True
+            elif '-vxlan-config' in req:
                 filter = 'must'
                 execute = True
 
@@ -773,8 +771,6 @@ class FWROUTER_API(FwCfgRequestHandler):
                         "vppctl delete tap") and recreates it back.
                         That causes DHCP service to stop monitoring of the recreated interface.
                         Therefor we have to restart it on modify-interface completion.
-            restart_stun - STUN thread should be restarted if one of parameters it based on
-                        is changed.
 
         """
 
@@ -803,11 +799,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                     return True
             return False
 
-        (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun) = \
-        (False,          False,           [],       False,                False)
+        (restart_router, reconnect_agent, gateways, restart_dhcp_service) = \
+        (False,          False,           [],       False,              )
 
         def _return_val():
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun)
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
 
         if re.match('(add|remove)-interface', request['message']):
             if self.state_is_started():
@@ -817,9 +813,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             return _return_val()
         elif re.match('(start|stop)-router', request['message']):
             reconnect_agent = True
-            return _return_val()
-        elif re.match('(add|remove|modify)-vxlan-config', request['message']):
-            restart_stun = True
             return _return_val()
         elif re.match('(add|remove)-qos-policy', request['message']):
             if (_should_restart_on_qos_policy(request) is True):
@@ -835,8 +828,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             for _request in request['params']['requests']:
                 if re.match('(start|stop)-router', _request['message']):
                     reconnect_agent = True
-                elif re.match('(add|remove|modify)-vxlan-config', _request['message']):
-                    restart_stun = True
                 elif re.match('(add|remove)-qos-policy', _request['message']):
                     if (_should_restart_on_qos_policy(_request) is True):
                         restart_router  = True
@@ -1409,11 +1400,18 @@ class FWROUTER_API(FwCfgRequestHandler):
         :param sw_if_index: vpp sw_if_index of the interface
         """
         self._update_cache_sw_if_index(sw_if_index, type, True)
-        self.apply_features_on_interface(True, None, sw_if_index, type)
+        self.apply_features_on_interface(True, type, vpp_if_name=None, sw_if_index=sw_if_index)
 
-    def apply_features_on_interface(self, add, vpp_if_name=None, sw_if_index=None, if_type=None):
+    def apply_features_on_interface(self, add, if_type, vpp_if_name=None, sw_if_index=None):
+        if not vpp_if_name and not sw_if_index:
+            err_msg = 'vpp_if_name and sw_if_index were not provided'
+            self.log.error(f"apply_features_on_interface({add, if_type}): failed. {err_msg}")
+            raise Exception(err_msg)
+
         if not vpp_if_name:
             vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
+        if not sw_if_index:
+            sw_if_index = fwutils.vpp_if_name_to_sw_if_index(vpp_if_name, if_type)
 
         with FwCfgMultiOpsWithRevert() as handler:
             try:
@@ -1452,7 +1450,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                     revert_params={ 'attach': (not add), 'vpp_if_name': vpp_if_name, 'if_type': if_type } if add else None, # no need revert of revert
                 )
             except Exception as e:
-                self.log.error(f"apply_features_on_interface({add, vpp_if_name, if_type}): failed. {str(e)}")
+                self.log.error(f"apply_features_on_interface({add, if_type, vpp_if_name, sw_if_index}): failed. {str(e)}")
                 handler.revert(e)
 
     def _on_remove_interface_before(self, type, sw_if_index):
@@ -1461,7 +1459,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         :param type:        "wan"/"lan"
         :param sw_if_index: vpp sw_if_index of the interface
         """
-        self.apply_features_on_interface(False, None, sw_if_index, type)
+        self.apply_features_on_interface(False, type, vpp_if_name=None, sw_if_index=sw_if_index)
         self._update_cache_sw_if_index(sw_if_index, type, False)
 
     def _on_add_tunnel_after(self, sw_if_index, params):

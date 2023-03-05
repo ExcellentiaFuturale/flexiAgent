@@ -383,7 +383,7 @@ def add_acl_rules_interfaces(is_add, dev_ids, ingress_acl_id=None, egress_acl_id
 
             # add the application vpp interface names to the list
             for vpp_if_name in app_lans[app_identifier]:
-                sw_if_indexes.append(fwutils.vpp_if_name_to_sw_if_index(vpp_if_name))
+                sw_if_indexes.append(fwutils.vpp_if_name_to_sw_if_index(vpp_if_name, 'lan'))
 
     else: # if not dev_ids, fill all LAN (dpdk and applications) interfaces
         interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
@@ -392,7 +392,7 @@ def add_acl_rules_interfaces(is_add, dev_ids, ingress_acl_id=None, egress_acl_id
 
         for app_identifier in app_lans:
             for vpp_if_name in app_lans[app_identifier]:
-                sw_if_indexes.append(fwutils.vpp_if_name_to_sw_if_index(vpp_if_name))
+                sw_if_indexes.append(fwutils.vpp_if_name_to_sw_if_index(vpp_if_name, 'lan'))
 
         ingress_acl_ids = fwglobals.g.firewall_acl_cache.get('ingress')
         egress_acl_ids = fwglobals.g.firewall_acl_cache.get('egress')

@@ -42,6 +42,7 @@ from fw_vpp_startupconf import FwStartupConf
 globals = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , '..')
 sys.path.append(globals)
 import fwglobals
+import fwgrub
 import fwlog
 import fwutils
 import fwnetplan
@@ -97,16 +98,17 @@ class Checker:
         self.vpp_startup_conf       = FwStartupConf(self.CFG_VPP_CONF_FILE)
         self.vpp_configuration      = self.vpp_startup_conf.get_root_element()
         self.vpp_config_modified    = False
-        self.update_grub            = False
+        self.grub                   = fwgrub.FwGrub(self.log)
 
         supported_nics_filename = os.path.join(os.path.dirname(os.path.realpath(__file__)) , 'dpdk_supported_nics.json')
         with open(supported_nics_filename, 'r') as f:
             self.supported_nics = json.load(f)
 
-    def save_config (self):
+    def save_config (self, update_grub=False):
         if self.vpp_config_modified:
             self.vpp_startup_conf.dump(self.vpp_configuration, self.CFG_VPP_CONF_FILE)
-            self.update_grub_file()
+            if update_grub:
+                self.set_cpu_info_into_grub_file()
             self.vpp_config_modified = False
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE, fwglobals.g.VPP_CONFIG_FILE_BACKUP)
 
@@ -764,6 +766,23 @@ class Checker:
             return False
         return True
 
+    def soft_check_iommu_on(self, fix=False, silently=False, prompt=''):
+        """Check if 'iommu=pt' and 'intel_iommu=on' appear in GRUB.
+        They are needed for DPDK to capture interfaces on bootup, when running
+        on virtual machine, so the guest machine could access host driver.
+
+        :param fix:             Fix problem.
+        :param silently:        Do not prompt user.
+        :param prompt:          User prompt prefix.
+
+        :returns: 'True' if check is successful and 'False' otherwise.
+        """
+        if not fwutils.check_if_virtual_environment():
+            return None   # None -> report the check as skipped
+
+        grub_params = [ 'iommu=pt', 'intel_iommu=on' ]
+        res = self.grub.soft_check(grub_params, fix, prompt)
+        return res
 
     def soft_check_hugepage_number(self, fix=False, silently=False, prompt=''):
         """Check if there is enough hugepages available.
@@ -839,134 +858,14 @@ class Checker:
         os.system('sysctl -p %s' %(vpp_hugepages_file))
         return True
 
-    def soft_check_multi_core_support_requires_rss(self, fix=False, silently=False, prompt=''):
-        """Check and set number of worker cores to process incoming packets. Requires RSS support
+    def set_cpu_info_into_grub_file(self, reset=False):
+        """Fetches from the startup.conf the number of CPU cores that should be
+        isolated from kernel toward VPP and updates the /etc/default/grub with it.
 
-        :param fix:             Fix problem.
-        :param silently:        Do not prompt user.
-        :param prompt:          User prompt prefix.
-
-        :returns: 'True' if check is successful and 'False' otherwise.
+        :param reset: if True, the GRUB will be configured with no isolation.
         """
-        # This function does the following:
-        # 1. sets "main-core" and "corelist-workers" in "cpu" section in /etc/vpp/startup.conf
-        # 2. sets "num-rx-queues" in "dpdk" section in /etc/vpp/startup.conf
-        # 3. updates "GRUB_CMDLINE_LINUX_DEFAULT" in /etc/default/grub
-        # 4. sudo update-grub
-
-        if not fix or silently:
-            return True
-        # 'Fix' and 'silently' has no meaning for vpp configuration parameters,
-        # as any value is good for it, and if no value was configured,
-        # the existing values will be used, or zero if none.
-
-        num_worker_cores = psutil.cpu_count() - 1
-        input_cores = 0
-        while True:
-            str_cores = input(prompt + "Enter number of cores to process packets (max: %d): " % num_worker_cores)
-            try:
-                if len(str_cores) == 0:
-                    input_cores = num_worker_cores
-                    break
-                input_cores = int(str_cores)
-                if input_cores > num_worker_cores:
-                    self.log.warning("Number of cores entered (%d) was set to maximum available (%d)" % (input_cores, num_worker_cores))
-                    input_cores = num_worker_cores
-                break
-            except Exception as e:
-                self.log.error(prompt + str(e))
-
-        current_workers = self.vpp_startup_conf.get_cpu_workers()
-        if current_workers == input_cores:
-            return True
-
-        self.vpp_startup_conf.set_cpu_workers(input_cores)
-        self.vpp_config_modified = True
-        self.update_grub = True
-        return True
-
-    def soft_check_cpu_power_saving(self, fix=False, silently=False, prompt=''):
-        """Set power saving on main core: add delay to polling frequancy to main core loop
-
-        :param fix:             Fix problem.
-        :param silently:        Do not prompt user.
-        :param prompt:          User prompt prefix.
-
-        :returns: 'True' if check is successful and 'False' otherwise.
-        """
-        # This function does the following:
-        # 1. Ask the user if to emable power saving mode
-        # 2. If so, set poll-sleep-usec parameter in startup.conf's unix
-        #    section to some TBD value.
-
-        if not fix or silently:
-            return True
-
-        enable_ps_mode  = False
-        usec_rest       = 300
-        usec            = 0
-        conf            = self.vpp_configuration
-        conf_param      = None
-        if conf and conf['unix']:
-            string = self.vpp_startup_conf.get_element(conf['unix'], 'poll-sleep-usec')
-            if string:
-                tup = self.vpp_startup_conf.get_tuple_from_key(conf['unix'],string)
-                if tup:
-                    tmp = re.split('\s+', tup[0].strip())
-                    usec = int(tmp[1])
-                    conf_param = tup[0]
-
-        while True:
-            str_ps_mode = input(prompt + "Enable Power-Saving mode on main core (y/N/q)?")
-            if str_ps_mode == 'Y' or str_ps_mode == 'y':
-                enable_ps_mode = True
-                break
-            elif str_ps_mode == 'N' or str_ps_mode == 'n' or str_ps_mode == '':
-                enable_ps_mode = False
-                break
-            else:
-                return True  #nothing to do
-
-        if enable_ps_mode == True:
-            if usec == usec_rest:
-                return True   #nothing to do
-            elif not conf:
-                    conf = self.vpp_startup_conf.get_root_element()
-                    if conf['unix'] is None:
-                        tup = self.vpp_startup_conf.create_element(conf,'unix')
-                        tup.append(self.vpp_startup_conf.create_element('poll-sleep-usec %d' %(usec_rest)))
-                        self.vpp_config_modified = True
-                        return True
-            else:
-                if conf_param:
-                    self.vpp_startup_conf.remove_element(conf['unix'], conf_param)
-                conf_param = 'poll-sleep-usec %d' % usec_rest
-                conf['unix'].append(self.vpp_startup_conf.create_element(conf_param))
-                self.vpp_config_modified = True
-                return True
-        else: # enable_ps_mode is False
-            if conf_param:
-                self.vpp_startup_conf.remove_element(conf['unix'], conf_param)
-                self.vpp_config_modified = True
-                return True
-
-        return True
-
-    def update_grub_file(self, reset=False):
-        """Update /etc/default/grub to work with configured number of cores.
-        """
-        # This function does the following:
-        # 1. check how many cores to update
-        # 2. updates "GRUB_CMDLINE_LINUX_DEFAULT" in /etc/defualt/grub
-        # 3. sudo update-grub
-        if self.update_grub == False:
-            return
-
         num_of_workers_cores = 0
-        # if reset is True, the cfg points to the old configuration while we
-        # already copied the startup.conf.restore to startup.conf, so we can't
-        # take the old number of workers from the current DB. In case of reset,
-        # we need to explicit set the number of cores to zero.
+
         if reset==False:
             cfg = self.vpp_configuration
             if cfg and cfg['cpu']:
@@ -984,87 +883,10 @@ class Checker:
                             corelist_worker_param_max_val = int(corelist_worker_param_val.split('-')[1])
                         num_of_workers_cores = corelist_worker_param_max_val + 1 - corelist_worker_param_min_val
 
-        update_line = ''
-        if num_of_workers_cores == 0:
-            update_line = ''
-        else:
-            if fwutils.check_if_virtual_environment() == True:
-                update_line += 'iommu=pt intel_iommu=on '
-            if num_of_workers_cores == 1:
-                update_line += 'isolcpus=1 nohz_full=1 rcu_nocbs=1'
-            else:
-                update_line += 'isolcpus=1-%d nohz_full=1-%d rcu_nocbs=1-%d' % (num_of_workers_cores, num_of_workers_cores, num_of_workers_cores)
-        grub_read_file  = '/etc/default/grub'
-        grub_write_file = '/etc/default/grub.tmp'
+        self.grub.set_cpu_info(num_of_workers_cores)
 
-        add_grub_line = False
-        grub_line_found = False
-        grub_line = ''
-        prefix_val = "GRUB_CMDLINE_LINUX_DEFAULT"
-        read_file  = open(grub_read_file, "r")
-        write_file = open(grub_write_file, "w")
-        for line in read_file:
-            if prefix_val in line:
-                # no need to handle lines which are remarked
-                if line.startswith("#"):
-                    write_file.write(line)
-                else:
-                    #if line is found, remark it, and save its contents for later processing
-                    grub_line_found = True
-                    grub_line = line
-                    line = "# "+line
-                    write_file.write(line)
-            else:
-                write_file.write(line)
 
-    # remove old values if exist, so we can replace with ours.
-    # zero cores means reset to old line, without our additions
-        if grub_line_found == True:
-            add_grub_line = True
-            # take the list of values after the 'GRUB_CMDLINE_LINUX_DEFAULT=' part, if exist
-            splt = grub_line.split('=\"')
-            if len(splt) > 1:
-                val_line = splt[1].strip().strip('\" ')
-            else:
-                val_line = ''
-            #create a list of tokens from the val_line
-            val_line_list = re.split('\s+', val_line.strip())
-            #remove old values, if exist, so we can replace them with ours
-            results = []
-            for elem in val_line_list:
-                if elem.startswith('iommu'):
-                    continue
-                elif elem.startswith('intel_iommu'):
-                    continue
-                elif elem.startswith('isolcpus'):
-                    continue
-                elif elem.startswith('nohz_full'):
-                    continue
-                elif elem.startswith('rcu_nocbs'):
-                    continue
-                results.append(elem)
-            #regroup val_line
-            val_line = " ".join(results)
-
-            #add our values.
-            if num_of_workers_cores!=0:
-                grub_line = prefix_val+ '=\"' + val_line + " " + update_line + '\"'
-            else:
-                grub_line = prefix_val+ '=\"' + val_line +'\"'
-            write_file.write(grub_line+'\n')
-        else:
-            grub_line = prefix_val+ '=\"' + update_line + '\"'
-            write_file.write(grub_line+'\n')
-
-        write_file.close()
-        read_file.close()
-        shutil.copyfile (grub_write_file, grub_read_file)
-        os.remove (grub_write_file)
-        if add_grub_line == True:
-            os.system ("sudo update-grub")
-        return
-
-    def soft_check_lte_modem_configured_in_mbim_mode(self, fix=False, silently=False, prompt=''):
+    def soft_check_lte_mbim_mode(self, fix=False, silently=False, prompt=''):
         lte_interfaces = []
         for nicname, addrs in list(psutil.net_if_addrs().items()):
             driver = fwutils.get_interface_driver(nicname, cache=False)
@@ -1382,6 +1204,7 @@ class Checker:
             Return flags if VPP and GRUB configurations was modified
         """
         update_vpp = False
+        update_grub = False
         workers = self.vpp_startup_conf.get_cpu_workers()
         hqos_workers = self.vpp_startup_conf.get_cpu_hqos_workers()
         grub_cores = self._get_grub_cores()
@@ -1406,7 +1229,7 @@ class Checker:
             self.vpp_startup_conf.set_cpu_workers(vpp_cores, hqos_enabled=hqos_enabled)
             self.vpp_config_modified = True
             if vpp_cores > grub_cores:
-                self.update_grub = True
+                update_grub = True
 
         if power_saving != cur_power_saving:
             power_saving_value = 300 if power_saving else 0
@@ -1415,6 +1238,6 @@ class Checker:
 
         if self.vpp_config_modified:
             update_vpp = True
-            self.save_config()
+            self.save_config(update_grub)
 
-        return update_vpp, self.update_grub
+        return update_vpp, update_grub
