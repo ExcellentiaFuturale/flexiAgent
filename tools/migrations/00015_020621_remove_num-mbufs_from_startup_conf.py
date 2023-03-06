@@ -37,15 +37,16 @@ import fwutils
 
 def migrate(prev_version=None, new_version=None, upgrade=True):
     try:
-        print("* Migrating startup.conf buffers ...")
         prev_major_version = int(prev_version.split('-')[0].split('.')[0])
         new_major_version  = int(new_version.split('-')[0].split('.')[0])
 
         if upgrade == 'upgrade' and prev_major_version < 4 and new_major_version >= 4:
+            print("* Migrating startup.conf buffers ...")
             fwutils.vpp_startup_conf_remove_param('/etc/vpp/startup.conf', 'dpdk.num-mbufs')
             fwutils.vpp_startup_conf_remove_param('/etc/vpp/startup.conf.baseline', 'dpdk.num-mbufs')
 
         if upgrade == 'downgrade' and prev_major_version >= 4 and new_major_version < 4:
+            print("* Migrating startup.conf buffers ...")
             fwutils.vpp_startup_conf_remove_param('/etc/vpp/startup.conf', 'buffers.buffers-per-numa')
             fwutils.vpp_startup_conf_remove_param('/etc/vpp/startup.conf.baseline', 'buffers.buffers-per-numa')
 
