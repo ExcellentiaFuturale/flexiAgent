@@ -211,13 +211,14 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     #             of the 'ret_attr' attribute is stored.
     ret_attr = 'sw_if_index'
     mac_bytes = fwutils.mac_str_to_bytes(mac) if mac else 0
+    no_vppsb  = 1 if internal else 0  # see IF_API_FLEXIWAN_FLAG_NO_VPPSB = 1 in interface_types.api
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['func']   = "call_vpp_api"
     cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['params'] = {
                     'api':  "create_loopback_instance",
-                    'args': { 'mac_address':mac_bytes, 'is_specified': 1, 'user_instance': id }
+                    'args': { 'mac_address':mac_bytes, 'is_specified': 1, 'user_instance': id, 'flexiwan_flags': no_vppsb }
     }
     cmd['cmd']['cache_ret_val'] = (ret_attr,cache_key)
     cmd['cmd']['descr']         = "create loopback interface (mac=%s, id=%d)" % (mac, id)

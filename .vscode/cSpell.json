@@ -1,8 +1,20 @@
 {
     "words": [
-        "fwapplication",
-        "Fwlog",
+        "autoupgrade",
+        "bootup",
+        "fwgrub",
+        "fwlog",
         "fwobject",
-        "fwsqlitedict"
+        "hugepage",
+        "hugepages",
+        "iommu",
+        "isolcpus",
+        "mbim",
+        "netplan",
+        "networkd",
+        "nics",
+        "nocbs",
+        "nohz",
+        "virtio"
     ]
 }
