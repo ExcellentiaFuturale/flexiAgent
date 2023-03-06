@@ -146,7 +146,7 @@ class FwJobs(FwObject):
         :returns: None.
         """
 
-        self.update_job_record(self.current_job_id, error)
+        self.update_record(self.current_job_id, error)
 
     def update_record(self, job_id, error):
         """Updates job record in case of an error.
