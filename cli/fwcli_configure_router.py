@@ -19,7 +19,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
-import json
 
 import fwglobals
 import fw_os_utils
@@ -45,10 +44,6 @@ def argparse(configure_subparsers):
     remove_interfaces_cli.add_argument('--vpp_if_name', dest='params.vpp_if_name', metavar='VPP_INTERFACE_NAME', help="VPP interface name", required=True)
     remove_interfaces_cli.add_argument('--ignore_errors', dest='params.ignore_errors', help="Ignore exceptions during removal", action='store_true')
 
-    firewall_parser = configure_router_subparsers.add_parser('firewall', help='Configure firewall')
-    router_firewall_subparsers = firewall_parser.add_subparsers(dest='firewall')
-    router_firewall_subparsers.add_parser('restart', help='Re-apply firewall (Temporary)')
-
 def interfaces_create(type, addr, host_if_name):
     if not fwutils.is_ipv4(addr):
         raise Exception(f'addr {addr} is not valid IPv4 address')
@@ -72,13 +67,6 @@ def interfaces_delete(vpp_if_name, type, addr, ignore_errors=False):
         type=type, addr=addr, vpp_if_name=vpp_if_name, ignore_errors=ignore_errors
     )
 
-def firewall_restart():
-    daemon_rpc(
-        'api',
-        api_module='fwcli_configure_router',
-        api_name='api_firewall_restart'
-    )
-
 def api_interface_create(type, addr, host_if_name, ospf=True, bgp=True):
     if not fw_os_utils.vpp_does_run():
         return
@@ -93,7 +81,7 @@ def api_interface_create(type, addr, host_if_name, ospf=True, bgp=True):
             )
             handler.add_revert_func(
                 revert_func=fwutils.delete_tun_tap_from_vpp,
-                revert_params={ 'vpp_if_name': '$1', 'ignore_errors': False }
+                revert_params={ 'vpp_if_name': tun_vpp_if_name, 'ignore_errors': False }
             )
             ret['tun_vpp_if_name'] = tun_vpp_if_name
 
@@ -159,10 +147,3 @@ def api_interface_delete(vpp_if_name, type, addr, ospf=True, bgp=True, ignore_er
     except Exception as e:
         fwglobals.log.error(f'api_interface_delete({vpp_if_name}, {type}, {addr}) failed. {str(e)}')
         raise e
-
-def api_firewall_restart():
-    firewall_policy_params = fwglobals.g.router_cfg.get_firewall_policy()
-    if firewall_policy_params:
-        fwglobals.log.info(f"api_restart_firewall(): Inject remove and add firewall jobs")
-        fwglobals.g.router_api.call({'message': 'remove-firewall-policy', 'params': firewall_policy_params})
-        fwglobals.g.router_api.call({'message': 'add-firewall-policy',    'params': firewall_policy_params})
