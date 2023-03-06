@@ -30,7 +30,7 @@ SCRIPT_NAME="$(basename $BASH_SOURCE)"
 # Constants passed to the script by fwagent
 TARGET_VERSION="$1"
 VERSIONS_FILE="$2"
-UPGRADE_FAILURE_FILE="$3"
+UPGRADE_STATUS_FILE="$3"
 AGENT_LOG_FILE="$4"
 JOB_ID="$5"
 
@@ -85,7 +85,8 @@ handle_upgrade_failure() {
     fi
 
     # Create a file that marks the installation has failed
-    touch "$UPGRADE_FAILURE_FILE"
+    #
+    echo `date +'%b %e %R:%S'`" $HOSTNAME: $SCRIPT_NAME: failed" >> "${UPGRADE_STATUS_FILE}" 2>&1
 
     # Reconnect to MGMT
     res=$(fwagent start)
@@ -187,7 +188,7 @@ log "Starting software upgrade process..."
 # is created by either this script (if the failure is during the
 # software upgrade process), or by the agent, if post-installation
 # checks fail
-rm "$UPGRADE_FAILURE_FILE" >> /dev/null 2>&1
+rm "$UPGRADE_STATUS_FILE" >> /dev/null 2>&1
 
 # Save previous version for revert in case the upgrade process fails
 get_prev_version
@@ -248,11 +249,16 @@ fi
 
 # Wait to see if service is up and connected to the MGMT
 log "Finished installing new software. waiting for agent check (${AGENT_CHECK_TIMEOUT} sec)"
-sleep "$AGENT_CHECK_TIMEOUT"
+while ((${AGENT_CHECK_TIMEOUT})); do
+    upgrade_status=$(cat ${UPGRADE_STATUS_FILE} 2>&1)
+    if [ "$upgrade_status" == "success" ]; then
+        log "upgrade succeeded"
+        exit 0
+    fi
+    AGENT_CHECK_TIMEOUT=$((${AGENT_CHECK_TIMEOUT}-1))
+    sleep 1
+done
 
-if [ -f "$UPGRADE_FAILURE_FILE" ]; then
-    handle_upgrade_failure 'agent check' 'Agent checks failed' 'revert'
-fi
+handle_upgrade_failure 'agent check' 'post upgrade agent checks failed' 'revert'
+exit 100
 
-log "Software upgrade process finished successfully"
-exit 0

@@ -141,9 +141,11 @@ class FwAgent(FwObject):
             self.log.excep("Failed to create connection failure file: %s" % str(e))
 
     def _clean_connection_failure(self):
-        if os.path.exists(fwglobals.g.CONN_FAILURE_FILE):
-            os.remove(fwglobals.g.CONN_FAILURE_FILE)
-            self.log.debug("_clean_connection_failure")
+        # We use 'subprocess.check_call()' to get an exception if writing into file fails.
+        # The file update is vital for the upgrade process by fwupgrade.sh.
+        #
+        subprocess.check_call(f'echo "success" > {fwglobals.g.CONN_FAILURE_FILE}', shell=True)
+        self.log.debug("_clean_connection_failure")
 
     def _setup_repository(self, repo):
         # Extract repo info. e.g. 'https://deb.flexiwan.com|flexiWAN|main'
