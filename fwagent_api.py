@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2022  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -204,10 +204,12 @@ class FWAGENT_API(FwObject):
         except Exception as e:
             return { 'message': 'Failed to copy upgrade file', 'ok': 0 }
 
-        cmd = 'bash /tmp/fwupgrade.sh {} {} {} {} >> {} 2>&1 &' \
+        job_id = fwglobals.g.jobs.current_job_id
+        cmd = 'bash /tmp/fwupgrade.sh {} {} {} {} {} >> {} 2>&1 &' \
             .format(params['version'], fwglobals.g.VERSIONS_FILE, \
                     fwglobals.g.CONN_FAILURE_FILE, \
                     fwglobals.g.ROUTER_LOG_FILE, \
+                    job_id, \
                     fwglobals.g.ROUTER_LOG_FILE)
         os.system(cmd)
         return { 'message': 'Started software upgrade process', 'ok': 1 }
@@ -350,7 +352,7 @@ class FWAGENT_API(FwObject):
         if err_str:
             return {'message': err_str, 'ok': 0}
 
-        fwutils.reset_device_config_signature()
+        fwutils.reset_device_config_signature(log=self.log)
         self.log.info("_sync_device FINISHED")
         return {'ok': 1}
 

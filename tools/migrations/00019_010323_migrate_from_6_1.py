@@ -18,13 +18,11 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-# On downgrade from 6.X to previous major version, this migration script removes
-# the dpdk config of VPP startup conf. This is required as 6.X uses dpdk as part
-# of LTE/PPPoE functionality. The dpdk tuntap-vdev entries added by 6.X shall
-# not be compatible with previous version code.
+# On upgrade this migration script updates the VPN server scripts.
 
 import os
 import sys
+import shutil
 
 common_tools = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , 'common')
 sys.path.append(common_tools)
@@ -32,23 +30,34 @@ sys.path.append(common_tools)
 globals = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , '..')
 sys.path.append(globals)
 
+import fwglobals
 import fwutils
+from fwapplications_cfg import FwApplicationsCfg
 
-VPP_CONFIG_FILE = '/etc/vpp/startup.conf'
+def _migrate_vpn_script():
+    application_db_path = "/etc/flexiwan/agent/.applications.sqlite"
+    if os.path.exists(application_db_path):
+        with FwApplicationsCfg(application_db_path) as application_cfg:
+            apps = application_cfg.get_applications()
+
+            for app in apps:
+                identifier = app.get('identifier')
+                if not identifier == 'com.flexiwan.remotevpn':
+                    continue
+
+                path = '/usr/share/flexiwan/agent/applications/com_flexiwan_remotevpn/scripts'
+                shutil.copyfile('{}/script_utils.py'.format(path), '/etc/openvpn/server/script_utils.py')
+                os.system('killall openvpn') # it will be start again by our application watchdog
 
 def migrate(prev_version=None, new_version=None, upgrade=True):
-    try:
-        prev_version = prev_version.split('-')[0].split('.')
-        new_version  = new_version.split('-')[0].split('.')
-        new_major_version = int(new_version[0])
-        prev_major_version = int(prev_version[0])
+    # upgrade from any version before 6:
+    if upgrade == 'upgrade' and fwutils.version_less_than(prev_version, '6.2.0'):
+        try:
+            print("* Migrating OpenVPN scripts for 6.2.X ...")
+            _migrate_vpn_script()
 
-        if upgrade == 'downgrade' and prev_major_version == 6 and new_major_version < 6:
-            print("Migrating : processing 00017_190123_remove_dpdk_section on downgrade from 6.X")
-            fwutils.vpp_startup_conf_remove_dpdk_config(VPP_CONFIG_FILE)
-    except Exception as e:
-        print("Migration error: %s : %s" % (__file__, str(e)))
-
+        except Exception as e:
+            print("Migration error: %s : %s" % (__file__, str(e)))
 
 if __name__ == "__main__":
     migrate()

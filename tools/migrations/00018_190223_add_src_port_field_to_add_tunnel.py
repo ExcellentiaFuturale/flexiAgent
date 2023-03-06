@@ -47,7 +47,6 @@ from fwrouter_cfg import FwRouterCfg
 requests_db_path = "/etc/flexiwan/agent/.requests.sqlite"
 
 def migrate(prev_version=None, new_version=None, upgrade=True):
-    print("Migrating : processing 00018_190223_add_src_port_field_to_add_tunnel on upgrade from 6.1")
     try:
         if not os.path.exists(requests_db_path):
             return

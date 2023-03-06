@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2022  flexiWAN Ltd.
+# Copyright (C) 2019  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -20,46 +20,26 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import pickle
-import sqlite3
-
-from sqlitedict import SqliteDict
-
+import fwglobals
+import fwutils
 from fwobject import FwObject
 
+class FwFirewallAclCache(FwObject):
+    """Firewall class representation.
+    """
+    def __init__(self):
+        self.rules = {}
+        self.rules['ingress'] = []
+        self.rules['egress']  = []
 
-def _decode(obj):
-    """Deserialize objects retrieved from SQLite."""
-    return pickle.loads(bytes(obj), encoding="latin1")
+    def add(self, direction, acl_id):
+        self.rules[direction].append(acl_id)
 
+    def remove(self, direction, acl_id):
+        self.rules[direction] = [tup for tup in self.rules[direction] if tup == acl_id]
 
-def _encode(obj):
-    """Serialize objects to binary format."""
-    return sqlite3.Binary(pickle.dumps(obj, protocol=2))
+    def get(self, direction):
+        return self.rules[direction]
 
-
-class FwSqliteDict(SqliteDict, FwObject):
-    """This is base DB class implementation, based on SqliteDict."""
-
-    def __init__(self, db_file):
-        """Constructor method
-
-        :param db_file:      SQLite database file name.
-        """
-        super().__init__(filename=db_file, flag='c', autocommit=True, encode=_encode, decode=_decode)
-        FwObject.__init__(self)
-
-    def finalize(self):
-        """Close DB
-
-        :returns: None.
-        """
-        self.close()
-
-    def clean(self):
-        """Clean DB
-
-        :returns: None.
-        """
-        for req_key in self:
-            del self[req_key]
+    def clear(self, direction):
+        self.rules[direction].clear()
