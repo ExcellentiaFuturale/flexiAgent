@@ -836,6 +836,8 @@ class Fwglobals(FwObject):
                 func = getattr(self.firewall_acl_cache, func_name)
             elif object_name == 'fwglobals.g.stun_wrapper':
                 func = getattr(self.stun_wrapper, func_name)
+            elif object_name == 'fwglobals.g.jobs':
+                func = getattr(self.jobs, func_name)
             else:
                 return None
         except Exception as e:
