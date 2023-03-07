@@ -116,7 +116,7 @@ def add_interface(params):
     is_wifi = fwwifi.is_wifi_interface_by_dev_id(dev_id)
     is_lte = fwlte.is_lte_interface_by_dev_id(dev_id) if not is_wifi else False
     is_pppoe = fwpppoe.is_pppoe_interface(dev_id=dev_id)
-    is_vlan = fwutils.is_vlan_interface(dev_id)
+    is_vlan = fwutils.is_vlan_interface(dev_id=dev_id)
     add_to_netplan = True
     if is_pppoe:
         # PPPoE interface is not added into netplan config.
