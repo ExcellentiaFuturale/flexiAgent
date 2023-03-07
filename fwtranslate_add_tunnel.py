@@ -1841,7 +1841,7 @@ def add_tunnel(params):
                 'ip': remote_loop0_ip,
                 'remoteAsn': bgp_remote_asn
             }
-            add_frr_cmds = fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
+            add_frr_cmds = fwglobals.g.router_api.frr.translate_bgp_neighbor_to_frr_commands(neighbor)
 
             revert_cmds = ['router bgp', f'no neighbor {remote_loop0_ip}']
             cmd = {}

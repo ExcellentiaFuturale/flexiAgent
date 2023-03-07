@@ -1,0 +1,14 @@
+{
+    "input": [
+        {
+            "route":"0.0.0.0/0",
+            "action":"allow",
+            "nextHop":"",
+            "priority":0
+        }
+    ],
+    "expected": [
+        "route-map test_route_map permit 5",
+        "  description test_route_map_description"
+    ]
+}
