@@ -1411,7 +1411,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         if not vpp_if_name:
             vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
         if not sw_if_index:
-            sw_if_index = fwutils.vpp_if_name_to_sw_if_index(vpp_if_name, if_type)
+            sw_if_index = fwutils.vpp_if_name_to_sw_if_index(vpp_if_name)
 
         with FwCfgMultiOpsWithRevert() as handler:
             try:
