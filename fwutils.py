@@ -536,7 +536,7 @@ def is_bridged_interface(dev_id):
     return None
 
 def get_interface_is_dhcp(if_name):
-    is_dhcp_in_netplan = fwnetplan.get_dhcp_netplan_interface(if_name)
+    is_dhcp_in_netplan = fwnetplan.is_interface_dhcp(if_name)
     if is_dhcp_in_netplan == 'yes':
         return is_dhcp_in_netplan
 
@@ -608,7 +608,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
             is_pppoe = fwpppoe.is_pppoe_interface(if_name=if_name)
             is_wifi = fwwifi.is_wifi_interface(if_name)
             is_lte = fwlte.is_lte_interface(if_name)
-            is_vlan = is_vlan_interface(dev_id)
+            is_vlan = is_vlan_interface(dev_id=dev_id)
 
             if is_lte:
                 interface['deviceType'] = 'lte'
@@ -618,6 +618,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                 interface['deviceType'] = 'pppoe'
             elif is_vlan:
                 interface['deviceType'] = 'vlan'
+                interface['driver'] = 'vlan'
             else:
                 interface['deviceType'] = 'dpdk'
 
@@ -766,7 +767,7 @@ def build_interface_dev_id(linux_dev_name, sys_class_net=None):
     if not linux_dev_name:
         return ""
 
-    if '.' in linux_dev_name:
+    if is_vlan_interface(if_name=linux_dev_name):
         linux_dev_name, vlan_id = if_name_parse_vlan(linux_dev_name)
 
     if linux_dev_name.startswith('ppp'):
@@ -2962,7 +2963,7 @@ def is_non_dpdk_interface(dev_id):
         return True
     if fwlte.is_lte_interface_by_dev_id(dev_id):
         return True
-    if fwutils.is_vlan_interface(dev_id):
+    if fwutils.is_vlan_interface(dev_id=dev_id):
         return True
 
     return False
@@ -4099,10 +4100,13 @@ class FwJsonEncoder(json.JSONEncoder):
             serialized = o.__dict__  # As a last resort, assume complex object
         return serialized
 
-def is_vlan_interface(dev_id):
-    '''Check if dev_id is from vlan interface.
+def is_vlan_interface(dev_id=None, if_name=None):
+    '''Check if dev_id/if_name stands for VLAN interface.
     '''
-    return 'vlan' in dev_id
+    if dev_id:
+        return 'vlan' in dev_id
+    else:
+        return '.' in if_name
 
 def build_vlan_dev_id(vlan_id, dev_id):
     '''Build vlan dev_id.

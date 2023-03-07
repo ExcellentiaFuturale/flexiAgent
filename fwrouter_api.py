@@ -237,7 +237,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         interfaces = fwglobals.g.router_cfg.get_interfaces()
         for interface in interfaces:
-            if fwutils.is_vlan_interface(interface['dev_id']):
+            if fwutils.is_vlan_interface(dev_id=interface['dev_id']):
                 continue
             tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
             if fwpppoe.is_pppoe_interface(dev_id=interface['dev_id']):
@@ -807,7 +807,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         if re.match('(add|remove)-interface', request['message']):
             if self.state_is_started():
-                if not fwutils.is_vlan_interface(request['params']['dev_id']):
+                if not fwutils.is_vlan_interface(dev_id=request['params']['dev_id']):
                     restart_router  = True
                     reconnect_agent = True
             return _return_val()
@@ -835,7 +835,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 elif re.match('(add|remove)-interface', _request['message']):
                     dev_id = _request['params']['dev_id']
                     # Track vlans. If only vlans in add/remove requests do not restart router
-                    if not fwutils.is_vlan_interface(dev_id):
+                    if not fwutils.is_vlan_interface(dev_id=dev_id):
                         only_vlans = False
                     # check if requests list contains remove-interface and add-interface for the same dev_id.
                     # If found, it means that these two requests were created for modify-interface

@@ -338,7 +338,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
     old_ethernets = {}
     type = type.upper()
 
-    if fwutils.is_vlan_interface(dev_id):
+    if fwutils.is_vlan_interface(dev_id=dev_id):
         return add_remove_netplan_vlan(is_add, dev_id, ip, gw, metric, dhcp, type)
 
     if fwpppoe.is_pppoe_interface(dev_id=dev_id):
@@ -595,7 +595,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
 
     return (True, None)
 
-def get_dhcp_netplan_interface(if_name):
+def is_interface_dhcp(if_name):
     files = glob.glob("/etc/netplan/*.yaml") + \
             glob.glob("/lib/netplan/*.yaml") + \
             glob.glob("/run/netplan/*.yaml")
@@ -607,17 +607,30 @@ def get_dhcp_netplan_interface(if_name):
         if config is None:
             continue
 
-        if 'network' in config:
-            network = config['network']
+        network = config.get('network')
+        if not network:
+            continue
 
-            if 'ethernets' in network:
-                ethernets = network['ethernets']
+        if fwutils.is_vlan_interface(if_name=if_name):
+            vlans = network.get('vlans')
+            if not vlans:
+                continue
 
-                if if_name in ethernets:
-                    interface = ethernets[if_name]
-                    if 'dhcp4' in interface:
-                        if interface['dhcp4'] == True:
-                            return 'yes'
+            if if_name in vlans:
+                interface = vlans[if_name]
+                if interface.get('dhcp4'):
+                    return 'yes'
+
+            continue
+
+        if not 'ethernets' in network:
+            continue
+        ethernets = network['ethernets']
+
+        if if_name in ethernets:
+            interface = ethernets[if_name]
+            if interface.get('dhcp4'):
+                return 'yes'
     return 'no'
 
 def check_interface_exist(if_name):
