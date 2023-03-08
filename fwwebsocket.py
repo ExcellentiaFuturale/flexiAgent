@@ -171,7 +171,6 @@ class FwWebSocketClient(FwObject):
     def close(self):
         with self.lock:
             if self.state == self.FwWebSocketState.IDLE:
-                self.lock.release()
                 return
             self.state = self.FwWebSocketState.CLOSING
             if self.ws:
@@ -256,4 +255,9 @@ class FwWebSocketClient(FwObject):
         """Pushes data into connection.
         """
         if self.ws:
-            self.ws.send(data)
+            try:
+                self.ws.send(data)
+            except Exception as e:
+                self.log.error(f"send: exception: {str(e)}")
+                self.close()     # close yourself gracefully on corrupted connection: report the closure to user
+                raise e
