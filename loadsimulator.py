@@ -28,7 +28,6 @@ import time
 import signal
 
 import fwagent
-import fwstats
 
 from fwobject import FwObject
 
@@ -143,6 +142,7 @@ class LoadSimulator(FwObject):
                                  self.interface_lan: dict(self.simulate_stats)}}
 
         if new_stats['ok'] == 1:
+            fwstats = fwglobals.g.statistics
             prev_stats = dict(fwstats.stats)  # copy of prev stats
             fwstats.stats['time'] = time.time()
             fwstats.stats['last'] = new_stats['message']

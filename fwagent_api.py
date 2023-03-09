@@ -27,7 +27,6 @@ from shutil import copyfile
 import subprocess
 import json
 import fwglobals
-import fwstats
 import fwutils
 import fwlte
 import fwwifi
@@ -129,12 +128,11 @@ class FWAGENT_API(FwObject):
         :returns: Dictionary with information and status code.
         """
         try:
-            stats = fwstats.get_stats()
             info = {}
             # Load component versions
             with open(fwglobals.g.VERSIONS_FILE, 'r') as stream:
                 info = yaml.load(stream, Loader=yaml.BaseLoader)
-            info['stats'] = stats['message'][-1]
+            info['stats'] = fwglobals.g.statistics.get_stats()[-1]
             # Load network configuration.
             info['network'] = {}
             info['network']['interfaces'] = list(fwutils.get_linux_interfaces(cached=False).values())
@@ -184,7 +182,7 @@ class FWAGENT_API(FwObject):
 
         :returns: Dictionary with statistics.
         """
-        reply = fwstats.get_stats()
+        reply = {'message': fwglobals.g.statistics.get_stats(), 'ok': 1}
         return reply
 
     def _upgrade_device_sw(self, params):
