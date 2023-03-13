@@ -692,6 +692,24 @@ def create_baseline_if_not_exist(fname):
     os.system('mv %s %s' % (fname, fname_baseline))
     return fname_baseline
 
+def clean_vlans_from_linux(fname):
+    with open(fname, 'r') as stream:
+        config = yaml.safe_load(stream)
+        if config is None:
+            return
+
+        network = config.get('network')
+        if not network:
+            return
+
+        vlans = network.get('vlans')
+        if not vlans:
+            return
+
+        for vlan in vlans:
+            cmd = f'ip link delete {vlan}'
+            subprocess.check_call(cmd, shell=True)
+
 def remove_baseline():
     files = glob.glob("/etc/netplan/*.baseline.yaml") + \
             glob.glob("/lib/netplan/*.baseline.yaml") + \
@@ -700,6 +718,7 @@ def remove_baseline():
     for fname_baseline in files:
         fname = fname_baseline.replace('baseline.', '');
         fname_fworig = fname + ".fworig";
+        clean_vlans_from_linux(fname_baseline)
         os.remove(fname_baseline)
         os.system('mv %s %s' % (fname_fworig, fname))
 
