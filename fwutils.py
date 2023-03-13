@@ -1607,7 +1607,7 @@ def stop_vpp():
         ike.clean()
     fwpppoe.pppoe_reset()
 
-def reset_device_config(pppoe=False):
+def reset_device_config(pppoe=False, netplan=False):
     """Reset router config by cleaning DB and removing config files.
 
      :returns: None.
@@ -1618,6 +1618,8 @@ def reset_device_config(pppoe=False):
     reset_device_config_signature("empty_cfg")
     if pppoe:
         fwpppoe.pppoe_remove()
+    if netplan:
+        fwnetplan.remove_baseline()
 
 def reset_agent_cfg():
     if os.path.exists(fwglobals.g.CONN_FAILURE_FILE):

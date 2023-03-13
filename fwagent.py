@@ -700,7 +700,7 @@ def version():
 def dump(filename, path, clean_log):
     fwutils.dump(filename=filename, path=path, clean_log=clean_log)
 
-def reset(soft=False, quiet=False, pppoe=False):
+def reset(soft=False, quiet=False, pppoe=False, netplan=False):
     """Handles 'fwagent reset' command.
     Resets device to the initial state. Once reset, the device MUST go through
     the registration procedure.
@@ -710,6 +710,7 @@ def reset(soft=False, quiet=False, pppoe=False):
     :param quiet: Quiet reset: resets router configuration without confirmation
                   of device deletion in management.
     :param pppoe: PPPoE reset: resets PPPoE configuration.
+    :param netplan: Netplan reset: resets Netplan configuration.
 
     :returns: None.
     """
@@ -720,7 +721,7 @@ def reset(soft=False, quiet=False, pppoe=False):
         return
 
     if soft:
-        fwutils.reset_device_config(pppoe)
+        fwutils.reset_device_config(pppoe, netplan)
         return
 
     with fwikev2.FwIKEv2() as ike:
@@ -745,7 +746,7 @@ def reset(soft=False, quiet=False, pppoe=False):
         with FWAPPLICATIONS_API() as applications_api:
             applications_api.reset()
 
-        fwutils.reset_device_config(pppoe)
+        fwutils.reset_device_config(pppoe, netplan)
 
         if os.path.exists(fwglobals.g.DEVICE_TOKEN_FILE):
             os.remove(fwglobals.g.DEVICE_TOKEN_FILE)
@@ -1447,7 +1448,7 @@ if __name__ == '__main__':
 
     command_functions = {
         'version':lambda args: version(),
-        'reset': lambda args: reset(soft=args.soft, quiet=args.quiet, pppoe=args.pppoe),
+        'reset': lambda args: reset(soft=args.soft, quiet=args.quiet, pppoe=args.pppoe, netplan=args.netplan),
         'stop': lambda args: stop(
             reset_device_config=args.reset_softly,
             stop_router=(not args.dont_stop_vpp),
@@ -1487,6 +1488,8 @@ if __name__ == '__main__':
                         help="don't print info onto screen, print into syslog only")
     parser_reset.add_argument('-p', '--pppoe', action='store_true',
                         help="clean pppoe configuration")
+    parser_reset.add_argument('-n', '--netplan', action='store_true',
+                        help="clean netplan configuration")
     parser_stop = subparsers.add_parser('stop', help='Stop router and reset interfaces')
     parser_stop.add_argument('-s', '--reset_softly', action='store_true',
                         help="reset router softly: clean router configuration")

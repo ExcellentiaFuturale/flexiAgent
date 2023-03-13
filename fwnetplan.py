@@ -692,6 +692,19 @@ def create_baseline_if_not_exist(fname):
     os.system('mv %s %s' % (fname, fname_baseline))
     return fname_baseline
 
+def remove_baseline():
+    files = glob.glob("/etc/netplan/*.baseline.yaml") + \
+            glob.glob("/lib/netplan/*.baseline.yaml") + \
+            glob.glob("/run/netplan/*.baseline.yaml")
+
+    for fname_baseline in files:
+        fname = fname_baseline.replace('baseline.', '');
+        fname_fworig = fname + ".fworig";
+        os.remove(fname_baseline)
+        os.system('mv %s %s' % (fname_fworig, fname))
+
+    if files:
+        fwutils.netplan_apply('remove_baseline')
 
 def _set_netplan_section_vlan(config_section, vlan_id, parent_dev_id):
     ifname = fwutils.dev_id_to_tap(parent_dev_id)
