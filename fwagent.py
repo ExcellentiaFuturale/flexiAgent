@@ -1435,6 +1435,19 @@ if __name__ == '__main__':
     import argcomplete
     import argparse
 
+    ############################################################################
+
+    import cProfile   # For profiling the code
+    import pstats     # For processing the profiling statistics
+    import io         # For working with streams and buffers
+    import datetime   # For generating timestamped filenames and directories
+
+    # Create a new profiling object and start profiling
+    pr = cProfile.Profile()
+    pr.enable()
+
+    ############################################################################
+
     fwglobals.initialize()
 
     command_functions = {
@@ -1559,3 +1572,44 @@ if __name__ == '__main__':
     ret = command_functions[args.command](args)
     if type(ret) == int:
         sys.exit(ret)
+
+    ############################################################################
+
+    # Stop profiling
+    pr.disable()
+
+    # Define the output directory and filename
+    user_dir = os.path.expanduser("~")
+    today = datetime.datetime.today().strftime('%Y-%m-%d')
+    results_dir = os.path.join(user_dir, "cProfile-stats", "results", today)
+
+    # Create the output directory if it doesn't exist
+    if not os.path.exists(results_dir):
+        os.makedirs(results_dir)
+
+    # Generate a timestamped filename for the output file
+    timestamp = datetime.datetime.now().strftime('%H-%M-%S')
+    filename = f'cProfile-stats_{timestamp}.txt'
+
+    # Define the sorting order for the profiling statistics
+    sortby = ['calls', 'cumulative', 'cumtime', 'file', 'filename', 'module', 'ncalls',
+            'pcalls', 'line', 'name', 'nfl', 'stdname', 'time', 'tottime']
+
+    # Open the output file and create a new buffer for the profiling statistics
+    with open(os.path.join(results_dir, filename), 'a') as f:
+        s = io.StringIO()
+
+        # Load the profiling statistics from the cProfile object and sort them by the specified sorting order
+        ps = pstats.Stats(pr, stream=s).sort_stats(sortby[1])
+
+        # Print the profiling statistics to the buffer
+        ps.print_stats(s)
+
+        # Print the callers and callees of the most cumulative functions
+        ps.strip_dirs().print_callers(s)
+        ps.strip_dirs().print_callees(s)
+
+        # Write the contents of the buffer to the output file
+        f.write(s.getvalue())
+
+    ############################################################################
