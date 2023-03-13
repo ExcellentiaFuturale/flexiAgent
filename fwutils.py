@@ -3294,19 +3294,19 @@ def compare_request_params(params1, params2):
         if val1 and val2:
             if (type(val1) == str) and (type(val2) == str):
                 if val1.lower() != val2.lower():
-                    fwglobals.log.debug(f"compare_request_params: '{key}': '{val1}' != '{val2}'")
+                    fwglobals.log.debug(f"compare_request_params: string values of key '{key}' are different: '{val1}' != '{val2}'")
                     return False    # Strings are not equal
             elif type(val1) != type(val2):
                 fwglobals.log.debug(f"compare_request_params: '{key}': {str(type(val1))} != {str(type(val2))}")
                 return False        # Types are not equal
             elif val1 != val2:
-                fwglobals.log.debug(f"compare_request_params: '{key}': '{format(val1)}' != '{format(val2)}'")
+                fwglobals.log.debug(f"compare_request_params: values of key '{key}' are different: '{format(val1)}' != '{format(val2)}'")
                 return False        # Values are not equal
 
         # If False booleans or if one of values not exists or empty string.
         #
         elif (val1 and not val2) or (not val1 and val2):
-            fwglobals.log.debug(f"compare_request_params: '{key}': '{format(val1)}' != '{format(val2)}'")
+            fwglobals.log.debug(f"compare_request_params: either val1 or val2 of '{key}' does not exist: '{format(val1)}' != '{format(val2)}'")
             return False
 
     return True
