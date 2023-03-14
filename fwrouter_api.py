@@ -1001,7 +1001,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
             if pre_requests == [] and post_requests == []:
                 return request
-            new_params  = { 'requests' : pre_requests + request + post_requests }
+            new_params  = { 'requests' : pre_requests + [request] + post_requests }
             new_request = {'message': 'aggregated', 'params': new_params}
             self.log.debug("_preprocess_simple_request: request was replaced with %s" % json.dumps(new_request))
             return new_request
