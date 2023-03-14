@@ -37,7 +37,6 @@ import re
 import fwglobals
 import fwnetplan
 import fwpppoe
-import fwstats
 import shutil
 import sys
 import traceback
@@ -1588,7 +1587,8 @@ def stop_vpp():
             if drv not in dpdk.dpdk_drivers:
                 dpdk.bind_one(dpdk.devices[d]["Slot"], drv, False)
                 break
-    fwstats.update_state(False)
+    if fwglobals.g_initialized:
+        fwglobals.g.statistics.update_vpp_state(running=False)
 
     reset_traffic_control()                     # Release LTE operations
     remove_linux_bridges()                      # Release bridges for wifi
