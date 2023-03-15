@@ -4,16 +4,16 @@
         "bootup",
         "excep",
         "Flexi",
-        "fwglobals",
+        "fwapplication",
+        "bootup",
         "fwgrub",
         "fwlog",
         "fwlte",
         "fwobject",
-        "fwstats",
-        "fwsystem",
-        "fwthread",
-        "fwtunnel",
-        "fwutils",
+        "hugepage",
+        "hugepages",
+        "iommu",
+        "fwsqlitedict"
         "fwwebsocket",
         "fwwifi",
         "hugepage",
@@ -32,7 +32,6 @@
         "pkts",
         "psutil",
         "reconfig",
-        "virtio",
         "vxlan"
     ]
 }
