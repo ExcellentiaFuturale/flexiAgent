@@ -338,6 +338,7 @@ class Fwglobals(FwObject):
         self.loadsimulator = None
         self.routes = None
         self.router_api = None
+        self.statistics = None
         self.cache   = self.FwCache()
         self.WAN_FAILOVER_WND_SIZE         = 20         # 20 pings, every ping waits a second for response
         self.WAN_FAILOVER_THRESHOLD        = 12         # 60% of pings lost - enter the bad state, 60% of pings are OK - restore to good state
@@ -490,9 +491,8 @@ class Fwglobals(FwObject):
             self.finalize_agent()
 
         del self.routes
-        del self.pppoe
-        self.pppoe = None
-        del self.statistics
+        del self.pppoe; self.pppoe = None
+        del self.statistics; self.statistics = None
         del self.wan_monitor
         del self.stun_wrapper
         del self.policies

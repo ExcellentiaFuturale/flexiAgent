@@ -1587,7 +1587,7 @@ def stop_vpp():
             if drv not in dpdk.dpdk_drivers:
                 dpdk.bind_one(dpdk.devices[d]["Slot"], drv, False)
                 break
-    if fwglobals.g_initialized:
+    if fwglobals.g.statistics:
         fwglobals.g.statistics.update_vpp_state(running=False)
 
     reset_traffic_control()                     # Release LTE operations
