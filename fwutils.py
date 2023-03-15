@@ -4014,7 +4014,7 @@ def build_tunnel_bgp_neighbor(tunnel):
         'remoteAsn': bgp_remote_asn
     }
 
-def create_tun_in_vpp(addr, host_if_name, recreate_if_exists=False):
+def create_tun_in_vpp(addr, host_if_name,recreate_if_exists=False, no_vppsb_flag=None):
     # ensure that tun is not exists in case of down-script failed
     tun_exists = os.popen(f'sudo vppctl show tun | grep -B 1 "{host_if_name}"').read().strip()
     if tun_exists:
@@ -4028,7 +4028,10 @@ def create_tun_in_vpp(addr, host_if_name, recreate_if_exists=False):
         os.system(f'sudo vppctl delete tap {tun_name}')
 
     # configure the vpp interface
-    tun_vpp_if_name = os.popen(f'sudo vppctl create tap host-if-name {host_if_name} tun').read().strip()
+    cmd = f'sudo vppctl create tap host-if-name {host_if_name} tun'
+    if no_vppsb_flag:
+        cmd += ' no-vppsb'
+    tun_vpp_if_name = os.popen(cmd).read().strip()
     if not tun_vpp_if_name:
         raise Exception('Cannot create tun device in vpp')
 
