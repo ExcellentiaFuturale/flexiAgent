@@ -1587,6 +1587,14 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
     next_hop         = fwutils.build_tunnel_remote_loopback_ip(addr)
     id               = params['tunnel-id']*2
 
+    # We use "02:00:27:ff:{tunnel-id}" format because:
+    #  "02:00:27:fd" is used by server for the tunnel loopbacks
+    #  "02:00:27:fe" is used by agent for the tunnel second loopback which is hidden from users
+    #  "02:00:27:ff" is used by agent for the peer tunnel loopbacks
+    #
+    tunnel_id_hex    = '{:04x}'.format(int(params['tunnel-id']))[-4:]  # Assume that tunnel-id never exceed 65536
+    mac              = f"02:00:27:ff:{tunnel_id_hex[:2]}:{tunnel_id_hex[-2:]}"
+
     _add_ipip_tunnel(cmd_list, tunnel_cache_key, params, tunnel_addr, id)
 
     # Add mfib rules to route OSPF multicast packets from peer TAP interface through ip4-input/lookup node into ipip tunnel.
