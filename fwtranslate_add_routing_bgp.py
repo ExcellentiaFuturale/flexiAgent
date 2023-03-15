@@ -39,6 +39,7 @@ import fwutils
 #               "outboundFilter": "test-rm",
 #               "holdInterval": "40",
 #               "keepaliveInterval": "40",
+#               "sendCommunity":"all"
 #           },
 #           {
 #               "ip": "9.9.9.9",
@@ -48,6 +49,7 @@ import fwutils
 #               "outboundFilter": "",
 #               "holdInterval": "40",
 #               "keepaliveInterval": "40",
+#               "sendCommunity":""
 #           },
 #       ]
 #       "networks": [
@@ -123,7 +125,7 @@ def add_routing_bgp(params):
         neighbors.append(neighbor)
 
     for neighbor in neighbors:
-        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
+        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_frr_commands(neighbor)
 
     vtysh_commands += [
         'address-family ipv4 unicast',
@@ -181,6 +183,7 @@ def _get_neighbor_address_family_frr_commands(neighbor):
     ip = neighbor.get('ip')
     inbound_filter = neighbor.get('inboundFilter')
     outbound_filter = neighbor.get('outboundFilter')
+    send_community = neighbor.get('sendCommunity')
 
     commands = [
         f'neighbor {ip} activate',
@@ -191,6 +194,19 @@ def _get_neighbor_address_family_frr_commands(neighbor):
 
     if outbound_filter:
         commands.append(f'neighbor {ip} route-map {outbound_filter} out')
+
+    if send_community:
+        # There are several types of community: Standard, Extended and Large.
+        # By default, all of them are enabled.
+        # Large includes Extended and Standard.
+        # Extended includes Standard.
+        # To send only one/few of them, it is necessary to run first "no neighbor x.x.x.x send-community all".
+        # Only then, we can decide which of the types to enable.
+        if send_community != 'all':
+            commands.append(f'no neighbor {ip} send-community all')
+        commands.append(f'neighbor {ip} send-community {send_community}')
+    else:
+        commands.append(f'no neighbor {ip} send-community all')
 
     return commands
 
@@ -269,7 +285,7 @@ def _modify_neighbors(cmd_list, new_params, old_params):
     def _add_cmd_func(neighbor):
         ip = neighbor.get('ip')
         vtysh_commands = [f'router bgp {local_asn}']
-        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
+        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_frr_commands(neighbor)
 
         vtysh_commands.append(f'address-family ipv4 unicast')
 

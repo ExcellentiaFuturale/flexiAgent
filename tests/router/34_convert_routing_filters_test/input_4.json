@@ -1,0 +1,14 @@
+{
+    "input": [
+        {
+            "route":"0.0.0.0/0",
+            "action":"deny",
+            "nextHop":"",
+            "priority":0
+        }
+    ],
+    "expected": [
+        "route-map test_route_map deny 5",
+        "  description test_route_map_description"
+    ]
+}

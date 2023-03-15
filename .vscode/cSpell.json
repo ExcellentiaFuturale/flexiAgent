@@ -2,19 +2,36 @@
     "words": [
         "autoupgrade",
         "bootup",
+        "excep",
+        "Flexi",
+        "fwapplication",
+        "bootup",
         "fwgrub",
         "fwlog",
+        "fwlte",
         "fwobject",
         "hugepage",
         "hugepages",
         "iommu",
+        "fwsqlitedict"
+        "fwwebsocket",
+        "fwwifi",
+        "hugepage",
+        "hugepages",
+        "ikev",
+        "iommu",
+        "ipip",
         "isolcpus",
+        "loadsimulator",
         "mbim",
         "netplan",
         "networkd",
         "nics",
         "nocbs",
         "nohz",
-        "virtio"
+        "pkts",
+        "psutil",
+        "reconfig",
+        "vxlan"
     ]
 }

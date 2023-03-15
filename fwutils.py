@@ -37,7 +37,6 @@ import re
 import fwglobals
 import fwnetplan
 import fwpppoe
-import fwstats
 import shutil
 import sys
 import traceback
@@ -536,7 +535,7 @@ def is_bridged_interface(dev_id):
     return None
 
 def get_interface_is_dhcp(if_name):
-    is_dhcp_in_netplan = fwnetplan.get_dhcp_netplan_interface(if_name)
+    is_dhcp_in_netplan = fwnetplan.is_interface_dhcp(if_name)
     if is_dhcp_in_netplan == 'yes':
         return is_dhcp_in_netplan
 
@@ -608,7 +607,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
             is_pppoe = fwpppoe.is_pppoe_interface(if_name=if_name)
             is_wifi = fwwifi.is_wifi_interface(if_name)
             is_lte = fwlte.is_lte_interface(if_name)
-            is_vlan = is_vlan_interface(dev_id)
+            is_vlan = is_vlan_interface(dev_id=dev_id)
 
             if is_lte:
                 interface['deviceType'] = 'lte'
@@ -618,6 +617,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                 interface['deviceType'] = 'pppoe'
             elif is_vlan:
                 interface['deviceType'] = 'vlan'
+                interface['driver'] = 'vlan'
             else:
                 interface['deviceType'] = 'dpdk'
 
@@ -766,7 +766,7 @@ def build_interface_dev_id(linux_dev_name, sys_class_net=None):
     if not linux_dev_name:
         return ""
 
-    if '.' in linux_dev_name:
+    if is_vlan_interface(if_name=linux_dev_name):
         linux_dev_name, vlan_id = if_name_parse_vlan(linux_dev_name)
 
     if linux_dev_name.startswith('ppp'):
@@ -1083,9 +1083,22 @@ def dev_id_to_vpp_sw_if_index(dev_id, verbose=True):
     vpp_if_name = dev_id_to_vpp_if_name(dev_id)
     if verbose or not vpp_if_name:
         fwglobals.log.debug("dev_id_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (dev_id, str(vpp_if_name)))
-    return vpp_if_name_to_vpp_sw_if_index(vpp_if_name)
+    return vpp_if_name_to_sw_if_index(vpp_if_name)
 
-def vpp_if_name_to_vpp_sw_if_index(vpp_if_name):
+def vpp_if_name_to_cached_sw_if_index(vpp_if_name, type):
+    """Convert VPP interface name into the cached VPP sw_if_index.
+
+     :param vpp_if_name:      VPP interface name.
+     :param type:             Interface type.
+
+     :returns: VPP sw_if_index.
+     """
+    router_api_db  = fwglobals.g.db['router_api']
+    cache_by_name  = router_api_db['vpp_if_name_to_sw_if_index'][type]
+    sw_if_index  = cache_by_name[vpp_if_name]
+    return sw_if_index
+
+def vpp_if_name_to_sw_if_index(vpp_if_name):
     """Convert VPP interface name into VPP sw_if_index.
 
     This function maps interface referenced by vpp interface name, e.g tun0
@@ -1102,7 +1115,7 @@ def vpp_if_name_to_vpp_sw_if_index(vpp_if_name):
     for sw_if in sw_ifs:
         if re.match(vpp_if_name, sw_if.interface_name):    # Use regex, as sw_if.interface_name might include trailing whitespaces
             return sw_if.sw_if_index
-    fwglobals.log.debug("vpp_if_name_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (vpp_if_name, yaml.dump(sw_ifs, canonical=True)))
+    fwglobals.log.debug("vpp_if_name_to_sw_if_index(%s): vpp_if_name: %s" % (vpp_if_name, yaml.dump(sw_ifs, canonical=True)))
 
     return None
 
@@ -1429,23 +1442,6 @@ def vpp_sw_if_index_to_name(sw_if_index):
         return None
     return sw_interfaces[0].interface_name.rstrip(' \t\r\n\0')
 
-def vpp_if_name_to_sw_if_index(vpp_if_name, type):
-    """Convert VPP interface name into VPP sw_if_index.
-
-     :param vpp_if_name:      VPP interface name.
-     :param type:             Interface type.
-
-     :returns: VPP sw_if_index.
-     """
-    router_api_db  = fwglobals.g.db['router_api']
-    cache_by_name  = router_api_db['vpp_if_name_to_sw_if_index'][type]
-    if vpp_if_name in cache_by_name:
-        return cache_by_name[vpp_if_name]
-
-    # go to heavy operation
-    sw_if_index = vpp_if_name_to_vpp_sw_if_index(vpp_if_name)
-    return sw_if_index
-
 def vpp_sw_if_index_to_tap(sw_if_index):
     """Convert VPP sw_if_index into Linux TAP interface name created by 'vppctl enable tap-inject' command.
 
@@ -1591,7 +1587,8 @@ def stop_vpp():
             if drv not in dpdk.dpdk_drivers:
                 dpdk.bind_one(dpdk.devices[d]["Slot"], drv, False)
                 break
-    fwstats.update_state(False)
+    if fwglobals.g_initialized:
+        fwglobals.g.statistics.update_vpp_state(running=False)
 
     reset_traffic_control()                     # Release LTE operations
     remove_linux_bridges()                      # Release bridges for wifi
@@ -2966,7 +2963,7 @@ def is_non_dpdk_interface(dev_id):
         return True
     if fwlte.is_lte_interface_by_dev_id(dev_id):
         return True
-    if fwutils.is_vlan_interface(dev_id):
+    if fwutils.is_vlan_interface(dev_id=dev_id):
         return True
 
     return False
@@ -3297,19 +3294,19 @@ def compare_request_params(params1, params2):
         if val1 and val2:
             if (type(val1) == str) and (type(val2) == str):
                 if val1.lower() != val2.lower():
-                    fwglobals.log.debug(f"compare_request_params: '{key}': '{val1}' != '{val2}'")
+                    fwglobals.log.debug(f"compare_request_params: string values of key '{key}' are different: '{val1}' != '{val2}'")
                     return False    # Strings are not equal
             elif type(val1) != type(val2):
                 fwglobals.log.debug(f"compare_request_params: '{key}': {str(type(val1))} != {str(type(val2))}")
                 return False        # Types are not equal
             elif val1 != val2:
-                fwglobals.log.debug(f"compare_request_params: '{key}': '{format(val1)}' != '{format(val2)}'")
+                fwglobals.log.debug(f"compare_request_params: values of key '{key}' are different: '{format(val1)}' != '{format(val2)}'")
                 return False        # Values are not equal
 
         # If False booleans or if one of values not exists or empty string.
         #
         elif (val1 and not val2) or (not val1 and val2):
-            fwglobals.log.debug(f"compare_request_params: '{key}': '{format(val1)}' != '{format(val2)}'")
+            fwglobals.log.debug(f"compare_request_params: either val1 or val2 of '{key}' does not exist: '{format(val1)}' != '{format(val2)}'")
             return False
 
     return True
@@ -4103,10 +4100,13 @@ class FwJsonEncoder(json.JSONEncoder):
             serialized = o.__dict__  # As a last resort, assume complex object
         return serialized
 
-def is_vlan_interface(dev_id):
-    '''Check if dev_id is from vlan interface.
+def is_vlan_interface(dev_id=None, if_name=None):
+    '''Check if dev_id/if_name stands for VLAN interface.
     '''
-    return 'vlan' in dev_id
+    if dev_id:
+        return 'vlan' in dev_id
+    else:
+        return '.' in if_name
 
 def build_vlan_dev_id(vlan_id, dev_id):
     '''Build vlan dev_id.

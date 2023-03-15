@@ -25,7 +25,6 @@ import psutil
 import json
 import fwnetplan
 import fwutils
-import fwstats
 import os
 import fwglobals
 
@@ -34,7 +33,6 @@ os_modules = {
     'psutil':__import__('psutil'),
     'os':__import__('os'),
     'fwutils':__import__('fwutils'),
-    'fwstats':__import__('fwstats')
 }
 
 # TBD: define all APIs in a file

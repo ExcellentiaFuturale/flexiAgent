@@ -107,6 +107,10 @@ class FwStunWrap(FwObject):
                 self.add_addr(dev_id, ifaces[dev_id].get('addr'), ifaces[dev_id].get('gw'))
 
     def update_vxlan_port(self, port):
+
+        if self.standalone:
+            return
+
         if port == self.vxlan_port:
             return
         self.vxlan_port = port

@@ -1,0 +1,44 @@
+{
+    "input": [
+        {
+            "route":"0.0.0.0/0",
+            "action":"deny",
+            "nextHop":"",
+            "priority":0
+        },
+        {
+            "route":"8.8.8.8/24",
+            "action":"allow",
+            "nextHop":"",
+            "priority":1
+        },
+        {
+            "route":"5.5.5.5/32",
+            "action":"deny",
+            "nextHop":"",
+            "priority":2
+        },
+        {
+            "route":"5.5.5.5/24",
+            "action":"allow",
+            "nextHop":"",
+            "priority":3
+        }
+    ],
+    "expected": [
+        "access-list rm_test_route_map_group_0 permit 8.8.8.8/24",
+        "route-map test_route_map permit 5",
+        "  description test_route_map_description",
+        "  match ip address rm_test_route_map_group_0",
+        "access-list rm_test_route_map_group_1 permit 5.5.5.5/32",
+        "route-map test_route_map deny 10",
+        "  description test_route_map_description",
+        "  match ip address rm_test_route_map_group_1",
+        "access-list rm_test_route_map_group_2 permit 5.5.5.5/24",
+        "route-map test_route_map permit 15",
+        "  description test_route_map_description",
+        "  match ip address rm_test_route_map_group_2",
+        "route-map test_route_map deny 20",
+        "  description test_route_map_description"
+    ]
+}

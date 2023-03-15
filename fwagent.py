@@ -59,7 +59,6 @@ import fwmultilink
 import fw_os_utils
 import fwpppoe
 import fwrouter_cfg
-import fwstats
 import fwthread
 import fwutils
 import fwwebsocket
@@ -94,7 +93,6 @@ class FwAgent(FwObject):
 
         self.token                = None
         self.versions             = fwutils.get_device_versions(fwglobals.g.VERSIONS_FILE)
-        self.thread_statistics    = None
         self.pending_msg_replies  = []
         self.reconnecting         = False
 
@@ -106,6 +104,7 @@ class FwAgent(FwObject):
         if handle_signals:
             signal.signal(signal.SIGTERM, self._signal_handler)
             signal.signal(signal.SIGINT, self._signal_handler)
+
 
     def _signal_handler(self, signum, frame):
         """Signal handler for CTRL+C
@@ -141,9 +140,11 @@ class FwAgent(FwObject):
             self.log.excep("Failed to create connection failure file: %s" % str(e))
 
     def _clean_connection_failure(self):
-        if os.path.exists(fwglobals.g.CONN_FAILURE_FILE):
-            os.remove(fwglobals.g.CONN_FAILURE_FILE)
-            self.log.debug("_clean_connection_failure")
+        # We use 'subprocess.check_call()' to get an exception if writing into file fails.
+        # The file update is vital for the upgrade process by fwupgrade.sh.
+        #
+        subprocess.check_call(f'echo "success" > {fwglobals.g.CONN_FAILURE_FILE}', shell=True)
+        self.log.debug("_clean_connection_failure")
 
     def _setup_repository(self, repo):
         # Extract repo info. e.g. 'https://deb.flexiwan.com|flexiWAN|main'
@@ -427,25 +428,17 @@ class FwAgent(FwObject):
     def _on_close(self):
         """Websocket connection close handler
 
-        :param ws:  Websocket handler.
-
         :returns: None.
         """
         self.log.info("connection to flexiManage was closed")
-        self.connected = False
-        if self.thread_statistics:
-            self.thread_statistics.stop()
 
     def _on_open(self):
         """Websocket connection open handler
-
-        :param ws:  Websocket handler.
 
         :returns: None.
         """
         self.log.info("connected to flexiManage")
 
-        self.connected    = True
         self.reconnecting = False
         self._clean_connection_failure()
 
@@ -458,11 +451,6 @@ class FwAgent(FwObject):
                 self.log.debug("_on_open: sending reply: " + json.dumps(reply))
                 self.ws.send(json.dumps(reply))
             del self.pending_msg_replies[:]
-
-        self.thread_statistics = fwthread.FwThread(
-                                    target=fwstats.statistics_thread_func,
-                                    name='Statistics', log=self.log, args=(self,))
-        self.thread_statistics.start()
 
         if not fw_os_utils.vpp_does_run():
             self.log.info("connect: router is not running, start it in flexiManage")
@@ -1390,6 +1378,12 @@ def handle_cli_command(args):
         nonlocal cli_func_name
 
         cli_func_name += f'_{step}' # -> _interfaces
+        # start building cli params immediately whenever the step argument
+        # IS already a function name, for example, with this command:
+        # fwagent configure jobs update ...
+        if not step in args.__dict__:
+            _build_cli_params()
+            return
         next_step = args.__dict__[step] # -> create
         if not next_step in args.__dict__:
             cli_func_name += f'_{next_step}' # -> _interfaces_create

@@ -55,6 +55,7 @@ from fwlog import FWLOG_LEVEL_DEBUG
 from fwpolicies import FwPolicies
 from fwrouter_cfg import FwRouterCfg
 from fwroutes import FwRoutes
+from fwstats import FwStatistics
 from fwsystem_cfg import FwSystemCfg
 from fwjobs import FwJobs
 from fwstun_wrapper import FwStunWrap
@@ -459,6 +460,7 @@ class Fwglobals(FwObject):
         self.pppoe            = FwPppoeClient()
         self.routes           = FwRoutes()
         self.qos              = FwQoS()
+        self.statistics       = FwStatistics()
         self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
@@ -490,6 +492,7 @@ class Fwglobals(FwObject):
         del self.routes
         del self.pppoe
         self.pppoe = None
+        del self.statistics
         del self.wan_monitor
         del self.stun_wrapper
         del self.policies
@@ -521,6 +524,7 @@ class Fwglobals(FwObject):
         self.system_api.initialize()  # This one does not depend on VPP :)
         self.routes.initialize()
         self.applications_api.initialize()
+        self.statistics.initialize()
 
         self.log.debug('initialize_agent: completed')
         self.fwagent_initialized = True
@@ -533,6 +537,7 @@ class Fwglobals(FwObject):
             self.qos.finalize()
             self.routes.finalize()
             self.pppoe.finalize()
+            self.statistics.finalize()
             self.wan_monitor.finalize()
             self.stun_wrapper.finalize()
             self.system_api.finalize()
@@ -836,6 +841,8 @@ class Fwglobals(FwObject):
                 func = getattr(self.firewall_acl_cache, func_name)
             elif object_name == 'fwglobals.g.stun_wrapper':
                 func = getattr(self.stun_wrapper, func_name)
+            elif object_name == 'fwglobals.g.jobs':
+                func = getattr(self.jobs, func_name)
             else:
                 return None
         except Exception as e:

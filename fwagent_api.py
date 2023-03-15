@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2023  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -27,7 +27,6 @@ from shutil import copyfile
 import subprocess
 import json
 import fwglobals
-import fwstats
 import fwutils
 import fwlte
 import fwwifi
@@ -129,12 +128,11 @@ class FWAGENT_API(FwObject):
         :returns: Dictionary with information and status code.
         """
         try:
-            stats = fwstats.get_stats()
             info = {}
             # Load component versions
             with open(fwglobals.g.VERSIONS_FILE, 'r') as stream:
                 info = yaml.load(stream, Loader=yaml.BaseLoader)
-            info['stats'] = stats['message'][-1]
+            info['stats'] = fwglobals.g.statistics.get_stats()[-1]
             # Load network configuration.
             info['network'] = {}
             info['network']['interfaces'] = list(fwutils.get_linux_interfaces(cached=False).values())
@@ -184,7 +182,7 @@ class FWAGENT_API(FwObject):
 
         :returns: Dictionary with statistics.
         """
-        reply = fwstats.get_stats()
+        reply = {'message': fwglobals.g.statistics.get_stats(), 'ok': 1}
         return reply
 
     def _upgrade_device_sw(self, params):
@@ -204,10 +202,12 @@ class FWAGENT_API(FwObject):
         except Exception as e:
             return { 'message': 'Failed to copy upgrade file', 'ok': 0 }
 
-        cmd = 'bash /tmp/fwupgrade.sh {} {} {} {} >> {} 2>&1 &' \
+        job_id = fwglobals.g.jobs.current_job_id
+        cmd = 'bash /tmp/fwupgrade.sh {} {} {} {} {} >> {} 2>&1 &' \
             .format(params['version'], fwglobals.g.VERSIONS_FILE, \
                     fwglobals.g.CONN_FAILURE_FILE, \
                     fwglobals.g.ROUTER_LOG_FILE, \
+                    job_id, \
                     fwglobals.g.ROUTER_LOG_FILE)
         os.system(cmd)
         return { 'message': 'Started software upgrade process', 'ok': 1 }
