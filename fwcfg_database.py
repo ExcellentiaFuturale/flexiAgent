@@ -267,7 +267,13 @@ class FwCfgDatabase(FwSqliteDict):
         requests = []
         for key in self:
             if re.match(req, key):
-                requests.append(self[key]['params'])
+                #TODO try except was added to handle race condition between
+                # Symmetric NAT and Websocket threads when we deleting tunnels
+                # and should be removed after we sync the threads
+                try:
+                    requests.append(self[key]['params'])
+                except KeyError:
+                    pass
         return requests
 
     def get_sync_list(self, requests):
