@@ -74,6 +74,7 @@ def add_firewall_policy(params):
     def process_inbound_rules(inbound_rules):
 
         cmd_list = []
+        ingress_ids = []
 
         for rule_name, rules in inbound_rules.items():
             if rule_name == "nat1to1":
@@ -102,7 +103,7 @@ def add_firewall_policy(params):
                         ingress_id, source, dest_rule_params, True, 0, 0, True, True))
 
                 if rule_type != InboundNatType.NAT_1TO1 and ingress_id and dev_ids:
-                    cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_id, None, dev_ids))
+                    ingress_ids.append(ingress_id)
 
                 if rule_type == InboundNatType.IDENTITY_MAPPING:
                     cmd_list.extend(fw_nat_command_helpers.translate_get_nat_identity_config(
@@ -117,8 +118,9 @@ def add_firewall_policy(params):
                             dev_id, destination.get('protocols'), destination['ports'],
                             action['internalIP'], action['internalPortStart']))
 
-                if rules['rules'] and dev_ids:
-                    cmd_list.append(fw_acl_command_helpers.add_interface_attachment(DEFAULT_ALLOW_ID, None, dev_ids))
+        if dev_ids:
+            ingress_ids.append(DEFAULT_ALLOW_ID)
+            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_ids, [], dev_ids))
 
         return cmd_list
 
@@ -126,6 +128,8 @@ def add_firewall_policy(params):
     def process_outbound_rules(outbound_rules):
 
         cmd_list = []
+        ingress_ids = []
+        egress_ids = []
 
         # Clean ACL cache
         fwglobals.g.firewall_acl_cache.clear('ingress')
@@ -157,6 +161,8 @@ def add_firewall_policy(params):
             if cmd1 and cmd2:
                 cmd_list.append(cmd1)
                 cmd_list.append(cmd2)
+                ingress_ids.append(ingress_id)
+                egress_ids.append(egress_id)
             else:
                 fwglobals.log.warning('Outbound firewall: Match conditions ' +
                     'do not exist for rule index: %d' % rule_index)
@@ -166,12 +172,11 @@ def add_firewall_policy(params):
                 cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', ingress_id))
                 cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', egress_id))
 
-            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_id, egress_id, dev_ids))
-
-        if outbound_rules['rules']:
-            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', DEFAULT_ALLOW_ID))
-            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', DEFAULT_ALLOW_ID))
-            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(DEFAULT_ALLOW_ID, DEFAULT_ALLOW_ID, []))
+        ingress_ids.append(DEFAULT_ALLOW_ID)
+        egress_ids.append(DEFAULT_ALLOW_ID)
+        cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_ids, egress_ids, dev_ids))
+        cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', DEFAULT_ALLOW_ID))
+        cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', DEFAULT_ALLOW_ID))
 
         return cmd_list
 
