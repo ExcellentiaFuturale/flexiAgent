@@ -91,7 +91,7 @@ def get_saved_vpp_interface_name():
 def create_tun_in_vpp(addr):
     out = None
     try:
-        cmd = f'fwagent configure router interfaces create --type lan --host_if_name vpp_remotevpn --addr {addr}'
+        cmd = f'fwagent configure router interfaces create --type lan --host_if_name vpp_remotevpn --addr {addr} --no_vppsb'
         response_data = json.loads(subprocess.check_output(cmd, shell=True).decode())
         tun_vpp_if_name = response_data.get('tun_vpp_if_name')
         if not tun_vpp_if_name:
