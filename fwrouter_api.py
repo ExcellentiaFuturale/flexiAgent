@@ -1393,13 +1393,13 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwglobals.g.applications_api.call_hook('on_router_is_stopped')
         fwglobals.g.pppoe.start()
 
-    def _on_add_interface_after(self, type, sw_if_index):
+    def _on_add_interface_after(self, type, sw_if_index, params):
         """add-interface postprocessing
 
         :param type:        "wan"/"lan"
         :param sw_if_index: vpp sw_if_index of the interface
         """
-        self._update_cache_sw_if_index(sw_if_index, type, True)
+        self._update_cache_sw_if_index(sw_if_index, type, add=True, params=params)
         self.apply_features_on_interface(True, type, vpp_if_name=None, sw_if_index=sw_if_index)
 
     def apply_features_on_interface(self, add, if_type, vpp_if_name=None, sw_if_index=None):
@@ -1453,14 +1453,14 @@ class FWROUTER_API(FwCfgRequestHandler):
                 self.log.error(f"apply_features_on_interface({add, if_type, vpp_if_name, sw_if_index}): failed. {str(e)}")
                 handler.revert(e)
 
-    def _on_remove_interface_before(self, type, sw_if_index):
+    def _on_remove_interface_before(self, type, sw_if_index, params):
         """remove-interface preprocessing
 
         :param type:        "wan"/"lan"
         :param sw_if_index: vpp sw_if_index of the interface
         """
         self.apply_features_on_interface(False, type, vpp_if_name=None, sw_if_index=sw_if_index)
-        self._update_cache_sw_if_index(sw_if_index, type, False)
+        self._update_cache_sw_if_index(sw_if_index, type, add=False, params=params)
 
     def _on_add_tunnel_after(self, sw_if_index, params):
         """add-tunnel postprocessing
@@ -1499,8 +1499,17 @@ class FWROUTER_API(FwCfgRequestHandler):
         router_api_db  = fwglobals.g.db['router_api']  # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
         cache_by_index = router_api_db['sw_if_index_to_vpp_if_name']
         cache_by_name  = router_api_db['vpp_if_name_to_sw_if_index'][type]
+        cache_by_dev_id = router_api_db['dev_id_to_sw_if_index']
         cache_tap_by_vpp_if_name = router_api_db['vpp_if_name_to_tap_if_name']
         cache_tap_by_sw_if_index = router_api_db['sw_if_index_to_tap_if_name']
+
+        dev_id = params.get('dev_id') if params else None
+        if dev_id and (type == 'wan' or type == 'lan'):
+            if add:
+                cache_by_dev_id[dev_id] = sw_if_index
+            else:
+                del cache_by_dev_id[dev_id]
+
         if add:
             if type == 'tunnel':  # For tunnels use shortcut  - exploit vpp internals ;)
                 vpp_if_name = fwutils.tunnel_to_vpp_if_name(params)
