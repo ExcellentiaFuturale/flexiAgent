@@ -255,29 +255,23 @@ def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
     return cmd
 
 
-def add_interface_attachment(ingress_id, egress_id, dev_ids):
+def add_interface_attachment(ingress_ids, egress_ids, dev_ids):
     """ Prepares command dict required to attach array of ingress and egress
     ACL identifiers to an interface
 
-    :param ingress_id: Ingress ACL identifier
-    :param egress_id: Egress ACL identifier
+    :param ingress_ids: Ingress ACL identifiers
+    :param egress_ids: Egress ACL identifiers
     :param dev_ids: List of interfaces
     :return: Dict representing the command
     """
     cmd = {}
 
     add_params = {
-                'is_add': True,
-                'dev_ids': dev_ids,
-                'substs': []
+        'is_add': True,
+        'dev_ids': dev_ids,
+        'substs': [{ 'add_param': 'ingress_acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': ingress_ids}, 'func_uses_cmd_cache':  True },
+                   { 'add_param': 'egress_acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': egress_ids}, 'func_uses_cmd_cache':  True }]
     }
-
-    if ingress_id:
-        add_params['substs'].append({ 'add_param': 'ingress_acl_id', 'val_by_key': ingress_id })
-
-    if egress_id:
-        add_params['substs'].append({ 'add_param': 'egress_acl_id', 'val_by_key': egress_id })
-
     revert_params = copy.deepcopy(add_params)
     revert_params['is_add'] = False
 
@@ -346,17 +340,15 @@ def vpp_add_acl_rules(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids):
     fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_set_acl_list',
         count=count, sw_if_index=sw_if_index, n_input=ingress_count, acls=acls)
 
-def add_acl_rules_interfaces(is_add, dev_ids, ingress_acl_id=None, egress_acl_id=None):
+def add_acl_rules_interfaces(is_add, dev_ids, ingress_acl_ids=[], egress_acl_ids=[]):
     """
     Add/remove ACL rules on the list of interfaces
 
     :param is_add: add or remove
     :param dev_ids: list of interfaces
-    :param ingress_acl_id: ingress acl id
-    :param egress_acl_id: egress acl id
+    :param ingress_acl_ids: ingress acl ids
+    :param egress_acl_ids: egress acl ids
     """
-    ingress_acl_ids = [ingress_acl_id] if ingress_acl_id else []
-    egress_acl_ids = [egress_acl_id] if egress_acl_id else []
     sw_if_indexes = []
 
     # Get LAN interfaces managed by installed applications.
