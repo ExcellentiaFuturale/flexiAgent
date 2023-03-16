@@ -1080,6 +1080,14 @@ def dev_id_to_vpp_sw_if_index(dev_id, verbose=True):
 
     :returns: sw_if_index.
     """
+    # Try to fetch name from cache firstly.
+    #
+    sw_if_index = fwglobals.g.db.get('router_api', {}).get('dev_id_to_sw_if_index', {}).get(dev_id)
+    if sw_if_index:
+        return sw_if_index
+
+    # Now go to the heavy route.
+    #
     vpp_if_name = dev_id_to_vpp_if_name(dev_id)
     if verbose or not vpp_if_name:
         fwglobals.log.debug("dev_id_to_vpp_sw_if_index(%s): vpp_if_name: %s" % (dev_id, str(vpp_if_name)))
@@ -1695,6 +1703,8 @@ def reset_router_api_db(enforce=False):
         router_api_db['sw_if_index_to_vpp_if_name'] = {}
     if not 'vpp_if_name_to_sw_if_index' in router_api_db or enforce:
         router_api_db['vpp_if_name_to_sw_if_index'] = {}
+    if not 'dev_id_to_sw_if_index' in router_api_db or enforce:
+        router_api_db['dev_id_to_sw_if_index'] = {}
     vpp_if_name_to_sw_if_index_keys = ['tunnel', 'peer-tunnel', 'lan', 'switch-lan', 'wan', 'switch', 'trunk']
     for key in vpp_if_name_to_sw_if_index_keys:
         if not key in router_api_db['vpp_if_name_to_sw_if_index'] or enforce:
