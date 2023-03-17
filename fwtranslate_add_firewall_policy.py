@@ -148,7 +148,7 @@ def add_firewall_policy(params):
             action = rule['action']
             permit = action['permit']
             # interfaces ['Array of LAN device ids] received from flexiManage
-            dev_ids = action.get('interfaces')
+            dev_ids = action.get('interfaces', [])
             ingress_id = 'fw_lan_ingress_rule_%d' % rule_index
 
             cmd1 = fw_acl_command_helpers.add_acl_rule(ingress_id, source, destination,
@@ -168,13 +168,14 @@ def add_firewall_policy(params):
                     'do not exist for rule index: %d' % rule_index)
                 continue
 
-            if not dev_ids:
+            if dev_ids:
+                ingress_ids.append(DEFAULT_ALLOW_ID)
+                egress_ids.append(DEFAULT_ALLOW_ID)
+                cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_ids, egress_ids, dev_ids))
+            else:
                 cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', ingress_id))
                 cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', egress_id))
 
-        ingress_ids.append(DEFAULT_ALLOW_ID)
-        egress_ids.append(DEFAULT_ALLOW_ID)
-        cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_ids, egress_ids, dev_ids))
         cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', DEFAULT_ALLOW_ID))
         cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', DEFAULT_ALLOW_ID))
 
