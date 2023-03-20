@@ -218,7 +218,7 @@ class FwLogFile(Fwlog):
         self.f = open(main_filename, 'w')
         self.cur_size = 0
 
-    def _log(self, log_message, to_terminal=True, to_syslog=True):
+    def _log(self, log_message, to_terminal=True, to_syslog=True, truncate_long_line=False):
         """Print log message.
 
         :param log_message:       Message contents.
@@ -244,6 +244,9 @@ class FwLogFile(Fwlog):
 
             if total_len <= chunk_len:
                 self.f.write(log_message + '\n')
+            elif truncate_long_line:
+                truncated_msg = log_message[0:chunk_len] + f" <{total_len} bytes were truncated to {chunk_len}>\n"
+                self.f.write(log_prefix + truncated_msg)
             else:
                 msgs = [log_message[i:i+chunk_len] for i in range(0, total_len, chunk_len)]
                 self.f.write(log_prefix + "--multiline-start--\n")
