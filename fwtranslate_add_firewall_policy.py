@@ -74,7 +74,7 @@ def add_firewall_policy(params):
     def process_inbound_rules(inbound_rules):
 
         cmd_list = []
-        ingress_ids = []
+        intf_attachments = {}
 
         for rule_name, rules in inbound_rules.items():
             if rule_name == "nat1to1":
@@ -103,7 +103,11 @@ def add_firewall_policy(params):
                         ingress_id, source, dest_rule_params, True, 0, 0, True, True))
 
                 if rule_type != InboundNatType.NAT_1TO1 and ingress_id and dev_ids:
-                    ingress_ids.append(ingress_id)
+                    for dev_id in dev_ids:
+                        if intf_attachments.get(dev_id) is None:
+                            intf_attachments[dev_id] = {}
+                            intf_attachments[dev_id]['ingress'] = []
+                        intf_attachments[dev_id]['ingress'].append(ingress_id)
 
                 if rule_type == InboundNatType.IDENTITY_MAPPING:
                     cmd_list.extend(fw_nat_command_helpers.translate_get_nat_identity_config(
@@ -118,9 +122,12 @@ def add_firewall_policy(params):
                             dev_id, destination.get('protocols'), destination['ports'],
                             action['internalIP'], action['internalPortStart']))
 
-        if dev_ids:
-            ingress_ids.append(DEFAULT_ALLOW_ID)
-            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_ids, [], dev_ids))
+        for dev_id, value in intf_attachments.items():
+            # Add last default ACL as allow ALL
+            value['ingress'].append(DEFAULT_ALLOW_ID)
+
+            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(
+                value['ingress'], [], [dev_id]))
 
         return cmd_list
 
@@ -128,8 +135,7 @@ def add_firewall_policy(params):
     def process_outbound_rules(outbound_rules):
 
         cmd_list = []
-        ingress_ids = []
-        egress_ids = []
+        intf_attachments = {}
 
         # Clean ACL cache
         fwglobals.g.firewall_acl_cache.clear('ingress')
@@ -148,7 +154,7 @@ def add_firewall_policy(params):
             action = rule['action']
             permit = action['permit']
             # interfaces ['Array of LAN device ids] received from flexiManage
-            dev_ids = action.get('interfaces')
+            dev_ids = action.get('interfaces', [])
             ingress_id = 'fw_lan_ingress_rule_%d' % rule_index
 
             cmd1 = fw_acl_command_helpers.add_acl_rule(ingress_id, source, destination,
@@ -161,22 +167,33 @@ def add_firewall_policy(params):
             if cmd1 and cmd2:
                 cmd_list.append(cmd1)
                 cmd_list.append(cmd2)
-                ingress_ids.append(ingress_id)
-                egress_ids.append(egress_id)
             else:
                 fwglobals.log.warning('Outbound firewall: Match conditions ' +
                     'do not exist for rule index: %d' % rule_index)
                 continue
 
+            for dev_id in dev_ids:
+                if intf_attachments.get(dev_id) is None:
+                    intf_attachments[dev_id] = {}
+                    intf_attachments[dev_id]['ingress'] = []
+                    intf_attachments[dev_id]['egress'] = []
+                intf_attachments[dev_id]['ingress'].append(ingress_id)
+                intf_attachments[dev_id]['egress'].append(egress_id)
+
             if not dev_ids:
                 cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', ingress_id))
                 cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', egress_id))
 
-        ingress_ids.append(DEFAULT_ALLOW_ID)
-        egress_ids.append(DEFAULT_ALLOW_ID)
-        cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_ids, egress_ids, dev_ids))
         cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', DEFAULT_ALLOW_ID))
         cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', DEFAULT_ALLOW_ID))
+
+        for dev_id, value in intf_attachments.items():
+            # Add last default ACL as allow ALL
+            value['ingress'].append(DEFAULT_ALLOW_ID)
+            value['egress'].append(DEFAULT_ALLOW_ID)
+
+            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(
+                value['ingress'], value['egress'], [dev_id]))
 
         return cmd_list
 
