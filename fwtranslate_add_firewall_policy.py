@@ -74,7 +74,7 @@ def add_firewall_policy(params):
     def process_inbound_rules(inbound_rules):
 
         cmd_list = []
-        ingress_ids = []
+        intf_attachments = {}
 
         for rule_name, rules in inbound_rules.items():
             if rule_name == "nat1to1":
@@ -103,7 +103,11 @@ def add_firewall_policy(params):
                         ingress_id, source, dest_rule_params, True, 0, 0, True, True))
 
                 if rule_type != InboundNatType.NAT_1TO1 and ingress_id and dev_ids:
-                    ingress_ids.append(ingress_id)
+                    for dev_id in dev_ids:
+                        if intf_attachments.get(dev_id) is None:
+                            intf_attachments[dev_id] = {}
+                            intf_attachments[dev_id]['ingress'] = []
+                        intf_attachments[dev_id]['ingress'].append(ingress_id)
 
                 if rule_type == InboundNatType.IDENTITY_MAPPING:
                     cmd_list.extend(fw_nat_command_helpers.translate_get_nat_identity_config(
@@ -118,9 +122,12 @@ def add_firewall_policy(params):
                             dev_id, destination.get('protocols'), destination['ports'],
                             action['internalIP'], action['internalPortStart']))
 
-        if dev_ids:
-            ingress_ids.append(DEFAULT_ALLOW_ID)
-            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(ingress_ids, [], dev_ids))
+        for dev_id, value in intf_attachments.items():
+            # Add last default ACL as allow ALL
+            value['ingress'].append(DEFAULT_ALLOW_ID)
+
+            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(
+                value['ingress'], [], [dev_id]))
 
         return cmd_list
 
