@@ -31,6 +31,7 @@ def pid_of(process_name):
     :returns:           process identifier.
     """
     try:
+        # There is an issue with pidof on Ubuntu 20.04 so replaced it with pgrep.
         pid = subprocess.check_output(['pgrep', '-x', process_name]).decode().strip()
     except:
         pid = None
@@ -51,7 +52,11 @@ def vpp_pid():
 
     :returns:           process identifier.
     """
-    return pid_of('vpp_main')
+    pid = pid_of('vpp_main')
+    if not pid:
+        pid = pid_of('vpp')
+
+    return pid
 
 def vpp_does_run():
     """Check if VPP is running.

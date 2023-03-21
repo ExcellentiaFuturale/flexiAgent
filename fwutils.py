@@ -1501,6 +1501,9 @@ def _vppctl_read(cmd, wait=True):
         return output
     except Exception as e:
         fwglobals.log.debug(f"'vppctl {cmd}' failed: {str(e)}, start retrials")
+        if not fw_os_utils.vpp_does_run():  # No need to retry if vpp crashed
+            fwglobals.log.debug("stop retrials: vpp process not found")
+            return None
         pass
 
     retries = 200
