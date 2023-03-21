@@ -99,11 +99,7 @@ class Application(FwApplicationInterface):
             raise e
 
     def _openvpn_pid(self):
-        try:
-            pid = subprocess.check_output(['pidof', 'openvpn'])
-            return pid
-        except:
-            return None
+        return fw_os_utils.pid_of('openvpn')
 
     def configure(self, params):
         """Configure Open VPN server on host.
