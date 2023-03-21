@@ -271,11 +271,7 @@ def vpp_does_run():
     return runs
 
 def vpp_pid():
-    try:
-        pid = subprocess.check_output(['pidof', 'vpp']).decode()
-    except:
-        pid = None
-    return pid
+    return fw_os_utils.vpp_pid()
 
 def fwagent_daemon_pid():
     for p in psutil.process_iter(["pid", "cmdline"]):

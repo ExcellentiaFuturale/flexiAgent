@@ -23,16 +23,35 @@ import os
 import subprocess
 import time
 
+def pid_of(process_name):
+    """Get pid of process.
+
+    :param process_name:   Process name.
+
+    :returns:           process identifier.
+    """
+    try:
+        pid = subprocess.check_output(['pgrep', '-x', process_name]).decode().strip()
+    except:
+        pid = None
+    return pid
+
 def kill_process(name, timeout=10):
     os.system(f'sudo killall {name}')
     while timeout >= 0:
-        try:
-            _ = subprocess.check_output(['pidof', name])
+        if pid_of(name):
             timeout -= 1
             time.sleep(1)
-        except:
+        else:
             return True
     return False
+
+def vpp_pid():
+    """Get pid of VPP process.
+
+    :returns:           process identifier.
+    """
+    return pid_of('vpp_main')
 
 def vpp_does_run():
     """Check if VPP is running.
@@ -40,17 +59,6 @@ def vpp_does_run():
     :returns:           Return 'True' if VPP is running.
     """
     return True if vpp_pid() else False
-
-def vpp_pid():
-    """Get pid of VPP process.
-
-    :returns:           process identifier.
-    """
-    try:
-        pid = subprocess.check_output(['pidof', 'vpp']).decode().strip()
-    except:
-        pid = None
-    return pid
 
 def run_linux_commands(commands, exception_on_error=True):
     for command in commands:

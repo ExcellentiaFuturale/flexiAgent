@@ -50,6 +50,7 @@ from fw_vpp_coredump_utils import vpp_coredump_copy_cores
 from fwobject import FwObject
 import fwapplications_api
 import fwlte
+import fw_os_utils
 
 g = fwglobals.Fwglobals()
 
@@ -257,10 +258,7 @@ class FwDump(FwObject):
         The list contains names of dumpers that serve as keys for the global
         g_dumpers map.
         '''
-        try:
-            vpp_pid = subprocess.check_output(['pidof', 'vpp']).decode()
-        except:
-            vpp_pid = None
+        vpp_pid = fw_os_utils.vpp_pid()
 
         for dumper in dumpers:
             if not dumper in g_dumpers:

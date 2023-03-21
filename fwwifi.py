@@ -26,6 +26,7 @@ import subprocess
 import re
 import fwglobals
 import fwutils
+import fw_os_utils
 
 def configure_hostapd(dev_id, configuration):
     try:
@@ -231,7 +232,7 @@ def ap_get_clients(interface_name):
 
 def start_hostapd():
     try:
-        if fwutils.pid_of('hostapd'):
+        if fw_os_utils.pid_of('hostapd'):
             return (True, None)
 
         files = glob.glob("%s*fwrun.conf" % fwglobals.g.HOSTAPD_CONFIG_DIRECTORY)
@@ -246,7 +247,7 @@ def start_hostapd():
         subprocess.check_call('sudo hostapd %s -B -t -f %s' % (files, fwglobals.g.HOSTAPD_LOG_FILE), stderr=subprocess.STDOUT, shell=True)
         time.sleep(2)
 
-        pid = fwutils.pid_of('hostapd')
+        pid = fw_os_utils.pid_of('hostapd')
         if pid:
             return (True, None)
 
@@ -258,7 +259,7 @@ def start_hostapd():
 
 def stop_hostapd():
     try:
-        if fwutils.pid_of('hostapd'):
+        if fw_os_utils.pid_of('hostapd'):
             os.system('killall hostapd')
 
         files = glob.glob("%s*fwrun.conf" % fwglobals.g.HOSTAPD_CONFIG_DIRECTORY)
@@ -328,7 +329,7 @@ def wifi_get_capabilities(dev_id):
 
 def collect_wifi_info(dev_id):
     interface_name = fwutils.dev_id_to_linux_if(dev_id)
-    ap_status = fwutils.pid_of('hostapd')
+    ap_status = fw_os_utils.pid_of('hostapd')
 
     clients = ap_get_clients(interface_name)
 

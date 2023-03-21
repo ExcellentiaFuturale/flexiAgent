@@ -163,18 +163,6 @@ def get_machine_serial():
         return str(serial)
     except:
         return '0'
-def pid_of(process_name):
-    """Get pid of process.
-
-    :param process_name:   Process name.
-
-    :returns:           process identifier.
-    """
-    try:
-        pid = subprocess.check_output(['pidof', process_name]).decode()
-    except:
-        pid = None
-    return pid
 
 def get_vpp_tap_interface_mac_addr(dev_id):
     tap = dev_id_to_tap(dev_id)
@@ -2802,7 +2790,7 @@ def connect_to_wifi(params):
         essid = params['essid']
         password = params['password']
 
-        wpaIsRun = True if pid_of('wpa_supplicant') else False
+        wpaIsRun = True if fw_os_utils.pid_of('wpa_supplicant') else False
         if wpaIsRun:
             os.system('sudo killall wpa_supplicant')
             time.sleep(3)
