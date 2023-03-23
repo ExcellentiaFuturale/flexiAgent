@@ -702,7 +702,7 @@ class FwStartupConf(FwStartupConfParsed):
 		:param tx_queues: 	   number of TX queues.
 		                       Default value is 'num_workers'.
 		'''
-		def _get_vpp_heap_size():
+		def _calc_vpp_heap_size():
 			'''
 			Default VPP heap size is 1G (2G - DPDK, 1G - VPP, 1G - Apps + Linux)
 			We need at least 2G in multi-thread mode to support 1000+ tunnels
@@ -715,7 +715,8 @@ class FwStartupConf(FwStartupConfParsed):
 			total_mem_Gb = round(psutil.virtual_memory().total/_1Gb)
 
 			if total_mem_Gb < 5:
-				vpp_heap_size = ''
+				# 1G is the current default VPP heap-size
+				vpp_heap_size = '1G'
 			else:
 				vpp_heap_size = str(int(round(total_mem_Gb*7/20))) + 'G' # 35% of Total
 			return vpp_heap_size
@@ -758,9 +759,17 @@ class FwStartupConf(FwStartupConfParsed):
 		buffers = (rx_queues + tx_queues) * desc_entries * total_ports_per_numa * 2
 		self.set_simple_param('buffers.buffers-per-numa', buffers)
 
-		vpp_heap_size = _get_vpp_heap_size()
-		if vpp_heap_size:
-			self.set_simple_param('memory.main-heap-size', vpp_heap_size)
+		vpp_heap_size = _calc_vpp_heap_size()
+		self.set_simple_param ('memory.main-heap-size', vpp_heap_size)
+
+	def get_vpp_heap_size_in_GB (self):
+		heap_size_GB_string = self.get_simple_param ('memory.main-heap-size')
+		if heap_size_GB_string:
+			heap_size_GB_list = heap_size_GB_string.split()
+			if len(heap_size_GB_list) == 2:
+				return int(heap_size_GB_list[1].rstrip('G'))
+		# Else return default heap-size of 1GB
+		return 1
 
 	def get_power_saving(self):
 		'''Retrieves power saving on main core based on value of the unix.poll-sleep-usec field
