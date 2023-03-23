@@ -100,6 +100,7 @@ request_handlers = {
     'get-device-os-routes':              {'name': '_call_agent_api'},
     'get-device-config':                 {'name': '_call_agent_api'},
     'upgrade-device-sw':                 {'name': '_call_agent_api'},
+    'upgrade-linux-sw':                  {'name': '_call_agent_api'},
     'reset-device':                      {'name': '_call_agent_api'},
     'sync-device':                       {'name': '_call_agent_api'},
     'get-wifi-info':                     {'name': '_call_agent_api'},

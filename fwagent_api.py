@@ -53,6 +53,7 @@ fwagent_api = {
     'reset-device':                  '_reset_device_soft',
     'sync-device':                   '_sync_device',
     'upgrade-device-sw':             '_upgrade_device_sw',
+    'upgrade-linux-sw':              '_upgrade_linux_sw',
     'set-cpu-info':                  '_set_cpu_info',
     'get-bgp-status':                '_get_bgp_status',
 }
@@ -211,6 +212,31 @@ class FWAGENT_API(FwObject):
                     fwglobals.g.ROUTER_LOG_FILE)
         os.system(cmd)
         return { 'message': 'Started software upgrade process', 'ok': 1 }
+
+    def _upgrade_linux_sw(self, params):
+        """Upgrade linux SW.
+
+        :param params: Parameters from flexiManage.
+
+        :returns: Message and status code.
+        """
+        dir = os.path.dirname(os.path.realpath(__file__))
+
+        # Copy the fwlinux_upgrade.sh file to the /tmp folder to
+        # prevent overriding it with the fwlinux_upgrade.sh file
+        # from the new version.
+        try:
+            copyfile('{}/fwlinux_upgrade.sh'.format(dir), '/tmp/fwlinux_upgrade.sh')
+        except Exception as e:
+            return { 'message': 'Failed to copy linux upgrade file', 'ok': 0 }
+
+        job_id = fwglobals.g.jobs.current_job_id
+        cmd = 'bash /tmp/fwupgrade.sh {} {} >> {} 2>&1 &' \
+            .format(fwglobals.g.ROUTER_LOG_FILE, \
+                    job_id, \
+                    fwglobals.g.ROUTER_LOG_FILE)
+        os.system(cmd)
+        return { 'message': 'Started linux upgrade process', 'ok': 1 }
 
     def _get_device_logs(self, params):
         """Get device logs.
