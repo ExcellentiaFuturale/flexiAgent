@@ -791,7 +791,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 return False
 
             if (request['message'] == 'add-qos-policy'):
-                if fwqos.check_policy_has_interface_add_del(request['params']):
+                if fwglobals.g.qos.restart_check_on_qos_interfaces_update(request['params']):
                     # QoS interfaces have changed in the new request - Restart required
                     return True
             elif (request['message'] == 'remove-qos-policy'):
@@ -815,7 +815,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             reconnect_agent = True
             return _return_val()
         elif re.match('(add|remove)-qos-policy', request['message']):
-            if (_should_restart_on_qos_policy(request) is True):
+            if (_should_restart_on_qos_policy(request)):
                 restart_router  = True
                 reconnect_agent = True
             return _return_val()
@@ -829,7 +829,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 if re.match('(start|stop)-router', _request['message']):
                     reconnect_agent = True
                 elif re.match('(add|remove)-qos-policy', _request['message']):
-                    if (_should_restart_on_qos_policy(_request) is True):
+                    if (_should_restart_on_qos_policy(_request)):
                         restart_router  = True
                         reconnect_agent = True
                 elif re.match('(add|remove)-interface', _request['message']):

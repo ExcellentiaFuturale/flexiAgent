@@ -353,6 +353,9 @@ class Fwglobals(FwObject):
         self.firewall_acl_cache            = fwfirewall.FwFirewallAclCache()
         self.default_vxlan_port            = 4789
 
+        # Config limit for QoS scheduler memory usage (limits to 'x' % of configured VPP memory)
+        self.QOS_SCHED_MAX_MEMORY_PERCENT = 5
+
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
         self.load_debug_configuration_from_file(self.DEBUG_CONF_FILE)
