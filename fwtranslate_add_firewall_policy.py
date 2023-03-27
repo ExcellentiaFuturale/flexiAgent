@@ -136,10 +136,23 @@ def add_firewall_policy(params):
 
         cmd_list = []
         intf_attachments = {}
+        global_rule_exist = False
+        lan_dev_ids = []
 
         # Clean ACL cache
         fwglobals.g.firewall_acl_cache.clear('ingress')
         fwglobals.g.firewall_acl_cache.clear('egress')
+
+        interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
+        for intf in interfaces:
+            lan_dev_ids.append(intf['dev_id'])
+
+        app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True,
+                                                                linux_interfaces=False)
+        # for applications interfaces we are using
+        # the prefix 'app_' and the identifier name as the key.
+        for app_identifier in app_lans:
+            lan_dev_ids.append(f'app_{app_identifier}')
 
         for rule_index, rule in enumerate(outbound_rules['rules']):
 
@@ -172,6 +185,12 @@ def add_firewall_policy(params):
                     'do not exist for rule index: %d' % rule_index)
                 continue
 
+            if not dev_ids:
+                global_rule_exist = True
+                dev_ids = lan_dev_ids.copy()
+                cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', ingress_id))
+                cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', egress_id))
+
             for dev_id in dev_ids:
                 if intf_attachments.get(dev_id) is None:
                     intf_attachments[dev_id] = {}
@@ -180,12 +199,9 @@ def add_firewall_policy(params):
                 intf_attachments[dev_id]['ingress'].append(ingress_id)
                 intf_attachments[dev_id]['egress'].append(egress_id)
 
-            if not dev_ids:
-                cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', ingress_id))
-                cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', egress_id))
-
-        cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', DEFAULT_ALLOW_ID))
-        cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', DEFAULT_ALLOW_ID))
+        if outbound_rules['rules'] and global_rule_exist:
+            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', DEFAULT_ALLOW_ID))
+            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', DEFAULT_ALLOW_ID))
 
         for dev_id, value in intf_attachments.items():
             # Add last default ACL as allow ALL
