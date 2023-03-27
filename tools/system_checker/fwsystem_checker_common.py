@@ -784,6 +784,22 @@ class Checker:
         res = self.grub.soft_check(grub_params, fix, prompt)
         return res
 
+    def soft_check_vfio_iommu_type1(self, fix=False, silently=False, prompt=''):
+        """Check if 'vfio_iommu_type1.allow_unsafe_interrupts=1' appear in GRUB.
+        It might be required by custom kernels, where vfio-pci is built-in into
+        kernel, and is not a standalone module that should be loaded using
+        the modprobe command.
+
+        :param fix:             Fix problem.
+        :param silently:        Do not prompt user.
+        :param prompt:          User prompt prefix.
+
+        :returns: 'True' if check is successful and 'False' otherwise.
+        """
+        grub_params = [ 'vfio_iommu_type1.allow_unsafe_interrupts=1' ]
+        res = self.grub.soft_check(grub_params, fix, prompt)
+        return res
+
     def soft_check_hugepage_number(self, fix=False, silently=False, prompt=''):
         """Check if there is enough hugepages available.
 
