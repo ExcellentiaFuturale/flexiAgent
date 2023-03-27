@@ -255,7 +255,7 @@ def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
     return cmd
 
 
-def add_interface_attachment(ingress_ids, egress_ids, dev_ids):
+def add_interface_attachment(ingress_ids=[], egress_ids=[], dev_ids=[]):
     """ Prepares command dict required to attach array of ingress and egress
     ACL identifiers to an interface
 
@@ -357,37 +357,24 @@ def add_acl_rules_interfaces(is_add, dev_ids, ingress_acl_ids=[], egress_acl_ids
     #      { 'com.flexiwan.vpn': ['tun0'] }
     app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True, linux_interfaces=False)
 
-    if dev_ids:
-        # flexiManage doesn't know about application interfaces,
-        # So it sends only 'app_{identifier}' as the dev_id.
-        # Hence, we need to manipulate  the dev_id to be app_{identifier}_{vpp_if_name},
-        # as it expected by the following code.
-        for dev_id in dev_ids:
-            # if dev id is a dpdk interface - keep it as is.
-            if not dev_id.startswith('app_'):
-                sw_if_indexes.append(fwutils.dev_id_to_vpp_sw_if_index(dev_id))
-                continue
+    # flexiManage doesn't know about application interfaces,
+    # So it sends only 'app_{identifier}' as the dev_id.
+    # Hence, we need to manipulate  the dev_id to be app_{identifier}_{vpp_if_name},
+    # as it expected by the following code.
+    for dev_id in dev_ids:
+        # if dev id is a dpdk interface - keep it as is.
+        if not dev_id.startswith('app_'):
+            sw_if_indexes.append(fwutils.dev_id_to_vpp_sw_if_index(dev_id))
+            continue
 
-            # if we don't have vpp interfaces for this app - continue.
-            app_identifier = dev_id.split('_')[-1]
-            if not app_identifier in app_lans:
-                continue
+        # if we don't have vpp interfaces for this app - continue.
+        app_identifier = dev_id.split('_')[-1]
+        if not app_identifier in app_lans:
+            continue
 
-            # add the application vpp interface names to the list
-            for vpp_if_name in app_lans[app_identifier]:
-                sw_if_indexes.append(fwutils.vpp_if_name_to_sw_if_index(vpp_if_name))
-
-    else: # if not dev_ids, fill all LAN (dpdk and applications) interfaces
-        interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
-        for intf in interfaces:
-            sw_if_indexes.append(fwutils.dev_id_to_vpp_sw_if_index(intf['dev_id']))
-
-        for app_identifier in app_lans:
-            for vpp_if_name in app_lans[app_identifier]:
-                sw_if_indexes.append(fwutils.vpp_if_name_to_sw_if_index(vpp_if_name))
-
-        ingress_acl_ids = fwglobals.g.firewall_acl_cache.get('ingress')
-        egress_acl_ids = fwglobals.g.firewall_acl_cache.get('egress')
+        # add the application vpp interface names to the list
+        for vpp_if_name in app_lans[app_identifier]:
+            sw_if_indexes.append(fwutils.vpp_if_name_to_sw_if_index(vpp_if_name))
 
     for sw_if_index in sw_if_indexes:
         vpp_add_acl_rules(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids)
