@@ -81,7 +81,7 @@ soft_checkers = [
     { 'soft_check_lte_mbim_mode'                 : { 'severity': 'critical' }},
     { 'soft_check_utc_timezone'                  : { 'severity': 'critical' }},
     { 'soft_check_uuid'                          : { 'severity': 'critical' }},
-    { 'soft_check_vfio_iommu_type1'              : { 'severity': 'critical' }},
+    { 'soft_check_vfio_iommu_unsafe_interrupts'  : { 'severity': 'optional', 'interactive': 'must' }},   # enforce interaction, because we don't know what are risks behind this option
     { 'soft_check_wifi_driver'                   : { 'severity': 'critical' }},
 ]
 

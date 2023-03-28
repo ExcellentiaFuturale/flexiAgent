@@ -784,7 +784,7 @@ class Checker:
         res = self.grub.soft_check(grub_params, fix, prompt)
         return res
 
-    def soft_check_vfio_iommu_type1(self, fix=False, silently=False, prompt=''):
+    def soft_check_vfio_iommu_unsafe_interrupts(self, fix=False, silently=False, prompt=''):
         """Check if 'vfio_iommu_type1.allow_unsafe_interrupts=1' appear in GRUB.
         It might be required by custom kernels, where vfio-pci is built-in into
         kernel, and is not a standalone module that should be loaded using
