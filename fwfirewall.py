@@ -28,18 +28,33 @@ class FwFirewallAclCache(FwObject):
     """Firewall class representation.
     """
     def __init__(self):
-        self.rules = {}
-        self.rules['ingress'] = []
-        self.rules['egress']  = []
+        self.devices = {}
 
-    def add(self, direction, acl_id):
-        self.rules[direction].append(acl_id)
+    def add(self, dev_id, direction, acl_ids):
+        if not dev_id in self.devices:
+            self.devices[dev_id] = {}
 
-    def remove(self, direction, acl_id):
-        self.rules[direction] = [tup for tup in self.rules[direction] if tup == acl_id]
+        self.devices[dev_id][direction] = acl_ids
 
-    def get(self, direction):
-        return self.rules[direction]
+    def remove(self, dev_id, direction, acl_ids):
+        if not dev_id in self.devices:
+           return
 
-    def clear(self, direction):
-        self.rules[direction].clear()
+        if not direction in self.devices[dev_id]:
+           return
+
+        del self.devices[dev_id][direction]
+
+    def get(self, dev_id, direction):
+        if dev_id not in self.devices:
+            if 'global' in self.devices:
+                dev_id = 'global'
+            else:
+                return []
+        if direction not in self.devices[dev_id]:
+            return []
+
+        return self.devices[dev_id][direction]
+
+    def clear(self):
+        self.devices.clear()

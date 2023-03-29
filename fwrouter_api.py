@@ -1413,12 +1413,17 @@ class FWROUTER_API(FwCfgRequestHandler):
         if not sw_if_index:
             sw_if_index = fwutils.vpp_if_name_to_sw_if_index(vpp_if_name)
 
+        if vpp_if_name in fwglobals.g.cli_interface_cache:
+            dev_id = fwglobals.g.cli_interface_cache[vpp_if_name]
+        else:
+            dev_id = fwutils.vpp_if_name_to_dev_id(vpp_if_name)
+
         with FwCfgMultiOpsWithRevert() as handler:
             try:
                 # apply firewall
                 if if_type == 'lan':
-                    ingress_acls = fwglobals.g.firewall_acl_cache.get('ingress')
-                    egress_acls = fwglobals.g.firewall_acl_cache.get('egress')
+                    ingress_acls = fwglobals.g.firewall_acl_cache.get(dev_id, 'ingress')
+                    egress_acls = fwglobals.g.firewall_acl_cache.get(dev_id, 'egress')
                     handler.exec(
                         func=fw_acl_command_helpers.vpp_add_acl_rules,
                         params={ 'is_add': add, 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': egress_acls },
