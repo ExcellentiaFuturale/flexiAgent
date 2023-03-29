@@ -37,6 +37,7 @@ def argparse(configure_subparsers):
     create_interfaces_cli.add_argument('--type', dest='params.type', choices=['wan', 'lan'], metavar='INTERFACE_TYPE', help="Indicates if interface will be use to go to the internet", required=True)
     create_interfaces_cli.add_argument('--addr', dest='params.addr', metavar='ADDRESS', help="The IPv4 to configure on the VPP interface", required=True)
     create_interfaces_cli.add_argument('--host_if_name', dest='params.host_if_name', metavar='LINUX_INTERFACE_NAME', help="The name of the interface that will be created in Linux side", required=True)
+    create_interfaces_cli.add_argument('--id', dest='params.id', help="Application id", required=True)
     create_interfaces_cli.add_argument('--no_vppsb', dest='params.no_vppsb', help="If it appears, VPPSB will not create Linux interface for it (but VPP will) - Do it if you know what you are doing", action='store_true')
 
     remove_interfaces_cli = router_interfaces_subparsers.add_parser('delete', help='Remove VPP interface')
@@ -45,7 +46,7 @@ def argparse(configure_subparsers):
     remove_interfaces_cli.add_argument('--vpp_if_name', dest='params.vpp_if_name', metavar='VPP_INTERFACE_NAME', help="VPP interface name", required=True)
     remove_interfaces_cli.add_argument('--ignore_errors', dest='params.ignore_errors', help="Ignore exceptions during removal", action='store_true')
 
-def interfaces_create(type, addr, host_if_name, no_vppsb=False):
+def interfaces_create(type, addr, host_if_name, id, no_vppsb=False):
     if not fwutils.is_ipv4(addr):
         raise Exception(f'addr {addr} is not valid IPv4 address')
     if len(host_if_name) > 15:
@@ -54,7 +55,7 @@ def interfaces_create(type, addr, host_if_name, no_vppsb=False):
         'api',
         api_module='fwcli_configure_router',
         api_name='api_interface_create',
-        type=type, addr=addr, host_if_name=host_if_name, no_vppsb=no_vppsb
+        type=type, addr=addr, host_if_name=host_if_name, id=id, no_vppsb=no_vppsb
     )
     return ret
 
@@ -68,7 +69,7 @@ def interfaces_delete(vpp_if_name, type, addr, ignore_errors=False):
         type=type, addr=addr, vpp_if_name=vpp_if_name, ignore_errors=ignore_errors
     )
 
-def api_interface_create(type, addr, host_if_name, no_vppsb, ospf=True, bgp=True):
+def api_interface_create(type, addr, host_if_name, id, no_vppsb, ospf=True, bgp=True):
     if not fw_os_utils.vpp_does_run():
         return
 
@@ -85,6 +86,8 @@ def api_interface_create(type, addr, host_if_name, no_vppsb, ospf=True, bgp=True
                 revert_params={ 'vpp_if_name': tun_vpp_if_name, 'ignore_errors': False }
             )
             ret['tun_vpp_if_name'] = tun_vpp_if_name
+
+            fwglobals.g.cli_interface_cache[tun_vpp_if_name] = id
 
             # apply features
             handler.exec(
@@ -145,6 +148,7 @@ def api_interface_delete(vpp_if_name, type, addr, ospf=True, bgp=True, ignore_er
         fwglobals.g.router_api.apply_features_on_interface(False, type, vpp_if_name=vpp_if_name)
 
         fwutils.delete_tun_tap_from_vpp(vpp_if_name, ignore_errors)
+        del fwglobals.g.cli_interface_cache[vpp_if_name]
     except Exception as e:
         fwglobals.log.error(f'api_interface_delete({vpp_if_name}, {type}, {addr}) failed. {str(e)}')
         raise e

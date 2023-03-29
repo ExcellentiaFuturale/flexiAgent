@@ -352,6 +352,7 @@ class Fwglobals(FwObject):
         self.is_gcp_vm                     = fwutils.detect_gcp_vm()
         self.firewall_acl_cache            = fwfirewall.FwFirewallAclCache()
         self.default_vxlan_port            = 4789
+        self.cli_interface_cache           = {}
 
         # Config limit for QoS scheduler memory usage (limits to 'x' % of configured VPP memory)
         self.QOS_SCHED_MAX_MEMORY_PERCENT = 5
