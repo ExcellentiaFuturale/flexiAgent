@@ -24,7 +24,8 @@ import pickle
 import sqlite3
 
 from sqlitedict import SqliteDict
-from fwlog import FwObjectLogger
+
+from fwobject import FwObject
 
 
 def _decode(obj):
@@ -37,7 +38,7 @@ def _encode(obj):
     return sqlite3.Binary(pickle.dumps(obj, protocol=2))
 
 
-class FwSqliteDict(SqliteDict):
+class FwSqliteDict(SqliteDict, FwObject):
     """This is base DB class implementation, based on SqliteDict."""
 
     def __init__(self, db_file):
@@ -46,9 +47,7 @@ class FwSqliteDict(SqliteDict):
         :param db_file:      SQLite database file name.
         """
         super().__init__(filename=db_file, flag='c', autocommit=True, encode=_encode, decode=_decode)
-
-        name = self.__class__.__name__
-        self.log = FwObjectLogger(object_name=name)
+        FwObject.__init__(self)
 
     def finalize(self):
         """Close DB

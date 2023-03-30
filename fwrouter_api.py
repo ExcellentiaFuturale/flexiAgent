@@ -31,6 +31,8 @@ import traceback
 
 from netaddr import IPAddress, IPNetwork
 
+import fw_acl_command_helpers
+import fw_nat_command_helpers
 import fw_vpp_coredump_utils
 import fwglobals
 import fwlte
@@ -235,6 +237,8 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         interfaces = fwglobals.g.router_cfg.get_interfaces()
         for interface in interfaces:
+            if fwutils.is_vlan_interface(dev_id=interface['dev_id']):
+                continue
             tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
             if fwpppoe.is_pppoe_interface(dev_id=interface['dev_id']):
                 status_vpp  = fwutils.get_interface_link_state(tap_name, interface['dev_id'])
@@ -363,9 +367,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                 fwnetplan.load_netplan_filenames(read_from_disk=vpp_runs)
             else:
                 fwnetplan.restore_linux_netplan_files()
+                fwutils.get_linux_interfaces(cached=False) # Refill global interface cache once netplan was restored
             return False
 
         self._restore_vpp()
+        fwutils.get_linux_interfaces(cached=False) # Refill global interface cache once VPP is on air
         return True
 
     def _restore_vpp(self):
@@ -458,7 +464,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         :returns: dictionary with status code and optional error message.
         """
-        prev_logger = self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
+        self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
         try:
 
             # First of all strip out requests that have no impact on configuration,
@@ -468,7 +474,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             new_request = self._strip_noop_request(request)
             if not new_request:
                 self.log.debug("call: ignore no-op request: %s" % json.dumps(request))
-                self.set_logger(prev_logger)  # Restore logger if was changed
                 return { 'ok': 1, 'message':'request has no impact' }
             request = new_request
 
@@ -486,7 +491,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             #    In this case we have to ping the GW-s after modification.
             #    See explanations on that workaround later in this function.
             #
-            (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun) = self._analyze_request(request)
+            (restart_router, reconnect_agent, gateways, restart_dhcp_service) = self._analyze_request(request)
 
             # Some requests require preprocessing.
             # For example before handling 'add-application' the currently configured
@@ -506,11 +511,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             #
 
             reply = FwCfgRequestHandler.call(self, request, dont_revert_on_failure)
-
-            # Restart STUN thread if needed
-            #
-            if restart_stun:
-                fwglobals.g.stun_wrapper.restart_stun_thread()
 
             # Start vpp if it should be restarted
             #
@@ -556,11 +556,8 @@ class FWROUTER_API(FwCfgRequestHandler):
                     except Exception as e:
                         self.log.debug("call: %s: %s" % (cmd, str(e)))
 
-        except Exception as e:
-            self.set_logger(prev_logger)  # Restore logger if was changed
-            raise e
-
-        self.set_logger(prev_logger)  # Restore logger if was changed
+        finally:
+            self.unset_request_logger()
         return reply
 
     def _call_simple(self, request, execute=False, filter=None):
@@ -617,6 +614,9 @@ class FWROUTER_API(FwCfgRequestHandler):
             if vpp_does_run or req == 'start-router':
                 execute = True
             elif re.match('remove-',  req):
+                filter = 'must'
+                execute = True
+            elif '-vxlan-config' in req:
                 filter = 'must'
                 execute = True
 
@@ -771,8 +771,6 @@ class FWROUTER_API(FwCfgRequestHandler):
                         "vppctl delete tap") and recreates it back.
                         That causes DHCP service to stop monitoring of the recreated interface.
                         Therefor we have to restart it on modify-interface completion.
-            restart_stun - STUN thread should be restarted if one of parameters it based on
-                        is changed.
 
         """
 
@@ -793,7 +791,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 return False
 
             if (request['message'] == 'add-qos-policy'):
-                if fwqos.check_policy_has_interface_add_del(request['params']):
+                if fwglobals.g.qos.restart_check_on_qos_interfaces_update(request['params']):
                     # QoS interfaces have changed in the new request - Restart required
                     return True
             elif (request['message'] == 'remove-qos-policy'):
@@ -801,25 +799,23 @@ class FWROUTER_API(FwCfgRequestHandler):
                     return True
             return False
 
-        (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun) = \
-        (False,          False,           [],       False,                False)
+        (restart_router, reconnect_agent, gateways, restart_dhcp_service) = \
+        (False,          False,           [],       False,              )
 
         def _return_val():
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service, restart_stun)
+            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
 
         if re.match('(add|remove)-interface', request['message']):
             if self.state_is_started():
-                restart_router  = True
-                reconnect_agent = True
+                if not fwutils.is_vlan_interface(dev_id=request['params']['dev_id']):
+                    restart_router  = True
+                    reconnect_agent = True
             return _return_val()
         elif re.match('(start|stop)-router', request['message']):
             reconnect_agent = True
             return _return_val()
-        elif re.match('(add|remove|modify)-vxlan-config', request['message']):
-            restart_stun = True
-            return _return_val()
         elif re.match('(add|remove)-qos-policy', request['message']):
-            if (_should_restart_on_qos_policy(request) is True):
+            if (_should_restart_on_qos_policy(request)):
                 restart_router  = True
                 reconnect_agent = True
             return _return_val()
@@ -828,17 +824,19 @@ class FWROUTER_API(FwCfgRequestHandler):
         else:   # aggregated request
             add_remove_requests = {}
             modify_requests = {}
+            only_vlans = True
             for _request in request['params']['requests']:
                 if re.match('(start|stop)-router', _request['message']):
                     reconnect_agent = True
-                elif re.match('(add|remove|modify)-vxlan-config', _request['message']):
-                    restart_stun = True
                 elif re.match('(add|remove)-qos-policy', _request['message']):
-                    if (_should_restart_on_qos_policy(_request) is True):
+                    if (_should_restart_on_qos_policy(_request)):
                         restart_router  = True
                         reconnect_agent = True
                 elif re.match('(add|remove)-interface', _request['message']):
                     dev_id = _request['params']['dev_id']
+                    # Track vlans. If only vlans in add/remove requests do not restart router
+                    if not fwutils.is_vlan_interface(dev_id=dev_id):
+                        only_vlans = False
                     # check if requests list contains remove-interface and add-interface for the same dev_id.
                     # If found, it means that these two requests were created for modify-interface
                     if not dev_id in add_remove_requests:
@@ -887,7 +885,8 @@ class FWROUTER_API(FwCfgRequestHandler):
                         modify_requests[dev_id] = _request
 
             if add_remove_requests and self.state_is_started():
-                restart_router = True
+                if not only_vlans:
+                    restart_router = True
                 reconnect_agent = True
             if modify_requests and self.state_is_started():
                 restart_dhcp_service = True
@@ -931,6 +930,8 @@ class FWROUTER_API(FwCfgRequestHandler):
                     _request['params'] = self.cfg_db.get_request_params(_request)
 
         if self.state_is_stopped():
+            if req == 'aggregated':  # take a care of order of parent & sub-interfaces
+                self._preprocess_reorder(request)
             return request
 
         if req != 'aggregated':
@@ -1000,7 +1001,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
             if pre_requests == [] and post_requests == []:
                 return request
-            new_params  = { 'requests' : pre_requests + request + post_requests }
+            new_params  = { 'requests' : pre_requests + [request] + post_requests }
             new_request = {'message': 'aggregated', 'params': new_params}
             self.log.debug("_preprocess_simple_request: request was replaced with %s" % json.dumps(new_request))
             return new_request
@@ -1104,6 +1105,13 @@ class FWROUTER_API(FwCfgRequestHandler):
             for _request in old_requests:
                 if re.match(req_name, _request['message']):
                     new_requests.append(_request)
+
+        # Reorder 'add-interface'-s and 'remove-interface'-s requests
+        # to ensure that the sub-interfaces are added after the parent
+        # interface was added and are removed before the parent interface
+        # is removed. This is needed for VLAN interfaces.
+        #
+        new_requests = preprocess_reorder_sub_interfaces(new_requests)
 
         # Add 'start-router', 'stop-router' and 'modify-X'-s to the list of 'remove-X'-s
         # and 'add-X'-s: put 'stop-router' at the beginning of list, 'modify-X'-s
@@ -1315,7 +1323,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 break
 
         if do_sync:
-            fwutils.reset_device_config_signature("pending_interfaces_got_ip", log=False)
+            fwutils.reset_device_config_signature("pending_interfaces_got_ip")
 
     def _on_start_router_after(self):
         """Handles post start VPP activities.
@@ -1385,20 +1393,46 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwglobals.g.applications_api.call_hook('on_router_is_stopped')
         fwglobals.g.pppoe.start()
 
-    def _on_add_interface_after(self, type, sw_if_index):
+    def _on_add_interface_after(self, type, sw_if_index, params):
         """add-interface postprocessing
 
         :param type:        "wan"/"lan"
         :param sw_if_index: vpp sw_if_index of the interface
         """
-        self._update_cache_sw_if_index(sw_if_index, type, True)
+        self._update_cache_sw_if_index(sw_if_index, type, add=True, params=params)
+        self.apply_features_on_interface(True, type, vpp_if_name=None, sw_if_index=sw_if_index)
 
-    def apply_features_on_interface(self, add, vpp_if_name, if_type=None):
+    def apply_features_on_interface(self, add, if_type, vpp_if_name=None, sw_if_index=None):
+        if not vpp_if_name and not sw_if_index:
+            err_msg = 'vpp_if_name and sw_if_index were not provided'
+            self.log.error(f"apply_features_on_interface({add, if_type}): failed. {err_msg}")
+            raise Exception(err_msg)
+
+        if not vpp_if_name:
+            vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
+        if not sw_if_index:
+            sw_if_index = fwutils.vpp_if_name_to_sw_if_index(vpp_if_name)
+
         with FwCfgMultiOpsWithRevert() as handler:
             try:
                 # apply firewall
-                # TODO: Should be implemented in the next release.
-                # For current release, the remote vpn injects pair of remove and add firewall policy job when.
+                if if_type == 'lan':
+                    ingress_acls = fwglobals.g.firewall_acl_cache.get('ingress')
+                    egress_acls = fwglobals.g.firewall_acl_cache.get('egress')
+                    handler.exec(
+                        func=fw_acl_command_helpers.vpp_add_acl_rules,
+                        params={ 'is_add': add, 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': egress_acls },
+                        revert_func=fw_acl_command_helpers.vpp_add_acl_rules if add else None,
+                        revert_params={ 'is_add': (not add), 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': egress_acls } if add else None,
+                    )
+
+                if if_type == 'wan':
+                    handler.exec(
+                        func=fw_nat_command_helpers.add_nat_rules_interfaces,
+                        params={ 'is_add': add, 'sw_if_index': sw_if_index },
+                        revert_func=fw_nat_command_helpers.add_nat_rules_interfaces,
+                        revert_params={ 'is_add': (not add), 'sw_if_index': sw_if_index },
+                    )
 
                 # apply qos classification
                 handler.exec(
@@ -1416,16 +1450,17 @@ class FWROUTER_API(FwCfgRequestHandler):
                     revert_params={ 'attach': (not add), 'vpp_if_name': vpp_if_name, 'if_type': if_type } if add else None, # no need revert of revert
                 )
             except Exception as e:
-                self.log.error(f"apply_features_on_interface({add, vpp_if_name, if_type}): failed. {str(e)}")
+                self.log.error(f"apply_features_on_interface({add, if_type, vpp_if_name, sw_if_index}): failed. {str(e)}")
                 handler.revert(e)
 
-    def _on_remove_interface_before(self, type, sw_if_index):
+    def _on_remove_interface_before(self, type, sw_if_index, params):
         """remove-interface preprocessing
 
         :param type:        "wan"/"lan"
         :param sw_if_index: vpp sw_if_index of the interface
         """
-        self._update_cache_sw_if_index(sw_if_index, type, False)
+        self.apply_features_on_interface(False, type, vpp_if_name=None, sw_if_index=sw_if_index)
+        self._update_cache_sw_if_index(sw_if_index, type, add=False, params=params)
 
     def _on_add_tunnel_after(self, sw_if_index, params):
         """add-tunnel postprocessing
@@ -1464,8 +1499,17 @@ class FWROUTER_API(FwCfgRequestHandler):
         router_api_db  = fwglobals.g.db['router_api']  # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
         cache_by_index = router_api_db['sw_if_index_to_vpp_if_name']
         cache_by_name  = router_api_db['vpp_if_name_to_sw_if_index'][type]
+        cache_by_dev_id = router_api_db['dev_id_to_sw_if_index']
         cache_tap_by_vpp_if_name = router_api_db['vpp_if_name_to_tap_if_name']
         cache_tap_by_sw_if_index = router_api_db['sw_if_index_to_tap_if_name']
+
+        dev_id = params.get('dev_id') if params else None
+        if dev_id and (type == 'wan' or type == 'lan'):
+            if add:
+                cache_by_dev_id[dev_id] = sw_if_index
+            else:
+                del cache_by_dev_id[dev_id]
+
         if add:
             if type == 'tunnel':  # For tunnels use shortcut  - exploit vpp internals ;)
                 vpp_if_name = fwutils.tunnel_to_vpp_if_name(params)
@@ -1552,3 +1596,72 @@ class FWROUTER_API(FwCfgRequestHandler):
             fwglobals.g.handle_request({'message': 'start-router'})
 
         self.log.debug("sync_full: router full sync succeeded")
+
+def preprocess_reorder_sub_interfaces(requests):
+    '''Implements part of the _preprocess_aggregated_request() logic.
+    It rearranges 'add-interface'-s and 'remove-interface'-s requests
+    in the aggregation to ensure that the sub-interfaces are added after
+    the parent interface was added and are removed before the parent interface
+    is removed. This is needed for VLAN interfaces.
+
+    :param requests: The list of 'remove-X' and 'add-X' requests.
+    :returns: reordered list of requests.
+    '''
+    # Firstly we build helper hash of indexes of parent and sub-interfaces
+    # by 'dev_id'. Than we just swap the last sub-interface 'remove-interface'
+    # in the list with the parent 'remove-interface', so the parent interface
+    # will be removed at last. And we swap the first sub-interface
+    # 'add-interface' in the list with the parent 'add-interface', so the parent
+    # interface will be added after before any of it's sub-interfaces.
+    #
+    add_remove_interface_indexes = { 'add-interface': {}, 'remove-interface': {}}
+    for index, _request in enumerate(requests):
+
+        req_name, req_params = _request['message'], _request['params']
+        if req_name == "add-interface":
+            indexes = add_remove_interface_indexes['add-interface']
+        elif req_name == "remove-interface":
+            indexes = add_remove_interface_indexes['remove-interface']
+        else:
+            continue
+
+        parent_dev_id, vlan_id = fwutils.dev_id_parse_vlan(req_params['dev_id'])
+        if not parent_dev_id in indexes:
+            indexes[parent_dev_id] = {}
+        dev_indexes = indexes[parent_dev_id]
+
+        # Store index of 'add-interface'/remove-interface' of parent interface.
+        #
+        if not vlan_id:
+            dev_indexes.update({ 'parent_index': index })
+            continue
+
+        # Store index of 'add-interface'/'remove-interface' of VLAN sub-interface.
+        # For 'add-interface' we store the smallest index (the first one),
+        # so 'add-interface' of the parent interface will be swapped with
+        # the first corresponding sub-interface. For 'remove-interface' we
+        # store the largest index (the latest), so 'remove-interface'
+        # of the parent interface will be swapped with the last corresponding
+        # sub-interface.
+        #
+        if req_name == "remove-interface":
+            dev_indexes.update({ 'sub_index': index })
+        elif dev_indexes.get('sub_index') == None:  # and req_name == "add-interface"
+            dev_indexes.update({ 'sub_index': index })
+
+    # Now go over hash keys and modify the aggregation if needed.
+    #
+    for dev_indexes in add_remove_interface_indexes['add-interface'].values():
+        sub_index    = dev_indexes.get('sub_index', -1)
+        parent_index = dev_indexes.get('parent_index', -1)
+        if parent_index > -1 and sub_index > -1 and parent_index > sub_index:
+            requests[parent_index], requests[sub_index] = requests[sub_index], requests[parent_index]
+
+    for dev_indexes in add_remove_interface_indexes['remove-interface'].values():
+        sub_index    = dev_indexes.get('sub_index', -1)
+        parent_index = dev_indexes.get('parent_index', -1)
+        if parent_index > -1 and sub_index > -1 and parent_index < sub_index:
+            requests[parent_index], requests[sub_index] = requests[sub_index], requests[parent_index]
+
+    return requests
+

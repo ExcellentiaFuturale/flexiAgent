@@ -33,6 +33,7 @@ import yaml
 from fwqos import FwQoS
 import fw_os_utils
 import fwutils
+import fwfirewall
 import threading
 import fw_vpp_coredump_utils
 import fwlte
@@ -47,12 +48,14 @@ from fwagent_api import FWAGENT_API
 from fwapplications_api import FWAPPLICATIONS_API
 from os_api import OS_API
 from fwlog import FwLogFile
+from fwlog import FwObjectLogger
 from fwlog import FwSyslog
 from fwlog import FWLOG_LEVEL_INFO
 from fwlog import FWLOG_LEVEL_DEBUG
 from fwpolicies import FwPolicies
 from fwrouter_cfg import FwRouterCfg
 from fwroutes import FwRoutes
+from fwstats import FwStatistics
 from fwsystem_cfg import FwSystemCfg
 from fwjobs import FwJobs
 from fwstun_wrapper import FwStunWrap
@@ -147,10 +150,10 @@ request_handlers = {
     'modify-vxlan-config':          {'name': '_call_router_api', 'sign': True},
 
     # System API
-    'add-lte':                      {'name': '_call_system_api'},
-    'remove-lte':                   {'name': '_call_system_api'},
-    'add-notifications-config':     {'name': '_call_system_api'},
-    'remove-notifications-config':  {'name': '_call_system_api'},
+    'add-lte':                      {'name': '_call_system_api', 'sign': True},
+    'remove-lte':                   {'name': '_call_system_api', 'sign': True},
+    'add-notifications-config':     {'name': '_call_system_api', 'sign': True},
+    'remove-notifications-config':  {'name': '_call_system_api', 'sign': True},
 
     # Applications api
     'add-app-install':             {'name': '_call_applications_api', 'sign': True},
@@ -337,6 +340,7 @@ class Fwglobals(FwObject):
         self.loadsimulator = None
         self.routes = None
         self.router_api = None
+        self.statistics = None
         self.cache   = self.FwCache()
         self.WAN_FAILOVER_WND_SIZE         = 20         # 20 pings, every ping waits a second for response
         self.WAN_FAILOVER_THRESHOLD        = 12         # 60% of pings lost - enter the bad state, 60% of pings are OK - restore to good state
@@ -348,7 +352,11 @@ class Fwglobals(FwObject):
         self.router_threads                = FwRouterThreading() # Primitives used for synchronization of router configuration and monitoring threads
         self.handle_request_lock           = threading.RLock()
         self.is_gcp_vm                     = fwutils.detect_gcp_vm()
+        self.firewall_acl_cache            = fwfirewall.FwFirewallAclCache()
         self.default_vxlan_port            = 4789
+
+        # Config limit for QoS scheduler memory usage (limits to 'x' % of configured VPP memory)
+        self.QOS_SCHED_MAX_MEMORY_PERCENT = 5
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
@@ -425,10 +433,8 @@ class Fwglobals(FwObject):
 
         # Create loggers
         #
-        self.logger_add_application = FwLogFile(
-            filename=self.APPLICATION_IDS_LOG_FILE, level=log.level)
-        self.logger_add_firewall_policy = FwLogFile(
-            filename=self.FIREWALL_LOG_FILE, level=log.level)
+        self.logger_add_application         = FwObjectLogger('add_application',     log=FwLogFile(filename=self.APPLICATION_IDS_LOG_FILE,   level=log.level))
+        self.logger_add_firewall_policy     = FwObjectLogger('add_firewall_policy', log=FwLogFile(filename=self.FIREWALL_LOG_FILE,          level=log.level))
         self.loggers = {
             'add-application':        self.logger_add_application,
             'remove-application':     self.logger_add_application,
@@ -460,11 +466,14 @@ class Fwglobals(FwObject):
         self.pppoe            = FwPppoeClient()
         self.routes           = FwRoutes()
         self.qos              = FwQoS()
+        self.statistics       = FwStatistics()
+        self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 
         fwutils.set_default_linux_reverse_path_filter(2)  # RPF set to Loose mode
         fwutils.disable_ipv6()
+
         # Increase allowed multicast group membership from default 20 to 4096
         # OSPF need that to be able to discover more neighbors on adjacent links
         fwutils.set_linux_igmp_max_memberships(4096)
@@ -476,23 +485,19 @@ class Fwglobals(FwObject):
         # VPPSB need that to handle more netlink events on a heavy load
         fwutils.set_linux_socket_max_receive_buffer_size(2048000)
 
-        self.stun_wrapper.initialize()   # IMPORTANT! The STUN should be initialized before restore_vpp_if_needed!
-
-        self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
-
         if initialize:
             self.initialize_agent()
         return self.fwagent
 
-    def destroy_agent(self, finalize=True):
+    def destroy_agent(self):
         """Graceful shutdown...
         """
-        if finalize:
+        if self.fwagent_initialized:
             self.finalize_agent()
 
         del self.routes
-        del self.pppoe
-        self.pppoe = None
+        del self.pppoe; self.pppoe = None
+        del self.statistics; self.statistics = None
         del self.wan_monitor
         del self.stun_wrapper
         del self.policies
@@ -511,9 +516,11 @@ class Fwglobals(FwObject):
         """
         self.log.debug('initialize_agent: started')
 
-        self.router_api.restore_vpp_if_needed()
+        # IMPORTANT! Some of the features below should be initialized before restore_vpp_if_needed
+        #
+        self.stun_wrapper.initialize()
 
-        fwutils.get_linux_interfaces(cached=False) # Fill global interface cache
+        self.router_api.restore_vpp_if_needed()
 
         # IMPORTANT! Some of the features below should be initialized after restore_vpp_if_needed
         #
@@ -522,16 +529,20 @@ class Fwglobals(FwObject):
         self.system_api.initialize()  # This one does not depend on VPP :)
         self.routes.initialize()
         self.applications_api.initialize()
+        self.statistics.initialize()
 
         self.log.debug('initialize_agent: completed')
+        self.fwagent_initialized = True
 
     def finalize_agent(self):
         self.log.debug('finalize_agent: started')
+        self.fwagent_initialized = False
         self.router_threads.teardown = True   # Stop all threads in parallel to speedup gracefull exit
         try:
             self.qos.finalize()
             self.routes.finalize()
             self.pppoe.finalize()
+            self.statistics.finalize()
             self.wan_monitor.finalize()
             self.stun_wrapper.finalize()
             self.system_api.finalize()
@@ -768,6 +779,9 @@ class Fwglobals(FwObject):
                 elif re.match('start-', op):
                     request['message'] = op.replace('start-','stop-')
 
+                elif re.match('stop-', op):
+                    request['message'] = op.replace('stop-','start-')
+
                 elif re.match('remove-', op):
                     request['message'] = op.replace('remove-','add-')
                     # The "remove-X" might have only subset of configuration parameters.
@@ -828,6 +842,12 @@ class Fwglobals(FwObject):
                 func = getattr(self.applications_api, func_name)
             elif object_name == 'fwglobals.g.qos':
                 func = getattr(self.qos, func_name)
+            elif object_name == 'fwglobals.g.firewall_acl_cache':
+                func = getattr(self.firewall_acl_cache, func_name)
+            elif object_name == 'fwglobals.g.stun_wrapper':
+                func = getattr(self.stun_wrapper, func_name)
+            elif object_name == 'fwglobals.g.jobs':
+                func = getattr(self.jobs, func_name)
             else:
                 return None
         except Exception as e:

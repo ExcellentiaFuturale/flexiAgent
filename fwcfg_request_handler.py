@@ -70,21 +70,14 @@ class FwCfgRequestHandler(FwObject):
     def __enter__(self):
         return self
 
-    def set_logger(self, logger=None):
-        if self.log != logger:
-            new_logger = logger if logger else self.log
-            self.cfg_db.set_logger(new_logger)
-            self.log = new_logger
-            new_logger.debug("logging switched back from %s ..." % str(logger))
-
     def set_request_logger(self, request):
-        old_logger = self.log
         new_logger = fwglobals.g.loggers.get(request['message'], self.log)
-        if old_logger != new_logger:
-            self.cfg_db.set_logger(new_logger)
-            self.log = new_logger
-            old_logger.debug("logging switched to %s ..." % str(new_logger))
-        return old_logger
+        self.cfg_db.push_logger(new_logger)
+        self.push_logger(new_logger)
+
+    def unset_request_logger(self):
+        self.cfg_db.pop_logger()
+        self.pop_logger()
 
     def call(self, request, dont_revert_on_failure=False):
         if request['message'] == 'aggregated':
@@ -102,6 +95,33 @@ class FwCfgRequestHandler(FwObject):
             if self.revert_failure_callback:
                 self.revert_failure_callback(err_str)
 
+    def _get_func(self, cmd):
+        func_name = cmd['func']
+        func_path = cmd.get('module', cmd.get('object', ''))
+        full_name = func_path + '.' + func_name
+        func = self.cache_func_by_name.get(full_name)
+        if func:
+            return func
+
+        module_name = cmd.get('module')
+        if module_name:
+            func  = getattr(__import__(module_name), func_name)
+            self.cache_func_by_name[full_name] = func
+            return func
+
+        # I am a bit lazy to implement proper parsing of the 'object', so just
+        # go with explicit strings :) Next time someone get strange exception
+        # due to missing string in the switch below - let him to implement
+        # the proper parser :)
+        #
+        object_name = cmd.get('object')
+        if object_name:
+            func = fwglobals.g.get_object_func(object_name, func_name)
+            if not func:
+                return None
+            self.cache_func_by_name[full_name] = func
+            return func
+
     def _call_simple(self, request, execute=True, filter=None):
         """Execute single request.
 
@@ -109,7 +129,7 @@ class FwCfgRequestHandler(FwObject):
 
         :returns: dictionary with status code and optional error message.
         """
-        prev_logger = self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
+        self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
         try:
             # Translate request to list of commands to be executed
             cmd_list = self._translate(request)
@@ -132,15 +152,14 @@ class FwCfgRequestHandler(FwObject):
                 self.cfg_db.update(request, cmd_list, execute)
             except Exception as e:
                 self._revert(cmd_list)
-                self.set_logger(prev_logger)
                 raise e
         except Exception as e:
             err_str = "_call_simple: %s" % str(traceback.format_exc())
             self.log.error(err_str)
-            self.set_logger(prev_logger)
             raise e
+        finally:
+            self.unset_request_logger()
 
-        self.set_logger(prev_logger)
         return {'ok':1}
 
     def _call_aggregated(self, requests, dont_revert_on_failure=False):
@@ -316,33 +335,6 @@ class FwCfgRequestHandler(FwObject):
 
         :returns: Dictionary with error string and status code.
         """
-        def _get_func(cmd):
-            func_name = cmd['func']
-            func_path = cmd.get('module', cmd.get('object', ''))
-            full_name = func_path + '.' + func_name
-            func = self.cache_func_by_name.get(full_name)
-            if func:
-                return func
-
-            module_name = cmd.get('module')
-            if module_name:
-                func  = getattr(__import__(module_name), func_name)
-                self.cache_func_by_name[full_name] = func
-                return func
-
-            # I am a bit lazy to implement proper parsing of the 'object', so just
-            # go with explicit strings :) Next time someone get strange exception
-            # due to missing string in the switch below - let him to implement
-            # the proper parser :)
-            #
-            object_name = cmd.get('object')
-            if object_name:
-                func = fwglobals.g.get_object_func(object_name, func_name)
-                if not func:
-                    return None
-                self.cache_func_by_name[full_name] = func
-                return func
-
         def _parse_result(res):
             ok, err_str = True, None
             if res is None:
@@ -365,7 +357,7 @@ class FwCfgRequestHandler(FwObject):
             return err_str
 
         try:
-            func = _get_func(cmd)
+            func = self._get_func(cmd)
             args = cmd.get('params', {})
             if result:
                 args = copy.deepcopy(args) if args else {}
@@ -511,12 +503,14 @@ class FwCfgRequestHandler(FwObject):
 
             # Find the new value to be added to params
             if 'val_by_func' in s:
-                module , func_name = fwutils , s['val_by_func']
-                if '.' in func_name:
-                    module_name, func_name = func_name.split('.', 1)
-                    module = __import__(module_name)
-
-                func = getattr(module, func_name)
+                if isinstance(s['val_by_func'], dict):
+                    func = self._get_func(s['val_by_func'])
+                else:
+                    module , func_name = fwutils , s['val_by_func']
+                    if '.' in func_name:
+                        module_name, func_name = func_name.split('.', 1)
+                        module = __import__(module_name)
+                    func = getattr(module, func_name)
                 old  = s['arg'] if 'arg' in s else cache[s['arg_by_key']]
                 func_uses_cmd_cache = s['func_uses_cmd_cache']  if 'func_uses_cmd_cache' in s else False
                 if func_uses_cmd_cache:

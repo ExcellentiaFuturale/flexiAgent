@@ -20,6 +20,16 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import signal
+def fwagent_signal_handler(signum, frame):
+    """Handle SIGINT (CTRL+C) to suppress backtrace print onto screen,
+	   when invoked by user from command line and not as a daemon.
+       Do it ASAP, so CTRL+C in the middle of importing the third-parties
+       will not cause the backtrace to print.
+	"""
+    exit(1)
+signal.signal(signal.SIGINT, fwagent_signal_handler)
+
 import json
 import os
 import glob
@@ -28,7 +38,6 @@ import socket
 import sys
 import time
 import random
-import signal
 import psutil
 import Pyro4
 import re
@@ -50,7 +59,6 @@ import fwmultilink
 import fw_os_utils
 import fwpppoe
 import fwrouter_cfg
-import fwstats
 import fwthread
 import fwutils
 import fwwebsocket
@@ -64,19 +72,6 @@ from fwobject import FwObject
 system_checker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tools/system_checker/")
 sys.path.append(system_checker_path)
 import fwsystem_checker_common
-
-# Global signal handler for clean exit
-def global_signal_handler(signum, frame):
-    """Global signal handler for CTRL+C
-
-    :param signum:         Signal type
-    :param frame:          Stack frame.
-
-    :returns: None.
-    """
-    exit(1)
-
-signal.signal(signal.SIGINT, global_signal_handler)
 
 class FwAgent(FwObject):
     """This class implements abstraction of mediator between manager called
@@ -98,7 +93,6 @@ class FwAgent(FwObject):
 
         self.token                = None
         self.versions             = fwutils.get_device_versions(fwglobals.g.VERSIONS_FILE)
-        self.thread_statistics    = None
         self.pending_msg_replies  = []
         self.reconnecting         = False
 
@@ -110,6 +104,7 @@ class FwAgent(FwObject):
         if handle_signals:
             signal.signal(signal.SIGTERM, self._signal_handler)
             signal.signal(signal.SIGINT, self._signal_handler)
+
 
     def _signal_handler(self, signum, frame):
         """Signal handler for CTRL+C
@@ -145,9 +140,11 @@ class FwAgent(FwObject):
             self.log.excep("Failed to create connection failure file: %s" % str(e))
 
     def _clean_connection_failure(self):
-        if os.path.exists(fwglobals.g.CONN_FAILURE_FILE):
-            os.remove(fwglobals.g.CONN_FAILURE_FILE)
-            self.log.debug("_clean_connection_failure")
+        # We use 'subprocess.check_call()' to get an exception if writing into file fails.
+        # The file update is vital for the upgrade process by fwupgrade.sh.
+        #
+        subprocess.check_call(f'echo "success" > {fwglobals.g.CONN_FAILURE_FILE}', shell=True)
+        self.log.debug("_clean_connection_failure")
 
     def _setup_repository(self, repo):
         # Extract repo info. e.g. 'https://deb.flexiwan.com|flexiWAN|main'
@@ -431,25 +428,17 @@ class FwAgent(FwObject):
     def _on_close(self):
         """Websocket connection close handler
 
-        :param ws:  Websocket handler.
-
         :returns: None.
         """
         self.log.info("connection to flexiManage was closed")
-        self.connected = False
-        if self.thread_statistics:
-            self.thread_statistics.stop()
 
     def _on_open(self):
         """Websocket connection open handler
-
-        :param ws:  Websocket handler.
 
         :returns: None.
         """
         self.log.info("connected to flexiManage")
 
-        self.connected    = True
         self.reconnecting = False
         self._clean_connection_failure()
 
@@ -462,11 +451,6 @@ class FwAgent(FwObject):
                 self.log.debug("_on_open: sending reply: " + json.dumps(reply))
                 self.ws.send(json.dumps(reply))
             del self.pending_msg_replies[:]
-
-        self.thread_statistics = fwthread.FwThread(
-                                    target=fwstats.statistics_thread_func,
-                                    name='Statistics', log=self.log, args=(self,))
-        self.thread_statistics.start()
 
         if not fw_os_utils.vpp_does_run():
             self.log.info("connect: router is not running, start it in flexiManage")
@@ -925,8 +909,7 @@ class FwagentDaemon(FwObject):
         # caused the `with` statement execution to fail. If the `with`
         # statement finishes without an exception being raised, these
         # arguments will be `None`.
-        fwglobals.g.destroy_agent(finalize=False)
-        self.agent = None
+        self.agent = fwglobals.g.destroy_agent()
 
     def _check_system(self):
         """Check system requirements.
@@ -961,7 +944,7 @@ class FwagentDaemon(FwObject):
             if self._check_system() == False:
                 self.log.excep("system checker failed")
 
-        if self.active_main_loop == False and not fwglobals.g.cfg.debug['daemon']['standalone']:
+        if not fwglobals.g.cfg.debug['daemon']['standalone']:
             self.start_main_loop()
 
         # Keep agent instance on the air until SIGTERM/SIGKILL is received
@@ -1354,7 +1337,7 @@ def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None,
             cli.run_loop()
     if clean_request_db:
         fwglobals.g.router_cfg.clean()
-        fwutils.reset_device_config_signature("empty_cfg", log=False)
+        fwutils.reset_device_config_signature("empty_cfg")
         with fwrouter_cfg.FwRouterCfg(fwglobals.g.ROUTER_PENDING_CFG_FILE) as router_pending_cfg:
             router_pending_cfg.clean()
 
@@ -1395,6 +1378,12 @@ def handle_cli_command(args):
         nonlocal cli_func_name
 
         cli_func_name += f'_{step}' # -> _interfaces
+        # start building cli params immediately whenever the step argument
+        # IS already a function name, for example, with this command:
+        # fwagent configure jobs update ...
+        if not step in args.__dict__:
+            _build_cli_params()
+            return
         next_step = args.__dict__[step] # -> create
         if not next_step in args.__dict__:
             cli_func_name += f'_{next_step}' # -> _interfaces_create

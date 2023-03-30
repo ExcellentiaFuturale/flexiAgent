@@ -142,13 +142,13 @@ def start_router(params=None):
     cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename, 'enable': 1 }
     cmd_list.append(cmd)
 
-    # Enable HQoS worker to startup conf if QoS Policy if enabled
+    # Setup HQoS worker to startup conf and update QoS context with system settings
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['name']    = "python"
-    cmd['cmd']['descr']   = "Enable hqos to %s" % vpp_filename
+    cmd['cmd']['descr']   = "Setup hqos"
     cmd['cmd']['module']  = 'fwutils'
-    cmd['cmd']['func']    = 'vpp_startup_conf_hqos'
+    cmd['cmd']['func']    = 'vpp_setup_hqos'
     cmd['cmd']['params']  = {
         'vpp_config_filename' : vpp_filename,
         'is_add'              : True,
@@ -156,9 +156,9 @@ def start_router(params=None):
     }
     cmd['revert'] = {}
     cmd['revert']['name']   = "python"
-    cmd['revert']['descr']  = "Disable hqos from %s" % vpp_filename
+    cmd['revert']['descr']  = "Remove hqos setup"
     cmd['revert']['module'] = 'fwutils'
-    cmd['revert']['func']   = 'vpp_startup_conf_hqos'
+    cmd['revert']['func']   = 'vpp_setup_hqos'
     cmd['revert']['params'] = {
         'vpp_config_filename' : vpp_filename,
         'is_add'              : False,

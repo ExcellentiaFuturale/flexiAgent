@@ -168,7 +168,7 @@ class FwFrr(FwObject):
         self.db['ospf'] = ospf    # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
         self.log.debug(f"ospf_network_update({dev_id}): '{old_address}' -> '{new_address}'")
 
-    def translate_bgp_neighbor_to_vtysh_commands(self, neighbor):
+    def translate_bgp_neighbor_to_frr_commands(self, neighbor):
         ip = neighbor.get('ip')
         remote_asn = neighbor.get('remoteAsn')
         password = neighbor.get('password')
@@ -206,3 +206,138 @@ class FwFrr(FwObject):
         ret, err_str = fwutils.frr_vtysh_run(["router bgp", 'address-family ipv4 unicast', f"network {address}"])
         return ret, err_str
 
+    def translate_route_map_to_frr_commands(self, name, description, action, seq, match_acl_name=None, next_hop=None):
+        frr_action = 'permit' if action == 'allow' else 'deny'
+        commands = [
+            f'route-map {name} {frr_action} {seq}',
+            f'  description {description}',
+        ]
+
+        if match_acl_name:
+            commands.append(f'  match ip address {match_acl_name}')
+
+        if next_hop:
+            commands.append(f'  set ip next-hop {next_hop}')
+
+        return commands
+
+    def translate_routing_filter_to_frr_commands(self, name, description, rules):
+        '''Convert flexiManage routing filter params to FRR add and remove commands.
+
+        :param name:         name of the routing filter
+        :param description:  description of the routing filter
+        :param rules:        list of rules
+
+        Example of "rules":
+        {
+            "route":"0.0.0.0/0",
+            "action":"allow",
+            "nextHop":"",
+            "priority":0
+        },
+        {
+            "route":"8.8.8.8/24",
+            "action":"allow",
+            "nextHop":"",
+            "priority":1
+        },
+        {
+            "route":"5.5.5.5/32",
+            "action":"deny",
+            "nextHop":"",
+            "priority":2
+        },
+        {
+            "route":"5.5.5.5/24",
+            "action":"allow",
+            "nextHop":"",
+            "priority":3
+        }
+
+        :returns: tuple with two lists - add commands and remove commands.
+
+        The logic to convert rules to route-maps and access-lists is as follows:
+
+        First, we sort the "rules" by "priority" field. As written above, multiple route-map with the same name
+        can be configured. Route that is "matched" early in the chain
+        will not continue to the next steps, but will be permitted/denied according to the policy.
+
+        Then, we loop over the rules, one by one and creates groups of routes that have the same set of actions.
+        Route has "action" (allow, deny), and "nextHop" (ipv4 address or empty).
+        When looping on the routes, we group all routes that their "action" and "nextHop" are the same.
+
+        Note, the order set by the user is important.
+        Therefore, a route will not always be pushed to the same group even though it has the same set of actions.
+        For example in the rules above, the 5.5.5.5/24 and 8.8.8.8/24 have the same set of actions.
+        But we can't group them together since, if we will put the 8.8.8.8/24 before 8.8.8.8/32,
+        the 8.8.8.8/32 will bot be denied since it will be matched fy the first rule.
+
+        Then, we loop over the groups and we create access-lists and route-maps for each group.
+
+        We do not create route-map for a group that has same set of actions as the default route.
+        '''
+        add_commands    = []
+        remove_commands = []
+
+        default_rule = None
+
+        rules = sorted(rules, key=lambda x: x['priority'])
+
+        groups = {}
+        tmp_group_key = None
+        tmp_group_routes = []
+        for rule in rules:
+            route, action, next_hop = rule.get('route'), rule.get('action'), rule.get('nextHop')
+
+            if route == '0.0.0.0/0': # don't create group for default route, we always add it at the end.
+                default_rule = (route, action, next_hop)
+                continue
+
+            route_group_key = f'{action}_{next_hop}' # "action" and "next_hop" are the key to check if routes should be groups.
+
+            # first time, create a candidate group with no check
+            if not tmp_group_key:
+                tmp_group_key = route_group_key
+                tmp_group_routes.append(route)
+                continue
+
+            # if route can be grouped with another route
+            if route_group_key == tmp_group_key:
+                tmp_group_routes.append(route)
+                continue
+
+            # At this point, we need to pack the temporary group into the list of groups,
+            # and create a new temporary group
+            groups[f'{len(groups)}_{tmp_group_key}'] = tmp_group_routes
+
+            tmp_group_key = route_group_key
+            tmp_group_routes = [route]
+            continue
+
+        # after the loop, need to pack the last tmp group
+        if tmp_group_key and tmp_group_routes:
+            groups[f'{len(groups)}_{route_group_key}'] = tmp_group_routes
+
+        if not default_rule:
+            raise Exception(f'default action for routing filter {name} is missing')
+
+        _, default_rule_action, default_rule_next_hop = default_rule
+
+        route_map_seq = 5  # each route-map should have different order number.
+        for idx, group_key in enumerate(groups):
+            routes = groups[group_key]
+            _, action, next_hop = group_key.split('_')
+
+            access_list_name = f'rm_{name}_group_{idx}'
+            for route in routes:
+                add_commands.append(f'access-list {access_list_name} permit {route}')
+            remove_commands.append(f'no access-list {access_list_name}')
+
+            add_commands += self.translate_route_map_to_frr_commands(name, description, action, route_map_seq, access_list_name, next_hop)
+            route_map_seq += 5
+
+        # add default rule route map at the end
+        add_commands += self.translate_route_map_to_frr_commands(name, description, default_rule_action, route_map_seq, None, default_rule_next_hop)
+        remove_commands.append(f'no route-map {name}')
+
+        return add_commands, remove_commands

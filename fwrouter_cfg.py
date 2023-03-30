@@ -132,6 +132,9 @@ class FwRouterCfg(FwCfgDatabase):
     def get_routes(self):
         return self.get_requests('add-route')
 
+    def get_routing_filters(self):
+        return self.get_requests('add-routing-filter')
+
     def get_tunnels(self, routing=None):
         tunnels = self.get_requests('add-tunnel')
         if routing:

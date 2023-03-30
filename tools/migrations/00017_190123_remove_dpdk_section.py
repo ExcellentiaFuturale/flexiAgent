@@ -37,7 +37,6 @@ import fwutils
 VPP_CONFIG_FILE = '/etc/vpp/startup.conf'
 
 def migrate(prev_version=None, new_version=None, upgrade=True):
-    print("Migrating : processing 00017_190123_remove_dpdk_section on downgrade from 6.X")
     try:
         prev_version = prev_version.split('-')[0].split('.')
         new_version  = new_version.split('-')[0].split('.')
@@ -45,8 +44,8 @@ def migrate(prev_version=None, new_version=None, upgrade=True):
         prev_major_version = int(prev_version[0])
 
         if upgrade == 'downgrade' and prev_major_version == 6 and new_major_version < 6:
+            print("Migrating : processing 00017_190123_remove_dpdk_section on downgrade from 6.X")
             fwutils.vpp_startup_conf_remove_dpdk_config(VPP_CONFIG_FILE)
-            print("* Migrating : removed dpdk config")
     except Exception as e:
         print("Migration error: %s : %s" % (__file__, str(e)))
 

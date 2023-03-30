@@ -29,7 +29,7 @@ import subprocess
 
 from fwobject import FwObject
 from pyroute2 import IPRoute
-from pyroute2.netlink import exceptions as netlink_exceptions
+from pyroute2.netlink.exceptions import NetlinkError
 
 routes_protocol_map = {
     -1: '',
@@ -200,7 +200,7 @@ class FwLinuxRoutes(dict):
                     # so we pass only proto instead and filter results by other params like prefix, metric, etc.
                     # routes = ipr.get_routes(dst=prefix, family=socket.AF_INET, proto=proto_id) - returns wrong data
                     routes = ipr.get_routes(family=socket.AF_INET, proto=proto_id)
-            except netlink_exceptions.NetlinkError:
+            except NetlinkError:
                 routes = []     # If no matching route exists in kernel, NetlinkError is raised
 
             for route in routes:
