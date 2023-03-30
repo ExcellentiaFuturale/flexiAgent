@@ -25,6 +25,42 @@ import fw_os_utils
 import fwutils
 from fwagent import daemon_rpc
 from fwcfg_request_handler import FwCfgMultiOpsWithRevert
+from fwobject import FwObject
+from sqlitedict import SqliteDict
+
+class FwCliCache(FwObject):
+    def __init__(self, db_file):
+        FwObject.__init__(self)
+        self.db_filename = db_file
+        self.devices = SqliteDict(db_file, 'devices', autocommit=True)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.finalize()
+
+    def finalize(self):
+        self.devices.close()
+
+    def add(self, vpp_if_name, id):
+        devices = self.devices
+        devices[vpp_if_name] = id
+        self.devices = devices
+
+    def remove(self, vpp_if_name):
+        devices = self.devices
+        del devices[vpp_if_name]
+        self.devices = devices
+
+    def exist(self, vpp_if_name):
+        return vpp_if_name in self.devices
+
+    def get(self, vpp_if_name):
+        return self.devices[vpp_if_name]
+
+    def clear(self):
+        self.devices = {}
 
 def argparse(configure_subparsers):
     configure_router_parser = configure_subparsers.add_parser('router', help='Configure router')
@@ -87,7 +123,7 @@ def api_interface_create(type, addr, host_if_name, id, no_vppsb, ospf=True, bgp=
             )
             ret['tun_vpp_if_name'] = tun_vpp_if_name
 
-            fwglobals.g.cli_interface_cache[tun_vpp_if_name] = id
+            fwglobals.g.cli_interface_cache.add(tun_vpp_if_name, id)
 
             # apply features
             handler.exec(
@@ -148,7 +184,7 @@ def api_interface_delete(vpp_if_name, type, addr, ospf=True, bgp=True, ignore_er
         fwglobals.g.router_api.apply_features_on_interface(False, type, vpp_if_name=vpp_if_name)
 
         fwutils.delete_tun_tap_from_vpp(vpp_if_name, ignore_errors)
-        del fwglobals.g.cli_interface_cache[vpp_if_name]
+        del fwglobals.g.cli_interface_cache.remove[vpp_if_name]
     except Exception as e:
         fwglobals.log.error(f'api_interface_delete({vpp_if_name}, {type}, {addr}) failed. {str(e)}')
         raise e

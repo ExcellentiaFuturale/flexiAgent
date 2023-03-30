@@ -1309,6 +1309,12 @@ class FWROUTER_API(FwCfgRequestHandler):
         # Reset FlexiWAN QoS contexts on VPP start
         fwglobals.g.qos.reset()
 
+        # Clean Firewall ACL cache
+        fwglobals.g.firewall_acl_cache.clear()
+
+        # Clean CLI cache
+        fwglobals.g.cli_interface_cache.clear()
+
     def _sync_after_start(self):
         """Resets signature once interface got IP during router starting.
         :returns: None.
@@ -1413,8 +1419,8 @@ class FWROUTER_API(FwCfgRequestHandler):
         if not sw_if_index:
             sw_if_index = fwutils.vpp_if_name_to_sw_if_index(vpp_if_name)
 
-        if vpp_if_name in fwglobals.g.cli_interface_cache:
-            dev_id = fwglobals.g.cli_interface_cache[vpp_if_name]
+        if fwglobals.g.cli_interface_cache.exist(vpp_if_name):
+            dev_id = fwglobals.g.cli_interface_cache.get(vpp_if_name)
         else:
             dev_id = fwutils.vpp_if_name_to_dev_id(vpp_if_name)
 

@@ -140,9 +140,6 @@ def add_firewall_policy(params):
         global_ingress_ids = []
         global_egress_ids = []
 
-        # Clean ACL cache
-        fwglobals.g.firewall_acl_cache.clear()
-
         interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
         for intf in interfaces:
             lan_dev_ids.append(intf['dev_id'])

@@ -20,30 +20,69 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import fwglobals
-import fwutils
 from fwobject import FwObject
+
+from sqlitedict import SqliteDict
+
+class FwFirewallAcls():
+    def __init__(self):
+        self.ingress = None
+        self.egress = None
+
+    def add(self, direction, value):
+        if direction == "ingress":
+            self.ingress = value
+        if direction == "egress":
+            self.egress = value
+
+    def remove(self, direction):
+        if direction == "ingress":
+            self.ingress = None
+        if direction == "egress":
+            self.egress = None
+
+    def get(self, direction):
+        if direction == "ingress":
+            return self.ingress
+        if direction == "egress":
+            return self.egress
 
 class FwFirewallAclCache(FwObject):
     """Firewall class representation.
     """
-    def __init__(self):
-        self.devices = {}
+    def __init__(self, db_file):
+        FwObject.__init__(self)
+        self.db_filename = db_file
+        self.devices = SqliteDict(db_file, 'devices',autocommit=True)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.finalize()
+
+    def finalize(self):
+        self.devices.close()
 
     def add(self, dev_id, direction, acl_ids):
-        if not dev_id in self.devices:
-            self.devices[dev_id] = {}
+        devices = self.devices
 
-        self.devices[dev_id][direction] = acl_ids
+        if not dev_id in devices:
+            devices[dev_id] = FwFirewallAcls()
+
+        devices[dev_id].add(direction, acl_ids)
+
+        self.devices = devices
 
     def remove(self, dev_id, direction, acl_ids):
-        if not dev_id in self.devices:
+        devices = self.devices
+
+        if not dev_id in devices:
            return
 
-        if not direction in self.devices[dev_id]:
-           return
+        devices[dev_id].remove(direction)
 
-        del self.devices[dev_id][direction]
+        self.devices = devices
 
     def get(self, dev_id, direction):
         if dev_id not in self.devices:
@@ -51,10 +90,8 @@ class FwFirewallAclCache(FwObject):
                 dev_id = 'global'
             else:
                 return []
-        if direction not in self.devices[dev_id]:
-            return []
 
-        return self.devices[dev_id][direction]
+        return self.devices[dev_id].get(direction)
 
     def clear(self):
-        self.devices.clear()
+        self.devices = {}
