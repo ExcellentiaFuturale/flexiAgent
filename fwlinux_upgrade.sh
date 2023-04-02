@@ -77,40 +77,29 @@ linux_upgrade() {
         return 1
     fi
 
-    # apt upgrade -y
-    # apt dist-upgrade -y
-    # apt install -y update-manager-core
-    # do-release-upgrade -f DistUpgradeViewNonInteractive
-    # sed -i -e 's/^# //g' -e 's/#.*//g' /etc/apt/sources.list.d/flexiwan.testing.source.list
-    # sed -i -e 's/^# //g' -e 's/#.*//g' /etc/apt/sources.list.d/openvpn-aptrepo.list
-    # rm -rf /etc/apt/sources.list.d/*.distUpgrade /etc/apt/sources.list.distUpgrade
+    apt upgrade -y
+    apt dist-upgrade -y
+    apt install -y update-manager-core
+    do-release-upgrade -f DistUpgradeViewNonInteractive
+    sed -i -e 's/^# //g' -e 's/#.*//g' /etc/apt/sources.list.d/flexiwan.testing.source.list
+    sed -i -e 's/^# //g' -e 's/#.*//g' /etc/apt/sources.list.d/openvpn-aptrepo.list
+    rm -rf /etc/apt/sources.list.d/*.distUpgrade /etc/apt/sources.list.distUpgrade
 }
 
 flexiedge_install() {
-    # install_cmd="apt-get -o Dpkg::Options::="--force-confold" -y install --allow-downgrades $1"
-    # out=$(${install_cmd} 2>&1); ret=${PIPESTATUS[0]}
-    # if [ ${ret} == 0 ]; then
-    #     return 0   # return on success
-    # fi
+    log "Installing new flexiAgent"
+    install_cmd="apt-get -o Dpkg::Options::="--force-confold" -y install --allow-downgrades $1"
+    out=$(${install_cmd} 2>&1); ret=${PIPESTATUS[0]}
+    if [ ${ret} == 0 ]; then
+        return 0   # return on success
+    fi
 }
 
 # Upgrade process
 log "Starting linux upgrade process..."
 
-user_id=${EUID:-$(id -u)}
-if [ $user_id -ne 0 ] ; then
-    log $user_id
-    handle_upgrade_failure 'check user id' 'running user id is not root'
-    exit 1
-fi
-
-expected_ubuntu_version="bionic"
-current_ubuntu_version="$(lsb_release -cs)"
-if [ "$current_ubuntu_version" != "$expected_ubuntu_version" ] ; then
-    log "current ubuntu version : ${current_ubuntu_version}"
-    handle_upgrade_failure 'check current version' 'invalid current version'
-    exit 1
-fi
+date_now=$(date "+%F %H:%M:%S")
+log "Starting Ubuntu upgrade at ${date_now}"
 
 # Update debian repositories
 res=$(apt-get update)
@@ -119,18 +108,6 @@ if [ ${PIPESTATUS[0]} != 0 ]; then
     handle_upgrade_failure 'update debian repositories' 'Failed to update debian repositores'
     exit 1
 fi
-
-# Full Ubuntu upgrade requires about 2GB, 2*1024*1024
-upgrade_size="$((2*1024*1024))"
-free_disk_space="$(df / --output=avail | tail -n 1)"
-if [ "$free_disk_space" -le "$upgrade_size" ] ; then
-    log "Available disk space: ${free_disk_space}"
-    handle_upgrade_failure 'check disk size' 'not enough disk available for upgrade'
-    exit 1
-fi
-
-date_now=$(date "+%F %H:%M:%S")
-log "Starting Ubuntu upgrade at ${date_now}"
 
 # Stop agent connection loop to the MGMT, to make sure the
 # agent does not prcoess messages during the upgrade process.
@@ -155,7 +132,6 @@ if [ ${PIPESTATUS[0]} != 0 ]; then
 fi
 
 flexiedge_install "${AGENT_SERVICE}"
-
 ret=${PIPESTATUS[0]}
 if [ ${ret} != 0 ]; then
     handle_upgrade_failure 'install new flexiEdge version' 'failed to install new version'
@@ -165,8 +141,7 @@ fi
 # Reopen the connection loop in case it is closed
 res=$(fwagent start)
 if [ ${PIPESTATUS[0]} != 0 ]; then
-    log $res
-    log "Failed to to reconnect to management"
+    handle_upgrade_failure 'starting agent connection loop' 'failed to connect'
     exit 1
 fi
 

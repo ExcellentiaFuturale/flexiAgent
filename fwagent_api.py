@@ -31,6 +31,7 @@ import fwutils
 import fwlte
 import fwwifi
 import fwroutes
+import psutil
 
 from fwobject import FwObject
 
@@ -220,6 +221,19 @@ class FWAGENT_API(FwObject):
 
         :returns: Message and status code.
         """
+
+        # Make a few checks before the upgrade
+        # 1. Check that current release is bionic
+        cmd = 'lsb_release -cs'
+        distro = subprocess.check_output(cmd, shell=True).decode().strip()
+        if distro != 'bionic':
+            return { 'message': f'Upgrade failed: Your current Ubuntu version is {distro}, "bionic" required', 'ok': 0 }
+
+        # 2. Check that disk space has at least 2GB
+        free_disk = psutil.disk_usage('/').free
+        if free_disk < 2*1024*1024*1024:
+            return { 'message': f'Available disk space is {free_disk}, 2GB required', 'ok': 0 }
+
         dir = os.path.dirname(os.path.realpath(__file__))
 
         # Copy the fwlinux_upgrade.sh file to the /tmp folder to
@@ -231,7 +245,7 @@ class FWAGENT_API(FwObject):
             return { 'message': 'Failed to copy linux upgrade file', 'ok': 0 }
 
         job_id = fwglobals.g.jobs.current_job_id
-        cmd = 'bash /tmp/fwupgrade.sh {} {} >> {} 2>&1 &' \
+        cmd = 'bash /tmp/fwlinux_upgrade.sh {} {} >> {} 2>&1 &' \
             .format(fwglobals.g.ROUTER_LOG_FILE, \
                     job_id, \
                     fwglobals.g.ROUTER_LOG_FILE)
