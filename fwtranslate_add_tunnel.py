@@ -1402,6 +1402,10 @@ def _add_ikev2(cmd_list, params, responder_ip_address, tunnel_intf_cache_key, au
     local_id_type = params['ikev2'].get('local-device-id-type', default_id_type)
     remote_id_type = params['ikev2'].get('remote-device-id-type', default_id_type)
 
+    if 'peer' in params:
+        local_id_type = 'rfc822'
+        remote_id_type = 'fqdn'
+
     ikev2_profile_name = fwglobals.g.ikev2.profile_name_get(params['tunnel-id'])
     _add_ikev2_common_profile(
                       cmd_list,
