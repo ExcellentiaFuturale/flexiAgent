@@ -1312,9 +1312,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         # Clean Firewall ACL cache
         fwglobals.g.firewall_acl_cache.clear()
 
-        # Clean CLI cache
-        fwglobals.g.cli_interface_cache.clear()
-
     def _sync_after_start(self):
         """Resets signature once interface got IP during router starting.
         :returns: None.
@@ -1408,7 +1405,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         self._update_cache_sw_if_index(sw_if_index, type, add=True, params=params)
         self.apply_features_on_interface(True, type, vpp_if_name=None, sw_if_index=sw_if_index)
 
-    def apply_features_on_interface(self, add, if_type, vpp_if_name=None, sw_if_index=None):
+    def apply_features_on_interface(self, add, if_type, vpp_if_name=None, sw_if_index=None, dev_id=None):
         if not vpp_if_name and not sw_if_index:
             err_msg = 'vpp_if_name and sw_if_index were not provided'
             self.log.error(f"apply_features_on_interface({add, if_type}): failed. {err_msg}")
@@ -1419,9 +1416,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         if not sw_if_index:
             sw_if_index = fwutils.vpp_if_name_to_sw_if_index(vpp_if_name)
 
-        if fwglobals.g.cli_interface_cache.exist(vpp_if_name):
-            dev_id = fwglobals.g.cli_interface_cache.get(vpp_if_name)
-        else:
+        if not dev_id:
             dev_id = fwutils.vpp_if_name_to_dev_id(vpp_if_name)
 
         with FwCfgMultiOpsWithRevert() as handler:
