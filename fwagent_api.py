@@ -147,6 +147,8 @@ class FWAGENT_API(FwObject):
             if params and params.get('jobs'):
                 info['jobs'] = fwglobals.g.jobs.dump(job_ids=params['jobs'])
             info['cpuInfo'] = fwsystem_checker_common.Checker().get_cpu_info()
+            distro = fwutils.get_linux_distro()
+            info['distro'] = f'{distro[0]}-{distro[1]}'
 
             return {'message': info, 'ok': 1}
         except:
@@ -224,8 +226,7 @@ class FWAGENT_API(FwObject):
 
         # Make a few checks before the upgrade
         # 1. Check that current release is bionic
-        cmd = 'lsb_release -cs'
-        distro = subprocess.check_output(cmd, shell=True).decode().strip()
+        distro = fwutils.get_linux_distro()[1]
         if distro != 'bionic':
             return { 'message': f'Upgrade failed: Your current Ubuntu version is {distro}, "bionic" required', 'ok': 0 }
 
