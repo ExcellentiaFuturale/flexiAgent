@@ -20,9 +20,9 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-from fwobject import FwObject
+import fwglobals
 
-from sqlitedict import SqliteDict
+from fwobject import FwObject
 
 class FwFirewallAcls():
     def __init__(self):
@@ -50,39 +50,28 @@ class FwFirewallAcls():
 class FwFirewallAclCache(FwObject):
     """Firewall class representation.
     """
-    def __init__(self, db_file):
+    def __init__(self):
         FwObject.__init__(self)
-        self.db_filename = db_file
-        self.devices = SqliteDict(db_file, 'devices',autocommit=True)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.finalize()
-
-    def finalize(self):
-        self.devices.close()
+        self.devices = fwglobals.g.db.get('firewall')
+        if not self.devices:
+            fwglobals.g.db['firewall'] = {}
+            self.devices = fwglobals.g.db['firewall']
 
     def add(self, dev_id, direction, acl_ids):
-        devices = self.devices
+        if not dev_id in self.devices:
+            self.devices[dev_id] = FwFirewallAcls()
 
-        if not dev_id in devices:
-            devices[dev_id] = FwFirewallAcls()
+        self.devices[dev_id].add(direction, acl_ids)
 
-        devices[dev_id].add(direction, acl_ids)
-
-        self.devices = devices
+        fwglobals.g.db['firewall'] = self.devices
 
     def remove(self, dev_id, direction, acl_ids):
-        devices = self.devices
-
-        if not dev_id in devices:
+        if not dev_id in self.devices:
            return
 
-        devices[dev_id].remove(direction)
+        self.devices[dev_id].remove(direction)
 
-        self.devices = devices
+        fwglobals.g.db['firewall'] = self.devices
 
     def get(self, dev_id, direction):
         if dev_id not in self.devices:
@@ -95,3 +84,4 @@ class FwFirewallAclCache(FwObject):
 
     def clear(self):
         self.devices = {}
+        fwglobals.g.db['firewall'] = self.devices
