@@ -174,6 +174,16 @@ class FWROUTER_API(FwCfgRequestHandler):
         elif self.vpp_coredump_in_progress:
             self.vpp_coredump_in_progress = fw_vpp_coredump_utils.vpp_coredump_process()
 
+        # Ensure wifi enabled
+        wifi_interfaces = fwglobals.g.router_cfg.get_interfaces(device_type='wifi')
+        if wifi_interfaces and not fw_os_utils.pid_of('hostapd'):
+            self.log.debug("wifi watchdog: hostapd detected as stopped. starting it")
+            is_running, err_str = fwwifi.start_hostapd()
+            if is_running:
+                self.log.debug("wifi watchdog: hostapd started")
+            elif err_str:
+                self.log.debug(f"wifi watchdog: failed to start hostapd. {err_str}")
+
     def tunnel_stats_thread_func(self, ticks):
         """Tunnel statistics thread function.
         Its function is to monitor tunnel state and RTT.
