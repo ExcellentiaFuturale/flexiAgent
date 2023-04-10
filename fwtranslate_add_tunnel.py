@@ -1603,7 +1603,8 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
     _add_loopback(cmd_list, peer_loopback_cache_key, loopback_params, params, id=id, vppsb_tun=True)
 
     substs = [ {'replace':'DEV1-STUB', 'key': 'cmds', 'val_by_func':'vpp_sw_if_index_to_name', 'arg_by_key':peer_loopback_cache_key},
-               {'replace':'DEV2-STUB', 'key': 'cmds', 'val_by_func':'vpp_sw_if_index_to_name', 'arg_by_key':tunnel_cache_key}]
+               {'replace':'DEV2-STUB', 'key': 'cmds', 'val_by_func':'vpp_sw_if_index_to_name', 'arg_by_key':tunnel_cache_key},
+               {'replace':'DEV2-GW', 'key': 'cmds', 'val_by_func':'get_tunnel_gateway', 'arg': [params['dst'], params['dev_id']]}]
 
     cmd = {}
     cmd['cmd'] = {}
@@ -1631,7 +1632,7 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
     cmd['cmd']['descr']   = "add l3xc connection"
     cmd['cmd']['params']  = {
                     'substs': substs,
-                    'cmds':['l3xc add DEV1-STUB via DEV2-STUB'],
+                    'cmds':['l3xc add DEV1-STUB via DEV2-GW DEV2-STUB'],
     }
     cmd['revert'] = {}
     cmd['revert']['func']    = "vpp_cli_execute"
@@ -1639,7 +1640,7 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
     cmd['revert']['descr']   = "remove l3xc connection"
     cmd['revert']['params']  = {
                     'substs': substs,
-                    'cmds':['l3xc del DEV1-STUB via DEV2-STUB'],
+                    'cmds':['l3xc del DEV1-STUB via DEV2-GW DEV2-STUB'],
     }
     cmd_list.append(cmd)
 
