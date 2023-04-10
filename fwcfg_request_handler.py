@@ -628,7 +628,7 @@ class FwCfgRequestHandler(FwObject):
                 # no need to execute it.
                 #
                 existing_params = self.cfg_db.get_request_params(__request)
-                if fwutils.compare_request_params(existing_params, __request.get('params')):
+                if fwutils.compare_request_params(existing_params, __request.get('params'), strict_presence=False):
                     return True   # Nothing to modify
 
                 api_defs = self.translators.get(req)
