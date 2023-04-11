@@ -38,6 +38,7 @@ CODE_ROOT = os.path.realpath(__file__).replace('\\', '/').split('/tests/')[0]
 TEST_ROOT = CODE_ROOT + '/tests/'
 sys.path.append(CODE_ROOT)
 sys.path.append(TEST_ROOT)
+import fw_os_utils
 import fwutils
 import fwglobals
 
