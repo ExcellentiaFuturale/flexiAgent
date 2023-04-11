@@ -25,7 +25,6 @@ import copy
 import enum
 
 import fwglobals
-import fwutils
 import fw_acl_command_helpers
 import fw_nat_command_helpers
 
@@ -136,19 +135,16 @@ def add_firewall_policy(params):
 
         cmd_list = []
         intf_attachments = {}
-        global_rule_exist = False
         lan_dev_ids = []
-
-        # Clean ACL cache
-        fwglobals.g.firewall_acl_cache.clear('ingress')
-        fwglobals.g.firewall_acl_cache.clear('egress')
+        global_ingress_ids = []
+        global_egress_ids = []
 
         interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
         for intf in interfaces:
             lan_dev_ids.append(intf['dev_id'])
 
         app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True,
-                                                                linux_interfaces=False)
+                                                               linux_interfaces=False)
         # for applications interfaces we are using
         # the prefix 'app_' and the identifier name as the key.
         for app_identifier in app_lans:
@@ -186,22 +182,20 @@ def add_firewall_policy(params):
                 continue
 
             if not dev_ids:
-                global_rule_exist = True
-                dev_ids = lan_dev_ids.copy()
-                cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', ingress_id))
-                cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', egress_id))
+                dev_ids_copy = lan_dev_ids.copy()
+                global_ingress_ids.append(ingress_id)
+                global_egress_ids.append(egress_id)
+            else:
+                dev_ids_copy = dev_ids.copy()
 
-            for dev_id in dev_ids:
+            for dev_id in dev_ids_copy:
                 if intf_attachments.get(dev_id) is None:
                     intf_attachments[dev_id] = {}
-                    intf_attachments[dev_id]['ingress'] = []
-                    intf_attachments[dev_id]['egress'] = []
-                intf_attachments[dev_id]['ingress'].append(ingress_id)
-                intf_attachments[dev_id]['egress'].append(egress_id)
-
-        if outbound_rules['rules'] and global_rule_exist:
-            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('ingress', DEFAULT_ALLOW_ID))
-            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('egress', DEFAULT_ALLOW_ID))
+                    intf_attachments[dev_id]['ingress'] = global_ingress_ids.copy()
+                    intf_attachments[dev_id]['egress'] = global_egress_ids.copy()
+                if dev_ids:
+                    intf_attachments[dev_id]['ingress'].append(ingress_id)
+                    intf_attachments[dev_id]['egress'].append(egress_id)
 
         for dev_id, value in intf_attachments.items():
             # Add last default ACL as allow ALL
@@ -210,6 +204,17 @@ def add_firewall_policy(params):
 
             cmd_list.append(fw_acl_command_helpers.add_interface_attachment(
                 value['ingress'], value['egress'], [dev_id]))
+
+            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule(dev_id, 'ingress', value['ingress']))
+            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule(dev_id, 'egress', value['egress']))
+
+        if global_ingress_ids:
+            global_ingress_ids.append(DEFAULT_ALLOW_ID)
+            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('global', 'ingress', global_ingress_ids))
+        if global_egress_ids:
+            global_egress_ids.append(DEFAULT_ALLOW_ID)
+            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('global', 'egress', global_egress_ids))
+
 
         return cmd_list
 
