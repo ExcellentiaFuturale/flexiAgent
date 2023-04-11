@@ -96,23 +96,23 @@ class EventMonitor:
                 event_counts[event_type].append(MARKED_AS_SUCCESS)
 
         # Update alerts if necessary
-        self.calculate_alerts(event_type, value, warning_threshold, critical_threshold, tunnel_id)
+        self.update_alerts(event_type, value, warning_threshold, critical_threshold, tunnel_id)
 
     def is_critical(self, event_type, tunnel_id=None):
         if not tunnel_id:
             count_array = event_counts.get(event_type, [])
         else:
-            count_array = event_counts.get(event_type[tunnel_id], [])
+            count_array = event_counts.get(event_type).get(tunnel_id)
         return count_array.count(MARKED_AS_CRITICAL) >= CRITICAL_SAMPLES_THRESHOLD
 
     def is_warning(self, event_type, tunnel_id=None):
         if not tunnel_id:
             count_array = event_counts.get(event_type, [])
         else:
-            count_array = event_counts.get(event_type[tunnel_id], [])
+            count_array = event_counts.get(event_type).get(tunnel_id)
         return count_array.count(MARKED_AS_WARNING) + count_array.count(MARKED_AS_CRITICAL) >= WARNING_SAMPLES_THRESHOLD
 
-    def calculate_alerts(self, event_type, value, warning_threshold, critical_threshold, tunnel_id=None):
+    def update_alerts(self, event_type, value, warning_threshold, critical_threshold, tunnel_id=None):
         event_samples = event_counts[event_type]
         if self.is_critical(event_type, tunnel_id):
             if not tunnel_id:
@@ -286,7 +286,7 @@ class FwStatistics(FwObject):
                 'wifi_stats': stats['wifi_stats'],
                 'health': self._get_system_health(),
                 'utc': time.time(),
-                'alerts': self.calculate_alerts(tunnel_stats)
+                'alerts': self.calculate_alerts(stats['tunnel_stats'])
             })
 
     def get_threshold(self, event_type, rule, health_stats):
@@ -333,7 +333,7 @@ class FwStatistics(FwObject):
             event_type = rule.get('event')
             event_critical_threshold, event_warning_threshold = self.get_threshold(event_type, rule, health_stats)
             if event_type.startswith('Link/Tunnel'):
-                tunnel_rules[event_type]=(event_critical_threshold, event_warning_threshold)
+                tunnel_rules[event_type]=(event_warning_threshold, event_critical_threshold)
                 continue
             current_value = self.get_current_value(event_type, health_stats)
             health_tracker.add_value(event_type, current_value, event_warning_threshold, event_critical_threshold)

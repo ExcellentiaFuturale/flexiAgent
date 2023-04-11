@@ -2016,7 +2016,7 @@ modify_tunnel_supported_params = {
         'tx' : None,
         'rx' : None
     },
-    'notificationsSettings': None
+    'notificationsSettings': {}
 }
 
 def get_request_key(params):
