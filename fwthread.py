@@ -51,6 +51,7 @@ class FwThread(threading.Thread):
         self.log            = log
         self.func           = target
         self.stop_called    = False
+        self.exiting        = False
         self.name           = my_name
 
     def _thread_func(self, args, kwargs):
@@ -72,9 +73,12 @@ class FwThread(threading.Thread):
         self.tid = fwutils.get_thread_tid()
         self.log.debug(f"tid={self.tid}: {self.name}: started")
 
+        self.exiting = False
         self._thread_func(self._args, self._kwargs)
+        self.exiting = True
 
         self.log.debug(f"tid={self.tid}: {self.name}: stopped")
+        self.ticks = 0
 
     def stop(self, block=True):
         """Enables other threads to break the _thread_func() main loop.
@@ -84,11 +88,12 @@ class FwThread(threading.Thread):
 
         :param block: if True, this function is blocked until thread function exits.
         """
+        if self.exiting:
+            return  # no need to print confusing 'stopping' for exited thread
         self.log.debug(f"tid={self.tid}: {self.name}: stopping (block={str(block)})")
         self.stop_called = True
         if block:
             self.join()
-        self.ticks = 0
 
     def log_error(self, log_str):
         self.log.error(f"tid={self.tid}: {self.name}: {log_str}")
