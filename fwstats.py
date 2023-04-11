@@ -30,7 +30,7 @@ import fwlte
 import fwthread
 import fwutils
 import fwwifi
-
+import hashlib
 from fwobject import FwObject
 from fwtunnel_stats import tunnel_stats_get
 
@@ -164,7 +164,8 @@ class FwStatistics(FwObject):
             'lte_stats':            {},
             'wifi_stats':           {},
             'application_stats':    {},
-            'alerts':               {}
+            'alerts':               {},
+            'alerts_hash':          ''
         }
 
     def __enter__(self):
@@ -196,6 +197,20 @@ class FwStatistics(FwObject):
             else:
                 renew_lte_wifi_stats = ticks % (timeout * 2) == 0 # Renew LTE and WiFi statistics every second update
                 self._update_stats(renew_lte_wifi_stats=renew_lte_wifi_stats)
+
+    def get_alerts_hash(self):
+        """
+        This function iterates the alerts dictionary and returns a hash of its contents.
+        The hash is calculated by concatenating the key-value pairs of the dictionary
+        and then running the resulting string through an MD5 hashing algorithm.
+
+        :return: A string containing the MD5 hash of the dictionary contents.
+        """
+        global alerts
+        res = ''
+        for key, value in alerts.items():
+            res += str(key) + str(value)
+        return hashlib.md5(res.encode()).hexdigest()
 
     def _update_stats(self, renew_lte_wifi_stats=True):
         """Update statistics dictionary using values retrieved from VPP interfaces.
@@ -286,7 +301,8 @@ class FwStatistics(FwObject):
                 'wifi_stats': stats['wifi_stats'],
                 'health': self._get_system_health(),
                 'utc': time.time(),
-                'alerts': self.calculate_alerts(stats['tunnel_stats'])
+                'alerts': self.calculate_alerts(stats['tunnel_stats']),
+                'alerts_hash': self.get_alerts_hash()
             })
 
     def get_threshold(self, event_type, rule, health_stats):
@@ -422,7 +438,8 @@ class FwStatistics(FwObject):
                 'period': 0,
                 'utc': time.time(),
                 'reconfig': reconfig,
-                'alerts':{}
+                'alerts':{},
+                'alerts_hash':''
             }
             if fwglobals.g.ikev2.is_private_key_created():
                 info['ikev2'] = ikev2_certificate_expiration
