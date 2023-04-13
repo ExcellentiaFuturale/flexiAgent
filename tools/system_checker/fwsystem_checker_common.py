@@ -99,6 +99,7 @@ class Checker:
         self.vpp_configuration      = self.vpp_startup_conf.get_root_element()
         self.vpp_config_modified    = False
         self.grub                   = fwgrub.FwGrub(self.log)
+        self.requires_reboot        = False
 
         supported_nics_filename = os.path.join(os.path.dirname(os.path.realpath(__file__)) , 'dpdk_supported_nics.json')
         with open(supported_nics_filename, 'r') as f:
@@ -612,6 +613,11 @@ class Checker:
             self.log.error(prompt + "failed to write '%s' into %s" % (new_hostname, hostname_filename))
             return False
 
+        # Update /etc/hosts
+        hosts_filename = '/etc/hosts'
+        if hostname and os.path.exists(hosts_filename):
+            os.system(f'sed -i -E "s/{hostname}/{new_hostname}/g" {hosts_filename}')
+
         # On Ubuntu 18.04 server we should ensure 'preserve_hostname: true'
         # in '/etc/cloud/cloud.cfg', so change in /etc/hostname will survive reboot.
         cloud_cfg_filename = '/etc/cloud/cloud.cfg'
@@ -621,7 +627,7 @@ class Checker:
                 self.log.error(prompt + 'failed to modify %s' % cloud_cfg_filename)
                 return False
 
-        self.log.debug(prompt + "please reboot upon configuration completion")
+        self.requires_reboot = True
         return True
 
 
