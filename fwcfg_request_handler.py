@@ -52,7 +52,7 @@ class FwCfgRequestHandler(FwObject):
     2. Implement sync and full sync logic
     """
 
-    def __init__(self, translators, cfg_db, pending_cfg_db=None, revert_failure_callback = None):
+    def __init__(self, translators, cfg_db, pending_cfg_db=None):
         """Constructor method.
         """
         FwObject.__init__(self)
@@ -60,7 +60,6 @@ class FwCfgRequestHandler(FwObject):
         self.translators = translators
         self.cfg_db = cfg_db
         self.pending_cfg_db = pending_cfg_db
-        self.revert_failure_callback = revert_failure_callback
         self.cache_func_by_name = {}
 
         self.cfg_db.set_translators(translators)
@@ -92,8 +91,6 @@ class FwCfgRequestHandler(FwObject):
         except Exception as e:
             err_str = "rollback: failed for '%s': %s" % (request['message'], str(e))
             self.log.excep(err_str)
-            if self.revert_failure_callback:
-                self.revert_failure_callback(err_str)
 
     def _get_func(self, cmd):
         func_name = cmd['func']
@@ -202,8 +199,6 @@ class FwCfgRequestHandler(FwObject):
                         # on failure to revert move router into failed state
                         err_str = "_call_aggregated: failed to revert request %s while running rollback on aggregated request" % op
                         self.log.excep("%s: %s" % (err_str, format(e_revert)))
-                        if self.revert_failure_callback:
-                            self.revert_failure_callback(str(e_revert))
                         pass
                 raise e
 
@@ -399,10 +394,6 @@ class FwCfgRequestHandler(FwObject):
                     err_str = "_revert: exception while '%s': %s(%s): %s" % \
                                 (t['cmd']['descr'], rev_cmd['func'], format(rev_cmd['params']), str(e))
                     self.log.excep(err_str)
-
-                    if self.revert_failure_callback:
-                        self.revert_failure_callback(err_str)
-
                     return   # Don't continue, system is in undefined state now!
 
 

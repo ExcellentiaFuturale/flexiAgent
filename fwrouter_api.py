@@ -138,7 +138,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         self.monitor_interfaces  = {}  # Interfaces that are monitored for IP changes
 
         pending_cfg_db = fwrouter_cfg.FwRouterCfg(pending_cfg_file)
-        FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, pending_cfg_db, self._on_revert_failed)
+        FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, pending_cfg_db)
 
         fwutils.reset_router_api_db() # Initialize cache that persists device reboot / daemon restart
 
@@ -726,10 +726,6 @@ class FWROUTER_API(FwCfgRequestHandler):
                 return True
 
         return False
-
-
-    def _on_revert_failed(self, reason):
-        self.state_change(FwRouterState.FAILED, "revert failed: %s" % reason)
 
     def _analyze_request(self, request):
         """Analyzes received request either simple or aggregated in order to
