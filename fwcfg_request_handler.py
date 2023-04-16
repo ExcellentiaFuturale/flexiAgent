@@ -619,28 +619,26 @@ class FwCfgRequestHandler(FwObject):
                 return True
             elif re.match('modify-', req):
                 # For modification request check if it goes to modify indeed.
-                # Firstly ensure that it brings changed set of parameters.
-                # If it does not, there is nothing to modify, so return True.
-                # Than check if it goes to modify only parameters that has
-                # no impact on configuration item, like 'publicPort' in
-                # 'modify-interface', just save the modified item into
-                # configuration database and strip this modify-X out. There is
-                # no need to execute it.
+                # The check ignores the 'ignored_params' that might be defined
+                # in the request translator. This is needed to handle parameters
+                # that have no impact on VPP configuration and that are kept in
+                # the configuration database to assist pure agent logic.
+                # For example, if 'modify-interface' brings new 'publicPort'
+                # only, there is nothing to configure, agent just saves it into
+                # database.
                 #
-                existing_params = self.cfg_db.get_request_params(__request)
-                if fwutils.compare_request_params(existing_params, __request.get('params'), strict_presence=False):
-                    return True   # Nothing to modify
-
+                ignored_params = {}
                 api_defs = self.translators.get(req)
                 if api_defs:
                     module   = api_defs.get('module')
                     var_name = api_defs.get('ignored_params')
                     if var_name:
                         ignored_params = getattr(module, var_name)
-                        if ignored_params and self.compare_modify_params(__request, ignored_params):
-                            self.log.debug(f"'{req}' has not impacting modifications only -> save it without execution")
-                            self.cfg_db.update(__request)
-                            return True
+
+                if self.compare_modify_params(__request, ignored_params):
+                    self.log.debug(f"'{req}' has not impacting modifications only -> save it without execution")
+                    self.cfg_db.update(__request)
+                    return True
             return False
 
         def _exist_in_list(__request, requests):
@@ -814,13 +812,13 @@ class FwCfgRequestHandler(FwObject):
         else:
             return "%s(%s)" % (cmd['func'], format(cmd.get('params','')))
 
-    def compare_modify_params(self, request, ignore_params):
+    def compare_modify_params(self, request, ignore_params={}):
         """Helper function that detects if 'modify-X' request received from
         flexiManage brings same parameters that already stored in configuration
         database, except the ones specified by the 'ignore_params' argument.
         In other words, it checks if the modify-X assumes real changes.
         We use this function in two cases:
-            1. To spot if modify-X contains changes of modifable parameters only.
+            1. To spot if modify-X contains changes of modifiable parameters only.
         In this case it will be translated into list of commands and will be
         executed. Otherwise it will be replaced with remove-X & add-X pair
         to recreate the configuration item from scratch.
@@ -851,7 +849,12 @@ class FwCfgRequestHandler(FwObject):
                 else:
                     if key in _ignore_params:
                         continue
-                    if value != _existing_params.get(key):
+                    if not key in _existing_params:
+                        if not value:
+                            continue  # ignore new falsy parameter even if it does not exist (falsy means None, False, "", etc.)
+                        self.log.debug(f"compare_modify_params: _modify_params: key '{key}' not found in '_existing_params.get(key)'")
+                        return False
+                    if value != _existing_params[key]:
                         self.log.debug(f"compare_modify_params: _modify_params['{key}']={value} != {_existing_params.get(key)}")
                         return False
             return True
