@@ -34,7 +34,7 @@ class FwRouterThreading:
         self.request_cond_var = threading.Condition()
         self.thread_names     = []
         self.handling_request = False
-        self.request_processing_thread_ident = [None]
+        self.request_processing_thread_ident = []
 
     def is_no_active_threads(self):
         return len(self.thread_names) == 0
@@ -151,13 +151,15 @@ class FwRouterThread(FwThread):
         The monitoring thread will check the flag as soon as it takes the lock.
         So, it will exit at most on next iteration.
         """
-        if threading.current_thread().ident == fwglobals.g.router_threads.request_processing_thread_ident[-1]:
+        if threading.current_thread().ident in fwglobals.g.router_threads.request_processing_thread_ident:
             self.join_called = True
         else:
             FwThread.join(self)
 
 def set_request_processing_thread():
-    fwglobals.g.router_threads.request_processing_thread_ident.append(threading.current_thread().ident)
+    ident = threading.current_thread().ident
+    fwglobals.g.router_threads.request_processing_thread_ident.append(ident)
 
 def unset_request_processing_thread():
-    fwglobals.g.router_threads.request_processing_thread_ident.pop()
+    ident = threading.current_thread().ident
+    fwglobals.g.router_threads.request_processing_thread_ident.remove(ident)
