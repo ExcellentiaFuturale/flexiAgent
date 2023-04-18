@@ -317,6 +317,8 @@ class FwDump(FwObject):
                 directory = f'<temp_folder>/applications/{app_identifier}'
                 for app_file in app_files:
                     file_name = app_file.split('/')[-1] # get the filename out of the file full path
+                    if not os.path.exists(app_file):
+                        continue
                     g_dumpers[file_name] = {
                         'shell_cmd': f'mkdir -p {directory} && cat {app_file} > {directory}/{file_name}'
                     }
