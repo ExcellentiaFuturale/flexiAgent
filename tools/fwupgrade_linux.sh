@@ -77,6 +77,11 @@ linux_upgrade() {
         return 1
     fi
 
+    # Mark wifi drivers packages as holded in apt,
+    # in order to avoid installing new ones on systems running kernel 5.4.0
+    apt-mark hold flexiwan-ath9k-dkms
+    apt-mark hold flexiwan-ath10k-dkms
+
     apt upgrade -y
     apt dist-upgrade -y
     apt install -y update-manager-core
