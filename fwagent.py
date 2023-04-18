@@ -284,7 +284,7 @@ class FwAgent(FwObject):
         serial = fwutils.get_machine_serial()
         url = fwglobals.g.cfg.MANAGEMENT_URL  + "/api/connect/register"
         cpu_info = fwsystem_checker_common.Checker().get_cpu_info()
-        distro = fwutils.get_linux_distro()
+        version, codename = fwutils.get_linux_distro()
 
         data = {'token': self.token.rstrip(),
                 'fwagent_version' : self.versions['components']['agent']['version'],
@@ -298,7 +298,7 @@ class FwAgent(FwObject):
                 'default_dev': dr_dev,
                 'interfaces': interfaces,
                 'cpuInfo': cpu_info,
-                'distro': f'{distro[0]}-{distro[1]}'
+                'distro': {'version': version, 'codename': codename},
         }
         self.log.debug("Registering to %s with: %s" % (url, json.dumps(data)))
         data.update({'interfaces': json.dumps(interfaces)})

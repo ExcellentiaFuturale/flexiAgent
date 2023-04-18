@@ -147,8 +147,8 @@ class FWAGENT_API(FwObject):
             if params and params.get('jobs'):
                 info['jobs'] = fwglobals.g.jobs.dump(job_ids=params['jobs'])
             info['cpuInfo'] = fwsystem_checker_common.Checker().get_cpu_info()
-            distro = fwutils.get_linux_distro()
-            info['distro'] = f'{distro[0]}-{distro[1]}'
+            version, codename = fwutils.get_linux_distro()
+            info['distro'] = {'version': version, 'codename': codename}
 
             return {'message': info, 'ok': 1}
         except:
@@ -226,9 +226,9 @@ class FWAGENT_API(FwObject):
 
         # Make a few checks before the upgrade
         # 1. Check that current release is bionic
-        distro = fwutils.get_linux_distro()[1]
-        if distro != 'bionic':
-            return { 'message': f'Upgrade failed: Your current Ubuntu version is {distro}, "bionic" required', 'ok': 0 }
+        _, codename = fwutils.get_linux_distro()
+        if codename != params.get('upgrade-from'):
+            return { 'message': f'Upgrade failed: Your current Ubuntu version is {codename}, "bionic" required', 'ok': 0 }
 
         # 2. Check that disk space has at least 2GB
         free_disk = psutil.disk_usage('/').free
@@ -237,19 +237,20 @@ class FWAGENT_API(FwObject):
 
         dir = os.path.dirname(os.path.realpath(__file__))
 
-        # Copy the fwlinux_upgrade.sh file to the /tmp folder to
-        # prevent overriding it with the fwlinux_upgrade.sh file
+        # Copy the fwupgrade_linux.sh file to the /tmp folder to
+        # prevent overriding it with the fwupgrade_linux.sh file
         # from the new version.
         try:
-            copyfile('{}/fwlinux_upgrade.sh'.format(dir), '/tmp/fwlinux_upgrade.sh')
+            copyfile('{}/tools/fwupgrade_linux.sh'.format(dir), '/tmp/fwupgrade_linux.sh')
         except Exception as e:
             return { 'message': 'Failed to copy linux upgrade file', 'ok': 0 }
 
         job_id = fwglobals.g.jobs.current_job_id
-        cmd = 'bash /tmp/fwlinux_upgrade.sh {} {} >> {} 2>&1 &' \
+        cmd = 'bash /tmp/fwupgrade_linux.sh {} {} >> {} 2>&1 &' \
             .format(fwglobals.g.ROUTER_LOG_FILE, \
                     job_id, \
                     fwglobals.g.ROUTER_LOG_FILE)
+        self.log.info(f"_upgrade_linux_sw: Running Linux upgrade from {codename}, command={cmd}")
         os.system(cmd)
         return { 'message': 'Started linux upgrade process', 'ok': 1 }
 
