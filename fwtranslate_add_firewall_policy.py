@@ -135,20 +135,13 @@ def add_firewall_policy(params):
 
         cmd_list = []
         intf_attachments = {}
-        lan_dev_ids = []
+        lan_dev_ids = set()
         global_ingress_ids = []
         global_egress_ids = []
 
         interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
         for intf in interfaces:
-            lan_dev_ids.append(intf['dev_id'])
-
-        app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True,
-                                                               linux_interfaces=False)
-        # for applications interfaces we are using
-        # the prefix 'app_' and the identifier name as the key.
-        for app_identifier in app_lans:
-            lan_dev_ids.append(f'app_{app_identifier}')
+            lan_dev_ids.add(intf['dev_id'])
 
         for rule_index, rule in enumerate(outbound_rules['rules']):
 
@@ -181,21 +174,29 @@ def add_firewall_policy(params):
                     'do not exist for rule index: %d' % rule_index)
                 continue
 
-            if not dev_ids:
-                dev_ids_copy = lan_dev_ids.copy()
-                global_ingress_ids.append(ingress_id)
-                global_egress_ids.append(egress_id)
+            if dev_ids:
+                is_global_rule = False
+                # Handle application LANs that are added after firewall.
+                # In case if we have specific rule and global rule afterwards
+                # we need lan_dev_ids to contain dev_id of application LAN.
+                for dev_id in dev_ids:
+                    lan_dev_ids.add(dev_id)
             else:
-                dev_ids_copy = dev_ids.copy()
+                is_global_rule = True
+                dev_ids = list(lan_dev_ids)
 
-            for dev_id in dev_ids_copy:
+            for dev_id in dev_ids:
                 if intf_attachments.get(dev_id) is None:
                     intf_attachments[dev_id] = {}
                     intf_attachments[dev_id]['ingress'] = global_ingress_ids.copy()
                     intf_attachments[dev_id]['egress'] = global_egress_ids.copy()
-                if dev_ids:
-                    intf_attachments[dev_id]['ingress'].append(ingress_id)
-                    intf_attachments[dev_id]['egress'].append(egress_id)
+
+                intf_attachments[dev_id]['ingress'].append(ingress_id)
+                intf_attachments[dev_id]['egress'].append(egress_id)
+
+            if is_global_rule:
+                global_ingress_ids.append(ingress_id)
+                global_egress_ids.append(egress_id)
 
         for dev_id, value in intf_attachments.items():
             # Add last default ACL as allow ALL
