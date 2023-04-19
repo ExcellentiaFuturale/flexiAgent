@@ -144,8 +144,14 @@ class FWAGENT_API(FwObject):
             # Load tunnel info, if requested by the management
             if params and params.get('tunnels'):
                 info['tunnels'] = self._prepare_tunnel_info(params['tunnels'])
+
+            # get the failed jobs requested by management plus all upgrade-device-sw jobs
+            all_job_ids = []
             if params and params.get('jobs'):
-                info['jobs'] = fwglobals.g.jobs.dump(job_ids=params['jobs'])
+                all_job_ids = all_job_ids + params['jobs']
+            all_job_ids = all_job_ids + fwglobals.g.jobs.get_job_ids_by_request(['upgrade-device-sw'])
+            info['jobs'] = fwglobals.g.jobs.dump(job_ids=all_job_ids)
+
             info['cpuInfo'] = fwsystem_checker_common.Checker().get_cpu_info()
             version, codename = fwutils.get_linux_distro()
             info['distro'] = {'version': version, 'codename': codename}
