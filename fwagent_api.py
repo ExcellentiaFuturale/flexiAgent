@@ -227,8 +227,9 @@ class FWAGENT_API(FwObject):
         # Make a few checks before the upgrade
         # 1. Check that current release is bionic
         _, codename = fwutils.get_linux_distro()
-        if codename != params.get('upgrade-from'):
-            return { 'message': f'Upgrade failed: Your current Ubuntu version is {codename}, "bionic" required', 'ok': 0 }
+        upgradeFrom = params.get('upgrade-from', 'unknown')
+        if codename != upgradeFrom:
+            return { 'message': f'Upgrade failed: Your current Ubuntu version is {codename}, {upgradeFrom} required', 'ok': 0 }
 
         # 2. Check that disk space has at least 2GB
         free_disk = psutil.disk_usage('/').free
