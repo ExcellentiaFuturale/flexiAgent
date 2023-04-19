@@ -77,11 +77,6 @@ linux_upgrade() {
         return 1
     fi
 
-    # Mark wifi drivers packages as holded in apt,
-    # in order to avoid installing new ones on systems running kernel 5.4.0
-    apt-mark hold flexiwan-ath9k-dkms
-    apt-mark hold flexiwan-ath10k-dkms
-
     apt upgrade -y
     apt dist-upgrade -y
     apt install -y update-manager-core
@@ -89,6 +84,11 @@ linux_upgrade() {
     sed -i -e 's/^# //g' -e 's/#.*//g' /etc/apt/sources.list.d/flexiwan.testing.source.list
     sed -i -e 's/^# //g' -e 's/#.*//g' /etc/apt/sources.list.d/openvpn-aptrepo.list
     rm -rf /etc/apt/sources.list.d/*.distUpgrade /etc/apt/sources.list.distUpgrade
+
+    # Mark wifi drivers packages as holded in apt,
+    # in order to avoid installing new ones on systems running kernel 5.4.0
+    apt-mark hold flexiwan-ath9k-dkms
+    apt-mark hold flexiwan-ath10k-dkms
 }
 
 flexiedge_install() {
