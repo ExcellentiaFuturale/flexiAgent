@@ -164,6 +164,18 @@ def get_machine_serial():
     except:
         return '0'
 
+def get_linux_distro():
+    """Get Linux Distribution
+
+    :returns: (Ubuntu Release, Ubuntu CodeName)
+    """
+    try:
+        cmd = 'lsb_release -rscs'
+        distro = subprocess.check_output(cmd, shell=True).decode().strip().split('\n')
+        return (str(distro[0]), str(distro[1]))
+    except:
+        return ('','')
+
 def get_vpp_tap_interface_mac_addr(dev_id):
     tap = dev_id_to_tap(dev_id)
     return get_interface_mac_addr(tap)
