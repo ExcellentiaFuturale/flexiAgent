@@ -52,7 +52,7 @@ class FwCfgRequestHandler(FwObject):
     2. Implement sync and full sync logic
     """
 
-    def __init__(self, translators, cfg_db, pending_cfg_db=None, revert_failure_callback = None):
+    def __init__(self, translators, cfg_db, pending_cfg_db=None):
         """Constructor method.
         """
         FwObject.__init__(self)
@@ -60,7 +60,6 @@ class FwCfgRequestHandler(FwObject):
         self.translators = translators
         self.cfg_db = cfg_db
         self.pending_cfg_db = pending_cfg_db
-        self.revert_failure_callback = revert_failure_callback
         self.cache_func_by_name = {}
 
         self.cfg_db.set_translators(translators)
@@ -92,8 +91,33 @@ class FwCfgRequestHandler(FwObject):
         except Exception as e:
             err_str = "rollback: failed for '%s': %s" % (request['message'], str(e))
             self.log.excep(err_str)
-            if self.revert_failure_callback:
-                self.revert_failure_callback(err_str)
+
+    def _get_func(self, cmd):
+        func_name = cmd['func']
+        func_path = cmd.get('module', cmd.get('object', ''))
+        full_name = func_path + '.' + func_name
+        func = self.cache_func_by_name.get(full_name)
+        if func:
+            return func
+
+        module_name = cmd.get('module')
+        if module_name:
+            func  = getattr(__import__(module_name), func_name)
+            self.cache_func_by_name[full_name] = func
+            return func
+
+        # I am a bit lazy to implement proper parsing of the 'object', so just
+        # go with explicit strings :) Next time someone get strange exception
+        # due to missing string in the switch below - let him to implement
+        # the proper parser :)
+        #
+        object_name = cmd.get('object')
+        if object_name:
+            func = fwglobals.g.get_object_func(object_name, func_name)
+            if not func:
+                return None
+            self.cache_func_by_name[full_name] = func
+            return func
 
     def _call_simple(self, request, execute=True, filter=None):
         """Execute single request.
@@ -175,8 +199,6 @@ class FwCfgRequestHandler(FwObject):
                         # on failure to revert move router into failed state
                         err_str = "_call_aggregated: failed to revert request %s while running rollback on aggregated request" % op
                         self.log.excep("%s: %s" % (err_str, format(e_revert)))
-                        if self.revert_failure_callback:
-                            self.revert_failure_callback(str(e_revert))
                         pass
                 raise e
 
@@ -308,33 +330,6 @@ class FwCfgRequestHandler(FwObject):
 
         :returns: Dictionary with error string and status code.
         """
-        def _get_func(cmd):
-            func_name = cmd['func']
-            func_path = cmd.get('module', cmd.get('object', ''))
-            full_name = func_path + '.' + func_name
-            func = self.cache_func_by_name.get(full_name)
-            if func:
-                return func
-
-            module_name = cmd.get('module')
-            if module_name:
-                func  = getattr(__import__(module_name), func_name)
-                self.cache_func_by_name[full_name] = func
-                return func
-
-            # I am a bit lazy to implement proper parsing of the 'object', so just
-            # go with explicit strings :) Next time someone get strange exception
-            # due to missing string in the switch below - let him to implement
-            # the proper parser :)
-            #
-            object_name = cmd.get('object')
-            if object_name:
-                func = fwglobals.g.get_object_func(object_name, func_name)
-                if not func:
-                    return None
-                self.cache_func_by_name[full_name] = func
-                return func
-
         def _parse_result(res):
             ok, err_str = True, None
             if res is None:
@@ -357,7 +352,7 @@ class FwCfgRequestHandler(FwObject):
             return err_str
 
         try:
-            func = _get_func(cmd)
+            func = self._get_func(cmd)
             args = cmd.get('params', {})
             if result:
                 args = copy.deepcopy(args) if args else {}
@@ -399,10 +394,6 @@ class FwCfgRequestHandler(FwObject):
                     err_str = "_revert: exception while '%s': %s(%s): %s" % \
                                 (t['cmd']['descr'], rev_cmd['func'], format(rev_cmd['params']), str(e))
                     self.log.excep(err_str)
-
-                    if self.revert_failure_callback:
-                        self.revert_failure_callback(err_str)
-
                     return   # Don't continue, system is in undefined state now!
 
 
@@ -503,12 +494,14 @@ class FwCfgRequestHandler(FwObject):
 
             # Find the new value to be added to params
             if 'val_by_func' in s:
-                module , func_name = fwutils , s['val_by_func']
-                if '.' in func_name:
-                    module_name, func_name = func_name.split('.', 1)
-                    module = __import__(module_name)
-
-                func = getattr(module, func_name)
+                if isinstance(s['val_by_func'], dict):
+                    func = self._get_func(s['val_by_func'])
+                else:
+                    module , func_name = fwutils , s['val_by_func']
+                    if '.' in func_name:
+                        module_name, func_name = func_name.split('.', 1)
+                        module = __import__(module_name)
+                    func = getattr(module, func_name)
                 old  = s['arg'] if 'arg' in s else cache[s['arg_by_key']]
                 func_uses_cmd_cache = s['func_uses_cmd_cache']  if 'func_uses_cmd_cache' in s else False
                 if func_uses_cmd_cache:
@@ -626,7 +619,7 @@ class FwCfgRequestHandler(FwObject):
                 # no need to execute it.
                 #
                 existing_params = self.cfg_db.get_request_params(__request)
-                if fwutils.compare_request_params(existing_params, __request.get('params')):
+                if fwutils.compare_request_params(existing_params, __request.get('params'), strict_presence=False):
                     return True   # Nothing to modify
 
                 api_defs = self.translators.get(req)

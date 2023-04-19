@@ -784,10 +784,8 @@ def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
             'vni'                  : bridge_id,
             'dest_port'            : int(params.get('dstPort', vxlan_port)),
             'substs': [{'add_param': 'next_hop_sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': params['dev_id']},
-                       {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [dst, dev_id]},
-                       {'add_param': 'qos_hierarchy_id',
-                        'val_by_func': 'fwqos.get_tunnel_qos_identifier',
-                        'arg': [dev_id,  params['tunnel-id']]}],
+                       {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [dst, dev_id]}],
+            'qos_id'               : params['tunnel-id'],
             'instance'             : bridge_id,
             'decap_next_index'     : 1 # VXLAN_INPUT_NEXT_L2_INPUT, vpp/include/vnet/vxlan/vxlan.h
     }
@@ -1605,7 +1603,8 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
     _add_loopback(cmd_list, peer_loopback_cache_key, loopback_params, params, id=id, vppsb_tun=True)
 
     substs = [ {'replace':'DEV1-STUB', 'key': 'cmds', 'val_by_func':'vpp_sw_if_index_to_name', 'arg_by_key':peer_loopback_cache_key},
-               {'replace':'DEV2-STUB', 'key': 'cmds', 'val_by_func':'vpp_sw_if_index_to_name', 'arg_by_key':tunnel_cache_key}]
+               {'replace':'DEV2-STUB', 'key': 'cmds', 'val_by_func':'vpp_sw_if_index_to_name', 'arg_by_key':tunnel_cache_key},
+               {'replace':'DEV2-GW', 'key': 'cmds', 'val_by_func':'get_tunnel_gateway', 'arg': [params['dst'], params['dev_id']]}]
 
     cmd = {}
     cmd['cmd'] = {}
@@ -1633,7 +1632,7 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
     cmd['cmd']['descr']   = "add l3xc connection"
     cmd['cmd']['params']  = {
                     'substs': substs,
-                    'cmds':['l3xc add DEV1-STUB via DEV2-STUB'],
+                    'cmds':['l3xc add DEV1-STUB via DEV2-GW DEV2-STUB'],
     }
     cmd['revert'] = {}
     cmd['revert']['func']    = "vpp_cli_execute"
@@ -1641,7 +1640,7 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
     cmd['revert']['descr']   = "remove l3xc connection"
     cmd['revert']['params']  = {
                     'substs': substs,
-                    'cmds':['l3xc del DEV1-STUB via DEV2-STUB'],
+                    'cmds':['l3xc del DEV1-STUB via DEV2-GW DEV2-STUB'],
     }
     cmd_list.append(cmd)
 
@@ -1759,7 +1758,7 @@ def add_tunnel(params):
                 _add_loop_bridge_l2gre_ikev2(cmd_list, params, l2gre_ips, params['tunnel-id']*2, loop0_cache_key=loop0_cache_key, loop1_cache_key='loop1_sw_if_index')
 
     # Enable classification on tunnel interface
-    fwglobals.g.qos.get_tunnel_classification_setup_commands (params, loop0_cache_key, cmd_list)
+    fwglobals.g.qos.get_classification_setup_commands(loop0_cache_key, params['dev_id'], cmd_list)
 
     # --------------------------------------------------------------------------
     # Add following section to frr ospfd.conf

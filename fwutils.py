@@ -2134,18 +2134,23 @@ def vpp_startup_conf_add_dpdk_config (vpp_config_filename, devices):
         return (True, None)
 
     for dev in devices:
-        wan_if = fwglobals.g.router_cfg.get_interfaces(dev_id=dev, type='wan')
-        qos_on_dev_id = True if (wan_if and (fwqos.has_qos_policy(dev_id=dev) == True)) else False
+        qos_on_dev_id = True if (fwqos.has_qos_policy(dev, True)) else False
         dev_short = dev_id_to_short(dev)
         addr_type, addr_short = dev_id_parse(dev_short)
         pppoe_if = fwpppoe.is_pppoe_interface(dev_id=dev)
+
+        if (hqos_capable and qos_on_dev_id):
+            max_subports, max_pipes = fwglobals.g.qos.get_max_subports_and_pipes ()
+            hqos_config_param = 'hqos { num-subports %d num-pipes %d } ' % (max_subports, max_pipes)
+        else:
+            hqos_config_param = ''
 
         if addr_type == "pci":
 
             custom_config_param = ''
             # For PPPoE interface, QoS is enabled on the corresponding tun interface
             if hqos_capable and qos_on_dev_id and not pppoe_if:
-                custom_config_param +=' hqos'
+                custom_config_param += hqos_config_param
             if dev_id_is_vmxnet3(dev):
                 #for vmxnet3 we need to align value to supported numbers (pow of 2 and max is 16)
                 rx_queues = _vmxnet3_align_to_pow2_and_max_value(num_workers)
@@ -2162,8 +2167,7 @@ def vpp_startup_conf_add_dpdk_config (vpp_config_filename, devices):
             iface_name = dev_id_to_linux_if(dev)
             tap_linux_iface_name = generate_linux_interface_short_name("tap", iface_name)
             tap_config_param = "vdev net_tap%d,iface=%s" % (tap_count, tap_linux_iface_name)
-            tap_config_param += ' { %s num-rx-queues 1 num-tx-queues 1 }' % \
-                ('hqos' if (hqos_capable and qos_on_dev_id) else '')
+            tap_config_param += ' { %s num-rx-queues 1 num-tx-queues 1 }' %  hqos_config_param
             tup = p.create_element(tap_config_param)
             config['dpdk'].append(tup)
             tap_count += 1
@@ -2174,8 +2178,7 @@ def vpp_startup_conf_add_dpdk_config (vpp_config_filename, devices):
             # If queues are not specified, DPDK tun interface init looks to be dynamically
             # setting up queue numbers. Working compatibly with this dynamic queue setup may likely
             # need corresponding changes from other configs (like tc) made in setting up PPPoE
-            tunnel_config_param += ' { %s num-rx-queues 1 num-tx-queues 1 }' % \
-                ('hqos' if (hqos_capable and qos_on_dev_id) else '')
+            tunnel_config_param += ' { %s num-rx-queues 1 num-tx-queues 1 }' %  hqos_config_param
             tup = p.create_element(tunnel_config_param)
             config['dpdk'].append(tup)
             tun_count += 1
@@ -2195,9 +2198,10 @@ def vpp_startup_conf_remove_dpdk_config (vpp_config_filename):
     p.dump(config, vpp_config_filename)
     return (True, None)   # 'True' stands for success, 'None' - for the returned object or error string.
 
-def vpp_startup_conf_hqos(vpp_config_filename, is_add, num_interfaces):
+def vpp_setup_hqos (vpp_config_filename, is_add, num_interfaces):
     """
-    Add/Remove HQoS Worker thread if QoS policy is applied
+    - Add/Remove HQoS Worker thread if QoS policy is applied
+    - Update QoS context with the system parameters like memory, thread
 
     :param vpp_config_filename: Filename of VPP startup configuration
     :type vpp_config_filename: String
@@ -2211,7 +2215,8 @@ def vpp_startup_conf_hqos(vpp_config_filename, is_add, num_interfaces):
         if fwqos.has_qos_policy() is True:
             hqos_enabled = True if ((num_worker_cores > 1) and (is_add is True)) else False
         startup_conf.set_cpu_workers(num_worker_cores, num_interfaces=num_interfaces, hqos_enabled=hqos_enabled)
-        fwglobals.g.qos.update_hqos_worker_state(hqos_enabled, num_worker_cores)
+        fwglobals.g.qos.setup_hqos \
+            (hqos_enabled, num_worker_cores, startup_conf.get_vpp_heap_size_in_GB())
 
 
 def is_interface_without_dev_id(if_name):
@@ -3256,7 +3261,7 @@ def netplan_apply(caller_name=None):
         fwglobals.log.debug("%s: netplan_apply failed: %s" % (caller_name, str(e)))
         return False
 
-def compare_request_params(params1, params2):
+def compare_request_params(params1, params2, strict_presence=True):
     """ Compares two dictionaries while normalizing them for comparison
     and ignoring orphan keys that have None or empty string value.
         The orphans keys are keys that present in one dict and don't
@@ -3266,6 +3271,13 @@ def compare_request_params(params1, params2):
     item with inconsistent letter case, None/empty string,
     missing parameters, etc.
         Note! The normalization is done for top level keys only!
+
+    :param strict_presence: if True the no-match is reported if there is key
+                            (at least one key) that presents in one "params" and
+                            does not present in the other.
+                            Note, thanks to Scooter Software we call such key
+                            an "orphan".
+                            If False, the orphans are ignored.
     """
     if not params1 or not params2:
         fwglobals.log.debug("compare_request_params: either params1 or params2 is None/''/[]")
@@ -3285,17 +3297,17 @@ def compare_request_params(params1, params2):
     keys2_only  = list(set_keys2 - set_keys1)
     keys_common = set_keys1.intersection(set_keys2)
 
-    for key in keys1_only:
-        if type(params1[key]) == bool or params1[key]:
-            # params1 has non-empty string/value that does not present in params2
-            fwglobals.log.debug(f"compare_request_params: params1['{key}'] does not present in params2")
-            return False
-
-    for key in keys2_only:
-        if type(params2[key]) == bool or params2[key]:
-            # params2 has non-empty string/value that does not present in params1
-            fwglobals.log.debug(f"compare_request_params: params2['{key}'] does not present in params1")
-            return False
+    if strict_presence:
+        for key in keys1_only:
+            if type(params1[key]) == bool or params1[key]:
+                # params1 has non-empty string/value that does not present in params2
+                fwglobals.log.debug(f"compare_request_params: params1['{key}'] does not present in params2")
+                return False
+        for key in keys2_only:
+            if type(params2[key]) == bool or params2[key]:
+                # params2 has non-empty string/value that does not present in params1
+                fwglobals.log.debug(f"compare_request_params: params2['{key}'] does not present in params1")
+                return False
 
     for key in keys_common:
         val1 = params1[key]
@@ -4149,3 +4161,10 @@ def if_name_parse_vlan(if_name):
     parent_if_name = parts[0]
     vlan_id = int(parts[1])
     return parent_if_name, vlan_id
+
+def dev_id_get_parent (dev_id):
+    if (is_vlan_interface (dev_id)):
+        parent_dev_id, _ = dev_id_parse_vlan (dev_id)
+    else:
+        parent_dev_id = dev_id
+    return parent_dev_id
