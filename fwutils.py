@@ -3261,23 +3261,14 @@ def netplan_apply(caller_name=None):
         fwglobals.log.debug("%s: netplan_apply failed: %s" % (caller_name, str(e)))
         return False
 
-def compare_request_params(params1, params2, strict_presence=True):
+def compare_request_params(params1, params2):
     """ Compares two dictionaries while normalizing them for comparison
     and ignoring orphan keys that have None or empty string value.
-        The orphans keys are keys that present in one dict and don't
-    present in the other dict, thanks to Scooter Software Co. for the term :)
         We need this function to pay for bugs in flexiManage code, where
     is provides add-/modify-/remove-X requests for same configuration
     item with inconsistent letter case, None/empty string,
     missing parameters, etc.
         Note! The normalization is done for top level keys only!
-
-    :param strict_presence: if True the no-match is reported if there is key
-                            (at least one key) that presents in one "params" and
-                            does not present in the other.
-                            Note, thanks to Scooter Software we call such key
-                            an "orphan".
-                            If False, the orphans are ignored.
     """
     if not params1 or not params2:
         fwglobals.log.debug("compare_request_params: either params1 or params2 is None/''/[]")
@@ -3297,17 +3288,17 @@ def compare_request_params(params1, params2, strict_presence=True):
     keys2_only  = list(set_keys2 - set_keys1)
     keys_common = set_keys1.intersection(set_keys2)
 
-    if strict_presence:
-        for key in keys1_only:
-            if type(params1[key]) == bool or params1[key]:
-                # params1 has non-empty string/value that does not present in params2
-                fwglobals.log.debug(f"compare_request_params: params1['{key}'] does not present in params2")
-                return False
-        for key in keys2_only:
-            if type(params2[key]) == bool or params2[key]:
-                # params2 has non-empty string/value that does not present in params1
-                fwglobals.log.debug(f"compare_request_params: params2['{key}'] does not present in params1")
-                return False
+    for key in keys1_only:
+        if type(params1[key]) == bool or params1[key]:
+            # params1 has non-empty string/value that does not present in params2
+            fwglobals.log.debug(f"compare_request_params: params1['{key}'] does not present in params2")
+            return False
+
+    for key in keys2_only:
+        if type(params2[key]) == bool or params2[key]:
+            # params2 has non-empty string/value that does not present in params1
+            fwglobals.log.debug(f"compare_request_params: params2['{key}'] does not present in params1")
+            return False
 
     for key in keys_common:
         val1 = params1[key]
