@@ -48,12 +48,16 @@ class FwFirewallAclCache(FwObject):
 
     def remove(self, dev_id, direction, acl_ids):
         if not dev_id in self.devices:
-           return
+            return
+        if not direction in self.devices[dev_id]:
+            return
         del self.devices[dev_id][direction]
         self._commit()
 
     def get(self, dev_id, direction):
         if dev_id not in self.devices:
+            return []
+        if direction not in self.devices[dev_id]:
             return []
         return self.devices[dev_id][direction]
 
