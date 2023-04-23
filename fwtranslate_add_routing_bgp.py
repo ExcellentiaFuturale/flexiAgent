@@ -30,6 +30,7 @@ import fwutils
 #       "routerId": "",
 #       "localAsn": "35",
 #       "redistributeOspf": True,
+#       "bestPathMultipathRelax":True,
 #       "neighbors": [
 #           {
 #               "ip": "8.8.8.8",
@@ -99,6 +100,7 @@ def add_routing_bgp(params):
     local_asn = params.get('localAsn')
     router_id = params.get('routerId')
     redistribute_ospf = params.get('redistributeOspf')
+    best_path_multipath_relax = params.get('bestPathMultipathRelax')
 
     vtysh_commands = [
         f'router bgp {local_asn}',
@@ -114,6 +116,32 @@ def add_routing_bgp(params):
         'no bgp ebgp-requires-policy',
 
         f'bgp router-id {router_id}' if router_id else None,
+
+        # This command specifies that BGP decision process should consider paths
+        # of equal AS_PATH length candidates for multipath computation.
+        # Without the knob, the entire AS_PATH must match for multipath computation.
+        #
+        # For this case:
+        #    ------- TUNNEL ----- edge2 -|
+        # edge1                      Router --- Destination
+        #    ------- TUNNEL ----- edge3 -|
+        #
+        # All routers are speaking BGP and "Destination" is published to edge1 via BGP.
+        # There are two paths for "edge1" to reach "Destination":
+        #   1. edge1 -> edge2 -> Router -> Destination
+        #   2. edge1 -> edge3 -> Router -> Destination
+        # Since the path is not **exactly** the same, BGP by default doesn't install the two paths
+        # in the global routing table,
+        # and it selects the older one (read more about the BGP Best Path algorithm in https://docs.frrouting.org/en/latest/bgp.html#route-selection).
+        # When the below option is enabled, the BGP installs both routes if the path **length** is the same.
+        # In the case above, the length of the path is the same, so two routes will be installed.
+        #
+        # But For this case:
+        #    | ------- TUNNEL ------|
+        # edge1                  edge2 --- Destination
+        #    | ------- TUNNEL ------|
+        # two routes will be installed even if the option is not set, since the path is the same for the destination - edg1 -> edge2.
+        'bgp bestpath as-path multipath-relax' if best_path_multipath_relax else None
     ]
 
     # Neighbors
