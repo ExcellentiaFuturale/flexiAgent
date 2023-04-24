@@ -1305,9 +1305,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         # Reset FlexiWAN QoS contexts on VPP start
         fwglobals.g.qos.reset()
 
-        # Clean Firewall ACL cache
-        fwglobals.g.firewall_acl_cache.clear()
-
     def _sync_after_start(self):
         """Resets signature once interface got IP during router starting.
         :returns: None.
