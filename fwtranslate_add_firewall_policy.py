@@ -139,9 +139,19 @@ def add_firewall_policy(params):
         global_ingress_ids = []
         global_egress_ids = []
 
+        # Clean Firewall ACL cache
+        fwglobals.g.firewall_acl_cache.clear()
+
         interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
         for intf in interfaces:
             lan_dev_ids.add(intf['dev_id'])
+
+        app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True,
+                                                               linux_interfaces=False)
+        # for applications interfaces we are using
+        # the prefix 'app_' and the identifier name as the key.
+        for app_identifier in app_lans:
+            lan_dev_ids.add(f'app_{app_identifier}')
 
         for rule_index, rule in enumerate(outbound_rules['rules']):
 
