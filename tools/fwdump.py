@@ -45,9 +45,6 @@ import time
 agent_root_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..')
 sys.path.append(agent_root_dir)
 import fwutils
-if not fwutils.check_root_access():
-    sys.exit(1)  # Dump accesses agent databases, so it needs root permissions
-
 import fwglobals
 from fw_vpp_coredump_utils import vpp_coredump_copy_cores
 from fwobject import FwObject
