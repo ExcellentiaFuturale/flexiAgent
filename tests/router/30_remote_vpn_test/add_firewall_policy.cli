@@ -1,0 +1,30 @@
+[
+    {
+        "entity": "agent",
+        "message": "add-firewall-policy",
+        "params": {
+            "inbound": {},
+            "outbound": {
+                "rules": [
+                    {
+                        "id": "64454594459450637837512c",
+                        "action": {
+                            "permit": true
+                        },
+                        "classification": {
+                            "source": {},
+                            "destination": {
+                                "ipProtoPort": {
+                                    "ip": "9.9.9.9/32",
+                                    "protocols": [
+                                        "icmp"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    }
+]

@@ -1,0 +1,12 @@
+[
+    {
+    "entity": "agent",
+    "message": "start-router",
+    "params": {
+        "interfaces": [
+            "__INTERFACE_1__",
+            "__INTERFACE_2__"
+        ]
+    }
+  }
+]
