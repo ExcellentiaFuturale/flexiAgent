@@ -371,7 +371,7 @@ def add_nat_rules_interfaces(is_add, sw_if_index):
     if not firewall_policy_params:
         return
 
-    inbound_rules = firewall_policy_params.get('inbound')
+    inbound_rules = firewall_policy_params.get('inbound', {})
     for rule_name, rules in inbound_rules.items():
         if rule_name == "edgeAccess":
             for rule_index, rule in enumerate(rules['rules']):
