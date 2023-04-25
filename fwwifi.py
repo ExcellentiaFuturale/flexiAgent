@@ -230,7 +230,7 @@ def ap_get_clients(interface_name):
         pass
     return response
 
-def start_hostapd():
+def start_hostapd(remove_files_on_error=True):
     try:
         if fw_os_utils.pid_of('hostapd'):
             return (True, None)
@@ -253,21 +253,22 @@ def start_hostapd():
 
         raise Exception('Error in activating your access point. Your hardware may not support the selected settings')
     except Exception as err:
-        stop_hostapd()
+        stop_hostapd(remove_files_on_error=remove_files_on_error)
         return (False, str(err))
 
 
-def stop_hostapd():
+def stop_hostapd(remove_files_on_error=True):
     try:
         if fw_os_utils.pid_of('hostapd'):
             os.system('killall hostapd')
 
-        files = glob.glob("%s*fwrun.conf" % fwglobals.g.HOSTAPD_CONFIG_DIRECTORY)
-        for filePath in files:
-            try:
-                os.remove(filePath)
-            except:
-                fwglobals.log.debug(f"Error while deleting file: {filePath}")
+        if remove_files_on_error:
+            files = glob.glob("%s*fwrun.conf" % fwglobals.g.HOSTAPD_CONFIG_DIRECTORY)
+            for filePath in files:
+                try:
+                    os.remove(filePath)
+                except:
+                    fwglobals.log.debug(f"Error while deleting file: {filePath}")
         return (True, None)
     except Exception as e:
         return (False, str(e))

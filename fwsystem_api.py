@@ -97,7 +97,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
         # at this point, router is running but hostapd process does not run
         self.log.debug("wifi watchdog: hostapd detected as stopped. starting it")
-        _, err_str = fwwifi.start_hostapd()
+        _, err_str = fwwifi.start_hostapd(remove_files_on_error=False)
 
         if err_str:
             self.log.debug(f"wifi watchdog: failed to start hostapd. {err_str}")
