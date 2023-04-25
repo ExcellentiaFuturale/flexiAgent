@@ -149,7 +149,7 @@ class FWAGENT_API(FwObject):
             all_job_ids = []
             if params and params.get('jobs'):
                 all_job_ids = all_job_ids + params['jobs']
-            all_job_ids = all_job_ids + fwglobals.g.jobs.get_job_ids_by_request(['upgrade-device-sw'])
+            all_job_ids = all_job_ids + fwglobals.g.jobs.get_job_ids_by_request(['upgrade-device-sw', 'upgrade-linux-sw'])
             info['jobs'] = fwglobals.g.jobs.dump(job_ids=all_job_ids)
 
             info['cpuInfo'] = fwsystem_checker_common.Checker().get_cpu_info()
