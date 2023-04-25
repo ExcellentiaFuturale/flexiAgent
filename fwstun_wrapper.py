@@ -594,10 +594,13 @@ class FwStunWrap(FwObject):
 
         for tunnel_id, tunnel in list(self.sym_nat_tunnels_cache.items()):
             src_ip = tunnel['src']
+            dev_name = fwutils.get_interface_name(src_ip)
+            if dev_name == None:
+                # dev_name is None because tunnel is deleted, skip
+                continue
             src_port = self.vxlan_port
             dst_ip = tunnel['dst']
             dst_port = int(tunnel['dstPort'])
-            dev_name = fwutils.get_interface_name(src_ip)
             vxLanVni      = '%x' % (tunnel['vni'])
             vxLanMsgType  = '08000000'
             vxLanReserved = '00'
