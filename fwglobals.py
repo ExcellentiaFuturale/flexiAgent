@@ -366,7 +366,6 @@ class Fwglobals(FwObject):
         self.FWAGENT_DAEMON_URI  = 'PYRO:%s@%s:%d' % (self.FWAGENT_DAEMON_NAME, self.FWAGENT_DAEMON_HOST, self.FWAGENT_DAEMON_PORT)
 
         self.db = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! set the db variable regardless of agent initialization
-        self.firewall_acl_cache = fwfirewall.FwFirewallAclCache(self.db)
 
         # Load websocket status codes on which agent should reconnect into a list
         self.ws_reconnect_status_codes = []
@@ -514,6 +513,12 @@ class Fwglobals(FwObject):
         """Restore VPP if needed and start various features.
         """
         self.log.debug('initialize_agent: started')
+
+        # Construct ACL cache here, and not in the FwGlobals constructor,
+        # as it requires root permissions (to access sqlitedict file).
+        # And the constructor is called on any command, even 'fwagent version'.
+        #
+        self.firewall_acl_cache = fwfirewall.FwFirewallAclCache(self.db)
 
         # IMPORTANT! Some of the features below should be initialized before restore_vpp_if_needed
         #
@@ -861,6 +866,9 @@ def initialize(log_level=FWLOG_LEVEL_INFO, quiet=False):
 
     :returns: None.
     """
+    if not fwutils.check_root_access():
+        return False
+
     global g_initialized
     if not g_initialized:
         global log
