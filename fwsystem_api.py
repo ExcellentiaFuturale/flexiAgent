@@ -73,7 +73,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
     def initialize(self):
         if self.thread_lte_wifi_watchdog is None:
-            self.thread_lte_wifi_watchdog = fwthread.FwRouterThread(target=self.lte_wifi_watchdog_thread_func, name='LTE Watchdog', log=self.log)
+            self.thread_lte_wifi_watchdog = fwthread.FwRouterThread(target=self.lte_wifi_watchdog_thread_func, name='LTE/WiFi Watchdog', log=self.log)
             self.thread_lte_wifi_watchdog.start()
 
     def finalize(self):
