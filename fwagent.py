@@ -284,6 +284,7 @@ class FwAgent(FwObject):
         serial = fwutils.get_machine_serial()
         url = fwglobals.g.cfg.MANAGEMENT_URL  + "/api/connect/register"
         cpu_info = fwsystem_checker_common.Checker().get_cpu_info()
+        version, codename = fwutils.get_linux_distro()
 
         data = {'token': self.token.rstrip(),
                 'fwagent_version' : self.versions['components']['agent']['version'],
@@ -296,7 +297,8 @@ class FwAgent(FwObject):
                 'default_route': dr_via,
                 'default_dev': dr_dev,
                 'interfaces': interfaces,
-                'cpuInfo': cpu_info
+                'cpuInfo': cpu_info,
+                'distro': {'version': version, 'codename': codename},
         }
         self.log.debug("Registering to %s with: %s" % (url, json.dumps(data)))
         data.update({'interfaces': json.dumps(interfaces)})
@@ -609,15 +611,10 @@ class FwAgent(FwObject):
              self.log.error(f"handle_received_request failed: {str(e)} {traceback.format_exc()}")
              return {'ok': 0, 'message': str(e)}
 
-        if reply['ok'] == 0:
-            errors = fwglobals.g.jobs.get_job_errors()
-            # not all jobs are recorded since not all of them have job ID.
-            # For example, direct messages from flexiManage like 'get-device-logs'
-            # that not sent in the jobs queue.
-            # Hence, check if no jobs recorded. If so, add the provided error to the list.
-            if len(errors) == 0 and reply['message']:
-                errors.append(reply['message'])
-            reply['message'] = {'errors' : errors}
+        message = reply.get('message')
+        if reply['ok'] == 0 and message:
+            fwglobals.g.jobs.update_job_error(message)
+            reply['message'] = {'errors' : [message]}
         return reply
 
     def inject_requests(self, filename, ignore_errors=False, json_requests=None):

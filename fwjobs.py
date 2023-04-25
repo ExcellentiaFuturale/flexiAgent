@@ -217,10 +217,9 @@ class FwJobs(FwObject):
         """
         jobs = []
         db_keys = (
-            list(filter(lambda job_id: int(job_id) in job_ids, self.job_ids))
+            list(filter(lambda job_id: job_id in job_ids, self.job_ids))
             if job_ids
-            else self.job_ids
-        )
+            else self.job_ids )
         for job_id in sorted(db_keys):
             job = {
                 'job_id': job_id,
@@ -237,14 +236,42 @@ class FwJobs(FwObject):
         """Dumps stored jobs into printable string."""
         return json.dumps(self.dump(), indent=2, sort_keys=True)
 
-    def get_job_errors(self, job_id=None):
-        """Gets stored errors of the current job.
+    def update_job_error(self, error, job_id=None):
+        """Updates job error.
 
+        :param error : The error to report.
         :param job_id: The job id of the request.
 
-        :returns: list of job errors, empty list if no errors found. When job_id is None,
-        returns the errors of the job which is currently being processed
+        :returns: None.
         """
         if not job_id:
             job_id = self.current_job_id
-        return self.db.get(job_id, {}).get('errors', [])
+        if job_id == None:
+            self.log.warning(f"(update_job_error), job id empty, nothing to update")
+            return
+
+        entry = self.db.get(job_id)
+        if not entry:
+            self.log.error(f"(update_job_error), job entry id {job_id} not found")
+            return
+
+        if error:
+            # error happened during job handling
+            entry['errors'].append(error)
+            self.db[job_id] = entry # The underneath sqldict does not support in-memory modification, so replace whole element
+            return
+        self.log.warning(f"(update_job_error), job {job_id}, error is empty, nothing to update")
+
+    def get_job_ids_by_request(self, requests):
+        """Gets the list of job ids matching specified requests from the list.
+
+        :param requests: The list of job requests to retrieve.
+
+        :returns: The list of job ids matching the requests.
+        """
+        job_ids = []
+        for job_id in self.job_ids:
+            if self.db[job_id].get('request', '') in requests:
+                job_ids.append(job_id)
+
+        return job_ids

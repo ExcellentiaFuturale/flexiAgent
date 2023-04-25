@@ -288,31 +288,32 @@ def add_interface_attachment(ingress_ids=[], egress_ids=[], dev_ids=[]):
 
     return cmd
 
-def translate_cache_acl_rule(direction, acl_id):
+def translate_cache_acl_rule(dev_id, direction, acl_ids):
     """ Translate cache ACL rule
 
+    :param dev_id: Device id
     :param direction: Inbound/outbound
     :param acl_id: ACL identifier
     """
     cmd = {}
 
+    params = {
+        'dev_id': dev_id,
+        'direction': direction,
+        'substs': [{ 'add_param': 'acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': acl_ids}, 'func_uses_cmd_cache':  True }]
+    }
+
     cmd['cmd'] = {}
     cmd['cmd']['func']   = "add"
     cmd['cmd']['object'] = "fwglobals.g.firewall_acl_cache"
     cmd['cmd']['descr']  = "Add Firewall ACL into cache"
-    cmd['cmd']['params'] = {
-            'direction': direction,
-            'substs': [ { 'add_param': 'acl_id', 'val_by_key': acl_id } ]
-    }
+    cmd['cmd']['params'] = params
 
     cmd['revert'] = {}
     cmd['revert']['func']   = "remove"
     cmd['revert']['object'] = "fwglobals.g.firewall_acl_cache"
     cmd['revert']['descr']  = "Remove Firewall ACL from cache"
-    cmd['revert']['params'] = {
-            'direction': direction,
-            'substs': [ { 'add_param': 'acl_id', 'val_by_key': acl_id } ]
-    }
+    cmd['revert']['params'] = params
 
     return cmd
 

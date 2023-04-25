@@ -218,8 +218,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
             else:
                 self.lte_reconnect.inc()
 
-        # WiFi watchdog
-        self.wifi_watchdog()
+        self.wifi_watchdog(ticks)
 
     def sync_full(self, incoming_requests):
         if len(incoming_requests) == 0:

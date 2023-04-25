@@ -100,6 +100,7 @@ request_handlers = {
     'get-device-os-routes':              {'name': '_call_agent_api'},
     'get-device-config':                 {'name': '_call_agent_api'},
     'upgrade-device-sw':                 {'name': '_call_agent_api'},
+    'upgrade-linux-sw':                  {'name': '_call_agent_api'},
     'reset-device':                      {'name': '_call_agent_api'},
     'sync-device':                       {'name': '_call_agent_api'},
     'get-wifi-info':                     {'name': '_call_agent_api'},
@@ -350,7 +351,6 @@ class Fwglobals(FwObject):
         self.router_threads                = FwRouterThreading() # Primitives used for synchronization of router configuration and monitoring threads
         self.handle_request_lock           = threading.RLock()
         self.is_gcp_vm                     = fwutils.detect_gcp_vm()
-        self.firewall_acl_cache            = fwfirewall.FwFirewallAclCache()
         self.default_vxlan_port            = 4789
 
         # Config limit for QoS scheduler memory usage (limits to 'x' % of configured VPP memory)
@@ -366,6 +366,7 @@ class Fwglobals(FwObject):
         self.FWAGENT_DAEMON_URI  = 'PYRO:%s@%s:%d' % (self.FWAGENT_DAEMON_NAME, self.FWAGENT_DAEMON_HOST, self.FWAGENT_DAEMON_PORT)
 
         self.db = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! set the db variable regardless of agent initialization
+        self.firewall_acl_cache = fwfirewall.FwFirewallAclCache(self.db)
 
         # Load websocket status codes on which agent should reconnect into a list
         self.ws_reconnect_status_codes = []

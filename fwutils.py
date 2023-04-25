@@ -164,6 +164,18 @@ def get_machine_serial():
     except:
         return '0'
 
+def get_linux_distro():
+    """Get Linux Distribution
+
+    :returns: (Ubuntu Release, Ubuntu CodeName)
+    """
+    try:
+        cmd = 'lsb_release -rscs'
+        distro = subprocess.check_output(cmd, shell=True).decode().strip().split('\n')
+        return (str(distro[0]), str(distro[1]))
+    except:
+        return ('','')
+
 def get_vpp_tap_interface_mac_addr(dev_id):
     tap = dev_id_to_tap(dev_id)
     return get_interface_mac_addr(tap)
@@ -3252,8 +3264,6 @@ def netplan_apply(caller_name=None):
 def compare_request_params(params1, params2):
     """ Compares two dictionaries while normalizing them for comparison
     and ignoring orphan keys that have None or empty string value.
-        The orphans keys are keys that present in one dict and don't
-    present in the other dict, thanks to Scooter Software Co. for the term :)
         We need this function to pay for bugs in flexiManage code, where
     is provides add-/modify-/remove-X requests for same configuration
     item with inconsistent letter case, None/empty string,
