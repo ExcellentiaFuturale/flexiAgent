@@ -415,7 +415,7 @@ def reset_modem(dev_id):
     set_cache_val(dev_id, 'state', 'resetting')
 
     recreate_tc_filters = False
-    if fwglobals.g.router_api.state_is_started() and fwutils.is_interface_assigned_to_vpp(dev_id):
+    if fwutils.is_router_state_started_safe() and fwutils.is_interface_assigned_to_vpp(dev_id):
         recreate_tc_filters = True
 
     try:

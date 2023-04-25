@@ -1173,7 +1173,7 @@ class Checker:
 
             self.log.debug(f'The reset process was completed successfully')
 
-            os.system('modprobe cdc_mbim') # sometimes driver doesn't regirsted to the device after reset
+            os.system('modprobe cdc_mbim') # sometimes driver doesn't register to the device after reset
 
             return (True, None)
         except Exception as e:
