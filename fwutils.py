@@ -317,12 +317,6 @@ def is_interface_assigned_to_vpp(dev_id):
 
     return False
 
-def is_router_state_started_safe():
-    if getattr(fwglobals.g, 'router_api', False):
-        return fwglobals.g.router_api.state_is_started()
-    else:
-        return fw_os_utils.vpp_does_run()
-
 def get_all_interfaces():
     """ Get all interfaces from linux. For dev id with address family of AF_INET,
         also store gateway, if exists.
