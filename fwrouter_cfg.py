@@ -114,9 +114,9 @@ class FwRouterCfg(FwCfgDatabase):
         cfg = self.dump(types=types, escape=escape, full=full, keys=True)
         return FwCfgDatabase.dumps(self, cfg, sections, full)
 
-    def get_interfaces(self, type=None, dev_id=None, ip=None):
+    def get_interfaces(self, type=None, dev_id=None, ip=None, device_type=None):
         interfaces = self.get_requests('add-interface')
-        if not type and not dev_id and not ip:
+        if not type and not dev_id and not ip and not device_type:
             return interfaces
         result = []
         for params in interfaces:
@@ -125,6 +125,8 @@ class FwRouterCfg(FwCfgDatabase):
             elif dev_id and dev_id != params['dev_id']:
                 continue
             elif ip and not re.match(ip, params['addr']):
+                continue
+            elif device_type and device_type != params.get('deviceType'):
                 continue
             result.append(params)
         return result

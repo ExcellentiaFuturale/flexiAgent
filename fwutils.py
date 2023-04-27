@@ -4159,3 +4159,19 @@ def dev_id_get_parent (dev_id):
     else:
         parent_dev_id = dev_id
     return parent_dev_id
+
+class DYNAMIC_INTERVAL():
+    def __init__(self, value, max_value_on_failure):
+        self.default  = value
+        self.current  = value
+        self.max      = max_value_on_failure
+        self.failures = 0
+
+    def update(self, failure):
+        if failure:
+            self.failures += 1
+            if self.failures % 3 == 0:   # forgive 3 failure before increasing interval
+                self.current = min(self.max, self.current * 2)
+        else:
+            self.current  = self.default
+            self.failures = 0
