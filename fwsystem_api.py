@@ -39,8 +39,6 @@ fwsystem_translators = {
     'remove-lte':            {'module': __import__('fwtranslate_revert'),    'api':'revert'},
 }
 
-
-
 class FWSYSTEM_API(FwCfgRequestHandler):
     """This is System API class representation.
         These APIs are used to handle system configuration requests regardless of the vpp state.
@@ -201,10 +199,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                         self.log.debug("%s: LTE IP was changed: %s -> %s" % (dev_id, iface_addr, modem_addr))
 
         if check_lte_disconnection:
-            if is_all_lte_interfaces_connected:
-                self.lte_reconnect_interval.update(failure=False)
-            else:
-                self.lte_reconnect_interval.update(failure=True)
+            self.lte_reconnect_interval.update(failure=not is_all_lte_interfaces_connected)
 
     def sync_full(self, incoming_requests):
         if len(incoming_requests) == 0:
