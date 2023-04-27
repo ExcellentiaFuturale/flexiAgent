@@ -230,7 +230,7 @@ def ap_get_clients(interface_name):
         pass
     return response
 
-def start_hostapd(remove_files_on_error=True):
+def start_hostapd(remove_files_on_error=True, ensure_hostapd_enabled=False):
     try:
         if fw_os_utils.pid_of('hostapd'):
             return (True, None)
@@ -243,19 +243,38 @@ def start_hostapd(remove_files_on_error=True):
 
         files = ' '.join(files)
 
+        # we need the log file empty, so we move current log to the backup file and truncate the log file
+        fw_os_utils.run_linux_commands([
+            f'cat {fwglobals.g.HOSTAPD_LOG_FILE} >> {fwglobals.g.HOSTAPD_LOG_FILE_BACKUP} 2>/dev/null', # ignore error if hostapd file does not exist at this time
+            f'echo "" > {fwglobals.g.HOSTAPD_LOG_FILE}'
+        ])
+
         # Start hostapd in background
         subprocess.check_call('sudo hostapd %s -B -t -f %s' % (files, fwglobals.g.HOSTAPD_LOG_FILE), stderr=subprocess.STDOUT, shell=True)
-        time.sleep(2)
 
-        pid = fw_os_utils.pid_of('hostapd')
-        if pid:
-            return (True, None)
+        # on start router, the 'ensure_hostapd_enabled' is False as we allow the start router
+        # to continue even if hostapd failed. The WiFi watchdog will try to start it again.
+        err_str = wait_for_hostapd_to_start()
+        if err_str and ensure_hostapd_enabled:
+            return (False, err_str)
 
-        raise Exception('Error in activating your access point. Your hardware may not support the selected settings')
+        return (True, None)
     except Exception as err:
         stop_hostapd(remove_files_on_error=remove_files_on_error)
         return (False, str(err))
 
+def wait_for_hostapd_to_start(timeout=30):
+    # We can't trust the hostapd process ID as it can start but fail after a few seconds.
+    # We look for the 'AP-ENABLED' in the log file to determine if the hostapd started successfully.
+    for tick in range(timeout):
+        time.sleep(1)
+        try:
+            subprocess.check_output(f"sudo grep 'AP-ENABLED' {fwglobals.g.HOSTAPD_LOG_FILE}", shell=True)
+            break
+        except Exception as e:
+            # 'grep' returns failure on no match!
+            if tick == (timeout - 1):
+                return str(e)
 
 def stop_hostapd(remove_files_on_error=True):
     try:

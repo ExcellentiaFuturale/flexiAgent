@@ -83,24 +83,15 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
         # at this point, router is running but hostapd process does not run
         self.log.debug("wifi watchdog: hostapd detected as stopped. starting it")
-        _, err_str = fwwifi.start_hostapd(remove_files_on_error=False)
+        _, err_str = fwwifi.start_hostapd(remove_files_on_error=False, ensure_hostapd_enabled=True)
 
         if err_str:
-            self.log.debug(f"wifi watchdog: failed to start hostapd. {err_str}")
+            self.log.debug(f"wifi watchdog: failed to start hostapd ({err_str}). Will try later again")
             self.wifi_reconnect_interval.update(failure=True)
             return
 
-        # at this point, the hostapd process started,
-        # but wait a few more seconds as the process may fail after a successful start
-        time.sleep(10)
-
-        if fw_os_utils.pid_of('hostapd'):
-            self.log.debug("wifi watchdog: hostapd started")
-            self.wifi_reconnect_interval.update(failure=False)
-            return
-
-        self.log.debug(f"wifi watchdog: failed to start hostapd. Will try later again")
-        self.wifi_reconnect_interval.update(failure=True)
+        self.log.debug("wifi watchdog: hostapd started")
+        self.wifi_reconnect_interval.update(failure=False)
 
     def lte_wifi_watchdog_thread_func(self, ticks):
         """LTE / WiFi watchdog thread.
