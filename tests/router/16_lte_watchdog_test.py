@@ -54,7 +54,7 @@ def test():
         assert ok
 
         lte_disconnect()
-        time.sleep(12)
+        time.sleep(20)
         lines = agent.grep_log('lte modem is disconnected on', print_findings=False)
         assert len(lines) > lines_before, "log has no mention of lte modem is disconnected on: %s" % '\n'.join(lines)
         lines_before = len(lines)
@@ -63,7 +63,7 @@ def test():
         assert ok
 
         lte_disconnect()
-        time.sleep(12)
+        time.sleep(20)
         lines = agent.grep_log('lte modem is disconnected on', print_findings=False)
         assert len(lines) > lines_before, "log has no mention of lte modem is disconnected on: %s" % '\n'.join(lines)
         lines_before = len(lines)
@@ -72,7 +72,7 @@ def test():
         assert ok
 
         lte_disconnect()
-        time.sleep(12)
+        time.sleep(20)
         lines = agent.grep_log('lte modem is disconnected on', print_findings=False)
         assert len(lines) > lines_before, "log has no mention of lte modem is disconnected on: %s" % '\n'.join(lines)
 

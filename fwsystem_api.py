@@ -39,21 +39,7 @@ fwsystem_translators = {
     'remove-lte':            {'module': __import__('fwtranslate_revert'),    'api':'revert'},
 }
 
-class RECONNECT_INTERVAL():
-    def __init__(self, interval_default,interval_max, retrials):
-        self.interval_default = interval_default
-        self.interval_max = interval_max
-        self.interval = self.interval_default
-        self.retrials = retrials
 
-    def reset(self):
-        self.interval = self.interval_default
-        self.retrials = 0
-
-    def inc(self):
-        self.retrials += 1
-        if self.retrials % 3 == 0:
-            self.interval = min(self.interval_max, self.interval * 2)
 
 class FWSYSTEM_API(FwCfgRequestHandler):
     """This is System API class representation.
@@ -67,8 +53,8 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         """Constructor method
         """
         FwCfgRequestHandler.__init__(self, fwsystem_translators, cfg, fwglobals.g.system_cfg)
-        self.lte_reconnect  = RECONNECT_INTERVAL(10, 120, 0) # each 10 seconds, up to 120 seconds.
-        self.wifi_reconnect = RECONNECT_INTERVAL(10, 600, 0)  # each 10 seconds, up to 600 seconds.
+        self.lte_reconnect_interval  = fwutils.DYNAMIC_INTERVAL(value=10, max_value_on_failure=120)
+        self.wifi_reconnect_interval = fwutils.DYNAMIC_INTERVAL(value=10, max_value_on_failure=600)
         self.thread_lte_wifi_watchdog = None
 
     def initialize(self):
@@ -82,7 +68,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
             self.thread_lte_wifi_watchdog = None
 
     def wifi_watchdog(self, ticks):
-        if not ticks % self.wifi_reconnect.interval == 0:
+        if not ticks % self.wifi_reconnect_interval.current == 0:
             return
 
         if not fwglobals.g.router_api.state_is_started():
@@ -101,7 +87,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
         if err_str:
             self.log.debug(f"wifi watchdog: failed to start hostapd. {err_str}")
-            self.wifi_reconnect.inc()
+            self.wifi_reconnect_interval.update(failure=True)
             return
 
         # at this point, the hostapd process started,
@@ -110,11 +96,11 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
         if fw_os_utils.pid_of('hostapd'):
             self.log.debug("wifi watchdog: hostapd started")
-            self.wifi_reconnect.reset()
+            self.wifi_reconnect_interval.update(failure=False)
             return
 
         self.log.debug(f"wifi watchdog: failed to start hostapd. Will try later again")
-        self.wifi_reconnect.inc()
+        self.wifi_reconnect_interval.update(failure=True)
 
     def lte_wifi_watchdog_thread_func(self, ticks):
         """LTE / WiFi watchdog thread.
@@ -125,11 +111,22 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         parameters received from provider should match these configured in linux
         for the correspondent interface.
         """
-        if  fwglobals.g.router_api.state_is_starting_stopping():
+        if fwglobals.g.router_api.state_is_starting_stopping():
             return
 
+        try:
+            self.lte_watchdog(ticks)
+        except Exception as e:
+            self.log.error(f'lte_watchdog failed. {str(e)}')
+
+        try:
+            self.wifi_watchdog(ticks)
+        except Exception as e:
+            self.log.error(f'wifi_watchdog failed. {str(e)}')
+
+    def lte_watchdog(self, ticks):
         is_all_lte_interfaces_connected = True
-        check_lte_disconnection = ticks % self.lte_reconnect.interval == 0
+        check_lte_disconnection = ticks % self.lte_reconnect_interval.current == 0
 
         wan_list = fwglobals.g.system_cfg.dump(types=['add-lte'])
         for wan in wan_list:
@@ -214,11 +211,9 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
         if check_lte_disconnection:
             if is_all_lte_interfaces_connected:
-                self.lte_reconnect.reset()
+                self.lte_reconnect_interval.update(failure=False)
             else:
-                self.lte_reconnect.inc()
-
-        self.wifi_watchdog(ticks)
+                self.lte_reconnect_interval.update(failure=True)
 
     def sync_full(self, incoming_requests):
         if len(incoming_requests) == 0:
