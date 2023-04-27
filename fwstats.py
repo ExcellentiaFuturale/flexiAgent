@@ -20,6 +20,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import json
 import math
 import time
 import psutil
@@ -118,25 +119,28 @@ class EventMonitor:
             if not tunnel_id:
                 alerts[event_type] = {'value': value,'threshold': critical_threshold, 'severity':'critical'}
             else:
+                if event_type not in alerts:
+                    alerts[event_type]= {}
                 alerts[event_type][tunnel_id] = {'value': value,'threshold': critical_threshold, 'severity':'critical'}
         elif self.is_warning(event_type, tunnel_id):
             if not tunnel_id:
                 alerts[event_type] = {'value': value,'threshold': warning_threshold, 'severity':'warning'}
             else:
+                if event_type not in alerts:
+                    alerts[event_type]= {}
                 alerts[event_type][tunnel_id] = {'value': value,'threshold': warning_threshold, 'severity':'warning'}
         # Turn off alerts if necessary
-        if event_type in alerts:
+        elif event_type in alerts:
             if not tunnel_id:
                 if alerts[event_type]['severity'] == 'warning' and event_samples.count(MARKED_AS_SUCCESS) >= SUCCESS_SAMPLES_THRESHOLD:
                     del alerts[event_type]
                 elif alerts[event_type]['severity'] == 'critical' and (event_samples.count(MARKED_AS_SUCCESS) + event_samples.count(MARKED_AS_WARNING)) >= SUCCESS_SAMPLES_THRESHOLD:
                     del alerts[event_type]
-            elif tunnel_id in event_samples:
+            elif tunnel_id in event_samples and tunnel_id in alerts[event_type]:
                 if alerts[event_type][tunnel_id]['severity'] == 'warning' and event_samples[tunnel_id].count(MARKED_AS_SUCCESS) >= SUCCESS_SAMPLES_THRESHOLD:
                     del alerts[event_type][tunnel_id]
                 elif alerts[event_type][tunnel_id]['severity'] == 'critical' and (event_samples[tunnel_id].count(MARKED_AS_SUCCESS) + event_samples[tunnel_id].count(MARKED_AS_WARNING)) >= SUCCESS_SAMPLES_THRESHOLD:
                     del alerts[event_type][tunnel_id]
-        return
 
 
 
@@ -207,10 +211,10 @@ class FwStatistics(FwObject):
         :return: A string containing the MD5 hash of the dictionary contents.
         """
         global alerts
-        res = ''
+        alert_data = {}
         for key, value in alerts.items():
-            res += str(key) + str(value)
-        return hashlib.md5(res.encode()).hexdigest()
+            alert_data[key] = {k: v for k, v in value.items() if k not in ('value', 'threshold')}
+        return hashlib.md5(json.dumps(alert_data, sort_keys=True).encode()).hexdigest() if alerts else ''
 
     def _update_stats(self, renew_lte_wifi_stats=True):
         """Update statistics dictionary using values retrieved from VPP interfaces.
@@ -355,7 +359,7 @@ class FwStatistics(FwObject):
             health_tracker.add_value(event_type, current_value, event_warning_threshold, event_critical_threshold)
         for tunnel_id in tunnel_stats:
             tunnel = tunnel_stats[tunnel_id]
-            tunnel_notifications = tunnel_dict[tunnel_id].get('notificationsSettings')
+            tunnel_notifications = tunnel_dict[tunnel_id].get('notificationsSettings', [])
             for tunnel_rule in tunnel_rules:
                 warning = tunnel_rules[tunnel_rule][0]
                 critical = tunnel_rules[tunnel_rule][1]
@@ -438,8 +442,8 @@ class FwStatistics(FwObject):
                 'period': 0,
                 'utc': time.time(),
                 'reconfig': reconfig,
-                'alerts':{},
-                'alerts_hash':''
+                'alerts': alerts,
+                'alerts_hash':self.get_alerts_hash()
             }
             if fwglobals.g.ikev2.is_private_key_created():
                 info['ikev2'] = ikev2_certificate_expiration
@@ -453,7 +457,6 @@ class FwStatistics(FwObject):
             res_update_list[-1]['health'] = self._get_system_health()
             if fwglobals.g.ikev2.is_private_key_created():
                 res_update_list[-1]['ikev2'] = ikev2_certificate_expiration
-
         return res_update_list
 
     def update_vpp_state(self, running):
