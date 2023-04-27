@@ -1,6 +1,5 @@
 .vscode/*
 !.vscode/settings.json
-!.vscode/cSpell.json
 
 # Byte-compiled
 __pycache__/

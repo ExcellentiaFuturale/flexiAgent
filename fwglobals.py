@@ -100,6 +100,7 @@ request_handlers = {
     'get-device-os-routes':              {'name': '_call_agent_api'},
     'get-device-config':                 {'name': '_call_agent_api'},
     'upgrade-device-sw':                 {'name': '_call_agent_api'},
+    'upgrade-linux-sw':                  {'name': '_call_agent_api'},
     'reset-device':                      {'name': '_call_agent_api'},
     'sync-device':                       {'name': '_call_agent_api'},
     'get-wifi-info':                     {'name': '_call_agent_api'},
@@ -352,7 +353,6 @@ class Fwglobals(FwObject):
         self.router_threads                = FwRouterThreading() # Primitives used for synchronization of router configuration and monitoring threads
         self.handle_request_lock           = threading.RLock()
         self.is_gcp_vm                     = fwutils.detect_gcp_vm()
-        self.firewall_acl_cache            = fwfirewall.FwFirewallAclCache()
         self.default_vxlan_port            = 4789
 
         # Config limit for QoS scheduler memory usage (limits to 'x' % of configured VPP memory)
@@ -515,6 +515,12 @@ class Fwglobals(FwObject):
         """Restore VPP if needed and start various features.
         """
         self.log.debug('initialize_agent: started')
+
+        # Construct ACL cache here, and not in the FwGlobals constructor,
+        # as it requires root permissions (to access sqlitedict file).
+        # And the constructor is called on any command, even 'fwagent version'.
+        #
+        self.firewall_acl_cache = fwfirewall.FwFirewallAclCache(self.db)
 
         # IMPORTANT! Some of the features below should be initialized before restore_vpp_if_needed
         #
@@ -862,6 +868,9 @@ def initialize(log_level=FWLOG_LEVEL_INFO, quiet=False):
 
     :returns: None.
     """
+    if not fwutils.check_root_access():
+        return False
+
     global g_initialized
     if not g_initialized:
         global log

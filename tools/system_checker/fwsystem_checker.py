@@ -355,7 +355,7 @@ def main(args):
                 print ("Please wait..")
                 os.system("sudo systemctl stop flexiwan-router")
                 checker.save_config()
-                if checker.grub.requires_reboot:
+                if checker.requires_reboot or checker.grub.requires_reboot:
                     rebootSys = 'x'
                     while not (rebootSys == "n" or rebootSys == 'N' or rebootSys == 'y' or rebootSys == 'Y'):
                         rebootSys = input("Changes to kernel configuration requires system reboot.\n" +

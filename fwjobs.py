@@ -217,10 +217,9 @@ class FwJobs(FwObject):
         """
         jobs = []
         db_keys = (
-            list(filter(lambda job_id: int(job_id) in job_ids, self.job_ids))
+            list(filter(lambda job_id: job_id in job_ids, self.job_ids))
             if job_ids
-            else self.job_ids
-        )
+            else self.job_ids )
         for job_id in sorted(db_keys):
             job = {
                 'job_id': job_id,
@@ -262,3 +261,17 @@ class FwJobs(FwObject):
             self.db[job_id] = entry # The underneath sqldict does not support in-memory modification, so replace whole element
             return
         self.log.warning(f"(update_job_error), job {job_id}, error is empty, nothing to update")
+
+    def get_job_ids_by_request(self, requests):
+        """Gets the list of job ids matching specified requests from the list.
+
+        :param requests: The list of job requests to retrieve.
+
+        :returns: The list of job ids matching the requests.
+        """
+        job_ids = []
+        for job_id in self.job_ids:
+            if self.db[job_id].get('request', '') in requests:
+                job_ids.append(job_id)
+
+        return job_ids

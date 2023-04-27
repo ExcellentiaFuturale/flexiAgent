@@ -138,7 +138,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         self.monitor_interfaces  = {}  # Interfaces that are monitored for IP changes
 
         pending_cfg_db = fwrouter_cfg.FwRouterCfg(pending_cfg_file)
-        FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, pending_cfg_db, self._on_revert_failed)
+        FwCfgRequestHandler.__init__(self, fwrouter_translators, cfg, pending_cfg_db)
 
         fwutils.reset_router_api_db() # Initialize cache that persists device reboot / daemon restart
 
@@ -726,10 +726,6 @@ class FWROUTER_API(FwCfgRequestHandler):
                 return True
 
         return False
-
-
-    def _on_revert_failed(self, reason):
-        self.state_change(FwRouterState.FAILED, "revert failed: %s" % reason)
 
     def _analyze_request(self, request):
         """Analyzes received request either simple or aggregated in order to
@@ -1402,7 +1398,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         self._update_cache_sw_if_index(sw_if_index, type, add=True, params=params)
         self.apply_features_on_interface(True, type, vpp_if_name=None, sw_if_index=sw_if_index)
 
-    def apply_features_on_interface(self, add, if_type, vpp_if_name=None, sw_if_index=None):
+    def apply_features_on_interface(self, add, if_type, vpp_if_name=None, sw_if_index=None, dev_id=None):
         if not vpp_if_name and not sw_if_index:
             err_msg = 'vpp_if_name and sw_if_index were not provided'
             self.log.error(f"apply_features_on_interface({add, if_type}): failed. {err_msg}")
@@ -1413,12 +1409,21 @@ class FWROUTER_API(FwCfgRequestHandler):
         if not sw_if_index:
             sw_if_index = fwutils.vpp_if_name_to_sw_if_index(vpp_if_name)
 
+        if not dev_id:
+            dev_id = fwutils.vpp_if_name_to_dev_id(vpp_if_name)
+
         with FwCfgMultiOpsWithRevert() as handler:
             try:
                 # apply firewall
                 if if_type == 'lan':
-                    ingress_acls = fwglobals.g.firewall_acl_cache.get('ingress')
-                    egress_acls = fwglobals.g.firewall_acl_cache.get('egress')
+                    ingress_acls = fwglobals.g.firewall_acl_cache.get(dev_id, 'ingress')
+                    if not ingress_acls:
+                        ingress_acls = fwglobals.g.firewall_acl_cache.get('global', 'ingress')
+
+                    egress_acls = fwglobals.g.firewall_acl_cache.get(dev_id, 'egress')
+                    if not egress_acls:
+                        egress_acls = fwglobals.g.firewall_acl_cache.get('global', 'egress')
+
                     handler.exec(
                         func=fw_acl_command_helpers.vpp_add_acl_rules,
                         params={ 'is_add': add, 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': egress_acls },

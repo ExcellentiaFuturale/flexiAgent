@@ -20,26 +20,47 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import fwglobals
-import fwutils
 from fwobject import FwObject
 
 class FwFirewallAclCache(FwObject):
     """Firewall class representation.
     """
-    def __init__(self):
-        self.rules = {}
-        self.rules['ingress'] = []
-        self.rules['egress']  = []
+    def __init__(self, db):
+        FwObject.__init__(self)
+        self.db      = db
+        self.devices = db.get('firewall')
+        if not self.devices:
+            db['firewall'] = {}
+            self.devices = db['firewall']
 
-    def add(self, direction, acl_id):
-        self.rules[direction].append(acl_id)
+    def _commit(self):
+        '''"self.db" is reference to sqlitedict. A such, it does not support in-memory modifications,
+        so it should be replaced completely. Hence the "_commit()" function that should be called
+        on every modification.
+        '''
+        self.db['firewall'] = self.devices
 
-    def remove(self, direction, acl_id):
-        self.rules[direction] = [tup for tup in self.rules[direction] if tup == acl_id]
+    def add(self, dev_id, direction, acl_ids):
+        if not dev_id in self.devices:
+            self.devices[dev_id] = {}
+        self.devices[dev_id][direction] = acl_ids
+        self._commit()
 
-    def get(self, direction):
-        return self.rules[direction]
+    def remove(self, dev_id, direction, acl_ids):
+        if not dev_id in self.devices:
+            return
+        if not direction in self.devices[dev_id]:
+            return
+        del self.devices[dev_id][direction]
+        self._commit()
 
-    def clear(self, direction):
-        self.rules[direction].clear()
+    def get(self, dev_id, direction):
+        if dev_id not in self.devices:
+            return []
+        if direction not in self.devices[dev_id]:
+            return []
+        return self.devices[dev_id][direction]
+
+    def clear(self):
+        self.devices = {}
+        self._commit()
