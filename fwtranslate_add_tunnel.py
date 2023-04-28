@@ -170,13 +170,71 @@ def generate_sa_id():
     fwglobals.g.db['router_api'] = router_api_db
     return sa_id
 
-def validate_tunnel_id(tunnel_id):
-    bridge_id = tunnel_id*2+1 # each tunnel uses two bridges - one with id=tunnel_id*2 and one with id=tunnel_id*2+1
-    min, max = fwglobals.g.LOOPBACK_ID_TUNNELS
-    if min <= bridge_id <= max:
+def allocate_bridge_domain_id(tunnel_id):
+    """Allocate bridge identifier.
+
+    :returns: True and bridge_id if the bridge domain identifier is allocated.
+    """
+    tunnel_bridge_ids = fwglobals.g.cache.vpp_bridge_domain_ids['tunnel_id_to_bridge_id']
+    vacant_bridge_ids = fwglobals.g.cache.vpp_bridge_domain_ids['vacant_bridge_ids']
+
+    if len(vacant_bridge_ids) > 0:
+        bridge_id = vacant_bridge_ids.pop(0)
+    else:
+        bridge_id = fwglobals.g.cache.vpp_bridge_domain_ids['last_bridge_id'] + 1
+        min, max = fwglobals.g.LOOPBACK_ID_TUNNELS
+        #vpp can set only value between 0-16299 bridge ids, for one tunnel we use 2 bride_id
+        if min < bridge_id < max//2:
+            fwglobals.g.cache.vpp_bridge_domain_ids['last_bridge_id'] = bridge_id
+        else:
+            return (False, bridge_id)
+    tunnel_bridge_ids[tunnel_id] = bridge_id
+    return (True, bridge_id)
+
+def get_bridge_domain_id(tunnel_id):
+    """Get bridge domain identifier.
+
+    :returns: A bridge domain identifier.
+    """
+    tunnel_bridge_ids = fwglobals.g.cache.vpp_bridge_domain_ids['tunnel_id_to_bridge_id']
+
+    bridge_id = tunnel_bridge_ids.get(tunnel_id)
+    if bridge_id:
+        return bridge_id
+    success, bridge_id = allocate_bridge_domain_id(tunnel_id)
+    if success:
+        fwglobals.log.info('bind bridge-id:%s to tunnel-id:%s' % (bridge_id, tunnel_id))
+        return bridge_id
+    # 8149 is half of the 16299 range, because we use 2 bridge_id for the tunnel
+    fwglobals.log.warning('the limit has been reached, bridge-id:%s >= 8149' % (bridge_id))
+    return 0
+
+def release_bridge_domain_id(tunnel_id):
+    """Release bridge domain identifier.
+
+    :returns: True, if the bridge domain identifier is released.
+    """
+    tunnel_bridge_ids = fwglobals.g.cache.vpp_bridge_domain_ids['tunnel_id_to_bridge_id']
+    vacant_bridge_ids = fwglobals.g.cache.vpp_bridge_domain_ids['vacant_bridge_ids']
+
+    bridge_id = tunnel_bridge_ids.get(tunnel_id)
+    if not bridge_id:
         return (True, None)
-    return (False,
-        "tunnel_id %d can't be served due to out of available bridge id-s" % (tunnel_id))
+    del tunnel_bridge_ids[tunnel_id]
+    vacant_bridge_ids.append(bridge_id)
+    return (True, 'binding between bridge-id:%s and tunnel-id:%s is removed' % (bridge_id, tunnel_id))
+
+def validate_bridge_domain_id(tunnel_id):
+    """Validate bridge domain identifier.
+
+    :returns: True, if the bridge domain identifier is found in the dictionary.
+    """
+    tunnel_bridge_ids = fwglobals.g.cache.vpp_bridge_domain_ids['tunnel_id_to_bridge_id']
+
+    bridge_id = tunnel_bridge_ids.get(tunnel_id)
+    if not bridge_id:
+        return (False, "tunnel_id %d can't be served due to out of available bridge id-s" % (tunnel_id))
+    return (True, None)
 
 def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal=False, vppsb_tun=False):
     """Add loopback command into the list.
@@ -749,12 +807,13 @@ def _add_ipip_multicast_rule(cmd_list, tunnel_id, src_ip, group_ip):
     cmd_list.append(cmd)
 
 
-def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
+def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, vni, bridge_id, src, dst, params):
     """Add VxLAN tunnel command into the list.
 
     :param cmd_list:             List of commands.
     :param cache_key:            Cache key of the tunnel to be used by others.
     :param dev_id:               Interface bus address to create tunnel for.
+    :param vni                   VxLAN Network Identifier
     :param bridge_id:            Bridge identifier.
     :param src:                  Source ip address.
     :param src:                  Destination ip address.
@@ -781,7 +840,7 @@ def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
             'is_add'               : 1,
             'src_address'          : src_addr,
             'dst_address'          : dst_addr,
-            'vni'                  : bridge_id,
+            'vni'                  : vni,
             'dest_port'            : int(params.get('dstPort', vxlan_port)),
             'substs': [{'add_param': 'next_hop_sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': params['dev_id']},
                        {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [dst, dev_id]}],
@@ -1359,7 +1418,7 @@ def _add_ikev2_initiator_profile(cmd_list, name,
     cmd['cmd']['descr']     = "initialize IKEv2 connection, profile %s" % name
     cmd_list.append(cmd)
 
-def _add_loop_bridge_l2gre_ipsec(cmd_list, params, l2gre_tunnel_ips, bridge_id, loop_cache_key):
+def _add_loop_bridge_l2gre_ipsec(cmd_list, params, l2gre_tunnel_ips, loopback_id, bridge_id, loop_cache_key):
     """Add GRE tunnel, loopback and bridge commands into the list.
 
     :param cmd_list:            List of commands.
@@ -1380,7 +1439,7 @@ def _add_loop_bridge_l2gre_ipsec(cmd_list, params, l2gre_tunnel_ips, bridge_id, 
                 loop_cache_key,
                 params['loopback-iface'],
                 params,
-                id=bridge_id)
+                id=loopback_id)
     _add_bridge(
                 cmd_list, bridge_id)
     _add_gre_tunnel(
@@ -1465,7 +1524,7 @@ def _add_ikev2(cmd_list, params, responder_ip_address, tunnel_intf_cache_key, au
                         pfs
                         )
 
-def _add_loop_bridge_l2gre_ikev2(cmd_list, params, l2gre_tunnel_ips, bridge_id, loop0_cache_key, loop1_cache_key):
+def _add_loop_bridge_l2gre_ikev2(cmd_list, params, l2gre_tunnel_ips, loopback_id, bridge_id, loop0_cache_key, loop1_cache_key):
     """Add IKEv2 tunnel, loopback and bridge commands into the list.
 
     :param cmd_list:            List of commands.
@@ -1482,7 +1541,7 @@ def _add_loop_bridge_l2gre_ikev2(cmd_list, params, l2gre_tunnel_ips, bridge_id, 
                 loop0_cache_key,
                 params['loopback-iface'],
                 params,
-                id=bridge_id)
+                id=loopback_id)
     _add_bridge(
                 cmd_list, bridge_id)
     _add_gre_tunnel(
@@ -1511,7 +1570,7 @@ def _add_loop_bridge_l2gre_ikev2(cmd_list, params, l2gre_tunnel_ips, bridge_id, 
     auth_method = 1 # IKEV2_AUTH_METHOD_RSA_SIG
     _add_ikev2(cmd_list, params, responder_ip_address, gre_tunnel_sw_if_index, auth_method, loop1_cache_key)
 
-def _add_loop_bridge_vxlan(cmd_list, params, loop_cfg, remote_loop_cfg, vxlan_ips, bridge_id, internal, loop_cache_key):
+def _add_loop_bridge_vxlan(cmd_list, params, loop_cfg, remote_loop_cfg, vxlan_ips, vni, bridge_id, internal, loop_cache_key):
     """Add VxLAN tunnel, loopback and bridge commands into the list.
 
     :param cmd_list:            List of commands.
@@ -1519,20 +1578,21 @@ def _add_loop_bridge_vxlan(cmd_list, params, loop_cfg, remote_loop_cfg, vxlan_ip
     :param loop_cfg:            Local loopback config.
     :param remote_loop_cfg:     Remote loopback config.
     :param vxlan_ips:           VxLAN tunnel src and dst ip addresses.
+    :param vni                  VxLAN Network Identifier
     :param bridge_id:           Bridge identifier.
     :param internal:            Hide loopback from Linux.
     :param loop_cache_key:      Loopback cache key.
 
     :returns: None.
     """
-    loop_prefix='loop%u_' % bridge_id
+    loop_prefix='loop%u_' % vni
 
     _add_loopback(
                 cmd_list,
                 loop_cache_key,
                 loop_cfg,
                 params,
-                id=bridge_id,
+                id=vni,
                 internal=internal)
     _add_bridge(
                 cmd_list, bridge_id)
@@ -1540,6 +1600,7 @@ def _add_loop_bridge_vxlan(cmd_list, params, loop_cfg, remote_loop_cfg, vxlan_ip
                 cmd_list,
                 'vxlan_tunnel_sw_if_index',
                 params.get('dev_id'),
+                vni,
                 bridge_id,
                 vxlan_ips['src'],
                 vxlan_ips['dst'],
@@ -1768,10 +1829,15 @@ def add_tunnel(params):
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']      = "validate_tunnel_id"
+        cmd['cmd']['func']      = "validate_bridge_domain_id"
         cmd['cmd']['module']    = "fwtranslate_add_tunnel"
-        cmd['cmd']['descr']     = "validate tunnel id"
+        cmd['cmd']['descr']     = "validate bridge domain id"
         cmd['cmd']['params']    = { 'tunnel_id': params['tunnel-id'] }
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "release_bridge_domain_id"
+        cmd['revert']['module'] = "fwtranslate_add_tunnel"
+        cmd['revert']['descr']  = "remove loop bridge domain id for tunnel-id %s" % params['tunnel-id']
+        cmd['revert']['params'] = { 'tunnel_id': params['tunnel-id'] }
         cmd_list.append(cmd)
 
         # Get tunnel QoS commands
@@ -1780,21 +1846,27 @@ def add_tunnel(params):
         if encryption_mode == "none":
             loop0_cfg = copy.deepcopy(params['loopback-iface'])
             loop0_cfg.update({'addr':str(loop0_ip), 'mac':str(loop0_mac), 'mtu': 9000})
-            bridge_id = params['tunnel-id']*2
-            _add_loop_bridge_vxlan(cmd_list, params, loop0_cfg, remote_loop0_cfg, vxlan_ips, bridge_id=bridge_id, internal=False, loop_cache_key=loop0_cache_key)
+            bridge_id = get_bridge_domain_id(params['tunnel-id'])*2
+            vni = params['tunnel-id']*2
+            _add_loop_bridge_vxlan(cmd_list, params, loop0_cfg, remote_loop0_cfg, vxlan_ips, vni=vni, bridge_id=bridge_id, internal=False, loop_cache_key=loop0_cache_key)
         else:
             loop1_cfg = copy.deepcopy(params['loopback-iface'])
             loop1_cfg.update({'addr':str(loop1_ip), 'mac':str(loop1_mac), 'mtu': 9000})
-            bridge_id = params['tunnel-id']*2+1
-            _add_loop_bridge_vxlan(cmd_list, params, loop1_cfg, remote_loop1_cfg, vxlan_ips, bridge_id=bridge_id, internal=True, loop_cache_key='loop1_sw_if_index')
+            bridge_id = get_bridge_domain_id(params['tunnel-id'])*2+1
+            vni = params['tunnel-id']*2+1
+            _add_loop_bridge_vxlan(cmd_list, params, loop1_cfg, remote_loop1_cfg, vxlan_ips, vni=vni, bridge_id=bridge_id, internal=True, loop_cache_key='loop1_sw_if_index')
 
             l2gre_ips = {'src':loop1_ip, 'dst':remote_loop1_ip}
             if encryption_mode == "psk":
+                bridge_id = get_bridge_domain_id(params['tunnel-id'])*2
+                loopback_id = params['tunnel-id']*2
                 # Add loop0-bridge-l2gre-ipsec
-                _add_loop_bridge_l2gre_ipsec(cmd_list, params, l2gre_ips, bridge_id=params['tunnel-id']*2, loop_cache_key=loop0_cache_key)
+                _add_loop_bridge_l2gre_ipsec(cmd_list, params, l2gre_ips, loopback_id=loopback_id, bridge_id=bridge_id, loop_cache_key=loop0_cache_key)
             elif encryption_mode == "ikev2":
+                bridge_id = get_bridge_domain_id(params['tunnel-id'])*2
+                loopback_id = params['tunnel-id']*2
                 # Add loop0-bridge-l2gre-ikev2
-                _add_loop_bridge_l2gre_ikev2(cmd_list, params, l2gre_ips, params['tunnel-id']*2, loop0_cache_key=loop0_cache_key, loop1_cache_key='loop1_sw_if_index')
+                _add_loop_bridge_l2gre_ikev2(cmd_list, params, l2gre_ips, loopback_id=loopback_id, bridge_id=bridge_id, loop0_cache_key=loop0_cache_key, loop1_cache_key='loop1_sw_if_index')
 
     # Enable classification on tunnel interface
     fwglobals.g.qos.get_classification_setup_commands(loop0_cache_key, params['dev_id'], cmd_list)

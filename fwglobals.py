@@ -254,7 +254,12 @@ class Fwglobals(FwObject):
                     'enabled_routes':  {},
                     'disabled_routes': {},
                 },
-                'LTE': {}
+                'LTE': {},
+                'VPP_BRIDGE_DOMAIN_IDS': {
+                    'tunnel_id_to_bridge_id': {},
+                    'vacant_bridge_ids': [],
+                    'last_bridge_id': 0,
+                },
             }
             self.lock                       = threading.RLock()
             self.linux_interfaces           = self.db['LINUX_INTERFACES']
@@ -267,6 +272,7 @@ class Fwglobals(FwObject):
             self.linux_interfaces_by_name   = self.db['LINUX_INTERFACES_BY_NAME']
             self.wan_monitor                = self.db['WAN_MONITOR']
             self.lte                        = self.db['LTE']
+            self.vpp_bridge_domain_ids      = self.db['VPP_BRIDGE_DOMAIN_IDS']
 
 
     def __init__(self, log=None):
