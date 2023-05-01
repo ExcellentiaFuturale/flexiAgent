@@ -174,12 +174,14 @@ class FwFrr(FwObject):
         password = neighbor.get('password')
         keepalive_interval = neighbor.get('keepaliveInterval')
         hold_interval = neighbor.get('holdInterval')
+        ebgp_multihop = neighbor.get('multiHop', 1) # 1 is the BGP default
 
         commands = [
             f'neighbor {ip} remote-as {remote_asn}',
 
             # Allow peering between directly connected eBGP peers using loopback addresses.
             f'neighbor {ip} disable-connected-check',
+            f'neighbor {ip} ebgp-multihop {ebgp_multihop}',
         ]
 
         if password:
