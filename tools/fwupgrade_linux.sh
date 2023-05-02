@@ -94,6 +94,15 @@ linux_upgrade() {
     log "INFO: Running do-release-upgrade -f DistUpgradeViewNonInteractive ..."
     do-release-upgrade -f DistUpgradeViewNonInteractive
 
+    expected_ubuntu_version="focal"
+    current_ubuntu_version="$(lsb_release -cs)"
+    log "INFO: Running lsb_release -cs returns $current_ubuntu_version"
+    if [ "$current_ubuntu_version" != "$expected_ubuntu_version" ] ; then
+        log "ERR: Ubuntu upgrade from 18.04 to 20.04 LTS was not applied successfully."
+        handle_upgrade_failure 'upgrade ubuntu' 'Failed to upgrade ubuntu'
+        exit 1
+    fi
+
     log "INFO: Fixing apt sources list files ..."
     apt_source_list_file="/etc/apt/sources.list.d/flexiwan.source.list"
     if [ -f $apt_source_list_file ] ; then
