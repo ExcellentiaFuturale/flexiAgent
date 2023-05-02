@@ -88,7 +88,8 @@ class FwVppCoredumpAnalyze():
             # Extract: 'bionic' and 'main' as os_release_type and repo_name
             build_info = build_data.readline()
             build_info_parse = build_info.split()
-            return build_info_parse[5], build_info_parse[6]
+            repo_name_index = len(build_info_parse) - 1
+            return build_info_parse[repo_name_index - 1], build_info_parse[repo_name_index]
 
     @staticmethod
     def __have_dependencies_been_packed(work_dir):
