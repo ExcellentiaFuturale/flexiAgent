@@ -71,20 +71,16 @@ update_service_conf_file() {
     fi
 }
 
-linux_upgrade() {
-
-    # Set "KillMode" option in the service file, to make sure systemd
-    # doesn't kill the 'fwupgrade_linux.sh' process itself on stopping the fwagent process,
-    # as today the 'fwupgrade_linux.sh' is invoked by the fwagent on receiving
-    # 'upgrade-linux-sw' request from flexiManage. Note, the vpp and rest processes
-    # in the fwagent control group are not stopped too, but we are OK with this for now.
-    #
-    update_service_conf_file modify
+clean_and_reboot() {
+    update_service_conf_file restore
     ret=${PIPESTATUS[0]}
     if [ ${ret} != 0 ]; then
         update_fwjob "upgrade linux" "update_service_conf_file failed: ${ret}"
-        return 1
     fi
+    reboot
+}
+
+linux_upgrade() {
 
     log "INFO: Running apt upgrade -y ..."
     apt upgrade -y
@@ -218,8 +214,22 @@ fi
 log "Closing connection to MGMT..."
 res=$(fwagent stop)
 if [ ${PIPESTATUS[0]} != 0 ]; then
-    log $res
+    log "Error: Closing connection to MGMT - ${res}"
     handle_upgrade_failure 'stop agent connection' 'Failed to stop agent connection to management'
+    exit 1
+fi
+
+# Set "KillMode" option in the service file, to make sure systemd
+# doesn't kill the 'fwupgrade_linux.sh' process itself on stopping the fwagent process,
+# as today the 'fwupgrade_linux.sh' is invoked by the fwagent on receiving
+# 'upgrade-linux-sw' request from flexiManage. Note, the vpp and rest processes
+# in the fwagent control group are not stopped too, but we are OK with this for now.
+#
+update_service_conf_file modify
+ret=${PIPESTATUS[0]}
+if [ ${ret} != 0 ]; then
+    log "Error: modifying service file - ${ret}"
+    handle_upgrade_failure "upgrade linux" "update_service_conf_file failed: ${ret}"
     exit 1
 fi
 
@@ -233,22 +243,13 @@ res=$(apt-get update)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
     handle_upgrade_failure 'update debian repositories' 'Failed to update debian repositores'
-    exit 1
+    clean_and_reboot
 fi
 
 flexiedge_install "${AGENT_SERVICE}"
 ret=${PIPESTATUS[0]}
 if [ ${ret} != 0 ]; then
     handle_upgrade_failure 'install new flexiEdge version' 'failed to install new version'
-    exit 1
 fi
 
-update_service_conf_file restore
-ret=${PIPESTATUS[0]}
-if [ ${ret} != 0 ]; then
-    update_fwjob "upgrade linux" "update_service_conf_file failed: ${ret}"
-    return 1
-fi
-
-reboot
-
+clean_and_reboot
