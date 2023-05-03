@@ -53,10 +53,20 @@ update_service_conf_file() {
         return 1
     fi
 
-    # Don't add the configuration if it already exists
+    action="$1"
+
+    # When $action is set to modify, don't add the configuration if it already exists.
+    # When $action is set to restore, don't remove the configuration if it does not exist.
     kill_mode_conf=`grep KillMode=process "$AGENT_SERVICE_FILE"`
-    if [ -z "$kill_mode_conf" ]; then
+    if [[ "$action" == "modify" && -z "$kill_mode_conf" ]] ; then
+        log "INFO: Modifying $AGENT_SERVICE_FILE to add KillMode=process"
         echo -e "\n[Service]\nKillMode=process" >> "$AGENT_SERVICE_FILE"
+        systemctl daemon-reload
+    elif [[ "$action" == "restore" && ! -z "$kill_mode_conf" ]] ; then
+        log "INFO: Restoring $AGENT_SERVICE_FILE"
+        sed -i -e '/KillMode=process/d' $AGENT_SERVICE_FILE
+        sed -i -e '${/\[Service\]/d}' $AGENT_SERVICE_FILE
+        sed -i -e '${/^$/d}' $AGENT_SERVICE_FILE
         systemctl daemon-reload
     fi
 }
@@ -69,7 +79,7 @@ linux_upgrade() {
     # 'upgrade-linux-sw' request from flexiManage. Note, the vpp and rest processes
     # in the fwagent control group are not stopped too, but we are OK with this for now.
     #
-    update_service_conf_file
+    update_service_conf_file modify
     ret=${PIPESTATUS[0]}
     if [ ${ret} != 0 ]; then
         update_fwjob "upgrade linux" "update_service_conf_file failed: ${ret}"
@@ -231,6 +241,13 @@ ret=${PIPESTATUS[0]}
 if [ ${ret} != 0 ]; then
     handle_upgrade_failure 'install new flexiEdge version' 'failed to install new version'
     exit 1
+fi
+
+update_service_conf_file restore
+ret=${PIPESTATUS[0]}
+if [ ${ret} != 0 ]; then
+    update_fwjob "upgrade linux" "update_service_conf_file failed: ${ret}"
+    return 1
 fi
 
 reboot
