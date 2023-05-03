@@ -45,7 +45,6 @@ handle_upgrade_failure() {
     log "Software upgrade failed"
     update_fwjob "$1" "$2"
     systemctl restart "$AGENT_SERVICE"
-    exit 1
 }
 
 update_service_conf_file() {
@@ -98,9 +97,8 @@ linux_upgrade() {
     current_ubuntu_version="$(lsb_release -cs)"
     log "INFO: Running lsb_release -cs returns $current_ubuntu_version"
     if [ "$current_ubuntu_version" != "$expected_ubuntu_version" ] ; then
-        log "ERR: Ubuntu upgrade from 18.04 to 20.04 LTS was not applied successfully."
-        handle_upgrade_failure 'upgrade ubuntu' 'Failed to upgrade ubuntu'
-        exit 1
+        log "ERR: Ubuntu upgrade check failed."
+        handle_upgrade_failure 'upgrade linux' 'Failed to upgrade Host OS - OS check failed'
     fi
 
     log "INFO: Fixing apt sources list files ..."
@@ -212,6 +210,7 @@ res=$(fwagent stop)
 if [ ${PIPESTATUS[0]} != 0 ]; then
     log $res
     handle_upgrade_failure 'stop agent connection' 'Failed to stop agent connection to management'
+    exit 1
 fi
 
 linux_upgrade
@@ -231,13 +230,6 @@ flexiedge_install "${AGENT_SERVICE}"
 ret=${PIPESTATUS[0]}
 if [ ${ret} != 0 ]; then
     handle_upgrade_failure 'install new flexiEdge version' 'failed to install new version'
-    exit 1
-fi
-
-# Reopen the connection loop in case it is closed
-res=$(fwagent start)
-if [ ${PIPESTATUS[0]} != 0 ]; then
-    handle_upgrade_failure 'starting agent connection loop' 'failed to connect'
     exit 1
 fi
 
