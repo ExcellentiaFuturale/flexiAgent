@@ -63,7 +63,7 @@ class EventMonitor:
        global alerts
 
     # add success(0)/warning(1)/critical(2) to the count array of the event_type
-    def add_value(self, event_type, value, warning_threshold=None, critical_threshold=None, tunnel_id=None):
+    def add_value(self, event_type, value, event_unit, warning_threshold=None, critical_threshold=None, tunnel_id=None):
         # Initialize event type count array if not present
         if event_type not in event_counts:
             if tunnel_id:
@@ -97,7 +97,7 @@ class EventMonitor:
                 event_counts[event_type].append(MARKED_AS_SUCCESS)
 
         # Update alerts if necessary
-        self.update_alerts(event_type, value, warning_threshold, critical_threshold, tunnel_id)
+        self.update_alerts(event_type, value, warning_threshold, critical_threshold, event_unit, tunnel_id)
 
     def is_critical(self, event_type, tunnel_id=None):
         if not tunnel_id:
@@ -113,22 +113,26 @@ class EventMonitor:
             count_array = event_counts.get(event_type).get(tunnel_id)
         return count_array.count(MARKED_AS_WARNING) + count_array.count(MARKED_AS_CRITICAL) >= WARNING_SAMPLES_THRESHOLD
 
-    def update_alerts(self, event_type, value, warning_threshold, critical_threshold, tunnel_id=None):
+    def update_alerts(self, event_type, value, warning_threshold, critical_threshold, event_unit, tunnel_id=None):
         event_samples = event_counts[event_type]
         if self.is_critical(event_type, tunnel_id):
             if not tunnel_id:
-                alerts[event_type] = {'value': value,'threshold': critical_threshold, 'severity':'critical'}
+                alerts[event_type] = {'value': value,'threshold': critical_threshold, 'severity':'critical', 'unit': event_unit}
             else:
                 if event_type not in alerts:
-                    alerts[event_type]= {}
-                alerts[event_type][tunnel_id] = {'value': value,'threshold': critical_threshold, 'severity':'critical'}
+                    alerts[event_type] = {}
+                if tunnel_id not in alerts[event_type]:
+                    alerts[event_type][tunnel_id] = {}
+                alerts[event_type][tunnel_id] = {'value': value,'threshold': critical_threshold, 'severity':'critical', 'unit': event_unit}
         elif self.is_warning(event_type, tunnel_id):
             if not tunnel_id:
-                alerts[event_type] = {'value': value,'threshold': warning_threshold, 'severity':'warning'}
+                alerts[event_type] = {'value': value,'threshold': warning_threshold, 'severity':'warning', 'unit': event_unit}
             else:
                 if event_type not in alerts:
-                    alerts[event_type]= {}
-                alerts[event_type][tunnel_id] = {'value': value,'threshold': warning_threshold, 'severity':'warning'}
+                    alerts[event_type] = {}
+                if tunnel_id not in alerts[event_type]:
+                    alerts[event_type][tunnel_id] = {}
+                alerts[event_type][tunnel_id] = {'value': value,'threshold': warning_threshold, 'severity':'warning', 'unit': event_unit}
         # Turn off alerts if necessary
         elif event_type in alerts:
             if not tunnel_id:
@@ -137,11 +141,14 @@ class EventMonitor:
                 elif alerts[event_type]['severity'] == 'critical' and (event_samples.count(MARKED_AS_SUCCESS) + event_samples.count(MARKED_AS_WARNING)) >= SUCCESS_SAMPLES_THRESHOLD:
                     del alerts[event_type]
             elif tunnel_id in event_samples and tunnel_id in alerts[event_type]:
-                if alerts[event_type][tunnel_id]['severity'] == 'warning' and event_samples[tunnel_id].count(MARKED_AS_SUCCESS) >= SUCCESS_SAMPLES_THRESHOLD:
-                    del alerts[event_type][tunnel_id]
-                elif alerts[event_type][tunnel_id]['severity'] == 'critical' and (event_samples[tunnel_id].count(MARKED_AS_SUCCESS) + event_samples[tunnel_id].count(MARKED_AS_WARNING)) >= SUCCESS_SAMPLES_THRESHOLD:
-                    del alerts[event_type][tunnel_id]
-
+             if alerts[event_type].get(tunnel_id) and alerts[event_type][tunnel_id]['severity'] == 'warning' and event_samples[tunnel_id].count(MARKED_AS_SUCCESS) >= SUCCESS_SAMPLES_THRESHOLD:
+                del alerts[event_type][tunnel_id]
+                if not alerts[event_type]:
+                    del alerts[event_type]
+            elif alerts[event_type].get(tunnel_id) and alerts[event_type][tunnel_id]['severity'] == 'critical' and (event_samples[tunnel_id].count(MARKED_AS_SUCCESS) + event_samples[tunnel_id].count(MARKED_AS_WARNING)) >= SUCCESS_SAMPLES_THRESHOLD:
+                del alerts[event_type][tunnel_id]
+                if not alerts[event_type]:
+                    del alerts[event_type]
 
 
 class FwStatistics(FwObject):
@@ -351,22 +358,20 @@ class FwStatistics(FwObject):
         tunnel_rules = {}
         for rule in rules:
             event_type = rule.get('event')
+            event_unit = rule.get('thresholdUnit')
             event_critical_threshold, event_warning_threshold = self.get_threshold(event_type, rule, health_stats)
             if event_type.startswith('Link/Tunnel'):
                 tunnel_rules[event_type]=(event_warning_threshold, event_critical_threshold)
                 continue
             current_value = self.get_current_value(event_type, health_stats)
-            health_tracker.add_value(event_type, current_value, event_warning_threshold, event_critical_threshold)
+            health_tracker.add_value(event_type, current_value, event_unit, event_warning_threshold, event_critical_threshold)
         for tunnel_id in tunnel_stats:
             tunnel = tunnel_stats[tunnel_id]
             tunnel_notifications = tunnel_dict[tunnel_id].get('notificationsSettings', [])
             for tunnel_rule in tunnel_rules:
-                warning = tunnel_rules[tunnel_rule][0]
-                critical = tunnel_rules[tunnel_rule][1]
+                warning = tunnel_notifications[tunnel_rule].get('warningThreshold') if tunnel_notifications else tunnel_rules[tunnel_rule][0]
+                critical = tunnel_notifications[tunnel_rule].get('criticalThreshold') if tunnel_notifications else tunnel_rules[tunnel_rule][1]
                 current_value = self.get_current_value(tunnel_rule, tunnel=tunnel)
-                if tunnel_notifications:
-                    warning = tunnel_notifications[tunnel_rule].get('warningThreshold')
-                    critical = tunnel_notifications[tunnel_rule].get('criticalThreshold')
                 health_tracker.add_value(tunnel_rule, current_value, warning, critical, tunnel_id)
         return alerts
 
