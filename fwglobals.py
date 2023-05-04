@@ -300,6 +300,7 @@ class Fwglobals(FwObject):
         self.SYSTEM_CHECKER_LOG_FILE = '/var/log/flexiwan/system_checker.log'
         self.REPO_SOURCE_DIR     = '/etc/apt/sources.list.d/'
         self.HOSTAPD_LOG_FILE     = '/var/log/hostapd.log'
+        self.HOSTAPD_LOG_FILE_BACKUP = '/var/log/hostapd.log.backup'
         self.SYSLOG_FILE         = '/var/log/syslog'
         self.DHCP_LOG_FILE       = '/var/log/dhcpd.log'
         self.VPP_LOG_FILE        = '/var/log/vpp/vpp.log'
