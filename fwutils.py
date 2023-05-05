@@ -3401,6 +3401,9 @@ def remove_linux_default_route(dev):
     """ Invokes 'ip route del' command to remove default route.
     """
     try:
+        routes_linux = FwLinuxRoutes(prefix='0.0.0.0/0', intf=dev)
+        if not routes_linux:
+            return (True, None)
         cmd = "ip route del default dev %s" % dev
         fwglobals.log.debug(cmd)
         ok = not subprocess.call(cmd, shell=True)

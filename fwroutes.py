@@ -179,13 +179,13 @@ class FwRoutes(FwObject):
 class FwLinuxRoutes(dict):
     """The object that represents routing rules found in OS.
     """
-    def __init__(self, prefix=None, preference=None, via=None, proto=None):
-        self._linux_get_routes(prefix, preference, via, proto)
+    def __init__(self, prefix=None, preference=None, via=None, proto=None, intf=None):
+        self._linux_get_routes(prefix, preference, via, proto, intf)
 
     def __getitem__(self, item):
         return self[item]
 
-    def _linux_get_routes(self, prefix=None, preference=None, via=None, proto=None):
+    def _linux_get_routes(self, prefix=None, preference=None, via=None, proto=None, intf=None):
         if not proto:
             proto_id = None
         else:
@@ -251,6 +251,9 @@ class FwLinuxRoutes(dict):
                     continue
 
                 if prefix and addr != prefix:
+                    continue
+
+                if intf and dev != intf:
                     continue
 
                 if not nexthops:
