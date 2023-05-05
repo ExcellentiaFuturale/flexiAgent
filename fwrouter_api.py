@@ -1160,7 +1160,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         reinstall = False
         for _request in requests:
             req_name = _request['message']
-            if re.match('(add|remove)-(interface|switch|application)', req_name):
+            if re.match('(add|remove)-(switch|application)', req_name):
                 reinstall = True
             elif req_name == 'remove-multilink-policy':
                 policies['multilink']['remove_policy_found'] = True
