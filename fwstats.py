@@ -372,7 +372,7 @@ class FwStatistics(FwObject):
                 warning = tunnel_notifications[tunnel_rule].get('warningThreshold') if tunnel_notifications else tunnel_rules[tunnel_rule][0]
                 critical = tunnel_notifications[tunnel_rule].get('criticalThreshold') if tunnel_notifications else tunnel_rules[tunnel_rule][1]
                 current_value = self.get_current_value(tunnel_rule, tunnel=tunnel)
-                health_tracker.add_value(tunnel_rule, current_value, warning, critical, tunnel_id)
+                health_tracker.add_value(tunnel_rule, current_value, event_unit, warning, critical, tunnel_id)
         return alerts
 
     def _get_system_health(self):
