@@ -23,6 +23,10 @@ import os
 import subprocess
 import time
 
+class CalledProcessSigTerm(subprocess.CalledProcessError):
+    """ Raised when executed command is terminated by SIGTERM """
+    pass
+
 def pid_of(process_name):
     """Get pid of process.
 
@@ -33,8 +37,13 @@ def pid_of(process_name):
     try:
         # There is an issue with pidof on Ubuntu 20.04 so replaced it with pgrep.
         pid = subprocess.check_output(['pgrep', '-x', process_name]).decode().strip()
-    except:
-        pid = None
+    except subprocess.CalledProcessError as e:
+        # if check_output returns negative exit code it means that command was killed by OS signal, like SIGTERM, SIGKILL, etc.
+        # and we can't determine if process is running so raise Exception instead
+        if e.returncode < 0:
+            raise CalledProcessSigTerm(e.returncode, e.cmd)
+        else:
+            pid = None
     return pid
 
 def kill_process(name, timeout=10):
