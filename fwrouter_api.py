@@ -1146,10 +1146,12 @@ class FWROUTER_API(FwCfgRequestHandler):
         #
         policies = {
             'multilink': {
+                'add_policy_found' :    False,
                 'remove_policy_found' : False,
                 'params': self.cfg_db.get_multilink_policy()
                 },
             'firewall': {
+                'add_policy_found' :    False,
                 'remove_policy_found' : False,
                 'params': self.cfg_db.get_firewall_policy()
                 },
@@ -1162,8 +1164,12 @@ class FWROUTER_API(FwCfgRequestHandler):
             req_name = _request['message']
             if re.match('(add|remove)-(interface|switch|application)', req_name):
                 reinstall = True
+            elif req_name == 'add-multilink-policy':
+                policies['multilink']['add_policy_found'] = True
             elif req_name == 'remove-multilink-policy':
                 policies['multilink']['remove_policy_found'] = True
+            elif req_name == 'add-firewall-policy':
+                policies['firewall']['add_policy_found'] = True
             elif req_name == 'remove-firewall-policy':
                 policies['firewall']['remove_policy_found'] = True
 
@@ -1177,7 +1183,8 @@ class FWROUTER_API(FwCfgRequestHandler):
         for p_name, policy in policies.items():
             if policy['params'] and policy['remove_policy_found'] == False:
                 requests.insert(0, { 'message': f'remove-{p_name}-policy', 'params': policy['params'] })
-                requests.append(   { 'message': f'add-{p_name}-policy',    'params': policy['params'] })
+                if policy['add_policy_found'] == False:   # the original request may have add-XXX-policy, so ne need to simulate it
+                    requests.append({ 'message': f'add-{p_name}-policy',   'params': policy['params'] })
                 modified = True
         return modified
 
