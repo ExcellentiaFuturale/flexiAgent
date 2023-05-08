@@ -631,8 +631,11 @@ class Fwglobals(FwObject):
             except Exception as e:
                 global log
                 err_str = "%s(%s): %s" % (req, format(params), str(e))
-                log.error(err_str + ': %s' % str(traceback.format_exc()))
                 reply = {"message":err_str, 'ok':0}
+                if isinstance(e, fw_os_utils.CalledProcessSigTerm):
+                    log.debug(err_str)
+                else:
+                    log.error(err_str + ': %s' % str(traceback.format_exc()))
                 return reply
 
     def _get_api_object_attr(self, api_type, attr):

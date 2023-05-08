@@ -157,7 +157,9 @@ class FWAGENT_API(FwObject):
             info['distro'] = {'version': version, 'codename': codename}
 
             return {'message': info, 'ok': 1}
-        except:
+        except CalledProcessSigTerm as e:
+            raise e
+        except Exception as e:
             raise Exception("_get_device_info: failed to get device info: %s" % format(sys.exc_info()[1]))
 
 

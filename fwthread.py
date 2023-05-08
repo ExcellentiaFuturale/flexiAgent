@@ -26,7 +26,7 @@ import traceback
 
 import fwglobals
 import fwutils
-
+from fw_os_utils import CalledProcessSigTerm
 
 class FwRouterThreading:
     def __init__(self):
@@ -61,6 +61,8 @@ class FwThread(threading.Thread):
             ticks += 1
             try:
                 self.func(ticks, *args, **kwargs)
+            except CalledProcessSigTerm as e:
+                self.log.debug("%s: got SIGTERM" % (self.getName()))
             except Exception as e:
                 self.log.error("%s: %s (%s)" % (self.getName(), str(e), traceback.format_exc()))
 
@@ -130,6 +132,8 @@ class FwRouterThread(FwThread):
 
             try:                      # 'try' prevents thread to exit on exception
                 self.func(ticks, *args, **kwargs)
+            except CalledProcessSigTerm as e:
+                self.log.debug("%s: got SIGTERM" % (self.name))
             except Exception as e:
                 self.log.error("%s: %s (%s)" % (self.name, str(e), traceback.format_exc()))
 
