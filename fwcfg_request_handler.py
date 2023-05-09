@@ -843,7 +843,7 @@ class FwCfgRequestHandler(FwObject):
                     if not key in _existing_params:
                         if not value:
                             continue  # ignore new falsy parameter even if it does not exist (falsy means None, False, "", etc.)
-                        self.log.debug(f"compare_modify_params: _modify_params: key '{key}' not found in '_existing_params.get(key)'")
+                        self.log.debug(f"compare_modify_params: _modify_params: key '{key}' not found in '_existing_params'")
                         return False
                     if value != _existing_params[key]:
                         self.log.debug(f"compare_modify_params: _modify_params['{key}']={value} != {_existing_params.get(key)}")

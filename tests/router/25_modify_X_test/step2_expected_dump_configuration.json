@@ -12,6 +12,20 @@
         "PublicIP": "6.6.6.6",
         "PublicPort": 6666,
         "addr": "__INTERFACE_1__addr",
+        "configuration": {
+          "2.4GHz": {
+            "bandwidth": "20",
+            "channel": "0",
+            "enable": true,
+            "encryption": "aes-ccmp",
+            "hideSsid": false,
+            "operationMode": "g",
+            "password": "Sifrovanje033",
+            "region": "DE",
+            "securityMode": "wpa2-psk",
+            "ssid": "24"
+          }
+        },
         "dev_id": "__INTERFACE_1__dev_id",
         "gateway": "__INTERFACE_1__gateway",
         "multilink": {

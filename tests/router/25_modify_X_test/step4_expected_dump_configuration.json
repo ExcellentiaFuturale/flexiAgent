@@ -12,17 +12,17 @@
         "PublicPort": 7777,
         "addr": "__INTERFACE_1__addr",
         "configuration": {
-          "2.4GHz": {
+          "5GHz": {
             "bandwidth": "20",
             "channel": "0",
             "enable": true,
             "encryption": "aes-ccmp",
             "hideSsid": false,
-            "operationMode": "g",
-            "password": "Sifrovanje033",
+            "operationMode": "ac",
+            "password": "Sofrpvamke-33",
             "region": "DE",
             "securityMode": "wpa2-psk",
-            "ssid": "24"
+            "ssid": "5ghz"
           }
         },
         "dev_id": "__INTERFACE_1__dev_id",
@@ -89,7 +89,7 @@
     {
       "Key": "add-tunnel:2",
       "Params": {
-        "dev_id": "__INTERFACE_1__dev_id",
+        "dev_id": "pci:0000:00:08.0",
         "dst": "20.0.0.4",
         "dstPort": "1068",
         "encryption-mode": "ikev2",
@@ -136,14 +136,14 @@
           "mtu": 1420,
           "routing": "ospf"
         },
-        "src": "__INTERFACE_1__addr_no_mask",
+        "src": "10.0.0.4",
         "tunnel-id": 2
       }
     },
     {
       "Key": "add-tunnel:3",
       "Params": {
-        "dev_id": "__INTERFACE_1__dev_id",
+        "dev_id": "pci:0000:00:08.0",
         "dst": "104.193.146.116",
         "encryption-mode": "ikev2",
         "ikev2": {
@@ -193,7 +193,7 @@
           "routing": "ospf",
           "urls": []
         },
-        "src": "__INTERFACE_1__addr_no_mask",
+        "src": "10.0.0.4",
         "tunnel-id": 3
       }
     }

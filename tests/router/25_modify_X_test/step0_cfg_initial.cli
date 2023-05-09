@@ -14,6 +14,20 @@
                 "green",
                 "blue",
                 "red"]
+        },
+        "configuration": {
+            "2.4GHz": {
+                "enable": true,
+                "bandwidth": "20",
+                "encryption": "aes-ccmp",
+                "channel": "0",
+                "region": "DE",
+                "securityMode": "wpa2-psk",
+                "hideSsid": false,
+                "operationMode": "g",
+                "ssid": "24",
+                "password": "Sifrovanje033"
+            }
         }
       },
       {

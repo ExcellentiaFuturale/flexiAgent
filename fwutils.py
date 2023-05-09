@@ -3900,14 +3900,34 @@ def get_thread_tid():
 
 
 def dict_deep_update(dst, src):
-    '''Implements recursive dict::update() method - the sub-dictionaries are
-    not replaced but updated with sub-dicts from 'src'. Eventually, this function
-    never removes keys from 'dst', but adds / updates them only.
+    '''Implements recursive dict::update() method as follows:
+        - the same leafs are overriden with leafs from 'src'
+        - the old leafs (in 'dst') that does not present in 'src' are not removed
+        - the new leafs (in 'src') that does not present in 'dst' cause the closest
+          wrapping sub-dictionary to be replaced at whole!
+          !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+          !!! if you want to add new keys to 'dst', ensure that the 'src'
+          !!! contains full set of keys, including old ones.
+          !!! This limitation comes out of format of 'modify-X' requests,
+          !!! which does not specify if the new key should replace some other key
+          !!! or should be just added. The first case example is 'modify-interface'
+          !!! for Wi-Fi that replaces 'configuration': {'2.4GHz': {...}}' with
+          !!! 'configuration': {'5GHz': {...}}'.
+          !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     '''
+    # Firstly check if 'src' has key that does not appear in 'dst'.
+    # If it is, replace whole 'dst' and return.
+    #
+    for key in src.keys():
+        if not key in dst:
+            dst.clear()
+            dst.update(src)
+            return
+
+    # Now go and override leafs or recurse on sub-dictionaries
+    #
     for key, value in src.items():
         if isinstance(value, dict):
-            if not key in dst:
-                dst[key] = {}
             dict_deep_update(dst[key], value)
         else:
             dst[key] = value
