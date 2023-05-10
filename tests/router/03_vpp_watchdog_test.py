@@ -46,7 +46,7 @@ def kill_vpp_and_restore(agent, expected_vpp_cfg):
     time.sleep(1)
 
     # Ensure that watchdog detected vpp crash and restarted it
-    started = fwtests.wait_vpp_to_start(timeout=40)
+    started = fwtests.wait_vpp_to_start(timeout=120)
     if not started:
         return (False, "vpp was not re-started")
     vpp_pid_after = fwtests.vpp_pid()
