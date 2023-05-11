@@ -74,7 +74,9 @@ g_dumpers = {
                                                    'cp /var/log/dhcpd.log    <temp_folder>/linux_dhcpd 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_disk':                   { 'shell_cmd': 'df -h > <dumper_out_file>' },
-    'linux_dist_upgrade':           { 'shell_cmd': 'cp /var/log/dist-upgrade <temp_folder>/linux_dist-upgrade.log 2>/dev/null ;' +
+
+    'linux_dist_upgrade':           { 'shell_cmd': 'mkdir -p <temp_folder>/linux_dist_upgrade/ && ' +
+                                                   'cp /var/log/dist-upgrade/* <temp_folder>/linux_dist_upgrade 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_dpdk_devbind_status':    { 'shell_cmd': 'dpdk-devbind -s > <dumper_out_file>' },
     'linux_grub':                   { 'shell_cmd': 'cp /etc/default/grub <temp_folder>/linux_grub.log 2>/dev/null ; ' +
