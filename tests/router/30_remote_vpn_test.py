@@ -71,14 +71,19 @@ def check_expected_firewall_and_close(agent, expected_file):
     os.system(f'rm {actual_file}')
 
     try:
-        output = subprocess.check_output('vppctl show acl-plugin interface', shell=True).decode()
+        wait , step = 20 , 5  # seconds
         with open(expected_file) as json_file:
             expected_output = json.load(json_file)
-            assert output.splitlines() == expected_output, f'Firewall outbound rules were not applied correctly - cli {expected_file}'
-    except:
-        if output:
-            with open(actual_file, "w") as f:
-                f.write(output)
+        output = subprocess.check_output('vppctl show acl-plugin interface', shell=True).decode().splitlines()
+        while output != expected_output and wait > 0:
+            wait -= step
+            time.sleep(step)
+            output = subprocess.check_output('vppctl show acl-plugin interface', shell=True).decode().splitlines()
+        assert output == expected_output, f'failed to apply firewall outbound rules from {expected_file}'
+    except Exception as e:
+        with open(actual_file, "w") as f:
+            f.write(json.dumps(output))
+        raise e
     finally:
         (ok, _) = agent.cli('-f %s' % cli_stop_router_file)
         (ok, _) = agent.cli('-f %s' % cli_remove_app_install_file)
