@@ -246,8 +246,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 connected = fwlte.mbim_is_connected(interface['dev_id'])
                 status_vpp = 'up' if connected else 'down'
             else:
-                sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(interface['dev_id'], verbose=False)
-                status_vpp  = fwutils.vpp_get_interface_status(sw_if_index)['link']
+                status_vpp = fwutils.vpp_get_interface_status(dev_id=interface['dev_id']).get('link')
             (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{tap_name}/carrier")
             if status_vpp == 'down' and ok and status_linux and int(status_linux)==1:
                 self.log.debug(f"detected NO-CARRIER for {tap_name}")
