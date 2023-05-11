@@ -569,19 +569,22 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
 
         # Ensure that IP was assigned by system before further configurations.
         # Note, we give 10 seconds to cover DHCP case.
+        # That covers static address case as well, that might require a second
+        # or two for linux to update interfaces.
         #
-        if is_add and (dhcp == 'yes' or ip):
-            for _ in range(10):
-                if_addr = fwutils.get_interface_address(ifname, log=False)
-                if if_addr:
-                    if dhcp == 'yes':
-                        fwglobals.log.debug(f"{dev_id}: got DHCP address {if_addr}")
-                    break
-                time.sleep(1)
-            if not if_addr and dhcp != 'yes':  # revert netplan on failure
-                err_str = f"{dev_id}: static address was not assigned by kernel"
-                _revert_netplan_file(fname_run, old_config, err_str)
-                return (False, err_str)
+        if is_add:
+            if_addr = fwutils.get_interface_address(ifname, log=False)
+            if not if_addr and fwutils.vpp_get_interface_status(dev_id=dev_id).get('link') == "up":
+                for _ in range(10):
+                    time.sleep(1)
+                    if_addr = fwutils.get_interface_address(ifname, log=False)
+                    if if_addr:
+                        fwglobals.log.debug(f"{dev_id}: got address {if_addr}")
+                        break
+                if not if_addr and dhcp != 'yes':
+                    err_str = f"{dev_id}: static address {ip} was not assigned by kernel"
+                    _revert_netplan_file(fname_run, old_config, err_str)
+                    return (False, err_str)
 
         if dev_id:
             _update_cache(is_add, dev_id, ifname)

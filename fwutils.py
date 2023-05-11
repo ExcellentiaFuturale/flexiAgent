@@ -1468,14 +1468,20 @@ def vpp_sw_if_index_to_tap(sw_if_index):
     _, tap_if_name = vpp_get_tap_info(vpp_sw_if_index=sw_if_index)
     return tap_if_name
 
-def vpp_get_interface_status(sw_if_index):
+def vpp_get_interface_status(sw_if_index=None, dev_id=None):
     """Get VPP interface state.
 
      :param sw_if_index:      VPP sw_if_index.
+	 :param dev_id:           dev_id of interface as received from flexiManage
 
      :returns: dict with admin and link statuses.
      """
     try:
+        if not sw_if_index:
+            sw_if_index = dev_id_to_vpp_sw_if_index(dev_id, verbose=False)
+        if not sw_if_index:
+            raise Exception(f"sw_if_index was not provided, dev_id={dev_id} was not resolved")
+
         interfaces = fwglobals.g.router_api.vpp_api.vpp.call('sw_interface_dump', sw_if_index=sw_if_index)
         if len(interfaces) == 1:
             flags = interfaces[0].flags
@@ -1495,7 +1501,7 @@ def vpp_get_interface_status(sw_if_index):
 
     except Exception as e:
         fwglobals.log.debug("vpp_get_interface_state: %s" % str(e))
-        return {'admin': "down" , 'link': "down"}
+        return {}
 
 
 def _vppctl_read(cmd, wait=True):
@@ -2905,30 +2911,7 @@ def get_interface_link_state(if_name, dev_id, device_type=None):
     # Check if interface is managed by vpp (vppctl).
     vpp_if_name = tap_to_vpp_if_name(if_name)
     if vpp_if_name:
-        state = ''
-        try:
-            cmd = 'show hardware-interfaces brief'
-            vppctl_read_response = _vppctl_read(cmd, False)
-            if vppctl_read_response:
-                lines = vppctl_read_response.splitlines()
-                for line in lines:
-                    if vpp_if_name in line:
-                        # Here is an example response from the command. We are interested in the
-                        # Link column, hence using index 2 after the split
-                        #               Name                Idx   Link  Hardware
-                        # GigabitEthernet0/3/0               1     up   GigabitEthernet0/3/0
-                        #   Link speed: 1 Gbps
-                        # GigabitEthernet0/8/0               2     up   GigabitEthernet0/8/0
-                        #   Link speed: 1 Gbps
-                        # local0                             0    down  local0
-                        #   Link speed: unknown
-                        state = line.split(None, 4)[2]
-                        break
-        except subprocess.CalledProcessError:
-            pass
-
-        if state:
-            return state
+        return vpp_get_interface_status(dev_id=dev_id).get('link')
 
     return _return_ethtool_value(if_name)
 
