@@ -288,11 +288,12 @@ def add_interface_attachment(ingress_ids=[], egress_ids=[], dev_ids=[]):
 
     return cmd
 
-def translate_cache_acl_rule(dev_id, direction, acl_ids):
+def translate_cache_acl_rule(dev_id, direction, acl_ids, type = "outbound"):
     """ Translate cache ACL rule
 
     :param dev_id: Device id
-    :param direction: Inbound/outbound
+    :param type: Inbound/outbound
+    :param direction: Ingress/egress
     :param acl_id: ACL identifier
     """
     cmd = {}

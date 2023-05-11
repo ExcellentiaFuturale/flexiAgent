@@ -1425,11 +1425,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                 if if_type == 'lan':
                     ingress_acls = fwglobals.g.firewall_acl_cache.get(dev_id, 'ingress')
                     if not ingress_acls:
-                        ingress_acls = fwglobals.g.firewall_acl_cache.get('global', 'ingress')
+                        ingress_acls = fwglobals.g.firewall_acl_cache.get('global_lan', 'ingress')
 
                     egress_acls = fwglobals.g.firewall_acl_cache.get(dev_id, 'egress')
                     if not egress_acls:
-                        egress_acls = fwglobals.g.firewall_acl_cache.get('global', 'egress')
+                        egress_acls = fwglobals.g.firewall_acl_cache.get('global_lan', 'egress')
 
                     handler.exec(
                         func=fw_acl_command_helpers.vpp_add_acl_rules,
@@ -1439,6 +1439,17 @@ class FWROUTER_API(FwCfgRequestHandler):
                     )
 
                 if if_type == 'wan':
+                    ingress_acls = fwglobals.g.firewall_acl_cache.get(dev_id, 'ingress')
+                    if not ingress_acls:
+                        ingress_acls = fwglobals.g.firewall_acl_cache.get('global_wan', 'ingress')
+
+                    handler.exec(
+                        func=fw_acl_command_helpers.vpp_add_acl_rules,
+                        params={ 'is_add': add, 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': [] },
+                        revert_func=fw_acl_command_helpers.vpp_add_acl_rules if add else None,
+                        revert_params={ 'is_add': (not add), 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': [] } if add else None,
+                    )
+
                     handler.exec(
                         func=fw_nat_command_helpers.add_nat_rules_interfaces,
                         params={ 'is_add': add, 'sw_if_index': sw_if_index },
