@@ -353,6 +353,7 @@ class Fwglobals(FwObject):
         self.handle_request_lock           = threading.RLock()
         self.is_gcp_vm                     = fwutils.detect_gcp_vm()
         self.default_vxlan_port            = 4789
+        self.fwagent_initialized           = False
 
         # Config limit for QoS scheduler memory usage (limits to 'x' % of configured VPP memory)
         self.QOS_SCHED_MAX_MEMORY_PERCENT = 5
