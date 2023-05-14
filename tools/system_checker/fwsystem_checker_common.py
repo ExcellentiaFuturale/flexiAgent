@@ -49,6 +49,7 @@ import fwnetplan
 import fwlte
 import fwwifi
 from fw_vpp_coredump_utils import FW_VPP_COREDUMP_FOLDER, FW_VPP_COREDUMP_PERMISSIONS
+from fwexception import FwExceptionSkippedCheck
 from fwsystem_checker import TXT_COLOR
 
 from yaml.constructor import ConstructorError
@@ -112,6 +113,30 @@ class Checker:
                 self.set_cpu_info_into_grub_file()
             self.vpp_config_modified = False
         shutil.copyfile(fwglobals.g.VPP_CONFIG_FILE, fwglobals.g.VPP_CONFIG_FILE_BACKUP)
+
+    def report_checker_result(self, succeeded, severity, description, failure_reason=None):
+        """Report checker results.
+
+        :param succeeded:       Success status.
+        :param severity:        Severity level.
+        :param description:     Description.
+        :param failure_reason:  Extended failure info.
+
+        :returns: None.
+        """
+        if succeeded is None:
+            status   = TXT_COLOR.FG_SKIPPED + ' SKIPPED ' + TXT_COLOR.END
+        elif succeeded is True:
+            status   = TXT_COLOR.FG_SUCCESS + ' PASSED  ' + TXT_COLOR.END
+        else:
+            if severity == 'optional':
+                status   = TXT_COLOR.BG_FAILURE_OPTIONAL + ' FAILED  ' + TXT_COLOR.END
+            else:
+                status   = TXT_COLOR.BG_FAILURE_CRITICAL + ' FAILED  ' + TXT_COLOR.END
+        result_string = '%s: %s : %s' % (status, severity.upper(), description)
+        if failure_reason:
+            result_string = result_string + ' (%s)' % failure_reason
+        self.log.info(result_string)
 
     def __enter__(self):
         self.log.info("=== system checker starts ====")
@@ -784,7 +809,7 @@ class Checker:
         :returns: 'True' if check is successful and 'False' otherwise.
         """
         if not fwutils.check_if_virtual_environment():
-            return None   # None -> report the check as skipped
+            raise FwExceptionSkippedCheck("not applicable in non-virtual environment")
 
         grub_params = [ 'iommu=pt', 'intel_iommu=on' ]
         res = self.grub.soft_check(grub_params, fix, prompt)
@@ -902,7 +927,7 @@ class Checker:
                     lte_interfaces.append({'driver': driver, 'dev_id': dev_id})
 
         if not lte_interfaces:
-            raise Exception("No LTE device was detected")
+            raise FwExceptionSkippedCheck("no LTE device was detected")
 
         for inf in lte_interfaces:
             if inf['driver'] == 'qmi_wwan':
@@ -983,7 +1008,7 @@ class Checker:
         if other_wifi_drivers:
             return True
 
-        raise Exception("No WiFi device was detected")
+        raise FwExceptionSkippedCheck("no WiFi device was detected")
 
     def soft_check_coredump_settings(self, fix=False, silently=False, prompt=''):
         """Create coredump settings to collect VPP crash dumps

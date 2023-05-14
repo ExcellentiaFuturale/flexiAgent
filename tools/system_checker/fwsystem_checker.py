@@ -47,6 +47,7 @@ globals = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , '..'
 sys.path.append(globals)
 import fwglobals
 import fwutils
+from fwexception import FwExceptionSkippedCheck
 
 FW_EXIT_CODE_OK = 0
 FW_EXIT_CODE_ERROR_UNMET_HARDWARE_REQUIREMENTS        = 0x1
@@ -108,30 +109,6 @@ def checker_name_to_description(checker_name):
     # convert first character to uppercase
     return result_string[0].upper() + result_string[1:]
 
-def report_checker_result(logger, succeeded, severity, description, failure_reason=None):
-    """Report checker results.
-
-    :param succeeded:       Success status.
-    :param severity:        Severity level.
-    :param description:     Description.
-    :param failure_reason:  Extended failure info.
-
-    :returns: None.
-    """
-    if succeeded is None:
-        status   = TXT_COLOR.FG_SKIPPED + ' SKIPPED ' + TXT_COLOR.END
-    elif succeeded is True:
-        status   = TXT_COLOR.FG_SUCCESS + ' PASSED  ' + TXT_COLOR.END
-    else:
-        if severity == 'optional':
-            status   = TXT_COLOR.BG_FAILURE_OPTIONAL + ' FAILED  ' + TXT_COLOR.END
-        else:
-            status   = TXT_COLOR.BG_FAILURE_CRITICAL + ' FAILED  ' + TXT_COLOR.END
-    result_string = '%s: %s : %s' % (status, severity.upper(), description)
-    if failure_reason:
-        result_string = result_string + ' : %s' % failure_reason
-    logger.info(result_string)
-
 def check_hard_configuration(checker, check_only):
     """Check hard configuration.
 
@@ -157,7 +134,7 @@ def check_hard_configuration(checker, check_only):
         result = checker_func(args)
         if not result and severity == 'critical':
             succeeded = False
-        report_checker_result(checker.log, result, severity, description)
+        checker.report_checker_result(result, severity, description)
     return succeeded
 
 def check_soft_configuration(checker, fix=False, quiet=False):
@@ -170,6 +147,7 @@ def check_soft_configuration(checker, fix=False, quiet=False):
     :returns: 'True' if succeeded.
     """
     succeeded = True
+    report_checker_result = checker.report_checker_result
     for element in soft_checkers:
         (checker_name, checker_params) = list(element.items())[0]
         description = checker_name_to_description(checker_name)
@@ -197,7 +175,7 @@ def check_soft_configuration(checker, fix=False, quiet=False):
             if fix == False or \
                result == None or \
                (result == True and (quiet == True or not interactive)):
-                report_checker_result(checker.log, result, severity, description)
+                report_checker_result(result, severity, description)
                 continue
 
             # At this point we have to fix the failed check.
@@ -207,7 +185,7 @@ def check_soft_configuration(checker, fix=False, quiet=False):
                 # but fix requires interaction, report result and continue.
                 # If the check is critical, fail the system checker.
                 #
-                report_checker_result(checker.log, result, severity, description)
+                report_checker_result(result, severity, description)
                 if severity == 'critical':
                     succeeded = False
                 continue
@@ -230,10 +208,17 @@ def check_soft_configuration(checker, fix=False, quiet=False):
                 if not result and severity == 'critical':
                     succeeded = False
 
-            report_checker_result(checker.log, result, severity, description)
+            report_checker_result(result, severity, description)
 
+        except FwExceptionSkippedCheck as e:
+            report_checker_result(None, severity, description, str(e))
         except Exception as e:
-            report_checker_result(checker.log, None, severity, description, str(e))
+            report_checker_result(
+                False,
+                severity,
+                description,
+                f"Check failed unexpectedly during execution. Error: {str(e)}",
+            )
 
     # If we fixed some parameters, reset the cache of results,
     # so next check will find and print the problems that still exist.
