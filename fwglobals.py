@@ -355,6 +355,7 @@ class Fwglobals(FwObject):
         self.handle_request_lock           = threading.RLock()
         self.is_gcp_vm                     = fwutils.detect_gcp_vm()
         self.default_vxlan_port            = 4789
+        self.fwagent_initialized           = False
 
         # Config limit for QoS scheduler memory usage (limits to 'x' % of configured VPP memory)
         self.QOS_SCHED_MAX_MEMORY_PERCENT = 5
@@ -633,9 +634,11 @@ class Fwglobals(FwObject):
             except Exception as e:
                 global log
                 err_str = "%s(%s): %s" % (req, format(params), str(e))
-                log.error(err_str + ': %s' % str(traceback.format_exc()))
-                reply = {"message":err_str, 'ok':0}
-                return reply
+                if isinstance(e, fw_os_utils.CalledProcessSigTerm):
+                    log.debug(err_str)
+                else:
+                    log.error(err_str + ': %s' % str(traceback.format_exc()))
+                return {'message': str(e), 'ok': 0}
 
     def _get_api_object_attr(self, api_type, attr):
         if api_type == '_call_router_api':

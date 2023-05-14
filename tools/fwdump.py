@@ -74,6 +74,10 @@ g_dumpers = {
                                                    'cp /var/log/dhcpd.log    <temp_folder>/linux_dhcpd 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_disk':                   { 'shell_cmd': 'df -h > <dumper_out_file>' },
+
+    'linux_dist_upgrade':           { 'shell_cmd': 'mkdir -p <temp_folder>/linux_dist_upgrade/ && ' +
+                                                   'cp /var/log/dist-upgrade/* <temp_folder>/linux_dist_upgrade 2>/dev/null ; ' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_dpdk_devbind_status':    { 'shell_cmd': 'dpdk-devbind -s > <dumper_out_file>' },
     'linux_grub':                   { 'shell_cmd': 'cp /etc/default/grub <temp_folder>/linux_grub.log 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
@@ -129,11 +133,16 @@ g_dumpers = {
     'frr_conf':                     { 'shell_cmd': 'mkdir -p <temp_folder>/frr && cp /etc/frr/* <temp_folder>/frr/ 2>/dev/null' },
     'frr_bgp_summary':              { 'shell_cmd': f'vtysh -c "show bgp summary" > <temp_folder>/frr_bgp_summary.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'frr_ip_bgp':                   { 'shell_cmd': f'vtysh -c "show ip bgp" > <temp_folder>/frr_ip_bgp.log 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+
     'frr_ip_route':                 { 'shell_cmd': f'vtysh -c "show ip route json" > <temp_folder>/frr_ip_route.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'frr_log':                      { 'shell_cmd': f'cp {g.FRR_LOG_FILE} <temp_folder>/frr.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'frr_ospf_neighbors':           { 'shell_cmd': f'vtysh -c "show ip ospf neighbor all json" > <temp_folder>/frr_ip_ospf_neighbors.json 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'frr_ospf_database':            { 'shell_cmd': f'vtysh -c "show ip ospf database" > <temp_folder>/frr_ip_ospf_database.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     ############################################################################

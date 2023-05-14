@@ -246,8 +246,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 connected = fwlte.mbim_is_connected(interface['dev_id'])
                 status_vpp = 'up' if connected else 'down'
             else:
-                sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(interface['dev_id'], verbose=False)
-                status_vpp  = fwutils.vpp_get_interface_status(sw_if_index)['link']
+                status_vpp = fwutils.vpp_get_interface_status(dev_id=interface['dev_id']).get('link')
             (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{tap_name}/carrier")
             if status_vpp == 'down' and ok and status_linux and int(status_linux)==1:
                 self.log.debug(f"detected NO-CARRIER for {tap_name}")
@@ -1146,10 +1145,12 @@ class FWROUTER_API(FwCfgRequestHandler):
         #
         policies = {
             'multilink': {
+                'add_policy_found' :    False,
                 'remove_policy_found' : False,
                 'params': self.cfg_db.get_multilink_policy()
                 },
             'firewall': {
+                'add_policy_found' :    False,
                 'remove_policy_found' : False,
                 'params': self.cfg_db.get_firewall_policy()
                 },
@@ -1162,8 +1163,12 @@ class FWROUTER_API(FwCfgRequestHandler):
             req_name = _request['message']
             if re.match('(add|remove)-(interface|switch|application)', req_name):
                 reinstall = True
+            elif req_name == 'add-multilink-policy':
+                policies['multilink']['add_policy_found'] = True
             elif req_name == 'remove-multilink-policy':
                 policies['multilink']['remove_policy_found'] = True
+            elif req_name == 'add-firewall-policy':
+                policies['firewall']['add_policy_found'] = True
             elif req_name == 'remove-firewall-policy':
                 policies['firewall']['remove_policy_found'] = True
 
@@ -1177,7 +1182,8 @@ class FWROUTER_API(FwCfgRequestHandler):
         for p_name, policy in policies.items():
             if policy['params'] and policy['remove_policy_found'] == False:
                 requests.insert(0, { 'message': f'remove-{p_name}-policy', 'params': policy['params'] })
-                requests.append(   { 'message': f'add-{p_name}-policy',    'params': policy['params'] })
+                if policy['add_policy_found'] == False:   # the original request may have add-XXX-policy, so ne need to simulate it
+                    requests.append({ 'message': f'add-{p_name}-policy',   'params': policy['params'] })
                 modified = True
         return modified
 
@@ -1418,11 +1424,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                 if if_type == 'lan':
                     ingress_acls = fwglobals.g.firewall_acl_cache.get(dev_id, 'ingress')
                     if not ingress_acls:
-                        ingress_acls = fwglobals.g.firewall_acl_cache.get('global', 'ingress')
+                        ingress_acls = fwglobals.g.firewall_acl_cache.get('global_lan', 'ingress')
 
                     egress_acls = fwglobals.g.firewall_acl_cache.get(dev_id, 'egress')
                     if not egress_acls:
-                        egress_acls = fwglobals.g.firewall_acl_cache.get('global', 'egress')
+                        egress_acls = fwglobals.g.firewall_acl_cache.get('global_lan', 'egress')
 
                     handler.exec(
                         func=fw_acl_command_helpers.vpp_add_acl_rules,
@@ -1432,6 +1438,17 @@ class FWROUTER_API(FwCfgRequestHandler):
                     )
 
                 if if_type == 'wan':
+                    ingress_acls = fwglobals.g.firewall_acl_cache.get(dev_id, 'ingress')
+                    if not ingress_acls:
+                        ingress_acls = fwglobals.g.firewall_acl_cache.get('global_wan', 'ingress')
+
+                    handler.exec(
+                        func=fw_acl_command_helpers.vpp_add_acl_rules,
+                        params={ 'is_add': add, 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': [] },
+                        revert_func=fw_acl_command_helpers.vpp_add_acl_rules if add else None,
+                        revert_params={ 'is_add': (not add), 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': [] } if add else None,
+                    )
+
                     handler.exec(
                         func=fw_nat_command_helpers.add_nat_rules_interfaces,
                         params={ 'is_add': add, 'sw_if_index': sw_if_index },
