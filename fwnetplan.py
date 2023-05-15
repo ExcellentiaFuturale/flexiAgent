@@ -572,7 +572,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         # That covers static address case as well, that might require a second
         # or two for linux to update interfaces.
         #
-        if is_add:
+        if is_add and type != "TRUNK":
             if_addr = fwutils.get_interface_address(ifname, log=False)
             if not if_addr and fwutils.vpp_get_interface_status(dev_id=dev_id).get('link') == "up":
                 for _ in range(10):
