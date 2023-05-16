@@ -681,7 +681,7 @@ def version():
         print(delimiter)
 
 def dump(filename, path, clean_log):
-    fwutils.dump(filename=filename, path=path, clean_log=clean_log)
+    fwutils.fwdump(filename=filename, path=path, clean_log=clean_log)
 
 def reset(soft=False, quiet=False, pppoe=False):
     """Handles 'fwagent reset' command.

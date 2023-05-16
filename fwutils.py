@@ -3479,7 +3479,7 @@ def get_min_metric_device(skip_dev_id):
 
     return (metric_min_dev_id, metric_min)
 
-def dump(filename=None, path=None, clean_log=False):
+def fwdump(filename=None, path=None, clean_log=False):
     '''This function invokes 'fwdump' utility while ensuring no DoS on disk space.
 
     :param filename:  the name of the final file where to dump will be tar.gz-ed
