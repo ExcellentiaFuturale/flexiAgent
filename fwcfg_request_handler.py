@@ -62,6 +62,8 @@ class FwCfgRequestHandler(FwObject):
         self.pending_cfg_db = pending_cfg_db
         self.cache_func_by_name = {}
 
+        self.fwdump_counter_on_start_router = 0
+
         self.cfg_db.set_translators(translators)
         if self.pending_cfg_db is not None:
             self.pending_cfg_db.set_translators(translators)
@@ -257,6 +259,9 @@ class FwCfgRequestHandler(FwObject):
 
         self.log.debug("=== start execution of %s ===" % (req))
 
+        if req == 'start-router':
+            self.fwdump_counter_on_start_router = 0
+
         for idx, t in enumerate(cmd_list):      # 't' stands for command Tuple, though it is Python Dictionary :)
             cmd = t['cmd']
 
@@ -287,8 +292,10 @@ class FwCfgRequestHandler(FwObject):
                 err_str = "_execute: %s(%s) failed: %s, %s" % (cmd['func'], format(cmd.get('params')), str(e), str(traceback.format_exc()))
                 self.log.error(err_str)
                 self.log.debug("=== failed execution of %s ===" % (req))
-                if fwglobals.g.router_api.state_is_starting_stopping():
-                    fwutils.dump()
+                if fwglobals.g.router_api.state_is_starting_stopping() and \
+                   self.fwdump_counter_on_start_router==0:
+                    fwutils.fwdump()
+                    self.fwdump_counter_on_start_router += 1
                 # On failure go back to the begining of list and revert executed commands.
                 self._revert(cmd_list, idx)
                 self.log.debug("=== finished revert of %s ===" % (req))
