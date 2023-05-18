@@ -24,6 +24,8 @@ import json
 import traceback
 from datetime import datetime
 
+import fwutils
+
 from fwobject import FwObject
 from fwsqlitedict import FwSqliteDict
 
@@ -198,8 +200,7 @@ class FwJobs(FwObject):
 
             entry['state'] = state
             if error:
-                # error happened during job handling
-                entry['errors'].append(error)
+                entry['errors'].append(fwutils.normalize_for_json_dumps(error))
             self.db[job_id] = entry # The underneath sqldict does not support in-memory modification, so replace whole element
             return
         except Exception as e:
@@ -256,8 +257,7 @@ class FwJobs(FwObject):
             return
 
         if error:
-            # error happened during job handling
-            entry['errors'].append(error)
+            entry['errors'].append(fwutils.normalize_for_json_dumps(error))
             self.db[job_id] = entry # The underneath sqldict does not support in-memory modification, so replace whole element
             return
         self.log.warning(f"(update_job_error), job {job_id}, error is empty, nothing to update")
