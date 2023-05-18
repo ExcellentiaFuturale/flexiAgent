@@ -245,7 +245,7 @@ def start_hostapd(remove_files_on_error=True, ensure_hostapd_enabled=False):
 
         # we need the log file empty, so we move current log to the backup file and truncate the log file
         fw_os_utils.run_linux_commands([
-            f'cat {fwglobals.g.HOSTAPD_LOG_FILE} >> {fwglobals.g.HOSTAPD_LOG_FILE_BACKUP} 2>/dev/null', # ignore error if hostapd file does not exist at this time
+            f'cat {fwglobals.g.HOSTAPD_LOG_FILE} >> {fwglobals.g.HOSTAPD_LOG_FILE_BACKUP} 2>/dev/null || true', # ignore error if hostapd file does not exist at this time
             f'echo "" > {fwglobals.g.HOSTAPD_LOG_FILE}'
         ])
 
