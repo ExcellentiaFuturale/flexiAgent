@@ -260,7 +260,6 @@ class FwPppoeConnection(FwObject):
         sys_cmd = f'ip addr del {addr} dev {self.tun_vppsb_if_name}'
         fwutils.os_system(sys_cmd, 'PPPoE remove_linux_ip_route')
 
-        sys_cmd = f'ip link set dev {self.tun_vppsb_if_name} down'
         fwutils.os_system(sys_cmd, 'PPPoE remove_linux_ip_route')
 
     def _tc_mirror_set(self, ifname_1=None, ifname_2=None, ingress=True, op='add'):
