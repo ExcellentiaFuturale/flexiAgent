@@ -21,6 +21,7 @@
 ################################################################################
 
 from fw_traffic_identification import TRAFFIC_IMPORTANCE_VALUES, TRAFFIC_SERVICE_CLASS_VALUES
+from fw_traffic_identification import APP_CLASSIFICATION_ACLS_LIST_ID
 import fwglobals
 import fw_acl_command_helpers
 
@@ -124,9 +125,10 @@ def _get_classification_setup_command(app_acl_ids, cmd_list):
     cmd['cmd']['descr'] = "Setup classification ACLs"
     cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['params'] = {
-        'api':  "classifier_acls_set_acl_list",
+        'api':  "classifier_acls_set_acls",
         'args': {
             'count' : len(app_acl_ids),
+            'acl_list_id': APP_CLASSIFICATION_ACLS_LIST_ID,
         }
     }
     args = cmd['cmd']['params']['args']
@@ -145,9 +147,10 @@ def _get_classification_setup_command(app_acl_ids, cmd_list):
     cmd['revert']['descr'] = "Clear classification ACLs"
     cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['revert']['params'] = {
-        'api': "classifier_acls_set_acl_list",
+        'api': "classifier_acls_set_acls",
         'args': {
             'count': 0,
+            'acl_list_id': APP_CLASSIFICATION_ACLS_LIST_ID,
             'acls': [],
         }
     }
