@@ -237,12 +237,11 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         interfaces = fwglobals.g.router_cfg.get_interfaces()
         for interface in interfaces:
-            if fwutils.is_vlan_interface(dev_id=interface['dev_id']):
+            if (fwutils.is_vlan_interface(dev_id=interface['dev_id']) or
+               fwpppoe.is_pppoe_interface(dev_id=interface['dev_id'])):
                 continue
             tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
-            if fwpppoe.is_pppoe_interface(dev_id=interface['dev_id']):
-                status_vpp  = fwutils.get_interface_link_state(tap_name, interface['dev_id'])
-            elif fwlte.is_lte_interface_by_dev_id(dev_id=interface['dev_id']):
+            if fwlte.is_lte_interface_by_dev_id(dev_id=interface['dev_id']):
                 connected = fwlte.mbim_is_connected(interface['dev_id'])
                 status_vpp = 'up' if connected else 'down'
             else:
