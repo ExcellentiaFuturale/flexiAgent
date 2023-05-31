@@ -20,6 +20,23 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+# Either psutil.sensors_temperatures() or psutil.cpu_persent() generates a lot of warnings:
+#  /usr/lib/python3/dist-packages/psutil/_pslinux.py:1222: RuntimeWarning: ignoring FileNotFoundError(2, 'No such file or directory') for file '/sys/class/hwmon/hwmon0/temp1_input'
+#    warnings.warn("ignoring %r for file %r" % (err, path),
+#  /usr/lib/python3/dist-packages/psutil/_pslinux.py:1222: RuntimeWarning: ignoring FileNotFoundError(2, 'No such file or directory') for file '/sys/class/hwmon/hwmon0/temp2_input'
+#    warnings.warn("ignoring %r for file %r" % (err, path),
+#  /usr/lib/python3/dist-packages/psutil/_pslinux.py:1222: RuntimeWarning: ignoring FileNotFoundError(2, 'No such file or directory') for file '/sys/class/hwmon/hwmon1/temp1_input'
+#    warnings.warn("ignoring %r for file %r" % (err, path),
+#  /usr/lib/python3/dist-packages/psutil/_pslinux.py:1222: RuntimeWarning: ignoring FileNotFoundError(2, 'No such file or directory') for file '/sys/class/hwmon/hwmon1/temp2_input'
+#    warnings.warn("ignoring %r for file %r" % (err, path),
+# That happens for psutil 5.5.1 on Ubuntu 20.04 (Kernel 5.4).
+# More info why it happens can be found here:
+#   https://github.com/giampaolo/psutil/issues/1650
+# We suppress these (and other) warnings to have a clean screen :)
+#
+import warnings
+warnings.filterwarnings("ignore")
+
 import math
 import time
 import psutil
