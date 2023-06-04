@@ -297,9 +297,10 @@ def get_tunnel_gateway(dst, dev_id):
         except Exception as e:
             fwglobals.log.error("get_tunnel_gateway: failed to check networks: dst=%s, dev_id=%s, network=%s, error=%s" % (dst, dev_id, network, str(e)))
 
-    # If src, dst are not on same subnet or any error, use the gateway defined on the device
-    gw_ip, _ = get_interface_gateway('', if_dev_id=dev_id)
-    return ipaddress.ip_address(gw_ip) if gw_ip else ipaddress.ip_address('0.0.0.0')
+        if interface['gateway']:
+            return ipaddress.ip_address(interface['gateway'])
+
+    return ipaddress.ip_address('0.0.0.0')
 
 def is_interface_assigned_to_vpp(dev_id):
     """ Check if dev_id is assigned to vpp.
@@ -701,6 +702,20 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
         if if_dev_id:
             return copy.deepcopy(interfaces.get(if_dev_id))
         return copy.deepcopy(interfaces)
+
+def update_linux_interfaces(dev_id, gw):
+    """updates specific interface in cache of interfaces without full cache rebuild.
+
+    :param dev_id: ID of interface to be updated.
+    :param gw: the GW addresses to be set into cache
+
+    :return: None.
+    """
+    with fwglobals.g.cache.lock:
+        interface = fwglobals.g.cache.linux_interfaces.get(dev_id, {})
+        interface.update({'gateway': gw})
+        fwglobals.g.cache.linux_interfaces[dev_id] = interface
+        fwglobals.log.debug(f"update_linux_interfaces({dev_id}): gw={gw}")
 
 def get_interface_dev_id(if_name):
     """Convert  interface name into bus address.

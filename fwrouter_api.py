@@ -282,6 +282,11 @@ class FWROUTER_API(FwCfgRequestHandler):
 
             if old['gw'] != new['gw']:
                 if new['type'] == 'wan':
+
+                    # Update interface cache with new GW
+                    #
+                    fwutils.update_linux_interfaces(dev_id, new['gw'])
+
                     # Update FWABF link with new GW, it is used for multilink policies
                     #
                     link = self.multilink.get_link(dev_id)
