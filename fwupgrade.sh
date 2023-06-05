@@ -224,12 +224,16 @@ fi
 
 # Wait to see if service is up and connected to the MGMT
 log "Finished installing new software. waiting for agent check (${AGENT_CHECK_TIMEOUT} sec)"
-sleep "$AGENT_CHECK_TIMEOUT"
+while ((${AGENT_CHECK_TIMEOUT})); do
+    upgrade_status=$(cat ${UPGRADE_FAILURE_FILE} 2>&1)
+    if [ "$upgrade_status" == "success" ]; then
+        log "Software upgrade process finished successfully"
+        exit 0
+    fi
+    AGENT_CHECK_TIMEOUT=$((${AGENT_CHECK_TIMEOUT}-1))
+    sleep 1
+done
 
-if [ -f "$UPGRADE_FAILURE_FILE" ]; then
-    log "Agent checks failed"
-    handle_upgrade_failure 'revert'
-fi
-
-log "Software upgrade process finished successfully"
-exit 0
+log "Software upgrade agent checks failed"
+handle_upgrade_failure 'revert'
+exit 100
