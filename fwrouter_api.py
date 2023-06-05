@@ -1455,13 +1455,17 @@ class FWROUTER_API(FwCfgRequestHandler):
                         revert_params={ 'is_add': (not add), 'sw_if_index': sw_if_index },
                     )
 
-                # apply qos classification
-                handler.exec(
-                    func=fwqos.update_interface_qos_classification,
-                    params={ 'vpp_if_name': vpp_if_name, 'add': add },
-                    revert_func=fwqos.update_interface_qos_classification if add else None, # no need revert of revert
-                    revert_params={ 'vpp_if_name': vpp_if_name, 'add': (not add) } if add else None, # no need revert of revert
-                )
+                # apply qos classification on application interfaces
+                if dev_id.startswith('app_'):
+                    # Needed only for application interfaces as it is Not added via add-interface message
+                    hqos_enabled, _ = fwglobals.g.qos.get_hqos_worker_state()
+                    if hqos_enabled:
+                        handler.exec(
+                            func=fwqos.update_interface_qos_classification,
+                            params={ 'vpp_if_name': vpp_if_name, 'add': add },
+                            revert_func=fwqos.update_interface_qos_classification if add else None, # no need revert of revert
+                            revert_params={ 'vpp_if_name': vpp_if_name, 'add': (not add) } if add else None, # no need revert of revert
+                        )
 
                 # apply multilink
                 handler.exec(
