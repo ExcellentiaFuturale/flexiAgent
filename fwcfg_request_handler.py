@@ -517,7 +517,12 @@ class FwCfgRequestHandler(FwObject):
                     # (For an example: refer function add_interface_attachment())
                     new = func(old, cache)
                 else:
-                    new  = func(*old) if type(old) == list else func(old)
+                    if type(old) == list:
+                        new = func(*old)
+                    elif type(old) == dict:
+                        new = func(**old)
+                    else:
+                        new = func(old)
                 if new is None:
                     raise Exception("fwutils.py:substitute: %s failed to map %s in '%s'" % (func, old, format(params)))
             elif 'val_by_key' in s:

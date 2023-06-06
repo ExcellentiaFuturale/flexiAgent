@@ -1067,6 +1067,12 @@ def pci_bytes_to_str(pci_bytes):
     function = (bytes) & 0x7
     return "%04x:%02x:%02x.%02x" % (domain, bus, slot, function)
 
+def dev_ids_to_vpp_sw_if_indexes(dev_ids):
+    res = []
+    for dev_id in dev_ids:
+        res.append(dev_id_to_vpp_sw_if_index(dev_id))
+    return res
+
 def dev_id_to_vpp_sw_if_index(dev_id, verbose=True):
     """Convert device bus address into VPP sw_if_index.
 

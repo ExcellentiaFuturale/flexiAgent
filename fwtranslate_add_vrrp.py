@@ -119,6 +119,43 @@ def add_vrrp(params):
     cmd['revert']['descr']      = "stop vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
     cmd_list.append(cmd)
 
+    track_interfaces = params.get('trackInterfaces', [])
+    if track_interfaces:
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']   = "call_vpp_api"
+        cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
+        cmd['cmd']['params'] = {
+                        'api':  "vrrp_vr_track_if_add_del",
+                        'args': { 
+                            'is_add': 1,
+                            'n_ifs': len(track_interfaces),
+                            'vr_id': virtual_router_id,
+                            'substs': [
+                                {'add_param': 'sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id},
+                                {'add_param': 'ifs', 'val_by_func': 'dev_ids_to_vpp_sw_if_indexes', 'arg': { 'dev_ids': track_interfaces } }
+                            ],
+                        }
+        }
+        cmd['cmd']['descr']         = "add tracke interfaces to vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
+        cmd['revert'] = {}
+        cmd['revert']['func']   = 'call_vpp_api'
+        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+        cmd['revert']['params'] = {
+                        'api':  "vrrp_vr_track_if_add_del",
+                        'args': { 
+                            'is_add': 0,
+                            'n_ifs': len(track_interfaces),
+                            'vr_id': virtual_router_id,
+                            'substs': [
+                                {'add_param': 'sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id},
+                                {'add_param': 'ifs', 'val_by_func': 'dev_ids_to_vpp_sw_if_indexes', 'arg': {'dev_ids': track_interfaces}}
+                            ],
+                        }
+        }
+        cmd['revert']['descr']      = "delete tracke interfaces from vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
+        cmd_list.append(cmd)
+
     return cmd_list
 
 def get_request_key(params):
