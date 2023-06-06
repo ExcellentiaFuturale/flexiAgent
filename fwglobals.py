@@ -149,7 +149,9 @@ request_handlers = {
     'add-vxlan-config':             {'name': '_call_router_api', 'sign': True},
     'remove-vxlan-config':          {'name': '_call_router_api', 'sign': True},
     'modify-vxlan-config':          {'name': '_call_router_api', 'sign': True},
-
+    'add-vrrp':                     {'name': '_call_router_api', 'sign': True},
+    'remove-vrrp':                  {'name': '_call_router_api', 'sign': True},
+    
     # System API
     'add-lte':                      {'name': '_call_system_api', 'sign': True},
     'remove-lte':                   {'name': '_call_system_api', 'sign': True},

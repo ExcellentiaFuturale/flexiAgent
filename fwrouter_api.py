@@ -97,6 +97,9 @@ fwrouter_translators = {
     'modify-vxlan-config':      {'module': __import__('fwtranslate_add_vxlan_config'), 'api':'modify_vxlan_config',
                                     'supported_params': 'modify_vxlan_config_supported_params'
                                 },
+
+    'add-vrrp':                 {'module': __import__('fwtranslate_add_vrrp'), 'api':'add_vrrp'},
+    'remove-vrrp':              {'module': __import__('fwtranslate_revert'),   'api':'revert'},
 }
 
 class FwRouterState(enum.Enum):
@@ -1068,7 +1071,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         '''
         add_order = [
             'add-ospf', 'add-routing-filter', 'add-routing-bgp', 'add-switch',
-            'add-interface', 'add-vxlan-config', 'add-tunnel', 'add-route', 'add-dhcp-config',
+            'add-interface', 'add-vrrp', 'add-vxlan-config', 'add-tunnel', 'add-route', 'add-dhcp-config',
             'add-application', 'add-multilink-policy', 'add-firewall-policy',
             'add-qos-traffic-map', 'add-qos-policy'
         ]
@@ -1584,7 +1587,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-qos-traffic-map',
             'add-qos-policy',
             'add-route',            # Routes should come after tunnels and after BGP, as they might use them!
-            'add-dhcp-config'
+            'add-dhcp-config',
+            'add-vrrp',
         ]
         messages = self.cfg_db.dump(types=types)
         for msg in messages:
