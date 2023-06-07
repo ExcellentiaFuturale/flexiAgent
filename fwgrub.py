@@ -79,7 +79,7 @@ class FwGrub:
                 params += f'{name} '
         params = params.strip()
 
-        cmd = f'sudo sed -i -E "s/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\\\"{params}\\\"/" {self.grub_filename}'
+        cmd = f'sudo sed -i -E "s:^GRUB_CMDLINE_LINUX_DEFAULT=.*:GRUB_CMDLINE_LINUX_DEFAULT=\\\"{params}\\\":" {self.grub_filename}'
         subprocess.check_call(cmd, shell=True)
         subprocess.check_call("sudo update-grub > /dev/null 2>&1", shell=True)
         self.updated         = False
