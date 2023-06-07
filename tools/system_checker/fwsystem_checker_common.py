@@ -1109,6 +1109,8 @@ class Checker:
             float(needed_start_limit_interval)/float(needed_start_limit_burst) else False
 
         if result or not fix:
+            if not result:
+                self.log.error(prompt + f"StartLimitInterval(={found_start_limit_interval})/StartLimitBurst(={found_start_limit_burst}) too small")
             return result
 
         # At this point we have the problem and we should fix it.
