@@ -2360,13 +2360,14 @@ def modify_dhcpd(is_add, params):
     range_end   = params.get('range_end', '')
     dns         = params.get('dns', {})
     mac_assign  = params.get('mac_assign', {})
+    options     = params.get('options', [])
 
     interfaces = fwglobals.g.router_cfg.get_interfaces(dev_id=dev_id)
     if not interfaces:
         return (False, "modify_dhcpd: %s was not found" % (dev_id))
 
     address = IPNetwork(interfaces[0]['addr'])
-    router = str(address.ip)
+    ifc_ip = str(address.ip)
     subnet = str(address.network)
     netmask = str(address.netmask)
 
@@ -2387,10 +2388,22 @@ def modify_dhcpd(is_add, params):
     else:
         dns_string = ''
 
+    routers_option_found = False
+    options_str = ''
+    for option in options:
+        name = option['option']
+        value = option['value']
+        options_str += f'option {name} {value};\n'
+        if name == 'routers':
+            routers_option_found = True
+    
+    # if user didn't provide a gateway, we put the interface ip
+    if not routers_option_found: 
+        options_str += f'option routers {ifc_ip};\n'
+
     subnet_string = 'subnet %s netmask %s' % (subnet, netmask)
-    routers_string = 'option routers %s;\n' % (router)
     dhcp_string = 'echo "' + subnet_string + ' {\n' + range_string + \
-                 routers_string + dns_string + '}"' + ' | sudo tee -a %s;' % config_file
+                 options_str + dns_string + '}"' + ' | sudo tee -a %s;' % config_file
 
     if is_add == 1:
         exec_string = remove_string + dhcp_string
@@ -2404,7 +2417,13 @@ def modify_dhcpd(is_add, params):
         host_string = 'host %s {\n' % (mac['host'])
         ethernet_string = 'hardware ethernet %s;\n' % (mac['mac'])
         ip_address_string = 'fixed-address %s;\n' % (mac['ipv4'])
-        mac_assign_string = 'echo "' + host_string + ethernet_string + ip_address_string + \
+        
+        host_name_string = ''
+        host_name = mac.get('hostName')
+        if host_name:
+            host_name_string = f'option host-name {host_name};\n'
+
+        mac_assign_string = 'echo "' + host_string + ethernet_string + ip_address_string + host_name_string + \
                             '}"' + ' | sudo tee -a %s;' % config_file
 
         if is_add == 1:
