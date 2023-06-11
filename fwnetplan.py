@@ -77,6 +77,7 @@ def restore_linux_netplan_files():
 
     if files:
         fwutils.netplan_apply('restore_linux_netplan_files')
+    return files
 
 
 def netplan_get_filepaths():
@@ -101,9 +102,8 @@ def netplan_unload_vpp_assigned_ports(assigned_linux_interfaces):
     netplan_apply = False
 
     for fname in files:
-
-        changed = False
-        config = None
+        changed_ethernets = False
+        changed_vlans = False
         with open(fname, 'r') as stream:
             config = yaml.safe_load(stream)
             if config is None:
@@ -117,11 +117,24 @@ def netplan_unload_vpp_assigned_ports(assigned_linux_interfaces):
                         set_name = ethernets[dev].get('set-name', dev)
                         if set_name in assigned_linux_interfaces:
                             del ethernets_updates[dev]
-                            changed = True
+                            changed_ethernets = True
                             fwglobals.log.debug("netplan_unload_vpp_assigned_ports: Device: %s \
                                 File: %s" % (set_name, fname))
-        if changed:
+                if 'vlans' in network:
+                    vlans = network['vlans']
+                    vlans_updates = copy.deepcopy(vlans)
+                    for dev in vlans:
+                        link = vlans[dev].get('link', '')
+                        if link and link in assigned_linux_interfaces:
+                            del vlans_updates[dev]
+                            changed_vlans = True
+                            fwglobals.log.debug("netplan_unload_vpp_assigned_ports: Vlan: %s \
+                                File: %s" % (dev, fname))
+        if changed_ethernets:
             config['network']['ethernets'] = ethernets_updates
+        if changed_vlans:
+            config['network']['vlans'] = vlans_updates
+        if changed_ethernets or changed_vlans:
             with open(fname, 'w') as file_stream:
                 yaml.dump(config, file_stream)
             netplan_apply = True
@@ -191,6 +204,8 @@ def load_netplan_filenames(read_from_disk=False, get_only=False):
     if get_only:
         return our_files
 
+    fwglobals.g.NETPLAN_FILES.clear()
+
     for fname, devices in list(our_files.items()):
         for dev in devices:
             dev_id = dev.get('dev_id')
@@ -198,7 +213,8 @@ def load_netplan_filenames(read_from_disk=False, get_only=False):
             set_name = dev.get('set-name')
             if dev_id:
                 fwglobals.g.NETPLAN_FILES[dev_id] = {'fname': fname, 'ifname': ifname, 'set-name': set_name}
-                fwglobals.log.debug('load_netplan_filenames: %s(%s) uses %s' % (ifname, dev_id, fname))
+
+    fwglobals.log.debug(f'load_netplan_filenames: {fwglobals.g.NETPLAN_FILES}')
 
     # Save the disk cache for use when needed
     netplan = fwglobals.g.db.get('netplan')
@@ -213,6 +229,11 @@ def _write_to_netplan_file(fname, config, **args):
         yaml.safe_dump(config, stream, **args)
         stream.flush()
         os.fsync(stream.fileno())
+
+def _revert_netplan_file(fname, config, reason):
+    fwglobals.log.error(reason)
+    _write_to_netplan_file(fname, config)
+    fwutils.netplan_apply(f"add_remove_netplan_interface: {reason}")
 
 def _add_netplan_file(fname):
     if os.path.exists(fname):
@@ -232,8 +253,7 @@ def _dump_netplan_file(fname):
               % (fname, str(e))
             fwglobals.log.error(err_str)
 
-def _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw,
-                              dnsServers, dnsDomains, ignoreMtu):
+def _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw, dnsServers=None, dnsDomains=None, ignoreMtu=False):
     if 'dhcp6' in config_section:
         del config_section['dhcp6']
 
@@ -290,7 +310,6 @@ def _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw,
     elif 'addresses' in config_section:
         del config_section['addresses']
 
-
     if not gw or type != 'WAN':
         return config_section
 
@@ -317,6 +336,10 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
     '''
 
     old_ethernets = {}
+    type = type.upper()
+
+    if fwutils.is_vlan_interface(dev_id=dev_id):
+        return add_remove_netplan_vlan(is_add, dev_id, ip, gw, metric, dhcp, type)
 
     if fwpppoe.is_pppoe_interface(dev_id=dev_id):
         err_str = "add_remove_netplan_interface: PPPoE interface %s is not supported" % dev_id
@@ -364,6 +387,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
     try:
         with open(fname_run, 'r') as stream:
             config = yaml.safe_load(stream)
+            old_config = copy.deepcopy(config)
             network = config['network']
             network['renderer'] = 'networkd'
 
@@ -394,7 +418,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         # Note the comments below in the appropriate places.
         is_lte = fwlte.is_lte_interface_by_dev_id(dev_id)
 
-        if is_add == 1:
+        if is_add == True:
             '''
             With 'set-name' attribute or not, the main name shall not be changed. Example below:
             enp0s3:
@@ -466,8 +490,13 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         _write_to_netplan_file(fname_run, config)
 
         # Remove default route from ip table because Netplan is not doing it.
-        if not is_add and type == 'WAN':
-            fwutils.remove_linux_default_route(ifname)
+        # Note we do that directly by 'ip route del' command
+        # and not relay on 'netplan apply', as in last case VPPSB does not handle
+        # properly kernel NETLINK messsages and does not update VPP FIB.
+        (old_gw,old_ifname,_,_,old_metric) = fwutils.get_default_route(ifname)
+        if old_ifname:
+            if (gw != old_gw) or (metric != old_metric):
+                fwutils.remove_linux_default_route(ifname)
 
         fwutils.netplan_apply('add_remove_netplan_interface')
 
@@ -538,37 +567,27 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
 
             ifname = set_name
 
-        # For DHCP interfaces wait a bit - give a chance to system get IP
+        # Ensure that IP was assigned by system before further configurations.
+        # Note, we give 10 seconds to cover DHCP case.
+        # That covers static address case as well, that might require a second
+        # or two for linux to update interfaces.
         #
-        if dhcp == 'yes' and is_add:
-            for _ in range(10):
-                time.sleep(1)
-                if_addr = fwutils.get_interface_address(ifname, log=False)
-                if if_addr:
-                    fwglobals.log.debug("Interface address from DHCP server is %s, dev_id %s" % (if_addr, dev_id))
-                    break
+        if is_add and (ip or dhcp == "yes"):
+            if_addr = fwutils.get_interface_address(ifname, log=False)
+            if not if_addr and fwutils.vpp_get_interface_status(dev_id=dev_id).get('link') == "up":
+                for _ in range(10):
+                    time.sleep(1)
+                    if_addr = fwutils.get_interface_address(ifname, log=False)
+                    if if_addr:
+                        fwglobals.log.debug(f"{dev_id}: got address {if_addr}")
+                        break
+                if not if_addr and dhcp != 'yes':
+                    err_str = f"{dev_id}: static address {ip} was not assigned by kernel"
+                    _revert_netplan_file(fname_run, old_config, err_str)
+                    return (False, err_str)
 
-        # On interface adding or removal update caches interface related caches.
-        #
         if dev_id:
-            dev_id_full = fwutils.dev_id_to_full(dev_id)
-
-            # Remove dev-id-to-vpp-if-name and vpp-if-name-to-dev-id cached
-            # values for this dev id if the interface is removed from system.
-            #
-            if is_add == False:
-                vpp_if_name = fwglobals.g.cache.dev_id_to_vpp_if_name.get(dev_id_full)
-                if vpp_if_name:
-                    del fwglobals.g.cache.dev_id_to_vpp_if_name[dev_id_full]
-                    del fwglobals.g.cache.vpp_if_name_to_dev_id[vpp_if_name]
-
-            # Remove dev-id-to-tap cached value for this dev id, as netplan might change
-            # interface name (see 'set-name' netplan option).
-            # As well re-initialize the interface name by dev id.
-            # Note 'dev_id' is None for tap-inject (vppX) of tapcli-X interfaces used for LTE/WiFi devices.
-            #
-            fwutils.set_dev_id_to_tap(dev_id, ifname)
-            fwglobals.log.debug("Interface name in cache is %s, dev_id %s" % (ifname, dev_id_full))
+            _update_cache(is_add, dev_id, ifname)
 
     except Exception as e:
         err_str = "add_remove_netplan_interface failed: dev_id: %s, file: %s, error: %s"\
@@ -579,7 +598,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
 
     return (True, None)
 
-def get_dhcp_netplan_interface(if_name):
+def is_interface_dhcp(if_name):
     files = glob.glob("/etc/netplan/*.yaml") + \
             glob.glob("/lib/netplan/*.yaml") + \
             glob.glob("/run/netplan/*.yaml")
@@ -591,17 +610,30 @@ def get_dhcp_netplan_interface(if_name):
         if config is None:
             continue
 
-        if 'network' in config:
-            network = config['network']
+        network = config.get('network')
+        if not network:
+            continue
 
-            if 'ethernets' in network:
-                ethernets = network['ethernets']
+        if fwutils.is_vlan_interface(if_name=if_name):
+            vlans = network.get('vlans')
+            if not vlans:
+                continue
 
-                if if_name in ethernets:
-                    interface = ethernets[if_name]
-                    if 'dhcp4' in interface:
-                        if interface['dhcp4'] == True:
-                            return 'yes'
+            if if_name in vlans:
+                interface = vlans[if_name]
+                if interface.get('dhcp4'):
+                    return 'yes'
+
+            continue
+
+        if not 'ethernets' in network:
+            continue
+        ethernets = network['ethernets']
+
+        if if_name in ethernets:
+            interface = ethernets[if_name]
+            if interface.get('dhcp4'):
+                return 'yes'
     return 'no'
 
 def check_interface_exist(if_name):
@@ -662,3 +694,111 @@ def create_baseline_if_not_exist(fname):
     os.system('cp %s %s.fworig' % (fname, fname))
     os.system('mv %s %s' % (fname, fname_baseline))
     return fname_baseline
+
+
+def _set_netplan_section_vlan(config_section, vlan_id, parent_dev_id):
+    ifname = fwutils.dev_id_to_tap(parent_dev_id)
+    config_section['id'] = vlan_id
+    config_section['link'] = ifname
+    return config_section
+
+def _update_cache(is_add, dev_id, ifname):
+    # On interface adding or removal update caches interface related caches.
+    #
+    dev_id_full = fwutils.dev_id_to_full(dev_id)
+
+    # Remove dev-id-to-vpp-if-name and vpp-if-name-to-dev-id cached
+    # values for this dev id if the interface is removed from system.
+    #
+    if is_add == False:
+        vpp_if_name = fwglobals.g.cache.dev_id_to_vpp_if_name.get(dev_id_full)
+        if vpp_if_name:
+            del fwglobals.g.cache.dev_id_to_vpp_if_name[dev_id_full]
+            del fwglobals.g.cache.vpp_if_name_to_dev_id[vpp_if_name]
+
+    # Remove dev-id-to-tap cached value for this dev id, as netplan might change
+    # interface name (see 'set-name' netplan option).
+    # As well re-initialize the interface name by dev id.
+    # Note 'dev_id' is None for tap-inject (vppX) of tapcli-X interfaces used for LTE/WiFi devices.
+    #
+    if is_add == True:
+        fwutils.set_dev_id_to_tap(dev_id, ifname)
+        fwglobals.log.debug("Interface name in cache is %s, dev_id %s" % (ifname, dev_id_full))
+    else:
+        fwutils.unset_dev_id_to_tap(dev_id)
+
+def add_remove_netplan_vlan(is_add, dev_id, ip, gw, metric, dhcp, type):
+    '''Add vlan section like below into Netplan file.
+        vlans:
+         eth1.10:
+           dhcp4: true
+           id: '10'
+           link: eth1
+    '''
+    type = type.upper()
+
+    fwglobals.log.debug(
+        "add_remove_netplan_vlan: is_add=%d, dev_id=%s, ip=%s, gw=%s, metric=%d, dhcp=%s, type=%s" % \
+        (is_add, dev_id, ip, gw, metric, dhcp, type))
+
+    fo_metric = get_wan_failover_metric(dev_id, metric)
+    if fo_metric != metric:
+        fwglobals.log.debug(
+            "add_remove_netplan_vlan: dev_id=%s, use wan failover metric %d" % (dev_id, fo_metric))
+        metric = fo_metric
+
+    ifname = fwutils.dev_id_to_tap(dev_id)
+    if not ifname:
+        err_str = "add_remove_netplan_vlan: %s was not found" % dev_id
+        fwglobals.log.error(err_str)
+        return (False, err_str)
+
+    parent_dev_id, vlan_id = fwutils.dev_id_parse_vlan(dev_id)
+
+    entry = fwglobals.g.NETPLAN_FILES.get(parent_dev_id, None)
+    if entry:
+        fname_run = entry.get('fname').replace('yaml', 'fwrun.yaml')
+    else:
+        fname_run = fwglobals.g.NETPLAN_FILE
+    _add_netplan_file(fname_run)
+
+    try:
+        with open(fname_run, 'r') as stream:
+            config = yaml.safe_load(stream)
+            network = config['network']
+            network['renderer'] = 'networkd'
+
+        if 'vlans' not in network:
+            network['vlans'] = {}
+
+        vlans = network['vlans']
+
+        config_section = {}
+        config_section = _set_netplan_section_vlan(config_section, vlan_id, parent_dev_id)
+        config_section = _set_netplan_section_dhcp(config_section, dhcp, type, metric, ip, gw)
+
+        if is_add == True:
+            vlans[ifname] = config_section
+        else:
+            if ifname in vlans:
+                del vlans[ifname]
+
+        _write_to_netplan_file(fname_run, config)
+
+        # Remove default route from ip table because Netplan is not doing it.
+        if not is_add and type == 'WAN':
+            fwutils.remove_linux_default_route(ifname)
+
+        fwutils.netplan_apply('add_remove_netplan_vlan')
+
+        if dev_id:
+            _update_cache(is_add, dev_id, ifname)
+
+    except Exception as e:
+        err_str = "add_remove_netplan_vlan failed: dev_id: %s, file: %s, error: %s"\
+              % (dev_id, fname_run, str(e))
+        fwglobals.log.error(err_str)
+        _dump_netplan_file(fname_run)
+        return (False, err_str)
+
+    return (True, None)

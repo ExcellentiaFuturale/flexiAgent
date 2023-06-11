@@ -94,7 +94,7 @@ def add_interface(params):
     gw        = params.get('gateway', None)
     metric    = 0 if not params.get('metric', '') else int(params.get('metric', '0'))
     dhcp      = params.get('dhcp', 'no')
-    int_type  = params.get('type', None)
+    int_type  = params.get('type', '').lower()
 
     dnsServers  = params.get('dnsServers', [])
     # If for any reason, static IP interface comes without static dns servers, we set the default automatically
@@ -116,11 +116,96 @@ def add_interface(params):
     is_wifi = fwwifi.is_wifi_interface_by_dev_id(dev_id)
     is_lte = fwlte.is_lte_interface_by_dev_id(dev_id) if not is_wifi else False
     is_pppoe = fwpppoe.is_pppoe_interface(dev_id=dev_id)
+    is_vlan = fwutils.is_vlan_interface(dev_id=dev_id)
+    add_to_netplan = True
+    if is_pppoe:
+        # PPPoE interface is not added into netplan config.
+        add_to_netplan = False
+
+    if int_type == 'trunk':
+        iface_addr = ''
+        gw = ''
+        dhcp = 'no'
+
     if is_pppoe:
         dhcp = 'no'
 
+    if is_vlan:
+        parent_dev_id, vlan_id = fwutils.dev_id_parse_vlan(dev_id)
 
-    if is_wifi:
+        if bridge_addr:
+            iface_addr = ''
+
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']          = "call_vpp_api"
+        cmd['cmd']['object']        = "fwglobals.g.router_api.vpp_api"
+        cmd['cmd']['params']        = {
+                        'api':  "create_vlan_subif",
+                        'args': {
+                            'vlan_id': vlan_id,
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_func':'dev_id_to_vpp_sw_if_index', 'arg':parent_dev_id } ]
+                        },
+        }
+        cmd['cmd']['cache_ret_val'] = ('sw_if_index', 'vlan_cache_key')
+        cmd['cmd']['descr']         = "create vlan interface"
+        cmd['revert'] = {}
+        cmd['revert']['func']       = "call_vpp_api"
+        cmd['revert']['object']     = "fwglobals.g.router_api.vpp_api"
+        cmd['revert']['params']     = {
+                        'api':  "delete_subif",
+                        'args': {
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':'vlan_cache_key'} ]
+                        },
+        }
+        cmd['revert']['descr']      = "delete vlan interface"
+        cmd_list.append(cmd)
+
+        if bridge_addr:
+            cmd = {}
+            cmd['cmd'] = {}
+            cmd['cmd']['func']          = "call_vpp_api"
+            cmd['cmd']['object']        = "fwglobals.g.router_api.vpp_api"
+            cmd['cmd']['params']        = {
+                            'api':  "l2_interface_vlan_tag_rewrite",
+                            'args': {
+                                'vtr_op': 3, # L2_VTR_POP_1 (vnet/l2/l2_vtr.h)
+                                'substs': [ { 'add_param':'sw_if_index', 'val_by_key':'vlan_cache_key'} ]
+                            },
+            }
+            cmd['cmd']['descr']         = "enable tag rewrite"
+            cmd['revert'] = {}
+            cmd['revert']['func']       = "call_vpp_api"
+            cmd['revert']['object']     = "fwglobals.g.router_api.vpp_api"
+            cmd['revert']['params']     = {
+                            'api':  "l2_interface_vlan_tag_rewrite",
+                            'args': {
+                                'substs': [ { 'add_param':'sw_if_index', 'val_by_key':'vlan_cache_key'} ]
+                            },
+            }
+            cmd['revert']['descr']      = "disable tag rewrite"
+            cmd_list.append(cmd)
+
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']      = "exec"
+        cmd['cmd']['module']    = "fwutils"
+        cmd['cmd']['descr']     = "UP interface in Linux"
+        cmd['cmd']['params']    = {
+                     'cmd':    f"sudo ip link set dev DEV-STUB up",
+                     'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':'vlan_cache_key'} ]
+        }
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "exec"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['descr']  = "Down interface in Linux"
+        cmd['revert']['params'] = {
+                        'cmd': f"sudo ip link set dev DEV-STUB down && sudo ip addr flush dev DEV-STUB",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':'vlan_cache_key'} ]
+        }
+        cmd_list.append(cmd)
+
+    elif is_wifi:
         # Create tap interface in linux and vpp.
         # This command will create three interfaces:
         #   1. linux tap interface.
@@ -329,7 +414,8 @@ def add_interface(params):
         cmd['cmd']['descr']     = "Start PPPoE connection"
         cmd['cmd']['params']    = { 'dev_id': dev_id }
         cmd_list.append(cmd)
-    else:
+
+    if add_to_netplan:
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']   = "add_remove_netplan_interface"
@@ -445,7 +531,7 @@ def add_interface(params):
             cmd_list.append(cmd)
 
     # Setup NAT config on WAN interface
-    if 'type' not in params or params['type'].lower() == 'wan':
+    if not int_type or int_type == 'wan':
         cmd_list.extend(fw_nat_command_helpers.get_nat_wan_setup_config(dev_id))
 
     # Update ospfd configuration.
@@ -607,7 +693,8 @@ def add_interface(params):
     cmd['cmd']['object']  = "fwglobals.g.router_api"
     cmd['cmd']['descr']   = "postprocess add-interface"
     cmd['cmd']['params']  = {
-                    'type': 'switch-lan' if bridge_addr else str(int_type).lower(),
+                    'type': 'switch-lan' if bridge_addr else int_type,
+                    'params': params,
                     'substs': [ { 'add_param':'sw_if_index', 'val_by_func':'dev_id_to_vpp_sw_if_index', 'arg':dev_id } ]
     }
     cmd['revert'] = {}
@@ -615,7 +702,8 @@ def add_interface(params):
     cmd['revert']['object'] = "fwglobals.g.router_api"
     cmd['revert']['descr']  = "preprocess remove-interface"
     cmd['revert']['params'] = {
-                    'type': 'switch-lan' if bridge_addr else str(int_type).lower(),
+                    'type': 'switch-lan' if bridge_addr else int_type,
+                    'params': params,
                     'substs': [ { 'add_param':'sw_if_index', 'val_by_func':'dev_id_to_vpp_sw_if_index', 'arg':dev_id } ]
     }
     cmd_list.append(cmd)

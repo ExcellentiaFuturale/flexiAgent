@@ -52,7 +52,8 @@ class Application(FwApplicationInterface):
         """
         try:
             installed = os.popen("dpkg -l | grep -E '^ii' | grep openvpn").read()
-            if installed:
+            dir_is_empty = exists('/etc/openvpn/server') and len(os.listdir('/etc/openvpn/server')) == 0
+            if installed and not dir_is_empty:
                 return
 
             os.system('mkdir -p /etc/openvpn/server')
@@ -67,10 +68,22 @@ class Application(FwApplicationInterface):
             shutil.copyfile('{}/scripts/script_utils.py'.format(path), '/etc/openvpn/server/script_utils.py')
             shutil.copyfile('{}/application_cfg.py'.format(path), '/etc/openvpn/server/application_cfg.py')
 
+            distro = os.popen('lsb_release -cs').read().strip()
+            try:
+                fw_os_utils.run_linux_commands( [
+                    'wget -O - https://swupdate.openvpn.net/repos/repo-public.gpg|apt-key add -',
+                    f'echo "deb http://build.openvpn.net/debian/openvpn/release/2.5 {distro} main" > /etc/apt/sources.list.d/openvpn-aptrepo.list',
+                ])
+            except Exception as e:
+                self.log.error(f"failed to install from openvpn repo. trying another way: {str(e)}")
+                fw_os_utils.run_linux_commands([
+                    'wget -O - https://vpnrepo.flexiwan.com/debian/openvpn/release/2.5/pubkey.gpg | apt-key add -',
+                    f'echo "deb https://vpnrepo.flexiwan.com/debian/openvpn/release/2.5/ {distro} main" > /etc/apt/sources.list.d/openvpn-aptrepo.list'
+                ]
+            )
+
             commands = [
-                'wget -O - https://swupdate.openvpn.net/repos/repo-public.gpg|apt-key add -',
-                'echo "deb http://build.openvpn.net/debian/openvpn/release/2.5 bionic main" > /etc/apt/sources.list.d/openvpn-aptrepo.list',
-                'apt-get update && apt-get install -y openvpn',
+                'apt install -y ca-certificates && apt-get update && apt-get install -y openvpn',
 
                 'chmod +x /etc/openvpn/server/auth-script.py',
                 'chmod +x /etc/openvpn/server/up-script.py',
@@ -87,11 +100,7 @@ class Application(FwApplicationInterface):
             raise e
 
     def _openvpn_pid(self):
-        try:
-            pid = subprocess.check_output(['pidof', 'openvpn'])
-            return pid
-        except:
-            return None
+        return fw_os_utils.pid_of('openvpn')
 
     def configure(self, params):
         """Configure Open VPN server on host.
@@ -123,7 +132,7 @@ class Application(FwApplicationInterface):
             self.log.error(f"configure({params}): {str(e)}")
             raise e
 
-    def uninstall(self):
+    def uninstall(self, files_only=False):
         """Remove Open VPN server from host.
 
         :returns: (True, None) tuple on success, (False, <error string>) on failure.
@@ -131,10 +140,10 @@ class Application(FwApplicationInterface):
         try:
             self.stop()
 
-            commands = [
-                'apt-get remove -y openvpn',
-                'rm -rf /etc/openvpn/server/*'
-            ]
+            commands = ['rm -rf /etc/openvpn/server/*']
+            if not files_only:
+                commands.append('apt-get remove -y openvpn')
+
             fw_os_utils.run_linux_commands(commands)
 
         except Exception as e:
@@ -397,3 +406,12 @@ class Application(FwApplicationInterface):
             cfg["openvpn_scripts_log_file"],
             cfg["openvpn_log_file"],
         ]
+
+    def get_networks(self, for_bgp=False, for_ospf=False):
+        networks = []
+        with open(cfg['app_database_file'], 'r') as json_file:
+            data = json.load(json_file)
+            tun_vpp_if_addr = data.get('tun_vpp_if_addr')
+            if tun_vpp_if_addr:
+                networks.append(tun_vpp_if_addr)
+        return networks

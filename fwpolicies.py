@@ -25,6 +25,7 @@ from sqlitedict import SqliteDict
 import fwglobals
 import fwutils
 from fwobject import FwObject
+from fwcfg_request_handler import FwCfgMultiOpsWithRevert
 
 class FwPolicies(FwObject):
     """Policies class representation.
@@ -100,8 +101,20 @@ class FwPolicies(FwObject):
             if not attach_to_wan:
                 return
 
-        op = 'add' if attach else 'del'
+        op         = 'add' if attach else 'del'
+        revert_op  = 'del' if attach else 'add'
 
-        for policy_id, priority in list(policies.items()):
-            vppctl_cmd = f'fwabf attach ip4 {op} policy {int(policy_id)} priority {priority} {vpp_if_name}'
-            fwutils.vpp_cli_execute([vppctl_cmd])
+        with FwCfgMultiOpsWithRevert() as handler:
+            try:
+                for policy_id, priority in list(policies.items()):
+                    vppctl_cmd        = f'fwabf attach ip4 {op} policy {int(policy_id)} priority {priority} {vpp_if_name}'
+                    revert_vppctl_cmd = f'fwabf attach ip4 {revert_op} policy {int(policy_id)} priority {priority} {vpp_if_name}'
+                    handler.exec(
+                        func=fwutils.vpp_cli_execute,
+                        params={ 'cmds': [vppctl_cmd], 'raise_exception_on_error': True },
+                        revert_func=fwutils.vpp_cli_execute if attach else None,
+                        revert_params={ 'cmds': [revert_vppctl_cmd] } if attach else None
+                    )
+            except Exception as e:
+                fwglobals.log.error(f"vpp_attach_detach_policies({attach, vpp_if_name, if_type}) failed: {str(e)}")
+                handler.revert(e)

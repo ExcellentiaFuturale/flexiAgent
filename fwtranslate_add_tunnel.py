@@ -29,8 +29,8 @@ from netaddr import *
 import fwglobals
 import fwlte
 import fwutils
-import fwqos
 
+IPSEC_ANTI_REPLAY_WINDOW = 448
 
 # add_tunnel
 # --------------------------------------
@@ -42,6 +42,8 @@ import fwqos
 #      "params": {
 #        "src": "8.8.1.1"
 #        "dst": "8.8.1.2"
+#        "srcPort": "4789"
+#        "dstPort": "4789"
 #        "ipsec": {
 #          "local-sa": {
 #             "spi": 1020,
@@ -176,7 +178,7 @@ def validate_tunnel_id(tunnel_id):
     return (False,
         "tunnel_id %d can't be served due to out of available bridge id-s" % (tunnel_id))
 
-def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal=False):
+def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal=False, vppsb_tun=False):
     """Add loopback command into the list.
 
     :param cmd_list:            List of commands.
@@ -185,6 +187,8 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     :param addr:                IP address.
     :param mtu:                 MTU value.
     :param internal:            Hide from Linux.
+    :param vppsb_tun:           If True the TUN will be used instead of TAP while exposing the loopback
+                                interface to Linux through the VPPSB.
 
     :returns: None.
     """
@@ -209,13 +213,17 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     #             of the 'ret_attr' attribute is stored.
     ret_attr = 'sw_if_index'
     mac_bytes = fwutils.mac_str_to_bytes(mac) if mac else 0
+    no_vppsb  = 0x1 if internal else 0  # see IF_API_FLEXIWAN_FLAG_NO_VPPSB  = 1 in interface_types.api
+    vppsb_tun = 0x2 if vppsb_tun else 0 # see IF_API_FLEXIWAN_FLAG_VPPSB_TUN = 2 in interface_types.api
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['func']   = "call_vpp_api"
     cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['params'] = {
                     'api':  "create_loopback_instance",
-                    'args': { 'mac_address':mac_bytes, 'is_specified': 1, 'user_instance': id }
+                    'args': { 'mac_address':mac_bytes, 'is_specified': 1,
+                              'user_instance': id, 'flexiwan_flags': (no_vppsb|vppsb_tun),
+                            }
     }
     cmd['cmd']['cache_ret_val'] = (ret_attr,cache_key)
     cmd['cmd']['descr']         = "create loopback interface (mac=%s, id=%d)" % (mac, id)
@@ -348,9 +356,9 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     }
     cmd_list.append(cmd)
 
-    # interface.api.json: sw_interface_flexiwan_label_add_del (..., sw_if_index, n_labels, labels, ...)
-    if 'multilink' in iface_params and 'labels' in iface_params['multilink']:
-        labels = iface_params['multilink']['labels']
+    # Configure multilink policy
+    if not internal:
+        labels = iface_params.get('multilink', {}).get('labels', [])
         if len(labels) > 0:
             # next_hop is remote end of tunnel, which is XOR(local_end, 0.0.0.1)
             next_hop = str(IPNetwork(addr).ip ^ IPAddress("0.0.0.1"))
@@ -768,17 +776,16 @@ def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
                 src = source.split('/')[0]
                 src_addr = ipaddress.ip_address(src)
 
+    vxlan_port = fwutils.get_vxlan_port()
     cmd_params = {
             'is_add'               : 1,
             'src_address'          : src_addr,
             'dst_address'          : dst_addr,
             'vni'                  : bridge_id,
-            'dest_port'            : int(params.get('dstPort', 4789)),
+            'dest_port'            : int(params.get('dstPort', vxlan_port)),
             'substs': [{'add_param': 'next_hop_sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': params['dev_id']},
-                       {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [dst, dev_id]},
-                       {'add_param': 'qos_hierarchy_id',
-                        'val_by_func': 'fwqos.get_tunnel_qos_identifier',
-                        'arg': [dev_id,  params['tunnel-id']]}],
+                       {'add_param': 'next_hop_ip', 'val_by_func': 'get_tunnel_gateway', 'arg': [dst, dev_id]}],
+            'qos_id'               : params['tunnel-id'],
             'instance'             : bridge_id,
             'decap_next_index'     : 1 # VXLAN_INPUT_NEXT_L2_INPUT, vpp/include/vnet/vxlan/vxlan.h
     }
@@ -1096,6 +1103,7 @@ def _add_ikev2_common_profile(cmd_list, params, name, cache_key, auth_method, lo
         'args': {
             'name'  :  name,
             'enable':  True,
+            'anti_replay_window_len': IPSEC_ANTI_REPLAY_WINDOW
         }
     }
     cmd_list.append(cmd)
@@ -1577,11 +1585,6 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
     next_hop         = fwutils.build_tunnel_remote_loopback_ip(addr)
     id               = params['tunnel-id']*2
 
-    # Use very specific MAC address for the peer tunnel loopback interface,
-    # so vppsb will detect it and will create TUN tun/tap device in Linux,
-    # and not TAP. The TUN works on level 3 and does not use MAC addresses.
-    # So we exploit this fact and use MAC address as a marker for the peer tunnel
-    # loopback.
     # We use "02:00:27:ff:{tunnel-id}" format because:
     #  "02:00:27:fd" is used by server for the tunnel loopbacks
     #  "02:00:27:fe" is used by agent for the tunnel second loopback which is hidden from users
@@ -1597,10 +1600,11 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
     _add_ipip_multicast_rule(cmd_list, id, addr, "224.0.0.6")
 
     loopback_params = {'addr':addr, 'mtu': mtu, 'mac': mac}
-    _add_loopback(cmd_list, peer_loopback_cache_key, loopback_params, params, id=id)
+    _add_loopback(cmd_list, peer_loopback_cache_key, loopback_params, params, id=id, vppsb_tun=True)
 
     substs = [ {'replace':'DEV1-STUB', 'key': 'cmds', 'val_by_func':'vpp_sw_if_index_to_name', 'arg_by_key':peer_loopback_cache_key},
-               {'replace':'DEV2-STUB', 'key': 'cmds', 'val_by_func':'vpp_sw_if_index_to_name', 'arg_by_key':tunnel_cache_key}]
+               {'replace':'DEV2-STUB', 'key': 'cmds', 'val_by_func':'vpp_sw_if_index_to_name', 'arg_by_key':tunnel_cache_key},
+               {'replace':'DEV2-GW', 'key': 'cmds', 'val_by_func':'get_tunnel_gateway', 'arg': [params['dst'], params['dev_id']]}]
 
     cmd = {}
     cmd['cmd'] = {}
@@ -1628,7 +1632,7 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
     cmd['cmd']['descr']   = "add l3xc connection"
     cmd['cmd']['params']  = {
                     'substs': substs,
-                    'cmds':['l3xc add DEV1-STUB via DEV2-STUB'],
+                    'cmds':['l3xc add DEV1-STUB via DEV2-GW DEV2-STUB'],
     }
     cmd['revert'] = {}
     cmd['revert']['func']    = "vpp_cli_execute"
@@ -1636,7 +1640,7 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key):
     cmd['revert']['descr']   = "remove l3xc connection"
     cmd['revert']['params']  = {
                     'substs': substs,
-                    'cmds':['l3xc del DEV1-STUB via DEV2-STUB'],
+                    'cmds':['l3xc del DEV1-STUB via DEV2-GW DEV2-STUB'],
     }
     cmd_list.append(cmd)
 
@@ -1754,7 +1758,7 @@ def add_tunnel(params):
                 _add_loop_bridge_l2gre_ikev2(cmd_list, params, l2gre_ips, params['tunnel-id']*2, loop0_cache_key=loop0_cache_key, loop1_cache_key='loop1_sw_if_index')
 
     # Enable classification on tunnel interface
-    fwglobals.g.qos.get_tunnel_classification_setup_commands (params, loop0_cache_key, cmd_list)
+    fwglobals.g.qos.get_classification_setup_commands(loop0_cache_key, params['dev_id'], cmd_list)
 
     # --------------------------------------------------------------------------
     # Add following section to frr ospfd.conf
@@ -1837,7 +1841,7 @@ def add_tunnel(params):
                 'ip': remote_loop0_ip,
                 'remoteAsn': bgp_remote_asn
             }
-            add_frr_cmds = fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
+            add_frr_cmds = fwglobals.g.router_api.frr.translate_bgp_neighbor_to_frr_commands(neighbor)
 
             revert_cmds = ['router bgp', f'no neighbor {remote_loop0_ip}']
             cmd = {}

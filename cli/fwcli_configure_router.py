@@ -19,12 +19,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
-import json
 
 import fwglobals
 import fw_os_utils
 import fwutils
 from fwagent import daemon_rpc
+from fwcfg_request_handler import FwCfgMultiOpsWithRevert
 
 def argparse(configure_subparsers):
     configure_router_parser = configure_subparsers.add_parser('router', help='Configure router')
@@ -37,6 +37,8 @@ def argparse(configure_subparsers):
     create_interfaces_cli.add_argument('--type', dest='params.type', choices=['wan', 'lan'], metavar='INTERFACE_TYPE', help="Indicates if interface will be use to go to the internet", required=True)
     create_interfaces_cli.add_argument('--addr', dest='params.addr', metavar='ADDRESS', help="The IPv4 to configure on the VPP interface", required=True)
     create_interfaces_cli.add_argument('--host_if_name', dest='params.host_if_name', metavar='LINUX_INTERFACE_NAME', help="The name of the interface that will be created in Linux side", required=True)
+    create_interfaces_cli.add_argument('--dev_id', dest='params.dev_id', help="Device id", required=True)
+    create_interfaces_cli.add_argument('--no_vppsb', dest='params.no_vppsb', help="If it appears, VPPSB will not create Linux interface for it (but VPP will) - Do it if you know what you are doing", action='store_true')
 
     remove_interfaces_cli = router_interfaces_subparsers.add_parser('delete', help='Remove VPP interface')
     remove_interfaces_cli.add_argument('--type', dest='params.type', choices=['wan', 'lan'], metavar='INTERFACE_TYPE', help="Indicates if interface is used to go to the internet", required=True)
@@ -44,11 +46,7 @@ def argparse(configure_subparsers):
     remove_interfaces_cli.add_argument('--vpp_if_name', dest='params.vpp_if_name', metavar='VPP_INTERFACE_NAME', help="VPP interface name", required=True)
     remove_interfaces_cli.add_argument('--ignore_errors', dest='params.ignore_errors', help="Ignore exceptions during removal", action='store_true')
 
-    firewall_parser = configure_router_subparsers.add_parser('firewall', help='Configure firewall')
-    router_firewall_subparsers = firewall_parser.add_subparsers(dest='firewall')
-    router_firewall_subparsers.add_parser('restart', help='Re-apply firewall (Temporary)')
-
-def interfaces_create(type, addr, host_if_name):
+def interfaces_create(type, addr, host_if_name, dev_id, no_vppsb=False):
     if not fwutils.is_ipv4(addr):
         raise Exception(f'addr {addr} is not valid IPv4 address')
     if len(host_if_name) > 15:
@@ -57,7 +55,7 @@ def interfaces_create(type, addr, host_if_name):
         'api',
         api_module='fwcli_configure_router',
         api_name='api_interface_create',
-        type=type, addr=addr, host_if_name=host_if_name
+        type=type, addr=addr, host_if_name=host_if_name, dev_id=dev_id, no_vppsb=no_vppsb
     )
     return ret
 
@@ -71,49 +69,56 @@ def interfaces_delete(vpp_if_name, type, addr, ignore_errors=False):
         type=type, addr=addr, vpp_if_name=vpp_if_name, ignore_errors=ignore_errors
     )
 
-def firewall_restart():
-    daemon_rpc(
-        'api',
-        api_module='fwcli_configure_router',
-        api_name='api_firewall_restart'
-    )
-
-def api_interface_create(type, addr, host_if_name, ospf=True, bgp=True):
+def api_interface_create(type, addr, host_if_name, dev_id, no_vppsb, ospf=True, bgp=True):
     if not fw_os_utils.vpp_does_run():
         return
 
-    revert_ospf = False
-    revert_bgp = False
+    ret = {}
+    with FwCfgMultiOpsWithRevert() as handler:
+        try:
+            # create tun
+            tun_vpp_if_name = handler.exec(
+                func=fwutils.create_tun_in_vpp,
+                params={ 'addr': addr, 'host_if_name': host_if_name, 'recreate_if_exists': True, 'no_vppsb': no_vppsb }
+            )
+            handler.add_revert_func(
+                revert_func=fwutils.delete_tun_tap_from_vpp,
+                revert_params={ 'vpp_if_name': tun_vpp_if_name, 'ignore_errors': False }
+            )
+            ret['tun_vpp_if_name'] = tun_vpp_if_name
 
-    try:
-        ret = {}
-        if ospf:
-            _ret, err_str = fwglobals.g.router_api.frr.run_ospf_add(addr, '0.0.0.0')
-            if not _ret:
-                raise Exception(f'api_add_interface(): Failed to add {addr} network to ospf. err_str={str(err_str)}')
-            revert_ospf = True
+            # apply features
+            handler.exec(
+                func=fwglobals.g.router_api.apply_features_on_interface,
+                params={ 'add': True, 'vpp_if_name': tun_vpp_if_name, 'dev_id': dev_id, 'if_type': type },
+                revert_func=fwglobals.g.router_api.apply_features_on_interface,
+                revert_params={ 'add': False, 'vpp_if_name': tun_vpp_if_name, 'dev_id': dev_id, 'if_type': type },
+            )
 
-        if bgp and fwglobals.g.router_cfg.get_bgp(): # check if BGP exists
-            _ret, err_str = fwglobals.g.router_api.frr.run_bgp_add_network(addr)
-            if not _ret:
-                raise Exception(f'api_add_interface(): Failed to add {addr} network to bgp. err_str={str(err_str)}')
-            revert_bgp = True
+            if ospf:
+                _ret, err_str = handler.exec(
+                    func=fwglobals.g.router_api.frr.run_ospf_add,
+                    params={ 'address': addr, 'area': '0.0.0.0' },
+                    revert_func=fwglobals.g.router_api.frr.run_ospf_remove,
+                    revert_params={ 'address': addr, 'area': '0.0.0.0' },
+                )
+                if not _ret:
+                    raise Exception(f'api_interface_create(): Failed to add {addr} network to ospf. err_str={str(err_str)}')
 
-        tun_vpp_if_name = fwutils.create_tun_in_vpp(addr, host_if_name=host_if_name, recreate_if_exists=True)
-        ret['tun_vpp_if_name'] = tun_vpp_if_name
+            if bgp and fwglobals.g.router_cfg.get_bgp(): # check if BGP exists
+                _ret, err_str = handler.exec(
+                    func=fwglobals.g.router_api.frr.run_bgp_add_network,
+                    params={ 'address': addr },
+                    revert_func=fwglobals.g.router_api.frr.run_bgp_remove_network,
+                    revert_params={ 'address': addr },
+                )
+                if not _ret:
+                    raise Exception(f'api_interface_create(): Failed to add {addr} network to bgp. err_str={str(err_str)}')
 
-        fwglobals.g.router_api.apply_features_on_interface(True, tun_vpp_if_name, type)
-
-        return ret
-    except Exception as e:
-        fwglobals.log.error(f'api_interface_create({type}, {addr}, {host_if_name}) failed. {str(e)}')
-        if revert_bgp:
-            fwglobals.g.router_api.frr.run_bgp_remove_network(addr)
-
-        if revert_ospf:
-            fwglobals.g.router_api.frr.run_ospf_remove(addr, '0.0.0.0')
-
-        raise e
+            return ret
+        except Exception as e:
+            fwglobals.log.error(f'api_interface_create({type}, {addr}, {host_if_name}) failed. {str(e)}')
+            handler.revert(e)
 
 def api_interface_delete(vpp_if_name, type, addr, ospf=True, bgp=True, ignore_errors=False):
     if not fw_os_utils.vpp_does_run():
@@ -122,24 +127,25 @@ def api_interface_delete(vpp_if_name, type, addr, ospf=True, bgp=True, ignore_er
     try:
         if ospf:
             ret, err_str = fwglobals.g.router_api.frr.run_ospf_remove(addr, '0.0.0.0')
-            if not ret and not ignore_errors:
-                raise Exception(f'api_remove_interface(): Failed to remove {addr} network from ospf. err_str={str(err_str)}')
+            if not ret:
+                err_msg = f'api_interface_delete(): Failed to remove {addr} network from ospf. err_str={str(err_str)}'
+                if ignore_errors:
+                    fwglobals.log.error(err_msg)
+                else:
+                    raise Exception(err_msg)
 
         if bgp and fwglobals.g.router_cfg.get_bgp():
             ret, err_str = fwglobals.g.router_api.frr.run_bgp_remove_network(addr)
-            if not ret and not ignore_errors:
-                raise Exception(f'api_remove_interface(): Failed to remove {addr} network from bgp. err_str={str(err_str)}')
+            if not ret:
+                err_msg = f'api_interface_delete(): Failed to remove {addr} network from bgp. err_str={str(err_str)}'
+                if ignore_errors:
+                    fwglobals.log.error(err_msg)
+                else:
+                    raise Exception(err_msg)
 
-        fwglobals.g.router_api.apply_features_on_interface(False, vpp_if_name, type)
+        fwglobals.g.router_api.apply_features_on_interface(False, type, vpp_if_name=vpp_if_name)
 
         fwutils.delete_tun_tap_from_vpp(vpp_if_name, ignore_errors)
     except Exception as e:
         fwglobals.log.error(f'api_interface_delete({vpp_if_name}, {type}, {addr}) failed. {str(e)}')
         raise e
-
-def api_firewall_restart():
-    firewall_policy_params = fwglobals.g.router_cfg.get_firewall_policy()
-    if firewall_policy_params:
-        fwglobals.log.info(f"api_restart_firewall(): Inject remove and add firewall jobs")
-        fwglobals.g.router_api.call({'message': 'remove-firewall-policy', 'params': firewall_policy_params})
-        fwglobals.g.router_api.call({'message': 'add-firewall-policy',    'params': firewall_policy_params})

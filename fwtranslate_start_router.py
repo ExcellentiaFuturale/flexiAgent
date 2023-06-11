@@ -142,74 +142,50 @@ def start_router(params=None):
     cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename, 'enable': 1 }
     cmd_list.append(cmd)
 
-    # The 'no-pci' parameter in /etc/vpp/startup.conf is too dangerous - it
-    # causes vpp to boot up without interfaces. The stale 'no-pci' might cause
-    # constant start-router failure. To avoid this we just remove it now and
-    # will add it back a bit later if needed.
-    #
-    cmd = {}
-    cmd['cmd'] = {}
-    cmd['cmd']['func']    = "vpp_startup_conf_remove_nopci"
-    cmd['cmd']['module']  = "fwutils"
-    cmd['cmd']['descr']   = "clean no-pci flag from %s" % vpp_filename
-    cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename }
-    cmd_list.append(cmd)
-
-    # Enable HQoS worker to startup conf if QoS Policy if enabled
+    # Setup HQoS worker to startup conf and update QoS context with system settings
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['name']    = "python"
-    cmd['cmd']['descr']   = "Enable hqos to %s" % vpp_filename
+    cmd['cmd']['descr']   = "Setup hqos"
     cmd['cmd']['module']  = 'fwutils'
-    cmd['cmd']['func']    = 'vpp_startup_conf_hqos'
+    cmd['cmd']['func']    = 'vpp_setup_hqos'
     cmd['cmd']['params']  = {
         'vpp_config_filename' : vpp_filename,
-        'is_add'              : True
+        'is_add'              : True,
+        'num_interfaces'      : len(assigned_linux_interfaces),
     }
     cmd['revert'] = {}
     cmd['revert']['name']   = "python"
-    cmd['revert']['descr']  = "Disable hqos from %s" % vpp_filename
+    cmd['revert']['descr']  = "Remove hqos setup"
     cmd['revert']['module'] = 'fwutils'
-    cmd['revert']['func']   = 'vpp_startup_conf_hqos'
+    cmd['revert']['func']   = 'vpp_setup_hqos'
     cmd['revert']['params'] = {
         'vpp_config_filename' : vpp_filename,
-        'is_add'              : False
+        'is_add'              : False,
+        'num_interfaces'      : len(assigned_linux_interfaces),
     }
     cmd_list.append(cmd)
+
+    # Note: Change of command order can have impact on working:
+    # The setting up of hqos workers and required update of cpu workers by the
+    # above 'vpp_startup_conf_hqos' function need to precede the dpdk section
+    # configuration by the below 'vpp_startup_conf_add_dpdk_config'
 
     # Add interfaces to the vpp configuration file, thus creating whitelist.
     # If whitelist exists, on bootup vpp captures only whitelisted interfaces.
     # Other interfaces will be not captured by vpp even if they are DOWN.
-    if len(dev_id_list) > 0:
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']    = "vpp_startup_conf_add_devices"
-        cmd['cmd']['module']  = "fwutils"
-        cmd['cmd']['descr']   = "add devices to %s" % vpp_filename
-        cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename, 'devices': dev_id_list }
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "vpp_startup_conf_remove_devices"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['descr']  = "remove devices from %s" % vpp_filename
-        cmd['revert']['params'] = { 'vpp_config_filename' : vpp_filename, 'devices': dev_id_list }
-        cmd_list.append(cmd)
-    else:
-        # When the list of devices in the startup.conf file is empty, the vpp attempts
-        # to manage all the down linux interfaces.
-        # Since we allow non-dpdk interfaces (LTE, WiFi), this list could be empty.
-        # In order to prevent vpp from doing so, we need to add the "no-pci" flag.
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']    = "vpp_startup_conf_add_nopci"
-        cmd['cmd']['module']  = "fwutils"
-        cmd['cmd']['descr']   = "add no-pci flag to %s" % vpp_filename
-        cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename }
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "vpp_startup_conf_remove_nopci"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['descr']  = "remove no-pci flag to %s" % vpp_filename
-        cmd['revert']['params'] = { 'vpp_config_filename' : vpp_filename }
-        cmd_list.append(cmd)
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']    = "vpp_startup_conf_add_dpdk_config"
+    cmd['cmd']['module']  = "fwutils"
+    cmd['cmd']['descr']   = "add devices to %s" % vpp_filename
+    cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename, 'devices': dev_id_list }
+    cmd['revert'] = {}
+    cmd['revert']['func']   = "vpp_startup_conf_remove_dpdk_config"
+    cmd['revert']['module'] = "fwutils"
+    cmd['revert']['descr']  = "remove devices from %s" % vpp_filename
+    cmd['revert']['params'] = { 'vpp_config_filename' : vpp_filename}
+    cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}

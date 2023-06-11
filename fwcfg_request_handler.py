@@ -25,6 +25,7 @@ import fw_os_utils
 import fwutils
 
 import copy
+from functools import partial
 import traceback
 import json
 import re
@@ -51,7 +52,7 @@ class FwCfgRequestHandler(FwObject):
     2. Implement sync and full sync logic
     """
 
-    def __init__(self, translators, cfg_db, pending_cfg_db=None, revert_failure_callback = None):
+    def __init__(self, translators, cfg_db, pending_cfg_db=None):
         """Constructor method.
         """
         FwObject.__init__(self)
@@ -59,8 +60,9 @@ class FwCfgRequestHandler(FwObject):
         self.translators = translators
         self.cfg_db = cfg_db
         self.pending_cfg_db = pending_cfg_db
-        self.revert_failure_callback = revert_failure_callback
         self.cache_func_by_name = {}
+
+        self.fwdump_counter_on_start_router = 0
 
         self.cfg_db.set_translators(translators)
         if self.pending_cfg_db is not None:
@@ -69,21 +71,14 @@ class FwCfgRequestHandler(FwObject):
     def __enter__(self):
         return self
 
-    def set_logger(self, logger=None):
-        if self.log != logger:
-            new_logger = logger if logger else self.log
-            self.cfg_db.set_logger(new_logger)
-            self.log = new_logger
-            new_logger.debug("logging switched back from %s ..." % str(logger))
-
     def set_request_logger(self, request):
-        old_logger = self.log
         new_logger = fwglobals.g.loggers.get(request['message'], self.log)
-        if old_logger != new_logger:
-            self.cfg_db.set_logger(new_logger)
-            self.log = new_logger
-            old_logger.debug("logging switched to %s ..." % str(new_logger))
-        return old_logger
+        self.cfg_db.push_logger(new_logger)
+        self.push_logger(new_logger)
+
+    def unset_request_logger(self):
+        self.cfg_db.pop_logger()
+        self.pop_logger()
 
     def call(self, request, dont_revert_on_failure=False):
         if request['message'] == 'aggregated':
@@ -98,8 +93,33 @@ class FwCfgRequestHandler(FwObject):
         except Exception as e:
             err_str = "rollback: failed for '%s': %s" % (request['message'], str(e))
             self.log.excep(err_str)
-            if self.revert_failure_callback:
-                self.revert_failure_callback(err_str)
+
+    def _get_func(self, cmd):
+        func_name = cmd['func']
+        func_path = cmd.get('module', cmd.get('object', ''))
+        full_name = func_path + '.' + func_name
+        func = self.cache_func_by_name.get(full_name)
+        if func:
+            return func
+
+        module_name = cmd.get('module')
+        if module_name:
+            func  = getattr(__import__(module_name), func_name)
+            self.cache_func_by_name[full_name] = func
+            return func
+
+        # I am a bit lazy to implement proper parsing of the 'object', so just
+        # go with explicit strings :) Next time someone get strange exception
+        # due to missing string in the switch below - let him to implement
+        # the proper parser :)
+        #
+        object_name = cmd.get('object')
+        if object_name:
+            func = fwglobals.g.get_object_func(object_name, func_name)
+            if not func:
+                return None
+            self.cache_func_by_name[full_name] = func
+            return func
 
     def _call_simple(self, request, execute=True, filter=None):
         """Execute single request.
@@ -108,7 +128,7 @@ class FwCfgRequestHandler(FwObject):
 
         :returns: dictionary with status code and optional error message.
         """
-        prev_logger = self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
+        self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
         try:
             # Translate request to list of commands to be executed
             cmd_list = self._translate(request)
@@ -131,15 +151,14 @@ class FwCfgRequestHandler(FwObject):
                 self.cfg_db.update(request, cmd_list, execute)
             except Exception as e:
                 self._revert(cmd_list)
-                self.set_logger(prev_logger)
                 raise e
         except Exception as e:
             err_str = "_call_simple: %s" % str(traceback.format_exc())
             self.log.error(err_str)
-            self.set_logger(prev_logger)
             raise e
+        finally:
+            self.unset_request_logger()
 
-        self.set_logger(prev_logger)
         return {'ok':1}
 
     def _call_aggregated(self, requests, dont_revert_on_failure=False):
@@ -182,8 +201,6 @@ class FwCfgRequestHandler(FwObject):
                         # on failure to revert move router into failed state
                         err_str = "_call_aggregated: failed to revert request %s while running rollback on aggregated request" % op
                         self.log.excep("%s: %s" % (err_str, format(e_revert)))
-                        if self.revert_failure_callback:
-                            self.revert_failure_callback(str(e_revert))
                         pass
                 raise e
 
@@ -242,6 +259,9 @@ class FwCfgRequestHandler(FwObject):
 
         self.log.debug("=== start execution of %s ===" % (req))
 
+        if req == 'start-router':
+            self.fwdump_counter_on_start_router = 0
+
         for idx, t in enumerate(cmd_list):      # 't' stands for command Tuple, though it is Python Dictionary :)
             cmd = t['cmd']
 
@@ -272,8 +292,10 @@ class FwCfgRequestHandler(FwObject):
                 err_str = "_execute: %s(%s) failed: %s, %s" % (cmd['func'], format(cmd.get('params')), str(e), str(traceback.format_exc()))
                 self.log.error(err_str)
                 self.log.debug("=== failed execution of %s ===" % (req))
-                if fwglobals.g.router_api.state_is_starting_stopping():
-                    fwutils.dump()
+                if fwglobals.g.router_api.state_is_starting_stopping() and \
+                   self.fwdump_counter_on_start_router==0:
+                    fwutils.fwdump()
+                    self.fwdump_counter_on_start_router += 1
                 # On failure go back to the begining of list and revert executed commands.
                 self._revert(cmd_list, idx)
                 self.log.debug("=== finished revert of %s ===" % (req))
@@ -315,52 +337,6 @@ class FwCfgRequestHandler(FwObject):
 
         :returns: Dictionary with error string and status code.
         """
-        def _get_func(cmd):
-            func_name = cmd['func']
-            func_path = cmd.get('module', cmd.get('object', ''))
-            full_name = func_path + '.' + func_name
-            func = self.cache_func_by_name.get(full_name)
-            if func:
-                return func
-
-            module_name = cmd.get('module')
-            if module_name:
-                func  = getattr(__import__(module_name), func_name)
-                self.cache_func_by_name[full_name] = func
-                return func
-
-            # I am a bit lazy to implement proper parsing of the 'object', so just
-            # go with explicit strings :) Next time someone get strange exception
-            # due to missing string in the switch below - let him to implement
-            # the proper parser :)
-            #
-            object_name = cmd.get('object')
-            if object_name:
-                if object_name == 'fwglobals.g':
-                    func = getattr(self, func_name)
-                elif object_name == 'fwglobals.g.router_api':
-                    func = getattr(fwglobals.g.router_api, func_name)
-                elif object_name == 'fwglobals.g.router_api.vpp_api':
-                    func = getattr(fwglobals.g.router_api.vpp_api, func_name)
-                elif object_name == 'fwglobals.g.router_api.frr':
-                    func = getattr(fwglobals.g.router_api.frr, func_name)
-                elif object_name == 'fwglobals.g.router_api.multilink':
-                    func = getattr(fwglobals.g.router_api.multilink, func_name)
-                elif object_name == 'fwglobals.g.ikev2':
-                    func = getattr(fwglobals.g.ikev2, func_name)
-                elif object_name == 'fwglobals.g.traffic_identifications':
-                    func = getattr(fwglobals.g.traffic_identifications, func_name)
-                elif object_name == 'fwglobals.g.pppoe':
-                    func = getattr(fwglobals.g.pppoe, func_name)
-                elif object_name == 'fwglobals.g.applications_api':
-                    func = getattr(fwglobals.g.applications_api, func_name)
-                elif object_name == 'fwglobals.g.qos':
-                    func = getattr(fwglobals.g.qos, func_name)
-                else:
-                    return None
-                self.cache_func_by_name[full_name] = func
-                return func
-
         def _parse_result(res):
             ok, err_str = True, None
             if res is None:
@@ -383,7 +359,7 @@ class FwCfgRequestHandler(FwObject):
             return err_str
 
         try:
-            func = _get_func(cmd)
+            func = self._get_func(cmd)
             args = cmd.get('params', {})
             if result:
                 args = copy.deepcopy(args) if args else {}
@@ -425,10 +401,6 @@ class FwCfgRequestHandler(FwObject):
                     err_str = "_revert: exception while '%s': %s(%s): %s" % \
                                 (t['cmd']['descr'], rev_cmd['func'], format(rev_cmd['params']), str(e))
                     self.log.excep(err_str)
-
-                    if self.revert_failure_callback:
-                        self.revert_failure_callback(err_str)
-
                     return   # Don't continue, system is in undefined state now!
 
 
@@ -529,12 +501,14 @@ class FwCfgRequestHandler(FwObject):
 
             # Find the new value to be added to params
             if 'val_by_func' in s:
-                module , func_name = fwutils , s['val_by_func']
-                if '.' in func_name:
-                    module_name, func_name = func_name.split('.', 1)
-                    module = __import__(module_name)
-
-                func = getattr(module, func_name)
+                if isinstance(s['val_by_func'], dict):
+                    func = self._get_func(s['val_by_func'])
+                else:
+                    module , func_name = fwutils , s['val_by_func']
+                    if '.' in func_name:
+                        module_name, func_name = func_name.split('.', 1)
+                        module = __import__(module_name)
+                    func = getattr(module, func_name)
                 old  = s['arg'] if 'arg' in s else cache[s['arg_by_key']]
                 func_uses_cmd_cache = s['func_uses_cmd_cache']  if 'func_uses_cmd_cache' in s else False
                 if func_uses_cmd_cache:
@@ -643,28 +617,26 @@ class FwCfgRequestHandler(FwObject):
                 return True
             elif re.match('modify-', req):
                 # For modification request check if it goes to modify indeed.
-                # Firstly ensure that it brings changed set of parameters.
-                # If it does not, there is nothing to modify, so return True.
-                # Than check if it goes to modify only parameters that has
-                # no impact on configuration item, like 'publicPort' in
-                # 'modify-interface', just save the modified item into
-                # configuration database and strip this modify-X out. There is
-                # no need to execute it.
+                # The check ignores the 'ignored_params' that might be defined
+                # in the request translator. This is needed to handle parameters
+                # that have no impact on VPP configuration and that are kept in
+                # the configuration database to assist pure agent logic.
+                # For example, if 'modify-interface' brings new 'publicPort'
+                # only, there is nothing to configure, agent just saves it into
+                # database.
                 #
-                existing_params = self.cfg_db.get_request_params(__request)
-                if fwutils.compare_request_params(existing_params, __request.get('params')):
-                    return True   # Nothing to modify
-
+                ignored_params = {}
                 api_defs = self.translators.get(req)
                 if api_defs:
                     module   = api_defs.get('module')
                     var_name = api_defs.get('ignored_params')
                     if var_name:
                         ignored_params = getattr(module, var_name)
-                        if ignored_params and self.compare_modify_params(__request, ignored_params):
-                            self.log.debug(f"'{req}' has not impacting modifications only -> save it without execution")
-                            self.cfg_db.update(__request)
-                            return True
+
+                if self.compare_modify_params(__request, ignored_params):
+                    self.log.debug(f"'{req}' has not impacting modifications only -> save it without execution")
+                    self.cfg_db.update(__request)
+                    return True
             return False
 
         def _exist_in_list(__request, requests):
@@ -828,7 +800,7 @@ class FwCfgRequestHandler(FwObject):
             else:
                 self.log.error(f"_sync_device: smart sync failed, go to full sync: {str(reply['message'])}")
         except Exception as e:
-            self.log.error(f"_sync_device: smart sync exception, go to full sync: {str(e)}")
+            self.log.error(f"_sync_device: smart sync exception, go to full sync: {str(e)} {traceback.format_exc()}")
 
         self.sync_full(incoming_requests)
 
@@ -838,13 +810,13 @@ class FwCfgRequestHandler(FwObject):
         else:
             return "%s(%s)" % (cmd['func'], format(cmd.get('params','')))
 
-    def compare_modify_params(self, request, ignore_params):
+    def compare_modify_params(self, request, ignore_params={}):
         """Helper function that detects if 'modify-X' request received from
         flexiManage brings same parameters that already stored in configuration
         database, except the ones specified by the 'ignore_params' argument.
         In other words, it checks if the modify-X assumes real changes.
         We use this function in two cases:
-            1. To spot if modify-X contains changes of modifable parameters only.
+            1. To spot if modify-X contains changes of modifiable parameters only.
         In this case it will be translated into list of commands and will be
         executed. Otherwise it will be replaced with remove-X & add-X pair
         to recreate the configuration item from scratch.
@@ -875,10 +847,80 @@ class FwCfgRequestHandler(FwObject):
                 else:
                     if key in _ignore_params:
                         continue
-                    if value != _existing_params.get(key):
+                    if not key in _existing_params:
+                        if not value:
+                            continue  # ignore new falsy parameter even if it does not exist (falsy means None, False, "", etc.)
+                        self.log.debug(f"compare_modify_params: _modify_params: key '{key}' not found in '_existing_params.get(key)'")
+                        return False
+                    if value != _existing_params[key]:
                         self.log.debug(f"compare_modify_params: _modify_params['{key}']={value} != {_existing_params.get(key)}")
                         return False
             return True
 
         existing_params = self.cfg_db.get_request_params(request)
         return _compare_modify_params(request['params'], existing_params, ignore_params)
+
+class FwCfgMultiOpsWithRevert():
+    """This class is used as a helper function to perform several operations, one after the other, 4
+    taking responsibility for the revert of each operation in case one of the operations fails.
+    If one of the operations failed, you should do a revert of the functions that have already passed successfully
+    to clean the system of settings that were not completed correctly.
+    """
+
+    def __init__(self):
+        """Constructor.
+        """
+        self.revert_functions = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return
+
+    def exec(self, func, params=None, revert_func=None, revert_params=None):
+        """Execute the given function and save its revert function to a list.
+
+        :param func:          Function to execute now.
+        :param params:        Dictionary of params to call the function with. Keep None to call function without params.
+        :param revert_func:   Revert function to save in order to run on a failure.
+        :param revert_params: Params of the revert function.
+
+        :returns: reply from the executed function.
+        """
+        try:
+            ret = func(**params) if params else func()
+            self.add_revert_func(revert_func, revert_params)
+            return ret
+        except Exception as e:
+            fwglobals.log.error(f"FwCfgMultiOpsWithRevert(): func {func.__name__}({params}) failed. err: {str(e)}")
+            self.revert(e)
+
+    def add_revert_func(self, revert_func=None, revert_params=None):
+        """Save the revert function in a list. The list will be run in case of failure in one of the functions.
+
+        :param revert_func:   Revert function to save in order to run on a failure.
+        :param revert_params: Params of the revert function.
+        """
+        if revert_func and revert_params:
+            self.revert_functions.append(partial(revert_func, **revert_params))
+        elif revert_func:
+            self.revert_functions.append(partial(revert_func))
+
+    def revert(self, error):
+        """Execute all the saved revert functions.
+
+        :param error: Error to throw at the end of the process..
+        """
+        if not self.revert_functions:
+            raise error
+
+        self.revert_functions.reverse()
+        for revert_function in self.revert_functions:
+            try:
+                revert_function()
+            except Exception as revert_e: # on revert, don't raise exceptions to prevent infinite loop of failure -> revert failure -> revert of revert failure and so on (:
+                fwglobals.log.excep(f"FwCfgMultiOpsWithRevert(): revert func {str(revert_function)} failed. err: {str(revert_e)}")
+
+        self.revert_functions = []
+        raise error

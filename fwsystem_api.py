@@ -31,6 +31,8 @@ import fwnetplan
 import os
 from fwcfg_request_handler import FwCfgRequestHandler
 import fwlte
+import fw_os_utils
+import fwwifi
 
 fwsystem_translators = {
     'add-lte':               {'module': __import__('fwtranslate_add_lte'),    'api':'add_lte'},
@@ -49,24 +51,48 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         """Constructor method
         """
         FwCfgRequestHandler.__init__(self, fwsystem_translators, cfg, fwglobals.g.system_cfg)
-        self.thread_lte_watchdog = None
-        self.lte_reconnect_interval_default = 10
-        self.lte_reconnect_interval_max = 120
-        self.lte_reconnect_interval = self.lte_reconnect_interval_default
-        self.lte_reconnect_retrials = 0
+        self.lte_reconnect_interval  = fwutils.DYNAMIC_INTERVAL(value=10, max_value_on_failure=120)
+        self.wifi_reconnect_interval = fwutils.DYNAMIC_INTERVAL(value=10, max_value_on_failure=600)
+        self.thread_lte_wifi_watchdog = None
 
     def initialize(self):
-        if self.thread_lte_watchdog is None:
-            self.thread_lte_watchdog = fwthread.FwRouterThread(target=self.lte_watchdog_thread_func, name='LTE Watchdog', log=self.log)
-            self.thread_lte_watchdog.start()
+        if self.thread_lte_wifi_watchdog is None:
+            self.thread_lte_wifi_watchdog = fwthread.FwRouterThread(target=self.lte_wifi_watchdog_thread_func, name='LTE/WiFi Watchdog', log=self.log)
+            self.thread_lte_wifi_watchdog.start()
 
     def finalize(self):
-        if self.thread_lte_watchdog:
-            self.thread_lte_watchdog.join()
-            self.thread_lte_watchdog = None
+        if self.thread_lte_wifi_watchdog:
+            self.thread_lte_wifi_watchdog.join()
+            self.thread_lte_wifi_watchdog = None
 
-    def lte_watchdog_thread_func(self, ticks):
-        """LTE watchdog thread.
+    def wifi_watchdog(self, ticks):
+        if not ticks % self.wifi_reconnect_interval.current == 0:
+            return
+
+        if not fwglobals.g.router_api.state_is_started():
+            return
+
+        wifi_interfaces = fwglobals.g.router_cfg.get_interfaces(device_type='wifi')
+        if not wifi_interfaces:
+            return
+
+        if fw_os_utils.pid_of('hostapd'):
+            return
+
+        # at this point, router is running but hostapd process does not run
+        self.log.debug("wifi watchdog: hostapd detected as stopped. starting it")
+        _, err_str = fwwifi.start_hostapd(remove_files_on_error=False, ensure_hostapd_enabled=True)
+
+        if err_str:
+            self.log.debug(f"wifi watchdog: failed to start hostapd ({err_str}). Will try later again")
+            self.wifi_reconnect_interval.update(failure=True)
+            return
+
+        self.log.debug("wifi watchdog: hostapd started")
+        self.wifi_reconnect_interval.update(failure=False)
+
+    def lte_wifi_watchdog_thread_func(self, ticks):
+        """LTE / WiFi watchdog thread.
         Monitors proper configuration of LTE modem. The modem is configured
         and connected to provider by 'add-lte' request received from flexiManage
         with no relation to vpp. As long as it was not removed by 'remove-lte',
@@ -74,11 +100,22 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         parameters received from provider should match these configured in linux
         for the correspondent interface.
         """
-        if  fwglobals.g.router_api.state_is_starting_stopping():
+        if fwglobals.g.router_api.state_is_starting_stopping():
             return
 
+        try:
+            self.lte_watchdog(ticks)
+        except Exception as e:
+            self.log.error(f'lte_watchdog failed. {str(e)}')
+
+        try:
+            self.wifi_watchdog(ticks)
+        except Exception as e:
+            self.log.error(f'wifi_watchdog failed. {str(e)}')
+
+    def lte_watchdog(self, ticks):
         is_all_lte_interfaces_connected = True
-        check_lte_disconnection = ticks % self.lte_reconnect_interval == 0
+        check_lte_disconnection = ticks % self.lte_reconnect_interval.current == 0
 
         wan_list = fwglobals.g.system_cfg.dump(types=['add-lte'])
         for wan in wan_list:
@@ -111,6 +148,17 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                         linux_ifc_name = fwutils.dev_id_to_linux_if(dev_id)
                         os.system('ifconfig %s up' % linux_ifc_name)
 
+                        # if GW exists, ensure ARP entry exists in Linux
+                        if fwglobals.g.router_api.state_is_started():
+                            gw, _ = fwutils.get_interface_gateway(name)
+                            if gw:
+                                arp_entries = fwutils.get_gateway_arp_entries(gw)
+                                valid_arp_entries = list(filter(lambda entry: 'PERMANENT' in entry, arp_entries))
+                                if not valid_arp_entries:
+                                    self.log.debug(f'no valid ARP entry found. gw={gw}, name={name}, dev_id={dev_id}, \
+                                        arp_entries={str(arp_entries)}. adding now')
+                                    fwlte.set_arp_entry(is_add=True, dev_id=dev_id, gw=gw)
+
             # Ensure that provider did not change IP provisioned to modem,
             # so the IP that we assigned to the modem interface is still valid.
             # If it was changed, go and update the interface, vpp, etc.
@@ -129,6 +177,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                         if fwglobals.g.router_api.state_is_started():
                             new_gw = fwlte.get_ip_configuration(dev_id, 'gateway')
                             mtu = fwutils.get_linux_interface_mtu(name)
+
                             fwnetplan.add_remove_netplan_interface(\
                                 is_add=True,
                                 dev_id=dev_id,
@@ -150,13 +199,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                         self.log.debug("%s: LTE IP was changed: %s -> %s" % (dev_id, iface_addr, modem_addr))
 
         if check_lte_disconnection:
-            if is_all_lte_interfaces_connected:
-                self.lte_reconnect_interval = self.lte_reconnect_interval_default
-                self.lte_reconnect_retrials = 0
-            else:
-                self.lte_reconnect_retrials += 1
-                if self.lte_reconnect_retrials % 3 == 0:
-                    self.lte_reconnect_interval = min(self.lte_reconnect_interval_max, self.lte_reconnect_interval * 2)
+            self.lte_reconnect_interval.update(failure=not is_all_lte_interfaces_connected)
 
     def sync_full(self, incoming_requests):
         if len(incoming_requests) == 0:

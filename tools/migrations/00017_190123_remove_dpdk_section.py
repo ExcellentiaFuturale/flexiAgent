@@ -2,7 +2,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2023 flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -18,13 +18,13 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-# This migration script fix the dhcp stop made by mistake on release 1.3.9
+# On downgrade from 6.X to previous major version, this migration script removes
+# the dpdk config of VPP startup conf. This is required as 6.X uses dpdk as part
+# of LTE/PPPoE functionality. The dpdk tuntap-vdev entries added by 6.X shall
+# not be compatible with previous version code.
 
 import os
-import re
-import yaml
 import sys
-import subprocess
 
 common_tools = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , 'common')
 sys.path.append(common_tools)
@@ -32,31 +32,23 @@ sys.path.append(common_tools)
 globals = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , '..')
 sys.path.append(globals)
 
-import fwglobals
 import fwutils
 
-from fwrouter_cfg import FwRouterCfg
-from fwrouter_api import fwrouter_translators
+VPP_CONFIG_FILE = '/etc/vpp/startup.conf'
 
-def migrate(prev_version, new_version, upgrade):
-    if upgrade != 'upgrade' or prev_version.split('-')[0] != '1.3.9':
-        return
+def migrate(prev_version=None, new_version=None, upgrade=True):
     try:
-        print("* Migrating start-router...")
-        request = {
-            'message':   'start-router',
-            'params':    {},
-        }
-        with FwRouterCfg("/etc/flexiwan/agent/.requests.sqlite") as router_cfg:
-            router_cfg.set_translators(fwrouter_translators)
-            if not router_cfg.exists(request):
-                router_cfg.update(request, [], False)
+        prev_version = prev_version.split('-')[0].split('.')
+        new_version  = new_version.split('-')[0].split('.')
+        new_major_version = int(new_version[0])
+        prev_major_version = int(prev_version[0])
 
+        if upgrade == 'downgrade' and prev_major_version == 6 and new_major_version < 6:
+            print("Migrating : processing 00017_190123_remove_dpdk_section on downgrade from 6.X")
+            fwutils.vpp_startup_conf_remove_dpdk_config(VPP_CONFIG_FILE)
     except Exception as e:
         print("Migration error: %s : %s" % (__file__, str(e)))
 
 
 if __name__ == "__main__":
     migrate()
-
-

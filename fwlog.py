@@ -64,7 +64,7 @@ class Fwlog:
 
         :returns: None.
         """
-        self._log("excep: " + log_message, to_terminal, to_syslog)
+        self._log("excep: " + log_message, to_terminal, to_syslog, truncate_long_line=False)
 
     def error(self, log_message, to_terminal=True, to_syslog=True):
         """Print error message.
@@ -75,7 +75,7 @@ class Fwlog:
 
         :returns: None.
         """
-        self._log("error: " + log_message, to_terminal, to_syslog)
+        self._log("error: " + log_message, to_terminal, to_syslog, truncate_long_line=False)
 
     def warning(self, log_message, to_terminal=True, to_syslog=True):
         """Print warning message.
@@ -86,7 +86,7 @@ class Fwlog:
 
         :returns: None.
         """
-        self._log("*** warning: " + log_message + " ***", to_terminal, to_syslog)
+        self._log("*** warning: " + log_message + " ***", to_terminal, to_syslog, truncate_long_line=False)
 
     def info(self, log_message, to_terminal=True, to_syslog=True):
         """Print info message.
@@ -152,7 +152,10 @@ class FwSyslog(Fwlog):
         Fwlog.__init__(self, level=level, name="syslog(ident=fwagent)")
         syslog.openlog(ident=identification)
 
-    def _log(self, log_message, to_terminal=True, to_syslog=True):
+    def __str__(self):
+        return "syslog"
+
+    def _log(self, log_message, to_terminal=True, to_syslog=True, truncate_long_line=True):
         """Print log message.
 
         :param log_message:       Message contents.
@@ -165,15 +168,29 @@ class FwSyslog(Fwlog):
         if to_terminal and self.to_terminal_enabled:
             print(log_message)
 
-        # Prepend prefix (name of class that produced log line) and truncate the log line to 4K.
-        # Note syslog discards lines beyond 8K by default, so take a caution if you modify this code!
-        #
-        log_message = self._build_log_line_prefix() + log_message
-        if len(log_message) > 4096:
-            log_message = log_message[0:4096] + ' <truncated>'
-
         if to_syslog and self.to_syslog_enabled:
-            syslog.syslog(log_message)
+
+            chunk_len = 4096
+
+            # Prepend prefix (name of class that produced log line) and truncate the log line to 4K.
+            # Note syslog discards lines beyond 8K by default, so take a caution if you modify this code!
+            #
+            log_message = self._build_log_line_prefix() + log_message
+            if len(log_message) < chunk_len:
+                syslog.syslog(log_message)
+                return
+
+            if truncate_long_line:
+                log_message = log_message[0:chunk_len] + ' <truncated>'
+                syslog.syslog(log_message)
+                return
+
+            msgs = [log_message[i:i+chunk_len] for i in range(0, len(log_message), chunk_len)]
+            for idx, msg in enumerate(msgs):
+                if idx == 0:
+                    syslog.syslog(msg)
+                else:
+                    syslog.syslog(">> " + msg)
 
 
 class FwLogFile(Fwlog):
@@ -190,6 +207,9 @@ class FwLogFile(Fwlog):
             self.cur_size = os.path.getsize(filename)
         self.f = open(filename, 'a')
 
+    def __str__(self):
+        return os.path.join(self.filepath, self.filename)
+
     def _rotate(self):
         self.f.close()
         main_filename = os.path.join(self.filepath, self.filename)
@@ -198,7 +218,7 @@ class FwLogFile(Fwlog):
         self.f = open(main_filename, 'w')
         self.cur_size = 0
 
-    def _log(self, log_message, to_terminal=True, to_syslog=True):
+    def _log(self, log_message, to_terminal=True, to_syslog=True, truncate_long_line=False):
         """Print log message.
 
         :param log_message:       Message contents.
@@ -224,6 +244,9 @@ class FwLogFile(Fwlog):
 
             if total_len <= chunk_len:
                 self.f.write(log_message + '\n')
+            elif truncate_long_line:
+                truncated_msg = log_message[0:chunk_len] + f" <{total_len} bytes were truncated to {chunk_len}>\n"
+                self.f.write(log_prefix + truncated_msg)
             else:
                 msgs = [log_message[i:i+chunk_len] for i in range(0, total_len, chunk_len)]
                 self.f.write(log_prefix + "--multiline-start--\n")
@@ -248,6 +271,12 @@ class FwObjectLogger:
         import fwglobals
         self.log = log if log else fwglobals.log if fwglobals.g_initialized else FwSyslog()
         self.prefix = f"{object_name}: "
+
+    def __str__(self):
+        return str(self.log)
+
+    def __ne__(self, other):
+        return str(self.log) != str(other.log)
 
     def excep(self, log_message, to_terminal=True, to_syslog=True):
         self.log.excep(self.prefix + log_message, to_terminal=to_terminal, to_syslog=to_syslog)

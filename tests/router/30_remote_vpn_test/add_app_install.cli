@@ -1,0 +1,11 @@
+[
+    {
+        "entity": "agent",
+        "message": "add-app-install",
+        "params": {
+            "name": "Remote Worker VPN",
+            "identifier": "com.flexiwan.remotevpn",
+            "applicationParams": {}
+        }
+    }
+]

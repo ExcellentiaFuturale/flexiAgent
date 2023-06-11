@@ -30,6 +30,7 @@ import fwutils
 #       "routerId": "",
 #       "localAsn": "35",
 #       "redistributeOspf": True,
+#       "bestPathMultipathRelax":True,
 #       "neighbors": [
 #           {
 #               "ip": "8.8.8.8",
@@ -39,6 +40,7 @@ import fwutils
 #               "outboundFilter": "test-rm",
 #               "holdInterval": "40",
 #               "keepaliveInterval": "40",
+#               "sendCommunity":"all"
 #           },
 #           {
 #               "ip": "9.9.9.9",
@@ -48,6 +50,7 @@ import fwutils
 #               "outboundFilter": "",
 #               "holdInterval": "40",
 #               "keepaliveInterval": "40",
+#               "sendCommunity":""
 #           },
 #       ]
 #       "networks": [
@@ -97,6 +100,7 @@ def add_routing_bgp(params):
     local_asn = params.get('localAsn')
     router_id = params.get('routerId')
     redistribute_ospf = params.get('redistributeOspf')
+    best_path_multipath_relax = params.get('bestPathMultipathRelax')
 
     vtysh_commands = [
         f'router bgp {local_asn}',
@@ -112,6 +116,32 @@ def add_routing_bgp(params):
         'no bgp ebgp-requires-policy',
 
         f'bgp router-id {router_id}' if router_id else None,
+
+        # This command specifies that BGP decision process should consider paths
+        # of equal AS_PATH length candidates for multipath computation.
+        # Without the knob, the entire AS_PATH must match for multipath computation.
+        #
+        # For this case:
+        #    ------- TUNNEL ----- edge2 -|
+        # edge1                      Router --- Destination
+        #    ------- TUNNEL ----- edge3 -|
+        #
+        # All routers are speaking BGP and "Destination" is published to edge1 via BGP.
+        # There are two paths for "edge1" to reach "Destination":
+        #   1. edge1 -> edge2 -> Router -> Destination
+        #   2. edge1 -> edge3 -> Router -> Destination
+        # Since the path is not **exactly** the same, BGP by default doesn't install the two paths
+        # in the global routing table,
+        # and it selects the older one (read more about the BGP Best Path algorithm in https://docs.frrouting.org/en/latest/bgp.html#route-selection).
+        # When the below option is enabled, the BGP installs both routes if the path **length** is the same.
+        # In the case above, the length of the path is the same, so two routes will be installed.
+        #
+        # But For this case:
+        #    | ------- TUNNEL ------|
+        # edge1                  edge2 --- Destination
+        #    | ------- TUNNEL ------|
+        # two routes will be installed even if the option is not set, since the path is the same for the destination - edg1 -> edge2.
+        'bgp bestpath as-path multipath-relax' if best_path_multipath_relax else None
     ]
 
     # Neighbors
@@ -123,7 +153,7 @@ def add_routing_bgp(params):
         neighbors.append(neighbor)
 
     for neighbor in neighbors:
-        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
+        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_frr_commands(neighbor)
 
     vtysh_commands += [
         'address-family ipv4 unicast',
@@ -136,6 +166,14 @@ def add_routing_bgp(params):
         vtysh_commands += _get_neighbor_address_family_frr_commands(neighbor)
 
     networks = params.get('networks', [])
+
+    # Get networks managed by installed applications.
+    # The function below returns dictionary, where keys are application identifiers,
+    # and values are lists of networks, e.g.
+    #      { 'com.flexiwan.vpn': ['tun0'] }
+    app_networks = fwglobals.g.applications_api.get_networks(for_bgp=True, for_ospf=False)
+    networks += [{ 'ipv4': app_network } for app_networks in app_networks.values() for app_network in app_networks]
+
     for network in networks:
         ip = network.get('ipv4')
         vtysh_commands += [f'network {ip}']
@@ -173,6 +211,7 @@ def _get_neighbor_address_family_frr_commands(neighbor):
     ip = neighbor.get('ip')
     inbound_filter = neighbor.get('inboundFilter')
     outbound_filter = neighbor.get('outboundFilter')
+    send_community = neighbor.get('sendCommunity')
 
     commands = [
         f'neighbor {ip} activate',
@@ -183,6 +222,19 @@ def _get_neighbor_address_family_frr_commands(neighbor):
 
     if outbound_filter:
         commands.append(f'neighbor {ip} route-map {outbound_filter} out')
+
+    if send_community:
+        # There are several types of community: Standard, Extended and Large.
+        # By default, all of them are enabled.
+        # Large includes Extended and Standard.
+        # Extended includes Standard.
+        # To send only one/few of them, it is necessary to run first "no neighbor x.x.x.x send-community all".
+        # Only then, we can decide which of the types to enable.
+        if send_community != 'all':
+            commands.append(f'no neighbor {ip} send-community all')
+        commands.append(f'neighbor {ip} send-community {send_community}')
+    else:
+        commands.append(f'no neighbor {ip} send-community all')
 
     return commands
 
@@ -261,7 +313,7 @@ def _modify_neighbors(cmd_list, new_params, old_params):
     def _add_cmd_func(neighbor):
         ip = neighbor.get('ip')
         vtysh_commands = [f'router bgp {local_asn}']
-        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_vtysh_commands(neighbor)
+        vtysh_commands += fwglobals.g.router_api.frr.translate_bgp_neighbor_to_frr_commands(neighbor)
 
         vtysh_commands.append(f'address-family ipv4 unicast')
 

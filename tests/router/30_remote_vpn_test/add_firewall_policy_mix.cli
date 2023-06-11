@@ -1,0 +1,48 @@
+[
+    {
+        "entity": "agent",
+        "message": "add-firewall-policy",
+        "params": {
+            "inbound": {},
+            "outbound": {
+                "rules": [
+                    {
+                        "id": "64454594459450637837512c",
+                        "action": {
+                            "permit": true,
+                            "interfaces": ["app_com.flexiwan.remotevpn"]
+                        },
+                        "classification": {
+                            "source": {},
+                            "destination": {
+                                "ipProtoPort": {
+                                    "ip": "9.9.9.9/32",
+                                    "protocols": [
+                                        "icmp"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "id": "64454594459450637837512d",
+                        "action": {
+                            "permit": false
+                        },
+                        "classification": {
+                            "source": {},
+                            "destination": {
+                                "ipProtoPort": {
+                                    "ip": "6.6.6.6/32",
+                                    "protocols": [
+                                        "icmp"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    }
+]

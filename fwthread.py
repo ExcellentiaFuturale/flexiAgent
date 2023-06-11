@@ -26,7 +26,7 @@ import traceback
 
 import fwglobals
 import fwutils
-
+from fw_os_utils import CalledProcessSigTerm
 
 class FwRouterThreading:
     def __init__(self):
@@ -34,7 +34,7 @@ class FwRouterThreading:
         self.request_cond_var = threading.Condition()
         self.thread_names     = []
         self.handling_request = False
-        self.request_processing_thread_ident = None
+        self.request_processing_thread_ident = []
 
     def is_no_active_threads(self):
         return len(self.thread_names) == 0
@@ -51,6 +51,7 @@ class FwThread(threading.Thread):
         self.log            = log
         self.func           = target
         self.stop_called    = False
+        self.exiting        = False
         self.name           = my_name
 
     def _thread_func(self, args, kwargs):
@@ -60,6 +61,8 @@ class FwThread(threading.Thread):
             ticks += 1
             try:
                 self.func(ticks, *args, **kwargs)
+            except CalledProcessSigTerm as e:
+                self.log.debug("%s: got SIGTERM" % (self.getName()))
             except Exception as e:
                 self.log.error("%s: %s (%s)" % (self.getName(), str(e), traceback.format_exc()))
 
@@ -72,9 +75,12 @@ class FwThread(threading.Thread):
         self.tid = fwutils.get_thread_tid()
         self.log.debug(f"tid={self.tid}: {self.name}: started")
 
+        self.exiting = False
         self._thread_func(self._args, self._kwargs)
+        self.exiting = True
 
         self.log.debug(f"tid={self.tid}: {self.name}: stopped")
+        self.ticks = 0
 
     def stop(self, block=True):
         """Enables other threads to break the _thread_func() main loop.
@@ -84,11 +90,12 @@ class FwThread(threading.Thread):
 
         :param block: if True, this function is blocked until thread function exits.
         """
+        if self.exiting:
+            return  # no need to print confusing 'stopping' for exited thread
         self.log.debug(f"tid={self.tid}: {self.name}: stopping (block={str(block)})")
         self.stop_called = True
         if block:
             self.join()
-        self.ticks = 0
 
     def log_error(self, log_str):
         self.log.error(f"tid={self.tid}: {self.name}: {log_str}")
@@ -125,6 +132,8 @@ class FwRouterThread(FwThread):
 
             try:                      # 'try' prevents thread to exit on exception
                 self.func(ticks, *args, **kwargs)
+            except CalledProcessSigTerm as e:
+                self.log.debug("%s: got SIGTERM" % (self.name))
             except Exception as e:
                 self.log.error("%s: %s (%s)" % (self.name, str(e), traceback.format_exc()))
 
@@ -146,13 +155,15 @@ class FwRouterThread(FwThread):
         The monitoring thread will check the flag as soon as it takes the lock.
         So, it will exit at most on next iteration.
         """
-        if threading.current_thread().ident == fwglobals.g.router_threads.request_processing_thread_ident:
+        if threading.current_thread().ident in fwglobals.g.router_threads.request_processing_thread_ident:
             self.join_called = True
         else:
             FwThread.join(self)
 
 def set_request_processing_thread():
-    fwglobals.g.router_threads.request_processing_thread_ident = threading.current_thread().ident
+    ident = threading.current_thread().ident
+    fwglobals.g.router_threads.request_processing_thread_ident.append(ident)
 
 def unset_request_processing_thread():
-    fwglobals.g.router_threads.request_processing_thread_ident = None
+    ident = threading.current_thread().ident
+    fwglobals.g.router_threads.request_processing_thread_ident.remove(ident)

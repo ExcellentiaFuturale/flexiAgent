@@ -38,6 +38,7 @@ CODE_ROOT = os.path.realpath(__file__).replace('\\', '/').split('/tests/')[0]
 TEST_ROOT = CODE_ROOT + '/tests/'
 sys.path.append(CODE_ROOT)
 sys.path.append(TEST_ROOT)
+import fw_os_utils
 import fwutils
 import fwglobals
 
@@ -271,11 +272,7 @@ def vpp_does_run():
     return runs
 
 def vpp_pid():
-    try:
-        pid = subprocess.check_output(['pidof', 'vpp']).decode()
-    except:
-        pid = None
-    return pid
+    return fw_os_utils.vpp_pid()
 
 def fwagent_daemon_pid():
     for p in psutil.process_iter(["pid", "cmdline"]):

@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2023  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -24,12 +24,14 @@ import yaml
 import sys
 import os
 from shutil import copyfile
+import subprocess
+import json
 import fwglobals
-import fwstats
 import fwutils
 import fwlte
 import fwwifi
 import fwroutes
+import psutil
 
 from fwobject import FwObject
 
@@ -52,7 +54,9 @@ fwagent_api = {
     'reset-device':                  '_reset_device_soft',
     'sync-device':                   '_sync_device',
     'upgrade-device-sw':             '_upgrade_device_sw',
+    'upgrade-linux-sw':              '_upgrade_linux_sw',
     'set-cpu-info':                  '_set_cpu_info',
+    'get-bgp-status':                '_get_bgp_status',
 }
 
 class FWAGENT_API(FwObject):
@@ -126,12 +130,11 @@ class FWAGENT_API(FwObject):
         :returns: Dictionary with information and status code.
         """
         try:
-            stats = fwstats.get_stats()
             info = {}
             # Load component versions
             with open(fwglobals.g.VERSIONS_FILE, 'r') as stream:
                 info = yaml.load(stream, Loader=yaml.BaseLoader)
-            info['stats'] = stats['message'][-1]
+            info['stats'] = fwglobals.g.statistics.get_stats()[-1]
             # Load network configuration.
             info['network'] = {}
             info['network']['interfaces'] = list(fwutils.get_linux_interfaces(cached=False).values())
@@ -141,12 +144,22 @@ class FWAGENT_API(FwObject):
             # Load tunnel info, if requested by the management
             if params and params.get('tunnels'):
                 info['tunnels'] = self._prepare_tunnel_info(params['tunnels'])
+
+            # get the failed jobs requested by management plus all upgrade-device-sw jobs
+            all_job_ids = []
             if params and params.get('jobs'):
-                info['jobs'] = fwglobals.g.jobs.dump(job_ids=params['jobs'])
+                all_job_ids = all_job_ids + params['jobs']
+            all_job_ids = all_job_ids + fwglobals.g.jobs.get_job_ids_by_request(['upgrade-device-sw', 'upgrade-linux-sw'])
+            info['jobs'] = fwglobals.g.jobs.dump(job_ids=all_job_ids)
+
             info['cpuInfo'] = fwsystem_checker_common.Checker().get_cpu_info()
+            version, codename = fwutils.get_linux_distro()
+            info['distro'] = {'version': version, 'codename': codename}
 
             return {'message': info, 'ok': 1}
-        except:
+        except CalledProcessSigTerm as e:
+            raise e
+        except Exception as e:
             raise Exception("_get_device_info: failed to get device info: %s" % format(sys.exc_info()[1]))
 
 
@@ -181,7 +194,7 @@ class FWAGENT_API(FwObject):
 
         :returns: Dictionary with statistics.
         """
-        reply = fwstats.get_stats()
+        reply = {'message': fwglobals.g.statistics.get_stats(), 'ok': 1}
         return reply
 
     def _upgrade_device_sw(self, params):
@@ -201,13 +214,54 @@ class FWAGENT_API(FwObject):
         except Exception as e:
             return { 'message': 'Failed to copy upgrade file', 'ok': 0 }
 
-        cmd = 'bash /tmp/fwupgrade.sh {} {} {} {} >> {} 2>&1 &' \
+        job_id = fwglobals.g.jobs.current_job_id
+        cmd = 'bash /tmp/fwupgrade.sh {} {} {} {} {} >> {} 2>&1 &' \
             .format(params['version'], fwglobals.g.VERSIONS_FILE, \
                     fwglobals.g.CONN_FAILURE_FILE, \
                     fwglobals.g.ROUTER_LOG_FILE, \
+                    job_id, \
                     fwglobals.g.ROUTER_LOG_FILE)
         os.system(cmd)
         return { 'message': 'Started software upgrade process', 'ok': 1 }
+
+    def _upgrade_linux_sw(self, params):
+        """Upgrade linux SW.
+
+        :param params: Parameters from flexiManage.
+
+        :returns: Message and status code.
+        """
+
+        # Make a few checks before the upgrade
+        # 1. Check that current release is bionic
+        _, codename = fwutils.get_linux_distro()
+        upgradeFrom = params.get('upgrade-from', 'unknown')
+        if codename != upgradeFrom:
+            return { 'message': f'Upgrade failed: Your current Ubuntu version is {codename}, {upgradeFrom} required', 'ok': 0 }
+
+        # 2. Check that disk space has at least 2GB
+        free_disk = psutil.disk_usage('/').free
+        if free_disk < 2*1024*1024*1024:
+            return { 'message': f'Available disk space is {free_disk}, 2GB required', 'ok': 0 }
+
+        dir = os.path.dirname(os.path.realpath(__file__))
+
+        # Copy the fwupgrade_linux.sh file to the /tmp folder to
+        # prevent overriding it with the fwupgrade_linux.sh file
+        # from the new version.
+        try:
+            copyfile('{}/tools/fwupgrade_linux.sh'.format(dir), '/tmp/fwupgrade_linux.sh')
+        except Exception as e:
+            return { 'message': 'Failed to copy linux upgrade file', 'ok': 0 }
+
+        job_id = fwglobals.g.jobs.current_job_id
+        cmd = 'bash /tmp/fwupgrade_linux.sh {} {} >> {} 2>&1 &' \
+            .format(fwglobals.g.ROUTER_LOG_FILE, \
+                    job_id, \
+                    fwglobals.g.ROUTER_LOG_FILE)
+        self.log.info(f"_upgrade_linux_sw: Running Linux upgrade from {codename}, command={cmd}")
+        os.system(cmd)
+        return { 'message': 'Started linux upgrade process', 'ok': 1 }
 
     def _get_device_logs(self, params):
         """Get device logs.
@@ -347,7 +401,7 @@ class FWAGENT_API(FwObject):
         if err_str:
             return {'message': err_str, 'ok': 0}
 
-        fwutils.reset_device_config_signature()
+        fwutils.reset_device_config_signature(log=self.log)
         self.log.info("_sync_device FINISHED")
         return {'ok': 1}
 
@@ -405,3 +459,24 @@ class FWAGENT_API(FwObject):
         :returns: Dictionary with status code.
         """
         return fwglobals.g.ikev2.create_private_key(params['days'], params['new'])
+
+    def _get_bgp_status(self, params):
+        """Get BGP Status.
+
+        :param params: Parameters from flexiManage.
+
+        :returns: Dictionary with BGP Status.
+        """
+        if not fwglobals.g.router_api.state_is_started():
+            return {'ok': 1, 'message': { }}
+
+        if not fwglobals.g.router_cfg.get_bgp():
+            return {'ok': 1, 'message': { }}
+
+        try:
+            cmd = 'vtysh -c "show bgp summary json"'
+            frr_json_output = subprocess.check_output(cmd, shell=True).decode().strip()
+            data = json.loads(frr_json_output)
+            return {'ok': 1, 'message': data.get('ipv4Unicast', {}) }
+        except Exception as e:
+            return {'ok': 0, 'message': str(e) }

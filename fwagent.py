@@ -20,6 +20,16 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import signal
+def fwagent_signal_handler(signum, frame):
+    """Handle SIGINT (CTRL+C) to suppress backtrace print onto screen,
+	   when invoked by user from command line and not as a daemon.
+       Do it ASAP, so CTRL+C in the middle of importing the third-parties
+       will not cause the backtrace to print.
+	"""
+    exit(1)
+signal.signal(signal.SIGINT, fwagent_signal_handler)
+
 import json
 import os
 import glob
@@ -28,7 +38,6 @@ import socket
 import sys
 import time
 import random
-import signal
 import psutil
 import Pyro4
 import re
@@ -50,7 +59,6 @@ import fwmultilink
 import fw_os_utils
 import fwpppoe
 import fwrouter_cfg
-import fwstats
 import fwthread
 import fwutils
 import fwwebsocket
@@ -61,24 +69,9 @@ from fwapplications_api import FWAPPLICATIONS_API
 from fwfrr import FwFrr
 from fwobject import FwObject
 
-from fw_nat_command_helpers import WAN_INTERFACE_SERVICES
-
 system_checker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tools/system_checker/")
 sys.path.append(system_checker_path)
 import fwsystem_checker_common
-
-# Global signal handler for clean exit
-def global_signal_handler(signum, frame):
-    """Global signal handler for CTRL+C
-
-    :param signum:         Signal type
-    :param frame:          Stack frame.
-
-    :returns: None.
-    """
-    exit(1)
-
-signal.signal(signal.SIGINT, global_signal_handler)
 
 class FwAgent(FwObject):
     """This class implements abstraction of mediator between manager called
@@ -100,7 +93,6 @@ class FwAgent(FwObject):
 
         self.token                = None
         self.versions             = fwutils.get_device_versions(fwglobals.g.VERSIONS_FILE)
-        self.thread_statistics    = None
         self.pending_msg_replies  = []
         self.reconnecting         = False
 
@@ -112,6 +104,7 @@ class FwAgent(FwObject):
         if handle_signals:
             signal.signal(signal.SIGTERM, self._signal_handler)
             signal.signal(signal.SIGINT, self._signal_handler)
+
 
     def _signal_handler(self, signum, frame):
         """Signal handler for CTRL+C
@@ -147,9 +140,11 @@ class FwAgent(FwObject):
             self.log.excep("Failed to create connection failure file: %s" % str(e))
 
     def _clean_connection_failure(self):
-        if os.path.exists(fwglobals.g.CONN_FAILURE_FILE):
-            os.remove(fwglobals.g.CONN_FAILURE_FILE)
-            self.log.debug("_clean_connection_failure")
+        # We use 'subprocess.check_call()' to get an exception if writing into file fails.
+        # The file update is vital for the upgrade process by fwupgrade.sh.
+        #
+        subprocess.check_call(f'echo "success" > {fwglobals.g.CONN_FAILURE_FILE}', shell=True)
+        self.log.debug("_clean_connection_failure")
 
     def _setup_repository(self, repo):
         # Extract repo info. e.g. 'https://deb.flexiwan.com|flexiWAN|main'
@@ -283,12 +278,13 @@ class FwAgent(FwObject):
         machine_name = socket.gethostname()
         all_ip_list = socket.gethostbyname_ex(machine_name)[2]
         interfaces          = list(fwutils.get_linux_interfaces(cached=False).values())
-        (dr_via, dr_dev, _, _) = fwutils.get_default_route()
+        (dr_via, dr_dev, _, _, _) = fwutils.get_default_route()
         # get up to 4 IPs
         ip_list = ', '.join(all_ip_list[0:min(4,len(all_ip_list))])
         serial = fwutils.get_machine_serial()
         url = fwglobals.g.cfg.MANAGEMENT_URL  + "/api/connect/register"
         cpu_info = fwsystem_checker_common.Checker().get_cpu_info()
+        version, codename = fwutils.get_linux_distro()
 
         data = {'token': self.token.rstrip(),
                 'fwagent_version' : self.versions['components']['agent']['version'],
@@ -301,7 +297,8 @@ class FwAgent(FwObject):
                 'default_route': dr_via,
                 'default_dev': dr_dev,
                 'interfaces': interfaces,
-                'cpuInfo': cpu_info
+                'cpuInfo': cpu_info,
+                'distro': {'version': version, 'codename': codename},
         }
         self.log.debug("Registering to %s with: %s" % (url, json.dumps(data)))
         data.update({'interfaces': json.dumps(interfaces)})
@@ -433,25 +430,17 @@ class FwAgent(FwObject):
     def _on_close(self):
         """Websocket connection close handler
 
-        :param ws:  Websocket handler.
-
         :returns: None.
         """
         self.log.info("connection to flexiManage was closed")
-        self.connected = False
-        if self.thread_statistics:
-            self.thread_statistics.stop()
 
     def _on_open(self):
         """Websocket connection open handler
-
-        :param ws:  Websocket handler.
 
         :returns: None.
         """
         self.log.info("connected to flexiManage")
 
-        self.connected    = True
         self.reconnecting = False
         self._clean_connection_failure()
 
@@ -464,11 +453,6 @@ class FwAgent(FwObject):
                 self.log.debug("_on_open: sending reply: " + json.dumps(reply))
                 self.ws.send(json.dumps(reply))
             del self.pending_msg_replies[:]
-
-        self.thread_statistics = fwthread.FwThread(
-                                    target=fwstats.statistics_thread_func,
-                                    name='Statistics', log=self.log, args=(self,))
-        self.thread_statistics.start()
 
         if not fw_os_utils.vpp_does_run():
             self.log.info("connect: router is not running, start it in flexiManage")
@@ -627,15 +611,10 @@ class FwAgent(FwObject):
              self.log.error(f"handle_received_request failed: {str(e)} {traceback.format_exc()}")
              return {'ok': 0, 'message': str(e)}
 
-        if reply['ok'] == 0:
-            errors = fwglobals.g.jobs.get_job_errors()
-            # not all jobs are recorded since not all of them have job ID.
-            # For example, direct messages from flexiManage like 'get-device-logs'
-            # that not sent in the jobs queue.
-            # Hence, check if no jobs recorded. If so, add the provided error to the list.
-            if len(errors) == 0 and reply['message']:
-                errors.append(reply['message'])
-            reply['message'] = {'errors' : errors}
+        message = reply.get('message')
+        if reply['ok'] == 0 and message:
+            fwglobals.g.jobs.update_job_error(message)
+            reply['message'] = {'errors' : [message]}
         return reply
 
     def inject_requests(self, filename, ignore_errors=False, json_requests=None):
@@ -702,7 +681,7 @@ def version():
         print(delimiter)
 
 def dump(filename, path, clean_log):
-    fwutils.dump(filename=filename, path=path, clean_log=clean_log)
+    fwutils.fwdump(filename=filename, path=path, clean_log=clean_log)
 
 def reset(soft=False, quiet=False, pppoe=False):
     """Handles 'fwagent reset' command.
@@ -742,7 +721,9 @@ def reset(soft=False, quiet=False, pppoe=False):
     if reset_device:
         if fw_os_utils.vpp_does_run():
             print("stopping the router...")
-        daemon_rpc_safe('stop', stop_router=True, stop_applications=True)
+
+        # Stop daemon main loop
+        stop(False, stop_router=True, stop_applications=True)
 
         with FWAPPLICATIONS_API() as applications_api:
             applications_api.reset()
@@ -763,7 +744,9 @@ def reset(soft=False, quiet=False, pppoe=False):
         fwglobals.log.info("Reset operation done")
     else:
         fwglobals.log.info("Reset operation aborted")
-    daemon_rpc_safe('start')     # Start daemon main loop if daemon is alive
+
+    # Start daemon main loop if daemon is alive
+    start(start_router=False, start_applications=False)
 
 def stop(reset_device_config, stop_router, stop_applications):
     """Handles 'fwagent stop' command.
@@ -911,7 +894,8 @@ class FwagentDaemon(FwObject):
         if self.event_exit:
             self.event_exit.set()
         else:
-            self.log.info(f"agent is being initialized, ignore {sig_name}")
+            self.log.info(f"agent initialization was not finished, exit on {sig_name}")
+            exit(1)
 
     def __enter__(self):
         self.agent = fwglobals.g.create_agent(initialize=False)
@@ -922,8 +906,7 @@ class FwagentDaemon(FwObject):
         # caused the `with` statement execution to fail. If the `with`
         # statement finishes without an exception being raised, these
         # arguments will be `None`.
-        fwglobals.g.destroy_agent(finalize=False)
-        self.agent = None
+        self.agent = fwglobals.g.destroy_agent()
 
     def _check_system(self):
         """Check system requirements.
@@ -958,7 +941,7 @@ class FwagentDaemon(FwObject):
             if self._check_system() == False:
                 self.log.excep("system checker failed")
 
-        if self.active_main_loop == False and not fwglobals.g.cfg.debug['daemon']['standalone']:
+        if not fwglobals.g.cfg.debug['daemon']['standalone']:
             self.start_main_loop()
 
         # Keep agent instance on the air until SIGTERM/SIGKILL is received
@@ -1147,24 +1130,30 @@ class FwagentDaemon(FwObject):
         self.log.info("connection loop was stopped, use 'fwagent start' to start it again")
         self.log.debug(f"tid={fwutils.get_thread_tid()}: {threading.current_thread().name}: stopped")
 
-    def api(self, api_name, api_module=None, **api_args):
+    def api(self, api_name, api_module=None, api_object=None, **api_args):
         """Wrapper for Fwagent methods
         """
         fwglobals.log.trace(f'{api_name}({api_args if api_args else ""}): enter')
 
-        module = None
-        if not api_module:
-            if self.agent:
-                module = self.agent
+        if api_object:
+            api_func = fwglobals.g.get_object_func(api_object, api_name)
         else:
-            current_dir = os.path.dirname(os.path.realpath(__file__))
-            module = fw_os_utils.load_python_module(current_dir, api_module)
+            module = None
+            if not api_module:
+                if self.agent:
+                    module = self.agent
+            else:
+                current_dir = os.path.dirname(os.path.realpath(__file__))
+                module = fw_os_utils.load_python_module(current_dir, api_module)
+            if not module:
+                fwglobals.log.error(f'api({api_name}, {api_module}, {api_args if api_args else ""}: No module found)')
+                return
+            api_func = getattr(module, api_name)
 
-        if not module:
-            fwglobals.log.error(f'api({api_name}, {api_module}, {api_args if api_args else ""}: No module found)')
+        if not api_func:
+            fwglobals.log.error(f'api({api_name}, {api_module}, {api_object}, {api_args if api_args else ""}: Function not found)')
             return
 
-        api_func = getattr(module, api_name)
         if api_args:
             func = lambda: api_func(**api_args)
         else:
@@ -1253,19 +1242,30 @@ def daemon_rpc(func, ignore_exception=False, **kwargs):
     try:
         agent_daemon = Pyro4.Proxy(fwglobals.g.FWAGENT_DAEMON_URI)
         remote_func = getattr(agent_daemon, func)
-        fwglobals.log.debug("invoke remote FwagentDaemon::%s(%s)" % (func, json.dumps(kwargs)), to_terminal=False)
+        fwglobals.log.debug("invoke remote FwagentDaemon::%s(%s)" % (func, json.dumps(kwargs, cls=fwutils.FwJsonEncoder)), to_terminal=False)
         return remote_func(**kwargs)
     except Pyro4.errors.CommunicationError as e:
+        fwglobals.log.debug("ignore FwagentDaemon::%s(%s)" % (func, str(e)))
         if ignore_exception:
-            fwglobals.log.debug("ignore FwagentDaemon::%s(%s): daemon does not run" % (func, json.dumps(kwargs)))
+            fwglobals.log.debug("ignore FwagentDaemon::%s(%s): daemon does not run" % (func, json.dumps(kwargs, cls=fwutils.FwJsonEncoder)))
             return None
         raise Exception("daemon does not run")
     except Exception as e:
         if ignore_exception:
-            fwglobals.log.debug("FwagentDaemon::%s(%s) failed: %s" % (func, json.dumps(kwargs), str(e)))
+            fwglobals.log.debug("FwagentDaemon::%s(%s) failed: %s" % (func, json.dumps(kwargs, cls=fwutils.FwJsonEncoder), str(e)))
             ex_type, ex_value, ex_tb = sys.exc_info()
             Pyro4.util.excepthook(ex_type, ex_value, ex_tb)
             return None
+        raise e
+
+def daemon_is_alive():
+    try:
+        daemon = Pyro4.Proxy(fwglobals.g.FWAGENT_DAEMON_URI)
+        daemon.ping()   # Check if daemon runs
+        return True
+    except Pyro4.errors.CommunicationError:
+        return False
+    except Exception as e:
         raise e
 
 def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None, ignore_errors=False):
@@ -1334,7 +1334,7 @@ def cli(clean_request_db=True, api=None, script_fname=None, template_fname=None,
             cli.run_loop()
     if clean_request_db:
         fwglobals.g.router_cfg.clean()
-        fwutils.reset_device_config_signature("empty_cfg", log=False)
+        fwutils.reset_device_config_signature("empty_cfg")
         with fwrouter_cfg.FwRouterCfg(fwglobals.g.ROUTER_PENDING_CFG_FILE) as router_pending_cfg:
             router_pending_cfg.clean()
 
@@ -1375,6 +1375,12 @@ def handle_cli_command(args):
         nonlocal cli_func_name
 
         cli_func_name += f'_{step}' # -> _interfaces
+        # start building cli params immediately whenever the step argument
+        # IS already a function name, for example, with this command:
+        # fwagent configure jobs update ...
+        if not step in args.__dict__:
+            _build_cli_params()
+            return
         next_step = args.__dict__[step] # -> create
         if not next_step in args.__dict__:
             cli_func_name += f'_{next_step}' # -> _interfaces_create

@@ -69,6 +69,7 @@ class FwRouterCfg(FwCfgDatabase):
                 'add-routing-filter',
                 'add-routing-bgp',           # BGP should come after frr routing filter, as it might use them!
                 'add-interface',
+                'add-vxlan-config',
                 'add-switch',
                 'add-tunnel',
                 'add-route',		 # routes should come after tunnels, as they might use them
@@ -103,6 +104,7 @@ class FwRouterCfg(FwCfgDatabase):
             'add-multilink-policy': "============= POLICIES =============",
             'add-firewall-policy':  "============= FIREWALL POLICY =============",
             'add-ospf':             "============= OSPF =============",
+            'add-vxlan-config':     "============= VXLAN CONFIG =============",
             'add-routing-bgp':      "============= ROUTING BGP =============",
             'add-routing-filter':   "============= ROUTING FILTERS =============",
             'add-qos-traffic-map':  "============= QOS TRAFFIC MAP =============",
@@ -112,9 +114,9 @@ class FwRouterCfg(FwCfgDatabase):
         cfg = self.dump(types=types, escape=escape, full=full, keys=True)
         return FwCfgDatabase.dumps(self, cfg, sections, full)
 
-    def get_interfaces(self, type=None, dev_id=None, ip=None):
+    def get_interfaces(self, type=None, dev_id=None, ip=None, device_type=None):
         interfaces = self.get_requests('add-interface')
-        if not type and not dev_id and not ip:
+        if not type and not dev_id and not ip and not device_type:
             return interfaces
         result = []
         for params in interfaces:
@@ -124,11 +126,16 @@ class FwRouterCfg(FwCfgDatabase):
                 continue
             elif ip and not re.match(ip, params['addr']):
                 continue
+            elif device_type and device_type != params.get('deviceType'):
+                continue
             result.append(params)
         return result
 
     def get_routes(self):
         return self.get_requests('add-route')
+
+    def get_routing_filters(self):
+        return self.get_requests('add-routing-filter')
 
     def get_tunnels(self, routing=None):
         tunnels = self.get_requests('add-tunnel')
@@ -147,6 +154,14 @@ class FwRouterCfg(FwCfgDatabase):
         if not bgp_req:
             return None
         return bgp_req[0]
+
+    def get_vxlan_config(self):
+        vxlan_config = self.get_requests('add-vxlan-config')
+        # add-vxlan-config is a single request and can't be more than that.
+        # Therefore, convert it from a list to an object or None
+        if not vxlan_config:
+            return None
+        return vxlan_config[0]
 
     def get_tunnel(self, tunnel_id):
         key = 'add-tunnel:%d' % (tunnel_id)

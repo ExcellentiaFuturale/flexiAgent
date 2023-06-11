@@ -21,10 +21,10 @@ Translates firewall request to a set of commands
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
+import copy
 import enum
 
 import fwglobals
-import fwutils
 import fw_acl_command_helpers
 import fw_nat_command_helpers
 
@@ -72,8 +72,14 @@ def add_firewall_policy(params):
 
     def process_inbound_rules(inbound_rules):
 
-        intf_attachments = {}
         cmd_list = []
+        intf_attachments = {}
+        wan_dev_ids = set()
+        global_ingress_ids = []
+
+        interfaces = fwglobals.g.router_cfg.get_interfaces(type='wan')
+        for intf in interfaces:
+            wan_dev_ids.add(intf['dev_id'])
 
         for rule_name, rules in inbound_rules.items():
             if rule_name == "nat1to1":
@@ -92,6 +98,15 @@ def add_firewall_policy(params):
                 action = rule.get('action')
                 destination = classification.get('destination')
                 source = classification.get('source')
+                interface = destination.get('interface')
+                dev_ids = [interface] if interface else []
+
+                if dev_ids:
+                    is_global_rule = False
+                else:
+                    is_global_rule = True
+                    dev_ids = list(wan_dev_ids)
+
                 if source:
                     ingress_id = 'fw_wan_ingress__type_%s_rule_%d' % (
                         rule_type, rule_index)
@@ -100,62 +115,64 @@ def add_firewall_policy(params):
                         ingress_id, source, dest_rule_params, True, 0, 0, True, True))
 
                 if rule_type == InboundNatType.IDENTITY_MAPPING:
-                    interface = destination.get('interface')
-                    dev_id_params = [interface] if interface is not None else []
-                    if not dev_id_params:
-                        interfaces = fwglobals.g.router_cfg.get_interfaces(type='wan')
-                        for intf in interfaces:
-                            dev_id_params.append(intf['dev_id'])
-                else:
-                    dev_id_params = [destination['interface']]
+                    cmd_list.extend(fw_nat_command_helpers.translate_get_nat_identity_config(
+                        dev_ids, destination.get('protocols'), destination['ports']))
 
-                for dev_id in dev_id_params:
-                    if intf_attachments.get(dev_id) is None:
-                        sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
-                        if sw_if_index is None:
-                            fwglobals.log.error('Firewall policy - WAN dev_id not found: ' + dev_id)
-                            raise Exception('Firewall policy - inbound : dev_id not resolved')
-                        intf_attachments[dev_id] = {}
-                        intf_attachments[dev_id]['sw_if_index'] = sw_if_index
-                        intf_attachments[dev_id]['ingress'] = []
-                    if rule_type != InboundNatType.NAT_1TO1 and ingress_id:
-                        intf_attachments[dev_id]['ingress'].append(ingress_id)
-
-                    sw_if_index = intf_attachments[dev_id]['sw_if_index']
+                for dev_id in dev_ids:
                     if rule_type == InboundNatType.NAT_1TO1:
                         cmd_list.extend(fw_nat_command_helpers.get_nat_1to1_config(
-                            sw_if_index, action['internalIP']))
-                    elif rule_type == InboundNatType.PORT_FORWARD:
-                        cmd_list.extend(fw_nat_command_helpers.get_nat_port_forward_config(
-                            sw_if_index, destination.get('protocols'), destination['ports'],
-                            action['internalIP'], action['internalPortStart']))
-                    elif rule_type == InboundNatType.IDENTITY_MAPPING:
-                        cmd_list.extend(fw_nat_command_helpers.get_nat_identity_config(
-                            sw_if_index, destination.get('protocols'), destination['ports']))
+                            dev_id, action['internalIP']))
 
-        # Generate Per Interface ACL commands
+                    if rule_type == InboundNatType.PORT_FORWARD:
+                        cmd_list.extend(fw_nat_command_helpers.get_nat_port_forward_config(
+                            dev_id, destination.get('protocols'), destination['ports'],
+                            action['internalIP'], action['internalPortStart']))
+
+                    if ingress_id:
+                       if intf_attachments.get(dev_id) is None:
+                            intf_attachments[dev_id] = {}
+                            intf_attachments[dev_id]['ingress'] = global_ingress_ids.copy()
+                       intf_attachments[dev_id]['ingress'].append(ingress_id)
+
+                if is_global_rule and ingress_id:
+                    global_ingress_ids.append(ingress_id)
+
         for dev_id, value in intf_attachments.items():
-            if value['ingress']:
-                # Add last default ACL as allow ALL
-                value['ingress'].append(DEFAULT_ALLOW_ID)
-                fwglobals.log.info('Firewall policy - WAN dev_id: ' +
-                                dev_id + ' ' + str(value['ingress']))
-                cmd_list.append(fw_acl_command_helpers.add_interface_attachment(
-                    intf_attachments[dev_id]['sw_if_index'], value['ingress'], None))
+            # Add last default ACL as allow ALL
+            value['ingress'].append(DEFAULT_ALLOW_ID)
+
+            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(
+                value['ingress'], [], [dev_id]))
+
+            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule(
+                dev_id, 'ingress', value['ingress'], 'inbound'))
+
+        if global_ingress_ids:
+            global_ingress_ids.append(DEFAULT_ALLOW_ID)
+            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule(
+                'global_wan', 'ingress', global_ingress_ids, 'inbound'))
 
         return cmd_list
 
 
     def process_outbound_rules(outbound_rules):
 
-        intf_attachments = {}
         cmd_list = []
+        intf_attachments = {}
+        lan_dev_ids = set()
+        global_ingress_ids = []
+        global_egress_ids = []
 
-        # Get LAN interfaces managed by installed applications.
-        # The function below returns dictionary, where keys are application identifiers,
-        # and values are lists of vpp interface names, e.g.
-        #      { 'com.flexiwan.vpn': ['tun0'] }
-        app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True, linux_interfaces=False)
+        interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
+        for intf in interfaces:
+            lan_dev_ids.add(intf['dev_id'])
+
+        app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True,
+                                                               linux_interfaces=False)
+        # for applications interfaces we are using
+        # the prefix 'app_' and the identifier name as the key.
+        for app_identifier in app_lans:
+            lan_dev_ids.add(f'app_{app_identifier}')
 
         for rule_index, rule in enumerate(outbound_rules['rules']):
 
@@ -166,15 +183,20 @@ def add_firewall_policy(params):
             else:
                 destination = None
                 source = None
+
             action = rule['action']
             permit = action['permit']
+            # interfaces ['Array of LAN device ids] received from flexiManage
+            dev_ids = action.get('interfaces', [])
             ingress_id = 'fw_lan_ingress_rule_%d' % rule_index
+
             cmd1 = fw_acl_command_helpers.add_acl_rule(ingress_id, source, destination,
                     permit, 0, 0, True, False)
             if cmd1:
                 egress_id = 'fw_lan_egress_rule_%d' % rule_index
                 cmd2 = fw_acl_command_helpers.add_acl_rule(egress_id, source, destination,
                         permit, 0, 0, False, False)
+
             if cmd1 and cmd2:
                 cmd_list.append(cmd1)
                 cmd_list.append(cmd2)
@@ -183,72 +205,53 @@ def add_firewall_policy(params):
                     'do not exist for rule index: %d' % rule_index)
                 continue
 
-            # interfaces ['Array of LAN device ids] received from flexiManage
-            dev_id_params = action.get('interfaces')
-            if dev_id_params:
-                # flexiManage doesn't know about application interfaces,
-                # So it sends only 'app_{identifier}' as the dev_id.
-                # Hence, we need to manipulate  the dev_id to be app_{identifier}_{vpp_if_name},
-                # as it expected by the following code.
-                updated_dev_id_params = []
-                for dev_id_param in dev_id_params:
-                    # if dev id is a dpdk interface - keep it as is.
-                    if not dev_id_param.startswith('app_'):
-                        updated_dev_id_params.append(dev_id_param)
-                        continue
-
-                    # if we don't have vpp interfaces for this app - continue.
-                    app_identifier = dev_id_param.split('_')[-1]
-                    if not app_identifier in app_lans:
-                        continue
-
-                    # add the application vpp interface names to the list
-                    for vpp_if_name in app_lans[app_identifier]:
-                        updated_dev_id_params.append(f'app_{app_identifier}_{vpp_if_name}')
-
-                dev_id_params = updated_dev_id_params
+            if dev_ids:
+                is_global_rule = False
+                # Handle application LANs that are added after firewall.
+                # In case if we have specific rule and global rule afterwards
+                # we need lan_dev_ids to contain dev_id of application LAN.
+                for dev_id in dev_ids:
+                    lan_dev_ids.add(dev_id)
             else:
-                dev_id_params = []
-                # if flexiManage sends empty array, we appling the rule for all the lan interfaces
-                interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
-                for intf in interfaces:
-                    dev_id_params.append(intf['dev_id'])
+                is_global_rule = True
+                dev_ids = list(lan_dev_ids)
 
-                # for applications interfaces we are using
-                # the prefix 'app_' and the identifier name as the key.
-                # if interfaces are specified by flexiManage, it is sent this way as well
-                for app_identifier in app_lans:
-                    for vpp_if_name in app_lans[app_identifier]:
-                        dev_id_params.append(f'app_{app_identifier}_{vpp_if_name}')
-
-            for dev_id in dev_id_params:
+            for dev_id in dev_ids:
                 if intf_attachments.get(dev_id) is None:
                     intf_attachments[dev_id] = {}
-                    intf_attachments[dev_id]['ingress'] = []
-                    intf_attachments[dev_id]['egress'] = []
+                    intf_attachments[dev_id]['ingress'] = global_ingress_ids.copy()
+                    intf_attachments[dev_id]['egress'] = global_egress_ids.copy()
+
                 intf_attachments[dev_id]['ingress'].append(ingress_id)
                 intf_attachments[dev_id]['egress'].append(egress_id)
 
-        for dev_id, value in intf_attachments.items():
-            # handle application interfaces
-            if dev_id.startswith('app_'):
-                vpp_if_name = dev_id.split('_')[-1]
-                sw_if_index = fwutils.vpp_if_name_to_vpp_sw_if_index(vpp_if_name)
-            else:
-                sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
-            if sw_if_index is None:
-                fwglobals.log.error('Firewall policy - LAN dev_id not found: ' + dev_id +
-                                    ' ' + str(value['ingress']) + ' ' + str(value['egress']))
-                raise Exception('Firewall policy - outbound : dev_id not resolved')
+            if is_global_rule:
+                global_ingress_ids.append(ingress_id)
+                global_egress_ids.append(egress_id)
 
+        for dev_id, value in intf_attachments.items():
             # Add last default ACL as allow ALL
             value['ingress'].append(DEFAULT_ALLOW_ID)
             value['egress'].append(DEFAULT_ALLOW_ID)
 
             cmd_list.append(fw_acl_command_helpers.add_interface_attachment(
-                sw_if_index, value['ingress'], value['egress']))
+                value['ingress'], value['egress'], [dev_id]))
+
+            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule(dev_id, 'ingress', value['ingress']))
+            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule(dev_id, 'egress', value['egress']))
+
+        if global_ingress_ids:
+            global_ingress_ids.append(DEFAULT_ALLOW_ID)
+            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('global_lan', 'ingress', global_ingress_ids))
+        if global_egress_ids:
+            global_egress_ids.append(DEFAULT_ALLOW_ID)
+            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('global_lan', 'egress', global_egress_ids))
+
 
         return cmd_list
+
+    # Clean Firewall ACL cache
+    fwglobals.g.firewall_acl_cache.clear()
 
     cmd_list = []
     # Add default Allow all ACLs
@@ -256,11 +259,11 @@ def add_firewall_policy(params):
     cmd_list.append(fw_acl_command_helpers.add_acl_rule(DEFAULT_ALLOW_ID,
                                                         None, None, True, 0, 0, True, False))
 
-    outbound_rules = params.get('outbound')
+    outbound_rules = copy.deepcopy(params.get('outbound'))
     if outbound_rules:
         cmd_list.extend(process_outbound_rules(outbound_rules))
 
-    inbound_rules = params.get('inbound')
+    inbound_rules = copy.deepcopy(params.get('inbound'))
     if inbound_rules:
         cmd_list.extend(process_inbound_rules(inbound_rules))
 

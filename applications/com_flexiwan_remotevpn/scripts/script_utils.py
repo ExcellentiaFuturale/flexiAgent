@@ -91,7 +91,7 @@ def get_saved_vpp_interface_name():
 def create_tun_in_vpp(addr):
     out = None
     try:
-        cmd = f'fwagent configure router interfaces create --type lan --host_if_name vpp_remotevpn --addr {addr}'
+        cmd = f'fwagent configure router interfaces create --type lan --host_if_name vpp_remotevpn --addr {addr} --dev_id app_com.flexiwan.remotevpn --no_vppsb'
         response_data = json.loads(subprocess.check_output(cmd, shell=True).decode())
         tun_vpp_if_name = response_data.get('tun_vpp_if_name')
         if not tun_vpp_if_name:
@@ -99,13 +99,13 @@ def create_tun_in_vpp(addr):
 
         logger.info(f'TUN created in vpp. vpp_if_name={tun_vpp_if_name}')
 
-        data = { 'tun_vpp_if_name': tun_vpp_if_name }
+        data = {
+            'tun_vpp_if_name': tun_vpp_if_name,
+            'tun_vpp_if_addr': addr
+        }
         with open(app_database_file, 'w') as f:
             json.dump(data, f)
 
-        cmd = f'fwagent configure router firewall restart'
-        subprocess.check_output(cmd, shell=True)
-        logger.info(f'Firewall rules restarted')
     except Exception as e:
         logger.error(f'create_tun_in_vpp({addr}): out={str(out)}. {str(e)}')
         raise e
@@ -122,6 +122,8 @@ def remove_tun_from_vpp(addr):
             # Since in down process the vpn anyway will be stopped, we need to clear the tun name from the database.
             # even if error will be raised below. Hence, database update is done in the 'finally' block
             del data['tun_vpp_if_name']
+            if 'tun_vpp_if_addr' in data:
+                del data['tun_vpp_if_addr']
 
             cmd = f'fwagent configure router interfaces delete --type lan --vpp_if_name {tun_vpp_if_name} --addr {addr}'
             subprocess.check_output(cmd, shell=True)

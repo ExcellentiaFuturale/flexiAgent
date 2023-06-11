@@ -22,6 +22,7 @@ Helper functions to convert classifications and actions into VPP ACL commands
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import copy
 import ctypes
 
 import fwglobals
@@ -254,54 +255,128 @@ def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
     return cmd
 
 
-def add_interface_attachment(sw_if_index, ingress_acl_ids, egress_acl_ids):
+def add_interface_attachment(ingress_ids=[], egress_ids=[], dev_ids=[]):
     """ Prepares command dict required to attach array of ingress and egress
     ACL identifiers to an interface
 
-    :param sw_if_index: Integer identifier that represents an interface in VPP
-    :param ingress_acl_ids: Array of ingress ACL identifiers
-    :param egress_acl_ids: Array of egress ACL identifiers
+    :param ingress_ids: Ingress ACL identifiers
+    :param egress_ids: Egress ACL identifiers
+    :param dev_ids: List of interfaces
     :return: Dict representing the command
     """
     cmd = {}
-    acl_ids = []
-    ingress_count = 0
-    if ingress_acl_ids:
-        acl_ids.extend(ingress_acl_ids)
-        ingress_count = len(ingress_acl_ids)
-    if egress_acl_ids:
-        acl_ids.extend(egress_acl_ids)
 
     add_params = {
-        'sw_if_index': sw_if_index,
-        'count': len(acl_ids),
-        'n_input': ingress_count,
-        'substs': [{'add_param':            'acls',
-                    'val_by_func':          'map_keys_to_acl_ids',
-                    'arg':                  {'keys': acl_ids},
-                    'func_uses_cmd_cache':  True}]
+        'is_add': True,
+        'dev_ids': dev_ids,
+        'substs': [{ 'add_param': 'ingress_acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': ingress_ids}, 'func_uses_cmd_cache':  True },
+                   { 'add_param': 'egress_acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': egress_ids}, 'func_uses_cmd_cache':  True }]
+    }
+    revert_params = copy.deepcopy(add_params)
+    revert_params['is_add'] = False
+
+    cmd['cmd'] = {}
+    cmd['cmd']['func']   = "add_acl_rules_interfaces"
+    cmd['cmd']['module'] = "fw_acl_command_helpers"
+    cmd['cmd']['descr'] = "Attach ACLs to interface"
+    cmd['cmd']['params'] = add_params
+    cmd['revert'] = {}
+    cmd['revert']['func']   = "add_acl_rules_interfaces"
+    cmd['revert']['module'] = "fw_acl_command_helpers"
+    cmd['revert']['descr'] = "Detach ACLs from interface"
+    cmd['revert']['params'] = revert_params
+
+    return cmd
+
+def translate_cache_acl_rule(dev_id, direction, acl_ids, type = "outbound"):
+    """ Translate cache ACL rule
+
+    :param dev_id: Device id
+    :param type: Inbound/outbound
+    :param direction: Ingress/egress
+    :param acl_id: ACL identifier
+    """
+    cmd = {}
+
+    params = {
+        'dev_id': dev_id,
+        'direction': direction,
+        'substs': [{ 'add_param': 'acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': acl_ids}, 'func_uses_cmd_cache':  True }]
     }
 
     cmd['cmd'] = {}
-    cmd['cmd']['func']  = "call_vpp_api"
-    cmd['cmd']['descr'] = "Attach ACLs to interface"
-    cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
-    cmd['cmd']['params'] = {
-                'api':  "acl_interface_set_acl_list",
-                'args': add_params,
-    }
+    cmd['cmd']['func']   = "add"
+    cmd['cmd']['object'] = "fwglobals.g.firewall_acl_cache"
+    cmd['cmd']['descr']  = "Add Firewall ACL into cache"
+    cmd['cmd']['params'] = params
+
     cmd['revert'] = {}
-    cmd['revert']['func']  = "call_vpp_api"
-    cmd['revert']['descr'] = "Detach ACLs from interface"
-    cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
-    cmd['revert']['params'] = {
-        'api': "acl_interface_set_acl_list",
-        'args': {
-            'sw_if_index': sw_if_index,
-            'count': 0,
-            'n_input': 0,
-            'acls': []
-        }
-    }
+    cmd['revert']['func']   = "remove"
+    cmd['revert']['object'] = "fwglobals.g.firewall_acl_cache"
+    cmd['revert']['descr']  = "Remove Firewall ACL from cache"
+    cmd['revert']['params'] = params
 
     return cmd
+
+def vpp_add_acl_rules(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids):
+    """
+    Add/remove ACL rules on the interface
+
+    :param is_add: add or remove
+    :param sw_if_index: device identifier of the interface
+    :param ingress_acl_ids: ingress acl ids
+    :param egress_acl_ids: egress acl ids
+    """
+    acls = []
+    ingress_count = 0
+    count = 0
+
+    if is_add:
+        if ingress_acl_ids:
+            acls.extend(ingress_acl_ids)
+            ingress_count = len(ingress_acl_ids)
+        if egress_acl_ids:
+            acls.extend(egress_acl_ids)
+        count = len(acls)
+
+    fwglobals.g.router_api.vpp_api.vpp.call('acl_interface_set_acl_list',
+        count=count, sw_if_index=sw_if_index, n_input=ingress_count, acls=acls)
+
+def add_acl_rules_interfaces(is_add, dev_ids, ingress_acl_ids=[], egress_acl_ids=[]):
+    """
+    Add/remove ACL rules on the list of interfaces
+
+    :param is_add: add or remove
+    :param dev_ids: list of interfaces
+    :param ingress_acl_ids: ingress acl ids
+    :param egress_acl_ids: egress acl ids
+    """
+    sw_if_indexes = []
+
+    # Get LAN interfaces managed by installed applications.
+    # The function below returns dictionary, where keys are application identifiers,
+    # and values are lists of vpp interface names, e.g.
+    #      { 'com.flexiwan.vpn': ['tun0'] }
+    app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True, linux_interfaces=False)
+
+    # flexiManage doesn't know about application interfaces,
+    # So it sends only 'app_{identifier}' as the dev_id.
+    # Hence, we need to manipulate  the dev_id to be app_{identifier}_{vpp_if_name},
+    # as it expected by the following code.
+    for dev_id in dev_ids:
+        # if dev id is a dpdk interface - keep it as is.
+        if not dev_id.startswith('app_'):
+            sw_if_indexes.append(fwutils.dev_id_to_vpp_sw_if_index(dev_id))
+            continue
+
+        # if we don't have vpp interfaces for this app - continue.
+        app_identifier = dev_id.split('_')[-1]
+        if not app_identifier in app_lans:
+            continue
+
+        # add the application vpp interface names to the list
+        for vpp_if_name in app_lans[app_identifier]:
+            sw_if_indexes.append(fwutils.vpp_if_name_to_sw_if_index(vpp_if_name))
+
+    for sw_if_index in sw_if_indexes:
+        vpp_add_acl_rules(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids)

@@ -26,6 +26,15 @@
 # Every piece of data is dumped into dedicated file in temporary folder,
 # than whole folder is tar-ed and is zipped.
 
+import signal
+def fwdump_signal_handler(signum, frame):
+    """Handle SIGINT (CTRL+C) to suppress backtrace print onto screen,
+	   when invoked by user from command line and not as a daemon.
+       Do it ASAP, so CTRL+C in the middle of importing the third-parties
+       will not cause the backtrace to print.
+	"""
+    exit(1)
+signal.signal(signal.SIGINT, fwdump_signal_handler)
 
 import os
 import re
@@ -41,6 +50,7 @@ from fw_vpp_coredump_utils import vpp_coredump_copy_cores
 from fwobject import FwObject
 import fwapplications_api
 import fwlte
+import fw_os_utils
 
 g = fwglobals.Fwglobals()
 
@@ -54,12 +64,20 @@ g_dumpers = {
     ############################################################################
     # Linux stuff - !!! PLEASE KEEP ALPHABET ORDER !!!
     #
+    'linux_apt':                    { 'shell_cmd': 'mkdir -p <temp_folder>/linux_apt/ && ' +
+                                                   'cp /var/log/apt/*.log <temp_folder>/linux_apt 2>/dev/null ; ' +
+                                                   'cp /var/log/apt/*.log.1.gz <temp_folder>/linux_apt 2>/dev/null ; ' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_cpu':                    { 'shell_cmd': 'cat /proc/cpuinfo > <dumper_out_file>' },
     'linux_dhcpd':                  { 'shell_cmd': 'mkdir -p <temp_folder>/linux_dhcpd/ && ' +
                                                    'cp /etc/dhcp/dhcpd.conf* <temp_folder>/linux_dhcpd 2>/dev/null ; ' +
                                                    'cp /var/log/dhcpd.log    <temp_folder>/linux_dhcpd 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_disk':                   { 'shell_cmd': 'df -h > <dumper_out_file>' },
+
+    'linux_dist_upgrade':           { 'shell_cmd': 'mkdir -p <temp_folder>/linux_dist_upgrade/ && ' +
+                                                   'cp /var/log/dist-upgrade/* <temp_folder>/linux_dist_upgrade 2>/dev/null ; ' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_dpdk_devbind_status':    { 'shell_cmd': 'dpdk-devbind -s > <dumper_out_file>' },
     'linux_grub':                   { 'shell_cmd': 'cp /etc/default/grub <temp_folder>/linux_grub.log 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
@@ -115,11 +133,16 @@ g_dumpers = {
     'frr_conf':                     { 'shell_cmd': 'mkdir -p <temp_folder>/frr && cp /etc/frr/* <temp_folder>/frr/ 2>/dev/null' },
     'frr_bgp_summary':              { 'shell_cmd': f'vtysh -c "show bgp summary" > <temp_folder>/frr_bgp_summary.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'frr_ip_bgp':                   { 'shell_cmd': f'vtysh -c "show ip bgp" > <temp_folder>/frr_ip_bgp.log 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+
     'frr_ip_route':                 { 'shell_cmd': f'vtysh -c "show ip route json" > <temp_folder>/frr_ip_route.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'frr_log':                      { 'shell_cmd': f'cp {g.FRR_LOG_FILE} <temp_folder>/frr.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'frr_ospf_neighbors':           { 'shell_cmd': f'vtysh -c "show ip ospf neighbor all json" > <temp_folder>/frr_ip_ospf_neighbors.json 2>/dev/null ;' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'frr_ospf_database':            { 'shell_cmd': f'vtysh -c "show ip ospf database" > <temp_folder>/frr_ip_ospf_database.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     ############################################################################
@@ -139,6 +162,8 @@ g_dumpers = {
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     'hostapd.log':                  { 'shell_cmd': 'cp %s <temp_folder>/hostapd.log 2>/dev/null ;' % (g.HOSTAPD_LOG_FILE) +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'hostapd.log.backup':           { 'shell_cmd': 'cp %s <temp_folder>/hostapd.log.backup 2>/dev/null ;' % (g.HOSTAPD_LOG_FILE_BACKUP) +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     'fwagent_db_applications':      { 'shell_cmd': 'fwagent show --database applications > <dumper_out_file>' },
@@ -166,6 +191,7 @@ g_dumpers = {
     'vpp_adj':                      { 'shell_cmd': 'vppctl sh adj > <dumper_out_file>' },
     'vpp_bridge':                   { 'shell_cmd': 'vppctl sh bridge > <dumper_out_file>' },
     'vpp_buffers':                  { 'shell_cmd': 'vppctl sh buffers > <dumper_out_file>' },
+    'vpp_default_gateways':         { 'shell_cmd': 'vppctl sh ip fib 0.0.0.0/0 > <dumper_out_file>' },
     'vpp_ike_profile':              { 'shell_cmd': 'vppctl sh ike profile > <dumper_out_file>' },
     'vpp_ike_sa':                   { 'shell_cmd': 'vppctl sh ike sa details > <dumper_out_file>' },
     'vpp_interfaces_addresses':     { 'shell_cmd': 'vppctl sh int addr > <dumper_out_file>' },
@@ -243,10 +269,7 @@ class FwDump(FwObject):
         The list contains names of dumpers that serve as keys for the global
         g_dumpers map.
         '''
-        try:
-            vpp_pid = subprocess.check_output(['pidof', 'vpp']).decode()
-        except:
-            vpp_pid = None
+        vpp_pid = fw_os_utils.vpp_pid()
 
         for dumper in dumpers:
             if not dumper in g_dumpers:
@@ -302,6 +325,8 @@ class FwDump(FwObject):
                 directory = f'<temp_folder>/applications/{app_identifier}'
                 for app_file in app_files:
                     file_name = app_file.split('/')[-1] # get the filename out of the file full path
+                    if not os.path.exists(app_file):
+                        continue
                     g_dumpers[file_name] = {
                         'shell_cmd': f'mkdir -p {directory} && cat {app_file} > {directory}/{file_name}'
                     }
@@ -381,9 +406,6 @@ def main(args):
 if __name__ == '__main__':
     import argparse
     global arg
-
-    if not fwutils.check_root_access():
-        sys.exit(1)
 
     parser = argparse.ArgumentParser(description='FlexiEdge dump utility')
     parser.add_argument('--dest_folder', default=None,
