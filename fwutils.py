@@ -2411,17 +2411,18 @@ def modify_dhcpd(is_add, params):
         exec_string = remove_string
 
     for mac in mac_assign:
+        host = mac.get('host')
         remove_string_2 = 'sudo sed -e "/host %s {/,/}/d" ' \
-                          '-i %s; ' % (mac['host'], config_file)
+                          '-i %s; ' % (host, config_file)
 
-        host_string = 'host %s {\n' % (mac['host'])
+        host_string = 'host %s {\n' % (host)
         ethernet_string = 'hardware ethernet %s;\n' % (mac['mac'])
         ip_address_string = 'fixed-address %s;\n' % (mac['ipv4'])
         
         host_name_string = ''
-        host_name = mac.get('hostName')
-        if host_name:
-            host_name_string = f'option host-name {host_name};\n'
+        use_host_name_as_dhcp_option = mac.get('useHostNameAsDhcpOption')
+        if use_host_name_as_dhcp_option:
+            host_name_string = f'option host-name {host};\n'
 
         mac_assign_string = 'echo "' + host_string + ethernet_string + ip_address_string + host_name_string + \
                             '}"' + ' | sudo tee -a %s;' % config_file
