@@ -4169,13 +4169,14 @@ def dev_id_get_parent (dev_id):
         parent_dev_id = dev_id
     return parent_dev_id
 
-def vrrp_add_del_track_interfaces(dev_ids, is_add, vr_id, dev_id):
+def vrrp_add_del_track_interfaces(track_interfaces, is_add, vr_id, dev_id, track_ifc_priority):
     vrrp_sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
 
     ifcs = []
-    for (idx, dev_id) in enumerate(dev_ids):
-        sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
-        ifcs.append({ 'sw_if_index': sw_if_index, 'priority': idx + 1})
+    for track_interface in track_interfaces:
+        track_ifc_dev_id = track_interface.get('devId')
+        sw_if_index = dev_id_to_vpp_sw_if_index(track_ifc_dev_id)
+        ifcs.append({ 'sw_if_index': sw_if_index, 'priority': track_ifc_priority })
 
     if not ifcs:
         return (True, None)

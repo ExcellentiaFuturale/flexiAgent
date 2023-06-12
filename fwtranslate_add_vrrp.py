@@ -130,12 +130,24 @@ def add_vrrp(params):
         cmd['cmd']['func']      = "vrrp_add_del_track_interfaces"
         cmd['cmd']['module']    = "fwutils"
         cmd['cmd']['descr']     = "add tracke interfaces to vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
-        cmd['cmd']['params']    = { 'is_add': 1, 'dev_id': dev_id, 'dev_ids': track_interfaces, 'vr_id': virtual_router_id }
+        cmd['cmd']['params']    = {
+            'is_add': 1,
+            'dev_id': dev_id,
+            'track_interfaces': track_interfaces,
+            'vr_id': virtual_router_id,
+            'track_ifc_priority': (priority - 1) # vpp allows priority less than VRID priorirty
+        }
         cmd['revert'] = {}
         cmd['revert']['func']   = "vrrp_add_del_track_interfaces"
         cmd['revert']['module'] = "fwutils"
         cmd['revert']['descr']  = "delete tracke interfaces from vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
-        cmd['revert']['params'] = { 'is_add': 0, 'dev_id': dev_id, 'dev_ids': track_interfaces, 'vr_id': virtual_router_id }
+        cmd['revert']['params'] = {
+            'is_add': 0,
+            'dev_id': dev_id,
+            'track_interfaces': track_interfaces,
+            'vr_id': virtual_router_id,
+            'track_ifc_priority': (priority - 1) # vpp allows priority less than VRID priorirty
+            }
         cmd_list.append(cmd)
 
     return cmd_list
