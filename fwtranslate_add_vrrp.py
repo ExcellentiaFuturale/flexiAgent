@@ -51,6 +51,8 @@ def add_vrrp(params):
     priority = params.get('priority')
     dev_id = params.get('devId')
 
+    interval = params.get('interval', 100)
+
     preemption = params.get('preemption')
     accept_mode = params.get('acceptMode')
 
@@ -70,6 +72,7 @@ def add_vrrp(params):
                         'flags': (preemption_flag|accept_mode_flag),
                         'addrs': [ipaddress.ip_address(virtual_router_ip)],
                         'n_addrs': 1,
+                        'interval': interval,
                         'substs': [{'add_param': 'sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}],
                     }
     }
@@ -86,6 +89,7 @@ def add_vrrp(params):
                         'flags': (preemption_flag|accept_mode_flag),
                         'addrs': [ipaddress.ip_address(virtual_router_ip)],
                         'n_addrs': 1,
+                        'interval': interval,
                         'substs': [{'add_param': 'sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}],
                     }
     }
