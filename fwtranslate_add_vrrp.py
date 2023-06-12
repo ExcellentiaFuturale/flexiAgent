@@ -58,14 +58,14 @@ def add_vrrp(params):
 
     preemption_flag  = 0x1 if preemption else 0  # see VRRP_API_VR_PREEMPT = 1 in vrrp_api.json
     accept_mode_flag = 0x2 if accept_mode else 0 # see VRRP_API_VR_ACCEPT = 2 in vrrp_api.json
-    
+
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['func']   = "call_vpp_api"
     cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['params'] = {
                     'api':  "vrrp_vr_add_del",
-                    'args': { 
+                    'args': {
                         'is_add': 1,
                         'vr_id': virtual_router_id,
                         'priority': priority,
@@ -82,7 +82,7 @@ def add_vrrp(params):
     cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['revert']['params'] = {
                     'api':  "vrrp_vr_add_del",
-                    'args': { 
+                    'args': {
                         'is_add': 0,
                         'vr_id': virtual_router_id,
                         'priority': priority,
@@ -102,7 +102,7 @@ def add_vrrp(params):
     cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['params'] = {
                     'api':  "vrrp_vr_start_stop",
-                    'args': { 
+                    'args': {
                         'is_start': 1,
                         'vr_id': virtual_router_id,
                         'substs': [{'add_param': 'sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}],
@@ -114,7 +114,7 @@ def add_vrrp(params):
     cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['revert']['params'] = {
                     'api':  "vrrp_vr_start_stop",
-                    'args': { 
+                    'args': {
                         'is_start': 0,
                         'vr_id': virtual_router_id,
                         'substs': [{'add_param': 'sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id}],
@@ -127,37 +127,15 @@ def add_vrrp(params):
     if track_interfaces:
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']   = "call_vpp_api"
-        cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
-        cmd['cmd']['params'] = {
-                        'api':  "vrrp_vr_track_if_add_del",
-                        'args': { 
-                            'is_add': 1,
-                            'n_ifs': len(track_interfaces),
-                            'vr_id': virtual_router_id,
-                            'substs': [
-                                {'add_param': 'sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id},
-                                {'add_param': 'ifs', 'val_by_func': 'dev_ids_to_vpp_sw_if_indexes', 'arg': { 'dev_ids': track_interfaces } }
-                            ],
-                        }
-        }
-        cmd['cmd']['descr']         = "add tracke interfaces to vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
+        cmd['cmd']['func']      = "vrrp_add_del_track_interfaces"
+        cmd['cmd']['module']    = "fwutils"
+        cmd['cmd']['descr']     = "add tracke interfaces to vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
+        cmd['cmd']['params']    = { 'is_add': 1, 'dev_id': dev_id, 'dev_ids': track_interfaces, 'vr_id': virtual_router_id }
         cmd['revert'] = {}
-        cmd['revert']['func']   = 'call_vpp_api'
-        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
-        cmd['revert']['params'] = {
-                        'api':  "vrrp_vr_track_if_add_del",
-                        'args': { 
-                            'is_add': 0,
-                            'n_ifs': len(track_interfaces),
-                            'vr_id': virtual_router_id,
-                            'substs': [
-                                {'add_param': 'sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg': dev_id},
-                                {'add_param': 'ifs', 'val_by_func': 'dev_ids_to_vpp_sw_if_indexes', 'arg': {'dev_ids': track_interfaces}}
-                            ],
-                        }
-        }
-        cmd['revert']['descr']      = "delete tracke interfaces from vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
+        cmd['revert']['func']   = "vrrp_add_del_track_interfaces"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['descr']  = "delete tracke interfaces from vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
+        cmd['revert']['params'] = { 'is_add': 0, 'dev_id': dev_id, 'dev_ids': track_interfaces, 'vr_id': virtual_router_id }
         cmd_list.append(cmd)
 
     return cmd_list

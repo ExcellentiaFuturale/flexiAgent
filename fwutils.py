@@ -4169,6 +4169,26 @@ def dev_id_get_parent (dev_id):
         parent_dev_id = dev_id
     return parent_dev_id
 
+def vrrp_add_del_track_interfaces(dev_ids, is_add, vr_id, dev_id):
+    vrrp_sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
+
+    ifcs = []
+    for (idx, dev_id) in enumerate(dev_ids):
+        sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
+        ifcs.append({ 'sw_if_index': sw_if_index, 'priority': idx + 1})
+
+    if not ifcs:
+        return (True, None)
+
+    fwglobals.g.router_api.vpp_api.vpp.call(
+        'vrrp_vr_track_if_add_del',
+        is_add=is_add,
+        vr_id=vr_id,
+        n_ifs=len(ifcs),
+        ifs=ifcs,
+        sw_if_index=vrrp_sw_if_index
+    )
+
 class DYNAMIC_INTERVAL():
     def __init__(self, value, max_value_on_failure):
         self.default  = value
