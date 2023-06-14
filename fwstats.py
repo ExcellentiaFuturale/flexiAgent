@@ -329,7 +329,7 @@ class FwStatistics(FwObject):
                 event_warning_threshold = None
         return event_critical_threshold, event_warning_threshold
 
-    def get_current_value(self, event_type, health_stats=None, tunnel=None):
+    def get_current_value(self, event_type, health_stats=None, tunnel_statistics=None):
         type_to_stats = {
             'Device memory usage': 'mem',
             'Hard drive usage': 'disk',
@@ -337,8 +337,8 @@ class FwStatistics(FwObject):
             'Link/Tunnel round trip time':'rtt',
             'Link/Tunnel default drop rate':'drop_rate'
         }
-        if tunnel:
-            current_value = tunnel[type_to_stats.get(event_type)]
+        if tunnel_statistics:
+            current_value = tunnel_statistics[type_to_stats.get(event_type)]
         elif event_type != 'Temperature':
             current_value = health_stats[type_to_stats.get(event_type)]
         else:
@@ -354,24 +354,24 @@ class FwStatistics(FwObject):
         tunnel_dict = {tunnel['tunnel-id']: tunnel for tunnel in tunnels}
         if not config:
             return {}
-        rules = config.get('rules', [])
-        tunnel_rules = {}
-        for rule in rules:
-            event_type = rule.get('event')
-            event_unit = rule.get('thresholdUnit')
-            event_critical_threshold, event_warning_threshold = self.get_threshold(event_type, rule, health_stats)
-            if event_type.startswith('Link/Tunnel'):
-                tunnel_rules[event_type]=(event_warning_threshold, event_critical_threshold)
+        rules = config.get('rules', {})
+        tunnel_rules = []
+        for event_type, event_settings in rules.items():
+            event_unit = event_settings.get('thresholdUnit')
+            event_critical_threshold, event_warning_threshold = self.get_threshold(event_type, event_settings, health_stats)
+            if event_settings.get('type') == 'tunnel':
+                tunnel_rules.append(event_type)
                 continue
             current_value = self.get_current_value(event_type, health_stats)
             health_tracker.add_value(event_type, current_value, event_unit, event_warning_threshold, event_critical_threshold)
         for tunnel_id in tunnel_stats:
-            tunnel = tunnel_stats[tunnel_id]
-            tunnel_notifications = tunnel_dict[tunnel_id].get('notificationsSettings', [])
+            tunnel_statistics = tunnel_stats[tunnel_id]
+            tunnel_notifications = tunnel_dict[tunnel_id].get('notificationsSettings', {})
             for tunnel_rule in tunnel_rules:
-                warning = tunnel_notifications[tunnel_rule].get('warningThreshold') if tunnel_notifications else tunnel_rules[tunnel_rule][0]
-                critical = tunnel_notifications[tunnel_rule].get('criticalThreshold') if tunnel_notifications else tunnel_rules[tunnel_rule][1]
-                current_value = self.get_current_value(tunnel_rule, tunnel=tunnel)
+                warning = tunnel_notifications[tunnel_rule].get('warningThreshold') if tunnel_notifications else rules[tunnel_rule].get('warningThreshold')
+                critical = tunnel_notifications[tunnel_rule].get('criticalThreshold') if tunnel_notifications else rules[tunnel_rule].get('criticalThreshold')
+                event_unit = rules[tunnel_rule].get('thresholdUnit')
+                current_value = self.get_current_value(tunnel_rule, tunnel_statistics=tunnel_statistics)
                 health_tracker.add_value(tunnel_rule, current_value, event_unit, warning, critical, tunnel_id)
         return alerts
 
