@@ -215,8 +215,11 @@ def ap_get_clients(interface_name):
                     signal = ''
 
                 try:
-                    arp_output = subprocess.check_output('arp -a -n | grep %s' % mac, shell=True).decode()
-                    ip = arp_output[arp_output.find("(")+1:arp_output.find(")")]
+                    arp_output = subprocess.check_output('arp -a -n | grep %s' % mac, shell=True).decode().splitlines()
+                    # The above arp result may have multiple entries for the same mac address, each with a different IP.
+                    # The updated is the last one, hence, we take the last line.
+                    updated_arp_output = arp_output[-1]
+                    ip = updated_arp_output[updated_arp_output.find("(")+1:updated_arp_output.find(")")]
                 except:
                     ip = ''
 
