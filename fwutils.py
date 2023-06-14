@@ -3479,7 +3479,7 @@ def get_min_metric_device(skip_dev_id):
 
     return (metric_min_dev_id, metric_min)
 
-def dump(filename=None, path=None, clean_log=False):
+def fwdump(filename=None, path=None, clean_log=False):
     '''This function invokes 'fwdump' utility while ensuring no DoS on disk space.
 
     :param filename:  the name of the final file where to dump will be tar.gz-ed
@@ -4158,3 +4158,36 @@ class DYNAMIC_INTERVAL():
         else:
             self.current  = self.default
             self.failures = 0
+
+def normalize_for_json_dumps(input_value):
+    """Modifies the input dictionary, list or other basic python type to have
+    only these values that are eatable by the json.dumps:
+        - replaces bytearrays with strings
+    """
+    normilized = False
+
+    def _normalize_for_json_dumps(input):
+        """Recursive function for dict deep search and replace bytearray.
+        """
+        nonlocal normilized
+        if type(input) == dict:
+            for key, val in input.items():
+                input[key] = _normalize_for_json_dumps(val)
+            return input
+        elif type(input) == list:
+            return [_normalize_for_json_dumps(value) for value in input]
+        elif isinstance(input, (bytes, bytearray)):
+            normilized = True
+            return str(input)
+        else:
+            return input
+
+    try:
+        new = copy.deepcopy(input_value) # avoid in-place modification of original
+        new = _normalize_for_json_dumps(new)
+    except Exception as e:
+        input_value_str = json.dumps(input_value, indent=2, sort_keys=True, cls=fwutils.FwJsonEncoder)
+        fwglobals.log.excep(f'normalize_for_json_dumps: {str(e)}: {input_value_str}')
+        return input_value
+
+    return new if normilized else input_value

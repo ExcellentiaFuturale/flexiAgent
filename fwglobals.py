@@ -872,9 +872,6 @@ def initialize(log_level=FWLOG_LEVEL_INFO, quiet=False):
 
     :returns: None.
     """
-    if not fwutils.check_root_access():
-        return False
-
     global g_initialized
     if not g_initialized:
         global log
