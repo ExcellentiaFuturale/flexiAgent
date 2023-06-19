@@ -28,6 +28,9 @@
 # Don't block regular APIs because of web proxy traffic - use queues if thread
 #    is not sufficient
 # Add Multithreading and server multiple requests at the same time
+# One API that will divide between get, post, put, delete
+# Add the application into the API, then register per application proxification
+#    and run it based on the application provided in the API
 # Support post requests
 # Split big files into chunks - check also these options:
 #     https://stackoverflow.com/a/60401415
@@ -71,13 +74,14 @@ def _get_resp_headers(resp):
     res_headers.append(('Content-Length', len(resp.content)))
     return res_headers
 
-def do_GET(url, server, type, headers, body):
-    """Process a GET request from backend
+def do_Proxy(url, server, type, headers, body):
+    """distribute the URL to the relevant method
 
     :param url:      String, the URL to query from local server
     :param type:     String, Request type, GET/POST
     :param headers:  List of tuples, (Header, Value)
     :param body:     String, Body of request if exists, otherwise None
+                     body is assumed to be in JSON format
 
     :returns: JSON, response to send to the backend with:
            response - Base64 encoded
@@ -88,8 +92,18 @@ def do_GET(url, server, type, headers, body):
     url = unquote(url)
     # TBD: Set headers
     # Get response
-    resp = requests.get(url)
-    # Proxify result
+
+    if (type=='GET'):      resp = requests.get(url)
+    elif (type=='POST'):   resp = requests.post(url, json=body)
+    elif (type=='PUT'):    resp = requests.put(url, json=body)
+    elif (type--'DELETE'): resp = requests.delete(url,json=body)
+    # Not supported type
+    else: return ({
+        'response':"Unsupported Request",
+        'headers':[],
+        'status':500
+    })
+
     proxify = FwWebProxy()
     # TBD: Take application from request
     proxified_response = proxify.on_complete(url, server, 'ntopng', resp)
@@ -106,21 +120,6 @@ def do_GET(url, server, type, headers, body):
         'headers':_get_resp_headers(resp),
         'status':resp.status_code
     })
-
-def do_POST(url, type, headers, body):
-    """Process a POST request from backend
-
-    :param url:      String, the URL to query from local server
-    :param type:     String, Request type, GET/POST
-    :param headers:  List of tuples, (Header, Value)
-    :param body:     String, Body of request if exists, otherwise None
-
-    :returns: JSON, response to send to the backend with:
-           response - Base64 encoded
-           headers  - List of tuples, (Header, Value)
-           status   - Int, status code
-    """
-    pass
 
 # Class for proxification handling
 class FwWebProxy():
@@ -140,7 +139,7 @@ class FwWebProxy():
         # Otherwise, keep the path
         if (rel[0] == '/'):
             path = ''
-        else: 
+        else:
             path = os.path.dirname(base_parse.path) + '/'
         full = base_parse.netloc + path + rel
         return base_parse.scheme + '://' + full
@@ -253,6 +252,7 @@ class FwWebProxy():
     def proxify_ntopng(self, matches):
         url = matches.group(1).strip()
         url_nobase = url.replace('${base_path}','')
+        url_nobase = url_nobase.replace('${http_prefix}','')
         return matches.group(0).replace(url, self.proxify_url(url_nobase, safe='${}'))
 
     def proxify_application(self, str, application):
@@ -279,7 +279,8 @@ class FwWebProxy():
         content_type = resp.headers.get('Content-Type')
         no_proxify_js = [
             'text/javascript', 'application/javascript',
-            'application/x-javascript', 'text/plain']
+            'text/plain', 'application/x-javascript']
+        only_application_proxify = ['application/x-javascript']
         if any(c in content_type for c in no_proxify_js):
             return None
 
@@ -290,6 +291,10 @@ class FwWebProxy():
         self.base_url = url
         self.server = server
         str = resp.text
+
+        if any(c in content_type for c in only_application_proxify):
+            str = self.proxify_application(str, application)
+            return str
 
         # TBD: Should we protect against extarnal js or iframes?
 

@@ -41,7 +41,7 @@ os_api_defs = {
     'cpuutil':{'module':'psutil', 'api':'cpu_percent', 'decode':None},
     'exec':{'module':'os', 'api':'popen', 'decode':'execd'},
     'exec_timeout':{'module':'fwutils', 'api':'exec_with_timeout', 'decode':'exec_timeout_decode'},
-    'proxy': {'module':'fwproxy', 'api':'do_GET', 'decode':None}
+    'proxy': {'module':'fwproxy', 'api':'do_Proxy', 'decode':None}
 }
 
 class OS_DECODERS:
