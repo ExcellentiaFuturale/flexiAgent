@@ -66,6 +66,7 @@ from fwapplications_cfg import FwApplicationsCfg
 from fwwan_monitor  import get_wan_failover_metric
 from fw_traffic_identification import FwTrafficIdentifications
 from tools.common.fw_vpp_startupconf import FwStartupConf
+from fwcfg_request_handler import FwCfgMultiOpsWithRevert
 
 libc = None
 
@@ -1073,6 +1074,13 @@ def dev_ids_to_vpp_sw_if_indexes(dev_ids):
         res.append(dev_id_to_vpp_sw_if_index(dev_id))
     return res
 
+def dev_id_to_switch_sw_if_index(dev_id):
+    bridge_addr = fwutils.is_bridged_interface(dev_id)
+    if not bridge_addr:
+        return None
+
+    return bridge_addr_to_bvi_sw_if_index(bridge_addr)
+
 def dev_id_to_vpp_sw_if_index(dev_id, verbose=True):
     """Convert device bus address into VPP sw_if_index.
 
@@ -1133,9 +1141,7 @@ def vpp_if_name_to_sw_if_index(vpp_if_name):
 
     return None
 
-# 'bridge_addr_to_bvi_interface_tap' function get the addr of the interface in a bridge
-# and return the tap interface of the BVI interface
-def bridge_addr_to_bvi_interface_tap(bridge_addr):
+def bridge_addr_to_bvi_sw_if_index(bridge_addr):
     if not fw_os_utils.vpp_does_run():
         return None
 
@@ -1150,7 +1156,12 @@ def bridge_addr_to_bvi_interface_tap(bridge_addr):
         fwglobals.log.error('bridge_addr_to_bvi_interface_tap: failed to fetch vpp bridges for bd_id %s' % str(bd_id))
         return None
 
-    bvi_sw_if_index = vpp_bridges_det[0].bvi_sw_if_index
+    return vpp_bridges_det[0].bvi_sw_if_index
+
+# 'bridge_addr_to_bvi_interface_tap' function get the addr of the interface in a bridge
+# and return the tap interface of the BVI interface
+def bridge_addr_to_bvi_interface_tap(bridge_addr):
+    bvi_sw_if_index = bridge_addr_to_bvi_sw_if_index(bridge_addr)
     return vpp_sw_if_index_to_tap(bvi_sw_if_index)
 
 # 'dev_id_to_tap' function maps interface referenced by dev_id, e.g '0000:00:08.00'
@@ -4169,25 +4180,118 @@ def dev_id_get_parent (dev_id):
         parent_dev_id = dev_id
     return parent_dev_id
 
-def vrrp_add_del_track_interfaces(track_interfaces, is_add, vr_id, dev_id, track_ifc_priority):
-    vrrp_sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
+def vpp_loopback_get_mac_address(sw_if_index):
+    mac = "de:ad:00:00:%0.4x" % sw_if_index
+    mac = mac[:-2] + ':' + mac[-2:]
+    return mac
 
-    ifcs = []
+def vpp_vrrp_get_mac_address(vr_id):
+    mac = "00:00:5e:00:01%0.2x" % vr_id
+    mac = mac[:-2] + ':' + mac[-2:]
+    return mac
+
+def vrrp_add_del_vr(params, is_add, result_cache=None):
+    virtual_router_id = params.get('virtualRouterId')
+    virtual_router_ip = params.get('virtualIp')
+    priority = params.get('priority')
+    dev_id = params.get('devId')
+    interval = params.get('interval', 100)
+
+    preemption = params.get('preemption')
+    accept_mode = params.get('acceptMode')
+    preemption_flag  = 0x1 if preemption else 0  # see VRRP_API_VR_PREEMPT = 1 in vrrp_api.json
+    accept_mode_flag = 0x2 if accept_mode else 0 # see VRRP_API_VR_ACCEPT = 2 in vrrp_api.json
+
+    is_switch = False
+    sw_if_index = dev_id_to_switch_sw_if_index(dev_id)
+    if sw_if_index:
+       is_switch = True
+    else:
+       sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
+
+
+    with FwCfgMultiOpsWithRevert() as handler:
+        try:
+            handler.exec(
+                func=fwglobals.g.router_api.vpp_api.vpp.call,
+                params={
+                    'api_name': 'vrrp_vr_add_del',
+                    'is_add': is_add,
+                    'vr_id': virtual_router_id,
+                    'priority': priority,
+                    'flags': (preemption_flag|accept_mode_flag),
+                    'addrs': [ipaddress.ip_address(virtual_router_ip)],
+                    'n_addrs': 1,
+                    'interval': interval,
+                    'sw_if_index': sw_if_index
+                },
+                revert_func=fwglobals.g.router_api.vpp_api.vpp.call,
+                revert_params={
+                    'api_name': 'vrrp_vr_add_del',
+                    'is_add': 0 if is_add else 1,
+                    'vr_id': virtual_router_id,
+                    'priority': priority,
+                    'flags': (preemption_flag|accept_mode_flag),
+                    'addrs': [ipaddress.ip_address(virtual_router_ip)],
+                    'n_addrs': 1,
+                    'interval': interval,
+                    'sw_if_index': sw_if_index
+                }
+            )
+
+            if not is_switch:
+                return
+
+            if is_add:
+                set_mac_address = vpp_vrrp_get_mac_address(virtual_router_id)
+                revert_mac_address = vpp_loopback_get_mac_address(sw_if_index)
+            else:
+                set_mac_address = vpp_loopback_get_mac_address(sw_if_index)
+                revert_mac_address = vpp_vrrp_get_mac_address(virtual_router_id)
+
+            handler.exec(
+                func=fwglobals.g.router_api.vpp_api.vpp.call,
+                params={
+                    'api_name': 'sw_interface_set_mac_address',
+                    'sw_if_index': sw_if_index,
+                    'mac_address': mac_str_to_bytes(set_mac_address)
+                },
+                revert_func=fwglobals.g.router_api.vpp_api.vpp.call,
+                revert_params={
+                    'api_name': 'sw_interface_set_mac_address',
+                    'sw_if_index': sw_if_index,
+                    'mac_address': mac_str_to_bytes(revert_mac_address)
+                }
+            )
+
+        except Exception as e:
+            fwglobals.log.error(f"vrrp_add_del_vr({str(params), is_add, str(result_cache)}) failed: {str(e)}")
+            handler.revert(e)
+
+    # Store 'bridge_id' in cache if provided by caller.
+    #
+    if result_cache and result_cache['result_attr'] == 'sw_if_index':
+        key = result_cache['key']
+        result_cache['cache'][key] = sw_if_index
+
+
+def vrrp_add_del_track_interfaces(track_interfaces, is_add, vr_id, sw_if_index, track_ifc_priority):
+    interfaces = []
     for track_interface in track_interfaces:
         track_ifc_dev_id = track_interface.get('devId')
-        sw_if_index = dev_id_to_vpp_sw_if_index(track_ifc_dev_id)
-        ifcs.append({ 'sw_if_index': sw_if_index, 'priority': track_ifc_priority })
+        track_sw_if_index = dev_id_to_vpp_sw_if_index(track_ifc_dev_id)
+        interfaces.append({ 'sw_if_index': track_sw_if_index, 'priority': track_ifc_priority })
 
-    if not ifcs:
+    if not interfaces:
         return (True, None)
 
     fwglobals.g.router_api.vpp_api.vpp.call(
         'vrrp_vr_track_if_add_del',
         is_add=is_add,
         vr_id=vr_id,
-        n_ifs=len(ifcs),
-        ifs=ifcs,
-        sw_if_index=vrrp_sw_if_index
+        n_ifs=len(interfaces),
+        ifs=interfaces,
+        sw_if_index=sw_if_index
     )
 
 class DYNAMIC_INTERVAL():

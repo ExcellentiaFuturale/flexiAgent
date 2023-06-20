@@ -80,6 +80,7 @@ class FwRouterCfg(FwCfgDatabase):
                 'add-ospf',
                 'add-qos-traffic-map',
                 'add-qos-policy',
+                'add-vrrp',
             ]
 
         return FwCfgDatabase.dump(self, types, escape, full, keys)
@@ -109,6 +110,7 @@ class FwRouterCfg(FwCfgDatabase):
             'add-routing-filter':   "============= ROUTING FILTERS =============",
             'add-qos-traffic-map':  "============= QOS TRAFFIC MAP =============",
             'add-qos-policy':       "============= QOS POLICY =============",
+            'add-vrrp':             "============= VRRP =============",
         }
 
         cfg = self.dump(types=types, escape=escape, full=full, keys=True)
