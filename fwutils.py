@@ -2373,6 +2373,10 @@ def modify_dhcpd(is_add, params):
     mac_assign  = params.get('mac_assign', {})
     options     = params.get('options', [])
 
+    max_lease_time     = params.get('maxLeaseTime')
+    default_lease_time     = params.get('defaultLeaseTime')
+
+
     interfaces = fwglobals.g.router_cfg.get_interfaces(dev_id=dev_id)
     if not interfaces:
         return (False, "modify_dhcpd: %s was not found" % (dev_id))
@@ -2399,22 +2403,30 @@ def modify_dhcpd(is_add, params):
     else:
         dns_string = ''
 
+    lease_time_string = []
+    if default_lease_time:
+        lease_time_string.append(f'default-lease-time {default_lease_time};')
+    if max_lease_time:
+        lease_time_string.append(f'max-lease-time {max_lease_time};')
+    lease_time_string = '\n'.join(lease_time_string)
+
     routers_option_found = False
-    options_str = ''
+    options_str = []
     for option in options:
         name = option['option']
         value = option['value']
-        options_str += f'option {name} {value};\n'
+        options_str.append(f'option {name} {value};')
         if name == 'routers':
             routers_option_found = True
-    
+
     # if user didn't provide a gateway, we put the interface ip
-    if not routers_option_found: 
-        options_str += f'option routers {ifc_ip};\n'
+    if not routers_option_found:
+        options_str.append(f'option routers {ifc_ip};')
+    options_str = '\n'.join(options_str)
 
     subnet_string = 'subnet %s netmask %s' % (subnet, netmask)
     dhcp_string = 'echo "' + subnet_string + ' {\n' + range_string + \
-                 options_str + dns_string + '}"' + ' | sudo tee -a %s;' % config_file
+                 options_str + '\n' + dns_string + lease_time_string + '\n}"' + ' | sudo tee -a %s;' % config_file
 
     if is_add == 1:
         exec_string = remove_string + dhcp_string
@@ -2429,7 +2441,7 @@ def modify_dhcpd(is_add, params):
         host_string = 'host %s {\n' % (host)
         ethernet_string = 'hardware ethernet %s;\n' % (mac['mac'])
         ip_address_string = 'fixed-address %s;\n' % (mac['ipv4'])
-        
+
         host_name_string = ''
         use_host_name_as_dhcp_option = mac.get('useHostNameAsDhcpOption')
         if use_host_name_as_dhcp_option:
