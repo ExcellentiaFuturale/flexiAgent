@@ -35,20 +35,21 @@ def argparse(configure_subparsers):
 
     create_interfaces_cli = router_interfaces_subparsers.add_parser('create', help='Create VPP interface')
     create_interfaces_cli.add_argument('--type', dest='params.type', choices=['wan', 'lan'], metavar='INTERFACE_TYPE', help="Indicates if interface will be use to go to the internet", required=True)
-    create_interfaces_cli.add_argument('--addr', dest='params.addr', metavar='ADDRESS', help="The IPv4 to configure on the VPP interface", required=True)
+    create_interfaces_cli.add_argument('--addr', dest='params.addr', metavar='ADDRESS', help="The IPv4 to configure on the VPP interface")
     create_interfaces_cli.add_argument('--host_if_name', dest='params.host_if_name', metavar='LINUX_INTERFACE_NAME', help="The name of the interface that will be created in Linux side", required=True)
     create_interfaces_cli.add_argument('--dev_id', dest='params.dev_id', help="Device id", required=True)
     create_interfaces_cli.add_argument('--no_vppsb', dest='params.no_vppsb', help="If it appears, VPPSB will not create Linux interface for it (but VPP will) - Do it if you know what you are doing", action='store_true')
 
     remove_interfaces_cli = router_interfaces_subparsers.add_parser('delete', help='Remove VPP interface')
     remove_interfaces_cli.add_argument('--type', dest='params.type', choices=['wan', 'lan'], metavar='INTERFACE_TYPE', help="Indicates if interface is used to go to the internet", required=True)
-    remove_interfaces_cli.add_argument('--addr', dest='params.addr', metavar='ADDRESS', help="The IPv4 of VPP interface to remove", required=True)
+    remove_interfaces_cli.add_argument('--addr', dest='params.addr', metavar='ADDRESS', help="The IPv4 of VPP interface to remove")
     remove_interfaces_cli.add_argument('--vpp_if_name', dest='params.vpp_if_name', metavar='VPP_INTERFACE_NAME', help="VPP interface name", required=True)
     remove_interfaces_cli.add_argument('--ignore_errors', dest='params.ignore_errors', help="Ignore exceptions during removal", action='store_true')
 
-def interfaces_create(type, addr, host_if_name, dev_id, no_vppsb=False):
-    if not fwutils.is_ipv4(addr):
+def interfaces_create(type, host_if_name, dev_id, addr=None, no_vppsb=False):
+    if addr and not fwutils.is_ipv4(addr):
         raise Exception(f'addr {addr} is not valid IPv4 address')
+    # nnoww - implement - generate name by convention here
     if len(host_if_name) > 15:
         raise Exception(f'host_if_name {host_if_name} cannot have more then 15 characters')
     ret = daemon_rpc(

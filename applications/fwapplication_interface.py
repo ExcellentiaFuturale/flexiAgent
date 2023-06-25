@@ -127,7 +127,7 @@ class FwApplicationInterface(ABC, FwObject):
         raise NotImplementedError
 
     def get_fwdump_files(self) -> list:
-        """A function that returns a list of file pathes to add to fwdump output
+        """A function that returns a list of file paths to add to fwdump output
 
         :returns: list
         """
@@ -136,8 +136,8 @@ class FwApplicationInterface(ABC, FwObject):
     def get_networks(self, for_bgp=False, for_ospf=False) -> list:
         """A function that returns the application's networks.
 
-        :param for_bgp:  Get networks tp publish in BGP.
-        :param for_ospf: Get networks tp publish in OSPF.
+        :param for_bgp:  Get networks to publish in BGP.
+        :param for_ospf: Get networks to publish in OSPF.
 
         :returns: List
         """

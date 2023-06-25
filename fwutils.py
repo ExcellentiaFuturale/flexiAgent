@@ -4027,6 +4027,7 @@ def create_tun_in_vpp(addr, host_if_name, recreate_if_exists=False, no_vppsb=Fal
         os.system(f'sudo vppctl delete tap {tun_name}')
 
     # configure the vpp interface
+    # nnoww - implement - add tun/tap type !!!!
     cmd = f'create tap host-if-name {host_if_name} tun'
     if no_vppsb:
         cmd += ' no-vppsb'
@@ -4036,10 +4037,10 @@ def create_tun_in_vpp(addr, host_if_name, recreate_if_exists=False, no_vppsb=Fal
 
     fwglobals.log.info(f'create_tun_in_vpp(): TUN created in vpp. vpp_if_name={tun_vpp_if_name}')
 
-    vpp_cmds = [
-        f'set interface ip address {tun_vpp_if_name} {addr}',
-        f'set interface state {tun_vpp_if_name} up'
-    ]
+    vpp_cmds = []
+    if addr:
+        vpp_cmds += [ f'set interface ip address {tun_vpp_if_name} {addr}' ]
+    vpp_cmds += [ f'set interface state {tun_vpp_if_name} up']
 
     vpp_cli_execute(vpp_cmds)
 
