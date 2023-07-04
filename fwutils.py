@@ -2246,6 +2246,11 @@ def is_interface_without_dev_id(if_name):
     if if_name.startswith('br_'):
         return True
 
+    # currently we use the t_ prefix for the remote vpn only.
+    # this interface doesn't have dev_id
+    if if_name.startswith('t_'):
+        return True
+
     return False
 
 def get_lte_interfaces_names():
