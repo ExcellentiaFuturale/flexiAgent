@@ -107,6 +107,7 @@ def add_vrrp(params):
             'track_interfaces': track_interfaces,
             'vr_id': virtual_router_id,
             'track_ifc_priority': (priority - 1), # vpp allows priority less than VRID priority
+            'mandatory_only': True,
             'substs': [{'add_param': 'sw_if_index', 'val_by_key': cache_key}]
         }
         cmd['revert'] = {}
@@ -118,6 +119,7 @@ def add_vrrp(params):
             'track_interfaces': track_interfaces,
             'vr_id': virtual_router_id,
             'track_ifc_priority': (priority - 1), # vpp allows priority less than VRID priority
+            'mandatory_only': True,
             'substs': [{'add_param': 'sw_if_index', 'val_by_key': cache_key}]
             }
         cmd_list.append(cmd)

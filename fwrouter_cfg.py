@@ -157,6 +157,18 @@ class FwRouterCfg(FwCfgDatabase):
             return None
         return bgp_req[0]
 
+    def get_vrrp(self, dev_id=None):
+        vrrp_groups = self.get_requests('add-vrrp')
+        if not dev_id:
+            return vrrp_groups
+
+        res = []
+        for vrrp_group in vrrp_groups:
+            vrrp_dev_id = vrrp_group['devId']
+            if vrrp_dev_id:
+                res.append(vrrp_group)
+        return res
+
     def get_vxlan_config(self):
         vxlan_config = self.get_requests('add-vxlan-config')
         # add-vxlan-config is a single request and can't be more than that.

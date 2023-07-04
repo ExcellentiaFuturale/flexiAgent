@@ -210,6 +210,38 @@ class FWROUTER_API(FwCfgRequestHandler):
                 f"_sync_interfaces: {str(e)} ({traceback.format_exc()})")
 
 
+    def _get_vrrp_optional_track_interfaces(self):
+        res = ({}, {}, [])
+        vrrp_groups = fwglobals.g.router_cfg.get_vrrp()
+
+        for vrrp_group in vrrp_groups:
+            virtual_router_id = vrrp_group.get('virtualRouterId')
+
+            for track_interface in vrrp_group.get('trackInterfaces', []):
+                is_optional = not track_interface.get('isMandatory', True)
+                if not is_optional:
+                    continue
+
+                track_ifc_dev_id = track_interface.get('devId')
+                if not track_ifc_dev_id in res[0]:
+                    res[0][track_ifc_dev_id] = []
+                res[0][track_ifc_dev_id].append(virtual_router_id)
+
+                if not virtual_router_id in res[1]:
+                    res[1][virtual_router_id] = { 'optional': {}, 'params': vrrp_group }
+                res[1][virtual_router_id]['optional'][track_ifc_dev_id] = None
+
+        vpp_vrrp_groups = fwglobals.g.router_api.vpp_api.vpp.call('vrrp_vr_track_if_dump', dump_all=1)
+        for vpp_vrrp_group in vpp_vrrp_groups:
+            vr_id = vpp_vrrp_group.vr_id
+            for tracked_interface in vpp_vrrp_group.ifs:
+                sw_if_index = tracked_interface.sw_if_index
+                vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
+                dev_id = fwutils.vpp_if_name_to_dev_id(vpp_if_name)
+                res[2].append(dev_id)
+
+        return res
+
     def _sync_link_status(self):
         '''Monitors link status (CARRIER-UP / NO-CARRIER or CABLE PLUGGED / CABLE UNPLUGGED)
         of the VPP physical interfaces and updates the correspondent tap inject
@@ -239,11 +271,16 @@ class FWROUTER_API(FwCfgRequestHandler):
         restart_dhcpd = False
 
         interfaces = fwglobals.g.router_cfg.get_interfaces()
+        vrrp_optional_interfaces, vrrp_groups, current_vpp = self._get_vrrp_optional_track_interfaces()
+
         for interface in interfaces:
             if (fwutils.is_vlan_interface(dev_id=interface['dev_id']) or
                fwpppoe.is_pppoe_interface(dev_id=interface['dev_id'])):
                 continue
             tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
+
+            vrrp_interfaces = vrrp_optional_interfaces.get(interface['dev_id'], [])
+
             if fwlte.is_lte_interface_by_dev_id(dev_id=interface['dev_id']):
                 connected = fwlte.mbim_is_connected(interface['dev_id'])
                 status_vpp = 'up' if connected else 'down'
@@ -259,10 +296,64 @@ class FWROUTER_API(FwCfgRequestHandler):
                 if interface['dev_id'] in fwglobals.g.db.get('router_api',{}).get('dhcpd',{}).get('interfaces',{}):
                     restart_dhcpd = True
 
+            # We have two types of VRRP tracked interfaces - Mandatory and Optional.
+            # Mandatory means that the router should go to the Backup state if this interface fails. Regardless of other interfaces.
+            # Optional means that the router should go to the Backup state only if *all* optional interfaces fail.
+            #
+            # VPP doesn't support this functionality and terminology of Mandatory and optional.
+            # We introduced it to simplify the configuration for our users.
+            # The Mandatory interfaces, we add in "fwtranslate_add_vrrp".
+            # For optional, we added the logic below.
+            # 1. We monitor the link status of the optional interfaces.
+            # 2. If *all* of them fail and they don't exist in VPP, we add them to VPP.
+            # 3. If one of them is OK and they exist in VPP, we remove them from VPP.
+            if status_vpp == 'down' and interface['dev_id'] not in current_vpp:
+                for virtual_router_id in vrrp_interfaces:
+                    vrrp_groups[virtual_router_id]['optional'][interface['dev_id']] = False
+            elif status_vpp == 'up' and interface['dev_id'] in current_vpp:
+                for virtual_router_id in vrrp_interfaces:
+                    vrrp_groups[virtual_router_id]['optional'][interface['dev_id']] = True
+
         if restart_dhcpd:
             time.sleep(1)  # give a second to Linux to reconfigure interface
             cmd = 'systemctl restart isc-dhcp-server'
             fwutils.os_system(cmd, '_sync_link_status')
+
+        # check VRRP optional tracked interfaces
+        for virtual_router_id in vrrp_groups:
+            vrrp_optional_values = set(vrrp_groups[virtual_router_id]['optional'].values())
+
+            is_all_down = len(vrrp_optional_values) == 1 and next(iter(vrrp_optional_values)) == False # next(iter(vrrp_optional_values)) brings the first item in the set
+            is_one_up = True in vrrp_optional_values
+
+            if is_all_down:
+                mandatory_only = 0 # if all optionals are down, add optionals to vpp, not only the mandatory
+            elif is_one_up:
+                mandatory_only = 1 # if one optional is ok, add mandatory only to vpp
+            else:
+                continue
+
+            self.log.debug(f"Going to change optional VRRP tracked interfaces")
+            vrrp_group_params = vrrp_groups[virtual_router_id]['params']
+            sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(vrrp_group_params['devId'])
+
+            fwutils.vrrp_add_del_track_interfaces(
+                is_add=0,
+                track_interfaces=vrrp_group_params['trackInterfaces'],
+                vr_id=virtual_router_id,
+                track_ifc_priority=(vrrp_group_params['priority'] - 1), # vpp allows priority less than VRID priority
+                mandatory_only=0,
+                sw_if_index=sw_if_index
+            )
+
+            fwutils.vrrp_add_del_track_interfaces(
+                is_add=1,
+                track_interfaces=vrrp_group_params['trackInterfaces'],
+                vr_id=virtual_router_id,
+                track_ifc_priority=(vrrp_group_params['priority'] - 1), # vpp allows priority less than VRID priority
+                mandatory_only=mandatory_only, # if even one optional is ok, add only mandatory,
+                sw_if_index=sw_if_index
+            )
 
     def _sync_addresses(self, old_interfaces, new_interfaces):
         """Monitors VPP interfaces for IP/GW change and updates system as follows:

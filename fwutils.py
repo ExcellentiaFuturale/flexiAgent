@@ -4221,7 +4221,6 @@ def vrrp_add_del_vr(params, is_add, result_cache=None):
     else:
        sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
 
-
     with FwCfgMultiOpsWithRevert() as handler:
         try:
             handler.exec(
@@ -4251,45 +4250,46 @@ def vrrp_add_del_vr(params, is_add, result_cache=None):
                 }
             )
 
-            if not is_switch:
-                return
+            if is_switch:
+                if is_add:
+                    set_mac_address = vpp_vrrp_get_mac_address(virtual_router_id)
+                    revert_mac_address = vpp_loopback_get_mac_address(sw_if_index)
+                else:
+                    set_mac_address = vpp_loopback_get_mac_address(sw_if_index)
+                    revert_mac_address = vpp_vrrp_get_mac_address(virtual_router_id)
 
-            if is_add:
-                set_mac_address = vpp_vrrp_get_mac_address(virtual_router_id)
-                revert_mac_address = vpp_loopback_get_mac_address(sw_if_index)
-            else:
-                set_mac_address = vpp_loopback_get_mac_address(sw_if_index)
-                revert_mac_address = vpp_vrrp_get_mac_address(virtual_router_id)
-
-            handler.exec(
-                func=fwglobals.g.router_api.vpp_api.vpp.call,
-                params={
-                    'api_name': 'sw_interface_set_mac_address',
-                    'sw_if_index': sw_if_index,
-                    'mac_address': mac_str_to_bytes(set_mac_address)
-                },
-                revert_func=fwglobals.g.router_api.vpp_api.vpp.call,
-                revert_params={
-                    'api_name': 'sw_interface_set_mac_address',
-                    'sw_if_index': sw_if_index,
-                    'mac_address': mac_str_to_bytes(revert_mac_address)
-                }
-            )
-
+                handler.exec(
+                    func=fwglobals.g.router_api.vpp_api.vpp.call,
+                    params={
+                        'api_name': 'sw_interface_set_mac_address',
+                        'sw_if_index': sw_if_index,
+                        'mac_address': mac_str_to_bytes(set_mac_address)
+                    },
+                    revert_func=fwglobals.g.router_api.vpp_api.vpp.call,
+                    revert_params={
+                        'api_name': 'sw_interface_set_mac_address',
+                        'sw_if_index': sw_if_index,
+                        'mac_address': mac_str_to_bytes(revert_mac_address)
+                    }
+                )
         except Exception as e:
             fwglobals.log.error(f"vrrp_add_del_vr({str(params), is_add, str(result_cache)}) failed: {str(e)}")
             handler.revert(e)
 
-    # Store 'bridge_id' in cache if provided by caller.
+    # Store 'sw_if_index' in cache if provided by caller.
     #
     if result_cache and result_cache['result_attr'] == 'sw_if_index':
         key = result_cache['key']
         result_cache['cache'][key] = sw_if_index
 
 
-def vrrp_add_del_track_interfaces(track_interfaces, is_add, vr_id, sw_if_index, track_ifc_priority):
+def vrrp_add_del_track_interfaces(track_interfaces, is_add, vr_id, sw_if_index, track_ifc_priority, mandatory_only):
     interfaces = []
     for track_interface in track_interfaces:
+        is_optional = not track_interface.get('isMandatory', True)
+        if mandatory_only and is_optional:
+            continue
+
         track_ifc_dev_id = track_interface.get('devId')
         track_sw_if_index = dev_id_to_vpp_sw_if_index(track_ifc_dev_id)
         interfaces.append({ 'sw_if_index': track_sw_if_index, 'priority': track_ifc_priority })
@@ -4297,6 +4297,7 @@ def vrrp_add_del_track_interfaces(track_interfaces, is_add, vr_id, sw_if_index, 
     if not interfaces:
         return (True, None)
 
+    fwglobals.log.debug(f"{'Adding' if is_add else 'Removing'} VRRP tracked interfaces from VPP. interfaces={str(interfaces)}")
     fwglobals.g.router_api.vpp_api.vpp.call(
         'vrrp_vr_track_if_add_del',
         is_add=is_add,
