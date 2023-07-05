@@ -37,33 +37,50 @@ class FwGrub:
         self.grub_filename      = '/etc/default/grub'
         self.updated            = False
         self.requires_reboot    = False
-        self.parameters         = {}
+        self.parameters         = {
+                                    'GRUB_CMDLINE_LINUX': {},
+                                    'GRUB_CMDLINE_LINUX_DEFAULT': {}
+        }
 
-        # Load parameters from the GRUB_CMDLINE_LINUX_DEFAULT line into dictionary
-        try:
-            cmd = f"grep -oP '^GRUB_CMDLINE_LINUX_DEFAULT=\K.*' {self.grub_filename}"
-            params = subprocess.check_output(cmd, shell=True).decode().strip('\n').replace('"','').split(' ')
-            for param in params:
-                name_val = param.split('=')
-                name     = name_val[0]
-                value    = name_val[1] if len(name_val) > 1 else ''
-                self.parameters.update({name: value})
-        except:
-            pass
+        def _parse_grub_cmdline(line_name):
+            try:
+                cmd = f"grep -oP '^{line_name}=\K.*' {self.grub_filename}"
+                params = subprocess.check_output(cmd, shell=True).decode().strip('\n').replace('"','').split(' ')
+                for param in params:
+                    name_val = param.split('=')
+                    name     = name_val[0]
+                    value    = name_val[1] if len(name_val) > 1 else ''
+                    self.parameters[line_name].update({name: value})
+            except:
+                pass
 
-    def get_param(self, name):
-        return self.parameters.get(name)
+        _parse_grub_cmdline("GRUB_CMDLINE_LINUX")
+        _parse_grub_cmdline("GRUB_CMDLINE_LINUX_DEFAULT")
 
-    def set_param(self, name, value=''):
-        if name in self.parameters and self.parameters[name] == value:
-            return
-        self.parameters.update({name: value})
-        self.updated = True
+    def get_param(self, name, line_name=None):
+        for curr_line_name, curr_parameters in self.parameters.items():
+            if line_name and line_name != curr_line_name:
+                continue
+            if name in curr_parameters:
+                return curr_parameters[name]
+        return None
 
-    def unset_param(self, name):
-        if name in self.parameters:
-            del self.parameters[name]
+    def set_param(self, name, value='', line_name='GRUB_CMDLINE_LINUX'):
+        for curr_line_name, curr_parameters in self.parameters.items():
+            if line_name and line_name != curr_line_name:
+                continue
+            curr_parameters.update({name: value})
             self.updated = True
+            break
+
+    def unset_param(self, name, line_name=None):
+        for curr_line_name, curr_parameters in self.parameters.items():
+            if line_name and line_name != curr_line_name:
+                continue
+            if name in curr_parameters:
+                del curr_parameters[name]
+                self.updated = True
+                break
 
     def flush(self):
         '''Flushes dictionary with parameters into the GRUB_CMDLINE_LINUX_DEFAULT
@@ -71,16 +88,18 @@ class FwGrub:
         '''
         if not self.updated:
             return
-        params = ''
-        for name in self.parameters.keys():
-            if self.parameters[name]:
-                params += f'{name}={self.parameters[name]} '
-            else:
-                params += f'{name} '
-        params = params.strip()
+        for line_name, parameters in self.parameters.items():
+            params = ''
+            for name in parameters.keys():
+                if parameters[name]:
+                    params += f'{name}={parameters[name]} '
+                else:
+                    params += f'{name} '
+            params = params.strip()
 
-        cmd = f'sudo sed -i -E "s:^GRUB_CMDLINE_LINUX_DEFAULT=.*:GRUB_CMDLINE_LINUX_DEFAULT=\\\"{params}\\\":" {self.grub_filename}'
-        subprocess.check_call(cmd, shell=True)
+            cmd = f'sudo sed -i -E "s:^{line_name}=.*:{line_name}=\\\"{params}\\\":" {self.grub_filename}'
+            subprocess.check_call(cmd, shell=True)
+
         subprocess.check_call("sudo update-grub > /dev/null 2>&1", shell=True)
         self.updated         = False
         self.requires_reboot = True
