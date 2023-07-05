@@ -2366,6 +2366,63 @@ def modify_dhcpd(is_add, params):
 
     :returns: String with sed commands.
     """
+
+    def _calculate_dhcp_ranges(range_start, range_end, routers_dhcp_option_str):
+        """Calculate and return string contains the DHCP "range" option.
+
+        DHCP doesn't exclude the IPs configured as routers from the IP pool.
+        It may offer clients the router ip itself.
+        The function removes the router IPs from the range configured
+        by the user by splitting the range into multiple ranges.
+
+        :param range_start:             String of the first ip of the range (172.16.1.100)
+        :param range_end:               String of the last ip of the range (172.16.1.200)
+        :param routers_dhcp_option_str: String contains router IPs, comma separated (172.16.1.1,172.16.1.2)
+
+        :returns: String range option.
+
+        """
+        if not range_start or not range_end:
+            return ''
+
+        start_ip = ipaddress.ip_address(range_start)
+        end_ip = ipaddress.ip_address(range_end)
+        ranges = [[start_ip, end_ip]]
+
+        # convert the dhcp routers options to ip_address objects.
+        # we also sort the routers ip list as the order is mandatory for below logic
+        routers_ips = sorted(list(map(lambda x: ipaddress.ip_address(x.strip()), routers_dhcp_option_str.split(","))))
+
+        # loop on the routers ips, and check
+        for router_ip in routers_ips:
+            range_start_ip, range_end_ip = ranges[-1]
+
+            # check if ip is in the range, if not, no need to manipulate the range
+            if router_ip < range_start_ip or router_ip > range_end_ip:
+                continue
+
+            # at this point we know that ip is in the range.
+            #
+            if router_ip == range_start_ip:
+                ranges[-1][0] = (router_ip + 1) # change the range's start to be next ip after the router ip
+                continue
+
+            if router_ip == range_end_ip:
+                ranges[-1][1] = (router_ip - 1) # change the range's end to be next ip after the router ip
+                continue
+
+            if router_ip == range_end_ip - 1:
+                ranges[-1][1] = (last_end_ip -2) # if the decrease by 1 is the router ip, decrease by 2 and no need to add a new range
+                continue
+
+            # ip is within the range
+            # ranges[-1][1] = (router_ip - 1) # change the range's end to be up to the ip before the router ip
+            ranges[-1][1] = (range_end_ip - 1) # change the range's end to be up to the ip before the router ip
+            ranges.append([router_ip + 1, range_end_ip]) # add a new range starting from the next ip after the router ip to the end defined by the user.
+
+        ranges = list(map(lambda range_arr: f'range {range_arr[0]} {range_arr[1]};\n', ranges))
+        return ''.join(ranges)
+
     dev_id      = params['interface']
     range_start = params.get('range_start', '')
     range_end   = params.get('range_end', '')
@@ -2391,10 +2448,6 @@ def modify_dhcpd(is_add, params):
     remove_string = 'sudo sed -e "/subnet %s netmask %s {/,/}/d" ' \
                     '-i %s; ' % (subnet, netmask, config_file)
 
-    range_string = ''
-    if range_start:
-        range_string = 'range %s %s;\n' % (range_start, range_end)
-
     if dns:
         dns_string = 'option domain-name-servers'
         for d in dns[:-1]:
@@ -2410,19 +2463,22 @@ def modify_dhcpd(is_add, params):
         lease_time_string.append(f'max-lease-time {max_lease_time};')
     lease_time_string = '\n'.join(lease_time_string)
 
-    routers_option_found = False
+    routers_dhcp_option = None
     options_str = []
     for option in options:
         name = option['option']
         value = option['value']
         options_str.append(f'option {name} {value};')
         if name == 'routers':
-            routers_option_found = True
+            routers_dhcp_option = value
 
     # if user didn't provide a gateway, we put the interface ip
-    if not routers_option_found:
+    if not routers_dhcp_option:
         options_str.append(f'option routers {ifc_ip};')
+        routers_dhcp_option = ifc_ip
     options_str = '\n'.join(options_str)
+
+    range_string = _calculate_dhcp_ranges(range_start, range_end, routers_dhcp_option)
 
     subnet_string = 'subnet %s netmask %s' % (subnet, netmask)
     dhcp_string = 'echo "' + subnet_string + ' {\n' + range_string + \
