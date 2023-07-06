@@ -44,7 +44,7 @@ class FwMessageHandler(FwObject):
         """
         FwObject.__init__(self)
 
-        self.queue_incoming_messages = queue.Queue(maxsize=10)
+        self.queue_incoming_messages = queue.Queue(maxsize=100)    # 100 should be more than enough: most requests are sequential on flexiManage
         self.queue_outgoing_messages = queue.Queue()
         self.thread_handle_messages  = fwthread.FwThread(
                                             target=self.thread_handle_messages_func,
