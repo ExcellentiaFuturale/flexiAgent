@@ -38,7 +38,11 @@ import socket
 import sys
 import time
 import random
-import psutil
+try:
+    import psutil
+except Exception as e:
+    print("failed to load psutil, ensure you use python 3.8 or later")
+    sys.exit(1)
 import Pyro4
 import re
 import subprocess
