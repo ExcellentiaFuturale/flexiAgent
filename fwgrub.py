@@ -83,7 +83,7 @@ class FwGrub:
                 break
 
     def flush(self):
-        '''Flushes dictionary with parameters into the GRUB_CMDLINE_LINUX_DEFAULT
+        '''Flushes dictionary with parameters into the GRUB_CMDLINE_LINUX/_DEFAULT
         line in the /etc/default/grub file.
         '''
         if not self.updated:
