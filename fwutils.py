@@ -540,8 +540,14 @@ def get_interface_is_dhcp(if_name):
     if is_dhcp_in_netplan == 'yes':
         return is_dhcp_in_netplan
 
-    dhclient_running_for_if_name = os.popen(f'ps -aux | grep "dhclient {if_name}" | grep -v grep').read()
-    if dhclient_running_for_if_name:
+    # FETCH 'dynamic' OUT OF 'ip address' output:
+    # 4: enp0s9: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000
+    #     link/ether 08:00:27:14:c9:8d brd ff:ff:ff:ff:ff:ff
+    #     inet 192.168.1.41/24 brd 192.168.1.255 scope global dynamic enp0s9
+    #        valid_lft 2396sec preferred_lft 2396sec
+    #
+    ret = os.system(f'ip address | grep -iE "inet .* dynamic {if_name}" > /dev/null 2>&1')
+    if ret == 0:
         return 'yes'
 
     if fwglobals.g.is_gcp_vm:
