@@ -2648,6 +2648,17 @@ def tunnel_change_postprocess(remove, vpp_if_name):
 # 'gw' fields if 'dhcp' is 'yes'. Than if the fixed message includes no other
 # modified parameters, it will be ignored by the agent.
 #
+# 3. July-2023 - the 'modify-interface' might change type of interface from
+# WAN to LAN (or via versa). As too much heavy features are bound to type of
+# interface it was decided not to implement proper modification without VPP
+# restart, but to replace it with pair of 'remove-' & 'add-interface' to save
+# us coding. Even at the expense of VPP restart.
+# Note, the built-in replacement of 'modify-X' requests with 'remove-' & 'add-'
+# pair is not good enough, as it implements partial modification: it adds
+# parameters from the existing configuration database to the simulated 'add-'.
+# Hopefully in future we will design format of 'modify-X' requests properly,
+# so flexiManage could provide exact instructions how to handle them.
+#
 def fix_received_message(msg):
 
     def _fix_aggregation_format(msg):
@@ -2774,6 +2785,33 @@ def fix_received_message(msg):
 
         return msg
 
+    def _fix_interface_type(msg):
+
+        def _is_type_modified(_request):
+            if _request['message'] == 'modify-interface':
+                new_type = _request['params']['type'].lower()
+                old_type = fwglobals.g.router_cfg.get_interfaces(dev_id=_request['params']['dev_id'])[0]['type'].lower()
+                if (new_type != old_type):
+                    return True
+            return False
+
+        if msg['message'] == 'modify-interface':
+            if _is_type_modified(msg):
+                msg = {
+                        'message': 'aggregated',
+                        'params' : { 'requests': [ msg ] }
+                }
+                # fall through into the next 'if', it will replace the found 'modify-interface'
+        if msg['message'] == 'aggregated':
+            requests = msg['params']['requests']
+            for idx, request in reversed(list(enumerate(requests))):    # reversed() -> optimize a bit requests.insert() below
+                if _is_type_modified(request):
+                    requests[idx]['message'] = 'add-interface'          # 'modify-interface' -> 'add-interface'
+                    remove_interface = {'message': 'remove-interface', 'params': {'dev_id': request['params']['dev_id']}}
+                    requests.insert(idx, remove_interface)
+            return msg
+        return msg
+
     try:
         # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         # Order of functions is important, as the first one (_fix_aggregation_format())
@@ -2783,6 +2821,7 @@ def fix_received_message(msg):
         msg = _fix_aggregation_format(msg)
         msg = _fix_dhcp(msg)
         msg = _fix_application(msg)
+        msg = _fix_interface_type(msg)  # 3. July-2023
         return msg
     except Exception as e:
         fwglobals.log.error(f"fix_received_message failed: {str(e)} {traceback.format_exc()}")
