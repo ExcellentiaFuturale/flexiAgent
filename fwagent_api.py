@@ -34,6 +34,7 @@ import fwroutes
 import psutil
 
 from fwobject import FwObject
+from fw_os_utils import CalledProcessSigTerm
 
 system_checker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tools/system_checker/")
 sys.path.append(system_checker_path)
