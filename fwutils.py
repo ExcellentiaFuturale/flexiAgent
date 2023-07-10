@@ -2649,14 +2649,14 @@ def tunnel_change_postprocess(remove, vpp_if_name):
 # modified parameters, it will be ignored by the agent.
 #
 # 3. July-2023 - the 'modify-interface' might change type of interface from
-# WAN to LAN (or via versa). As too much heavy features are bound to type of
-# interface it was decided not to implement proper modification without VPP
-# restart, but to replace it with pair of 'remove-' & 'add-interface' to save
-# us coding. Even at the expense of VPP restart.
+# WAN to LAN (or via versa). As there are many features that depend on type
+# of interface that should be reconfigured, e.g. multi-link policies, NAT, etc.,
+# it was decided to implement a replacement of 'modify-' request with pair
+# of 'remove-' & 'add-interface' requests to avoid complexity and potential bugs.
 # Note, the built-in replacement of 'modify-X' requests with 'remove-' & 'add-'
 # pair is not good enough, as it implements partial modification: it adds
 # parameters from the existing configuration database to the simulated 'add-'.
-# Hopefully in future we will design format of 'modify-X' requests properly,
+# In future we may redesign the 'modify-X' requests to allow smarter operation,
 # so flexiManage could provide exact instructions how to handle them.
 #
 def fix_received_message(msg):
@@ -2789,7 +2789,9 @@ def fix_received_message(msg):
 
         def _is_type_modified(_request):
             if _request['message'] == 'modify-interface':
-                new_type = _request['params']['type'].lower()
+                new_type = _request['params'].get('type',"").lower()
+                if not new_type:
+                    return False
                 old_type = fwglobals.g.router_cfg.get_interfaces(dev_id=_request['params']['dev_id'])[0]['type'].lower()
                 if (new_type != old_type):
                     return True
