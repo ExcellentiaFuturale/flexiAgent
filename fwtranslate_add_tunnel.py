@@ -1157,7 +1157,7 @@ def _add_ikev2_initiator_profile(cmd_list, name,
                                  responder_cache_key,
                                  responder_address,
                                  responder_dev_id,
-                                 ike, esp):
+                                 ike, esp, pfs):
     """Add IKEv2 initiator profile commands into the list.
 
     :param cmd_list:            List of commands.
@@ -1169,6 +1169,7 @@ def _add_ikev2_initiator_profile(cmd_list, name,
     :param responder_dev_id:    Responder device id.
     :param ike:                 IKEv2 crypto params.
     :param esp:                 ESP crypto params.
+    :param pfs:                 Enable Perfect Forward Secrecy.
 
     :returns: None.
     """
@@ -1334,6 +1335,21 @@ def _add_ikev2_initiator_profile(cmd_list, name,
     cmd['cmd']['descr']     = "set IKEv2 connection IKE lifetime, profile %s" % name
     cmd_list.append(cmd)
 
+    # ikev2.api.json: ikev2_set_pfs (...)
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']      = "call_vpp_api"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params']    = {
+                    'api':  "ikev2_set_pfs",
+                    'args': {
+                        'name':             name,
+                        'enable':           pfs
+                    }
+    }
+    cmd['cmd']['descr']     = "set IKEv2 PFS, profile %s" % name
+    cmd_list.append(cmd)
+
     # ikev2.api.json: ikev2_initiate_sa_init (...)
     cmd = {}
     cmd['cmd'] = {}
@@ -1406,6 +1422,7 @@ def _add_ikev2(cmd_list, params, responder_ip_address, tunnel_intf_cache_key, au
 
     sa_lifetime = params['ikev2'].get('lifetime', 0)
     ike_lifetime = params['ikev2'].get('ike_lifetime', 0)
+    pfs = params['ikev2'].get('pfs', False)
 
     if 'certificate' in params['ikev2']:
         local_id = fwutils.get_machine_id() + '-' + str(params['tunnel-id'])
@@ -1444,7 +1461,8 @@ def _add_ikev2(cmd_list, params, responder_ip_address, tunnel_intf_cache_key, au
                         responder_ip_address,
                         params['dev_id'],
                         params['ikev2']['ike'],
-                        params['ikev2']['esp']
+                        params['ikev2']['esp'],
+                        pfs
                         )
 
 def _add_loop_bridge_l2gre_ikev2(cmd_list, params, l2gre_tunnel_ips, bridge_id, loop0_cache_key, loop1_cache_key):
