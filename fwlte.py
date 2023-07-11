@@ -79,9 +79,10 @@ def reset_modem_if_needed(err_str, dev_id):
     fwglobals.g.modems.reset_modem(dev_id)
     return True
 
-def _run_qmicli_command(dev_id, flag):
+def _run_qmicli_command(dev_id, flag, device=None):
     try:
-        device = fwglobals.g.modems.get_usb_device(dev_id)
+        if not device:
+            device = fwglobals.g.modems.get_usb_device(dev_id)
         qmicli_cmd = 'qmicli --device=/dev/%s --device-open-proxy --%s' % (device, flag)
         fwglobals.log.debug("_run_qmicli_command: %s" % qmicli_cmd)
         output = subprocess.check_output(qmicli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
@@ -202,10 +203,12 @@ def mbimcli_get_pin_status(dev_id):
             break
 
     if enabled_disabled == 'disabled':
-        # res['pin1_status'] = 'disabled'
         return enabled_disabled
     else:
         pin_state_lines = _run_mbimcli_command(dev_id, '--query-pin-state')[0]
+        if not pin_state_lines:
+            return 'sim-missing'
+
         pin_state = pin_state_lines[1].split(':')[-1].strip().replace("'", '')
         pin_type = pin_state_lines[2].split(':')[-1].strip().replace("'", '')
         if pin_type == 'pin1':

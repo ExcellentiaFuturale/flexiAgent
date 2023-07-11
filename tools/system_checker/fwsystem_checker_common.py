@@ -1190,7 +1190,7 @@ class Checker:
                 else:
                     raise Exception(f'The serial port is not found. dev_id: {dev_id}')
             elif 'Sierra Wireless' in vendor:
-                fwlte._run_qmicli_command(dev_id, 'dms-swi-set-usb-composition=8')
+                fwlte._run_qmicli_command(dev_id, 'dms-swi-set-usb-composition=8', device=modem.usb_device)
             else:
                 self.log.error("Your card is not officially supported. It might work, But you have to switch manually to the MBIM modem")
                 raise Exception('vendor or model are not supported. (vendor: %s, model: %s)' % (vendor, model))

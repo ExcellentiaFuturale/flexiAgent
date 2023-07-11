@@ -29,7 +29,7 @@ import fwlte
 import fwutils
 from fwcfg_request_handler import FwCfgMultiOpsWithRevert
 from fwobject import FwObject
-
+import time
 
 class MODEM_STATES():
     CONNECTING = 'CONNECTING'
@@ -51,6 +51,8 @@ class FwModem(FwObject):
         self.ip = None
         self.gateway = None
         self.dns_servers = []
+
+        self.sim_presented = None
 
         self.state = None
 
@@ -229,6 +231,12 @@ class FwModem(FwObject):
         if not self.modem_manager_path:
             modem_list_output = exec_modem_manager_cmd('-L')
             modem_list = modem_list_output.get('modem-list', [])
+            if not modem_list:
+                # send scan command and check after few moments
+                exec_modem_manager_cmd('-S', False)
+                time.sleep(5)
+                modem_list = modem_list_output.get('modem-list', [])
+
             usb_device = self.get_usb_device()
             for modem in modem_list:
                 modem_object_output = exec_modem_manager_cmd(f'-m {modem}')
@@ -241,6 +249,8 @@ class FwModem(FwObject):
                     self.vendor = generic.get('manufacturer')
                     self.model = generic.get('model')
                     self.imei = modem_object.get('3gpp', {}).get('imei')
+
+                    self.sim_presented = self.get_sim_card_status(modem_object) == 'present'
 
                     try:
                         self.fetch_from_modem_manager(f'-e', False)
@@ -562,6 +572,9 @@ class FwModem(FwObject):
             'snr'  : 0,
             'text' : ''
         }
+        if not self.sim_presented:
+            return result
+        
         output = self.fetch_from_modem_manager('--signal-get')
         lte_signal = output.get('modem', {}).get('signal', {}).get('lte', {})
         evdo_signal = output.get('modem', {}).get('signal', {}).get('evdo', {})
@@ -591,6 +604,15 @@ class FwModem(FwObject):
         return result
 
     def get_system_info(self, info=None):
+        result = {
+            'cell_id'        : '',
+            'mcc'            : '',
+            'mnc'            : '',
+            'operator_name'  : self.get_operator_name(info)
+        }
+        if not self.sim_presented:
+            return result
+
         output = self.fetch_from_modem_manager('--location-get')
         location = output.get('modem', {}).get('location', {}).get('3gpp', {})
         # "location": {
@@ -618,12 +640,10 @@ class FwModem(FwObject):
             cell = 0
         else:
             cell = int(cell, base=16)
-        result = {
-            'cell_id'        : cell,
-            'mcc'            : location.get('mcc'),
-            'mnc'            : location.get('mnc'),
-            'operator_name'  : self.get_operator_name(info)
-        }
+
+        result['cell_id'] = cell
+        result['mcc'] = location.get('mcc')
+        result['mnc'] = location.get('mnc')
         return result
 
     def get_operator_name(self, info=None):
