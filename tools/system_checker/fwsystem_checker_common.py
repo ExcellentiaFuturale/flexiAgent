@@ -48,6 +48,7 @@ import fwutils
 import fwnetplan
 import fwlte
 import fwwifi
+from fwmodem import FwModems
 from fw_vpp_coredump_utils import FW_VPP_COREDUMP_FOLDER, FW_VPP_COREDUMP_PERMISSIONS
 from fwexception import FwExceptionSkippedCheck
 from fwsystem_checker import TXT_COLOR
@@ -86,6 +87,7 @@ class Checker:
         """Constructor method
         """
         fwglobals.initialize(quiet=True)
+        self.modems = fwglobals.g.modems if fwglobals.g.modems else FwModems()
 
         self.log = fwlog.FwLogFile(fwglobals.g.SYSTEM_CHECKER_LOG_FILE, level=fwlog.FWLOG_LEVEL_DEBUG)
         self.log.set_target(to_terminal=True)
@@ -919,7 +921,9 @@ class Checker:
 
     def soft_check_lte_mbim_mode(self, fix=False, silently=False, prompt=''):
         lte_interfaces = []
-        for nicname, addrs in list(psutil.net_if_addrs().items()):
+        lines = subprocess.check_output('sudo ls -l /sys/class/net', shell=True).decode().splitlines()
+        for line in lines:
+            nicname = line.split('/')[-1]
             driver = fwutils.get_interface_driver(nicname, cache=False)
             if driver and driver in ['cdc_mbim', 'qmi_wwan']:
                 dev_id = fwutils.get_interface_dev_id(nicname)
@@ -1131,44 +1135,43 @@ class Checker:
         return True
 
     def lte_get_vendor_and_model(self, dev_id):
-        hardware_info, err = fwlte.get_hardware_info(dev_id)
-        if err:
-            # This seems strange, but sometimes (especially after switching from MBIM mode to QMI mode),
-            # the first qmicli command that runs throws a timeout error,
-            # and it succeeds for the second time. So below is a workaround for this strange issue.
-            hardware_info, err = fwlte.get_hardware_info(dev_id)
-        if err:
+        try:
+            hardware_info = self.modems.get_hardware_info(dev_id)
+            return hardware_info
+        except Exception as e:
             # If there is still an error, ask the user to reset the modem and try again
-            msg = 'An error occurred while identifying your modem. Resetting the modem can help'
+            msg = f'An error occurred while identifying your modem ({str(e)}). Resetting the modem can help'
             choice = input(msg + ". Reset it? ? [Y/n]: ")
             if choice != 'y' and choice != 'Y' and choice != '':
                 raise Exception(f'We are unable to detect your modem. {dev_id}')
 
             self.log.debug(f'Resetting the modem. Please wait')
-            fwlte.reset_modem(dev_id)
+            self.modems.get(dev_id).reset_modem()
 
             # after reset try once again but last
-            hardware_info, err = fwlte.get_hardware_info(dev_id)
-            if err:
-                raise Exception(f'We are unable to detect your modem. {dev_id}')
-
-        return hardware_info
+            try:
+                hardware_info = self.modems.get_hardware_info(dev_id)
+                return hardware_info
+            except Exception as e:
+                raise Exception(f'We are unable to detect your modem ({str(e)}). dev_id={dev_id}')
 
     def lte_set_modem_to_mbim(self, dev_id):
         """Switch LTE modem to the MBIM mode
         """
         try:
-            if_name = fwutils.dev_id_to_linux_if(dev_id)
-            lte_driver = fwutils.get_interface_driver(if_name)
+            modem = self.modems.get(dev_id)
+
+            # if_name = modem.nicname # fwutils.dev_id_to_linux_if(dev_id)
+            lte_driver = modem.driver # fwutils.get_interface_driver(if_name)
             if lte_driver == 'cdc_mbim':
                 return (True, None)
 
             self.log.debug('Please wait a few moments...')
 
-            hardware_info = self.lte_get_vendor_and_model(dev_id)
+            # hardware_info = self.lte_get_vendor_and_model(dev_id)
 
-            vendor = hardware_info['vendor']
-            model =  hardware_info['model']
+            vendor = modem.vendor # hardware_info['vendor']
+            model = modem.model # hardware_info['model']
 
             self.log.debug(f'The modem is found. Vendor: {vendor}. Model: {model}')
 
@@ -1196,7 +1199,7 @@ class Checker:
 
             # at this point the modem switched to mbim mode without errors
             # but we have to reset the modem in order to apply it
-            fwlte.reset_modem(dev_id)
+            modem.reset_modem()
 
             self.log.debug(f'The reset process was completed successfully')
 

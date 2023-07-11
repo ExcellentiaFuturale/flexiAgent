@@ -415,7 +415,7 @@ class FWAGENT_API(FwObject):
 
     def _get_lte_info(self, params):
         try:
-            reply = fwlte.collect_lte_info(params['dev_id'])
+            reply = fwglobals.g.modems.collect_lte_info(params['dev_id'])
             return {'message': reply, 'ok': 1}
         except Exception as e:
             self.log.error('Failed to get LTE information. %s' % str(e))
@@ -429,7 +429,7 @@ class FWAGENT_API(FwObject):
         :returns: Dictionary status code.
         """
         try:
-            fwlte.reset_modem(params['dev_id'])
+            fwglobals.g.modems.reset_modem(params['dev_id'])
 
             # restore lte connection if needed
             fwglobals.g.system_api.restore_configuration(types=['add-lte'])
@@ -446,9 +446,9 @@ class FWAGENT_API(FwObject):
             enable = params.get('enable', False)
             puk = params.get('puk')
             fwlte.handle_pin_modifications(dev_id, current_pin, new_pin, enable, puk)
-            reply = {'ok': 1, 'message': { 'err_msg': None, 'data': fwlte.get_pin_state(dev_id)}}
+            reply = {'ok': 1, 'message': { 'err_msg': None, 'data': fwglobals.g.modems.get_pin_state(dev_id)}}
         except Exception as e:
-            reply = {'ok': 0, 'message': { 'err_msg': str(e), 'data': fwlte.get_pin_state(dev_id)} }
+            reply = {'ok': 0, 'message': { 'err_msg': str(e), 'data': fwglobals.g.modems.get_pin_state(dev_id)} }
         return reply
 
     def _get_device_certificate(self, params):

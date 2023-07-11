@@ -68,6 +68,7 @@ import fwutils
 import fwwebsocket
 import loadsimulator
 import fwqos
+import fwmodem
 
 from fwapplications_api import FWAPPLICATIONS_API
 from fwfrr import FwFrr
@@ -740,7 +741,7 @@ def reset(soft=False, quiet=False, pppoe=False):
         # stop LTE connections
         lte_interfaces = fwlte.get_lte_interfaces_dev_ids()
         for dev_id in lte_interfaces:
-            fwlte.disconnect(dev_id, False)
+            fwmodem.disconnect(dev_id)
 
         if not pppoe and fwpppoe.is_pppoe_configured():
             fwglobals.log.info("Note: this command doesn't clear pppoe configuration, use 'fwagent reset -p' to clear it")

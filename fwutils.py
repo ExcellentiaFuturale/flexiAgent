@@ -655,10 +655,11 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                         interface[addr_af_name + 'Mask'] = (str(IPAddress(addr.netmask).netmask_bits()))
 
             if is_lte:
+                modem = fwglobals.g.modems.get(dev_id)
                 interface['dhcp'] = 'yes'
                 interface['deviceParams'] = {
-                    'initial_pin1_state': fwlte.get_pin_state(dev_id),
-                    'default_settings':   fwlte.get_default_settings(dev_id)
+                    'initial_pin1_state': modem.get_pin_state(),
+                    'default_settings':   modem.get_default_bearer()
                 }
 
             elif is_wifi:

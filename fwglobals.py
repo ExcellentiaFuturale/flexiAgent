@@ -60,6 +60,7 @@ from fwsystem_cfg import FwSystemCfg
 from fwjobs import FwJobs
 from fwstun_wrapper import FwStunWrap
 from fwpppoe import FwPppoeClient
+from fwmodem import FwModems
 from fwthread import FwRouterThreading
 from fwwan_monitor import FwWanMonitor
 from fwikev2 import FwIKEv2
@@ -337,6 +338,7 @@ class Fwglobals(FwObject):
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
         self.pppoe = None
+        self.modems = None
         self.loadsimulator = None
         self.routes = None
         self.router_api = None
@@ -464,6 +466,7 @@ class Fwglobals(FwObject):
         self.stun_wrapper     = FwStunWrap()
         self.ikev2            = FwIKEv2()
         self.pppoe            = FwPppoeClient()
+        self.modems           = FwModems()
         self.routes           = FwRoutes()
         self.qos              = FwQoS()
         self.statistics       = FwStatistics()
@@ -497,6 +500,7 @@ class Fwglobals(FwObject):
 
         del self.routes
         del self.pppoe; self.pppoe = None
+        del self.modems
         del self.statistics; self.statistics = None
         del self.wan_monitor
         del self.stun_wrapper
@@ -548,6 +552,7 @@ class Fwglobals(FwObject):
             self.qos.finalize()
             self.routes.finalize()
             self.pppoe.finalize()
+            self.modems.finalize()
             self.statistics.finalize()
             self.wan_monitor.finalize()
             self.stun_wrapper.finalize()
@@ -856,6 +861,8 @@ class Fwglobals(FwObject):
                 func = getattr(self.stun_wrapper, func_name)
             elif object_name == 'fwglobals.g.jobs':
                 func = getattr(self.jobs, func_name)
+            elif object_name == 'fwglobals.g.modems':
+                func = getattr(self.modems, func_name)
             else:
                 return None
         except Exception as e:

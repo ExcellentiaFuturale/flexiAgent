@@ -42,6 +42,7 @@ import fwglobals
 import fwutils
 import fwnetplan
 import fwlte
+import fwmodem
 import fwpppoe
 import fwwifi
 
@@ -79,7 +80,7 @@ def main():
 
     lte_interfaces = fwlte.get_lte_interfaces_dev_ids()
     for dev_id in lte_interfaces:
-        fwlte.disconnect(dev_id, False)
+        fwmodem.disconnect(dev_id)
 
     # reset startup.conf file
     if os.path.exists(fwglobals.g.VPP_CONFIG_FILE_BACKUP):

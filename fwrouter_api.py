@@ -297,8 +297,8 @@ class FWROUTER_API(FwCfgRequestHandler):
                     # Update ARP entry of LTE interface
                     try:
                         if new['deviceType'] == 'lte':
-                            fwlte.set_arp_entry(is_add=False, dev_id=dev_id, gw=old['gw'])
-                            fwlte.set_arp_entry(is_add=True,  dev_id=dev_id, gw=new['gw'])
+                            fwglobals.g.modems.set_arp_entry(is_add=False, dev_id=dev_id, gw=old['gw'])
+                            fwglobals.g.modems.set_arp_entry(is_add=True,  dev_id=dev_id, gw=new['gw'])
                     except:
                         pass
 
