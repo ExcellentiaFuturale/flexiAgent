@@ -160,10 +160,12 @@ class FwRouterThread(FwThread):
         else:
             FwThread.join(self)
 
-def set_request_processing_thread():
-    ident = threading.current_thread().ident
+def set_request_processing_thread(ident=None):
+    if not ident:
+        ident = threading.current_thread().ident
     fwglobals.g.router_threads.request_processing_thread_ident.append(ident)
 
-def unset_request_processing_thread():
-    ident = threading.current_thread().ident
+def unset_request_processing_thread(ident=None):
+    if not ident:
+        ident = threading.current_thread().ident
     fwglobals.g.router_threads.request_processing_thread_ident.remove(ident)

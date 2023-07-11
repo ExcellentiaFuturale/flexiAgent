@@ -102,6 +102,8 @@ class FwJobs(FwObject):
 
         if not job_id:
             return
+        if type(job_id) != str:
+            job_id = str(job_id)
 
         self.current_job_id = job_id
 
@@ -135,6 +137,8 @@ class FwJobs(FwObject):
         """
         if not job_id:  # Take care of requests without 'job_id', like 'get-device-stats'
             return
+        if type(job_id) != str:
+            job_id = str(job_id)
 
         self.start_recording(job_id, { 'message': '' })
         self.update_current_record(err)
@@ -175,6 +179,8 @@ class FwJobs(FwObject):
 
         if not job_id:
             return
+        if type(job_id) != str:
+            job_id = str(job_id)
 
         self._update(job_id, 'complete' if reply['ok'] == 1 else 'failed')
         if job_id == self.current_job_id:

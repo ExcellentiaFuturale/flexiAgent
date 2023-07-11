@@ -1595,8 +1595,16 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-route',            # Routes should come after tunnels and after BGP, as they might use them!
             'add-dhcp-config'
         ]
+        last_msg = None
         messages = self.cfg_db.dump(types=types)
         for msg in messages:
+
+            # reconnect as soon as interfaces are initialized
+            #
+            if last_msg == 'add-interface' and msg['message'] != 'add-interface':
+                fwglobals.g.fwagent.reconnect()
+            last_msg = msg['message']
+
             reply = fwglobals.g.router_api._call_simple(msg)
             if reply.get('ok', 1) == 0:  # Break and return error on failure of any request
                 return reply
