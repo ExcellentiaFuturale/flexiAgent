@@ -275,6 +275,33 @@ class FwModem(FwObject):
 
         return ",".join(connection_params)
 
+    def ensure_tc_config(self):
+        devices = [self.nicname]
+        tap_if_name = fwutils.linux_tap_by_interface_name(self.nicname)
+        if tap_if_name:
+            devices.append(tap_if_name)
+
+        need_to_recreate = False
+        for device in devices:
+            try:
+                output = subprocess.check_output(f'tc -j filter show dev {device} root', shell=True).decode().strip()
+                data = json.loads(output)
+                if not data:
+                    need_to_recreate = True
+                    break
+            except:
+                need_to_recreate = True
+                break
+        
+        if need_to_recreate:
+            os.system(f'sudo tc -force qdisc del dev {self.nicname} ingress handle ffff:')
+            # Note, don't remove qdisc from "tap_if_name" (tap_wwan0) as it is configured in vpp startup.conf as part of QoS
+            os.system(f'sudo tc -force filter del dev {self.nicname} root')
+            if tap_if_name:
+                os.system(f'sudo tc -force filter del dev {tap_if_name} root')
+            
+            self.add_del_traffic_control(is_add=True)
+        
     def connect(self, apn=None, user=None, password=None, auth=None, pin=None):
         # To avoid wan failover monitor and lte watchdog at this time
         self.state = MODEM_STATES.CONNECTING

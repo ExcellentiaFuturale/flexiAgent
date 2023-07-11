@@ -149,8 +149,8 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                         # Make sure that LTE Linux interface is up
                         os.system(f'ifconfig {modem.nicname} up')
 
-                        # if GW exists, ensure ARP entry exists in Linux
                         if fwglobals.g.router_api.state_is_started():
+                            # if GW exists, ensure ARP entry exists in Linux
                             gw, _ = fwutils.get_interface_gateway(name)
                             if gw:
                                 arp_entries = fwutils.get_gateway_arp_entries(gw)
@@ -159,6 +159,9 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                                     self.log.debug(f'no valid ARP entry found. gw={gw}, name={name}, dev_id={dev_id}, \
                                         arp_entries={str(arp_entries)}. adding now')
                                     fwglobals.g.modems.set_arp_entry(is_add=True, dev_id=dev_id, gw=gw)
+                            
+                            # ensure traffic control settings are configuerd
+                            modem.ensure_tc_config()
 
             # Ensure that provider did not change IP provisioned to modem,
             # so the IP that we assigned to the modem interface is still valid.
