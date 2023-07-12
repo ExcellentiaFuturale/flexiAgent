@@ -49,7 +49,7 @@ import fwglobals
 from fw_vpp_coredump_utils import vpp_coredump_copy_cores
 from fwobject import FwObject
 import fwapplications_api
-import fwlte
+import fwlte_utils
 import fw_os_utils
 
 g = fwglobals.Fwglobals()
@@ -337,13 +337,13 @@ class FwDump(FwObject):
 
     def add_lte_files(self):
         try:
-            lte_interfaces = fwlte.get_lte_interfaces_dev_ids()
-            for dev_id in lte_interfaces:
-                lte_if_name = lte_interfaces[dev_id]
+            dev_ids = fwlte_utils.get_dev_ids()
+            for dev_id in dev_ids:
+                lte_if_name = dev_ids[dev_id]
                 file_name = f'lte_{lte_if_name}'
                 g_dumpers[file_name] = {
                     'python': {
-                        'func': 'fwlte.dump',
+                        'func': 'fwlte_utils.dump',
                         'args': { 'dev_id': dev_id, 'lte_if_name': lte_if_name, 'prefix_path': f'{self.temp_folder}/{file_name}' } }
                 }
         except:

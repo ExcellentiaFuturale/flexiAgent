@@ -35,7 +35,7 @@ import fw_acl_command_helpers
 import fw_nat_command_helpers
 import fw_vpp_coredump_utils
 import fwglobals
-import fwlte
+import fwlte_utils
 import fwnetplan
 import fw_os_utils
 import fwpppoe
@@ -241,8 +241,8 @@ class FWROUTER_API(FwCfgRequestHandler):
                fwpppoe.is_pppoe_interface(dev_id=interface['dev_id'])):
                 continue
             tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
-            if fwlte.is_lte_interface_by_dev_id(dev_id=interface['dev_id']):
-                connected = fwlte.mbim_is_connected(interface['dev_id'])
+            if fwlte_utils.is_lte_interface_by_dev_id(dev_id=interface['dev_id']):
+                connected = fwglobals.g.lte.get(interface['dev_id']).is_connected()
                 status_vpp = 'up' if connected else 'down'
             else:
                 status_vpp = fwutils.vpp_get_interface_status(dev_id=interface['dev_id']).get('link')
@@ -297,8 +297,8 @@ class FWROUTER_API(FwCfgRequestHandler):
                     # Update ARP entry of LTE interface
                     try:
                         if new['deviceType'] == 'lte':
-                            fwglobals.g.modems.call(func='set_arp_entry', is_add=False, dev_id=dev_id, gw=old['gw'])
-                            fwglobals.g.modems.call(func='set_arp_entry', is_add=True,  dev_id=dev_id, gw=new['gw'])
+                            fwglobals.g.lte.get(dev_id).set_arp_entry(is_add=False, gw=old['gw'])
+                            fwglobals.g.lte.get(dev_id).set_arp_entry(is_add=True, gw=new['gw'])
                     except:
                         pass
 

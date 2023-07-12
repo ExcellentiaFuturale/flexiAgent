@@ -32,7 +32,6 @@ import uuid
 import yaml
 import shutil
 import stat
-import serial
 import time
 
 common_tools = os.path.join(os.path.dirname(os.path.realpath(__file__)) , '..' , 'common')
@@ -46,9 +45,9 @@ import fwgrub
 import fwlog
 import fwutils
 import fwnetplan
-import fwlte
+import fwlte_utils
 import fwwifi
-from fwmodem import FwModems
+from fwlte import FwLTE
 from fw_vpp_coredump_utils import FW_VPP_COREDUMP_FOLDER, FW_VPP_COREDUMP_PERMISSIONS
 from fwexception import FwExceptionSkippedCheck
 from fwsystem_checker import TXT_COLOR
@@ -87,7 +86,7 @@ class Checker:
         """Constructor method
         """
         fwglobals.initialize(quiet=True)
-        self.modems = fwglobals.g.modems if fwglobals.g.modems else FwModems()
+        self.modems = fwglobals.g.lte if fwglobals.g.lte else FwLTE()
 
         self.log = fwlog.FwLogFile(fwglobals.g.SYSTEM_CHECKER_LOG_FILE, level=fwlog.FWLOG_LEVEL_DEBUG)
         self.log.set_target(to_terminal=True)
@@ -937,8 +936,10 @@ class Checker:
             if inf['driver'] == 'qmi_wwan':
                 if not fix:
                     return False
-                success, _ = self.lte_set_modem_to_mbim(inf['dev_id'])
-                if not success:
+                try:
+                    self.log.debug('Please wait patiently. The process can take time (up to a minute)')
+                    self.modems.get(inf['dev_id']).set_mbim_mode()
+                except:
                     return False
         return True
 
@@ -1133,59 +1134,6 @@ class Checker:
             return False
         os.system('systemctl daemon-reload')
         return True
-
-    def lte_set_modem_to_mbim(self, dev_id):
-        """Switch LTE modem to the MBIM mode
-        """
-        try:
-            modem = self.modems.get(dev_id)
-
-            lte_driver = modem.driver
-            if lte_driver == 'cdc_mbim':
-                return (True, None)
-
-            self.log.debug('Please wait a few moments...')
-
-            vendor = modem.vendor
-            model = modem.model
-
-            self.log.debug(f'The modem is found. Vendor: {vendor}. Model: {model}')
-
-            at_commands = []
-            if 'Quectel' in vendor or re.match('Quectel', model, re.IGNORECASE): # Special fix for Quectel ec25 mini pci card
-                at_commands = ['AT+QCFG="usbnet",2']
-                at_serial_port = fwlte.get_at_port(dev_id)
-                if at_serial_port and len(at_serial_port) > 0:
-                    self.log.debug(f'The serial port is found. {at_serial_port[0]}')
-                    ser = serial.Serial(at_serial_port[0])
-                    for at in at_commands:
-                        at_cmd = bytes(at + '\r', 'utf-8')
-                        ser.write(at_cmd)
-                        time.sleep(0.5)
-                    ser.close()
-                else:
-                    raise Exception(f'The serial port is not found. dev_id: {dev_id}')
-            elif 'Sierra Wireless' in vendor:
-                fwlte._run_qmicli_command(dev_id, 'dms-swi-set-usb-composition=8', device=modem.usb_device)
-            else:
-                self.log.error("Your card is not officially supported. It might work, But you have to switch manually to the MBIM modem")
-                raise Exception('vendor or model are not supported. (vendor: %s, model: %s)' % (vendor, model))
-
-            self.log.debug(f'Modem was switched to MBIM. Resetting the modem')
-
-            # at this point the modem switched to mbim mode without errors
-            # but we have to reset the modem in order to apply it
-            modem.reset_modem()
-
-            self.log.debug(f'The reset process was completed successfully')
-
-            os.system('modprobe cdc_mbim') # sometimes driver doesn't register to the device after reset
-
-            return (True, None)
-        except Exception as e:
-            # Modem cards sometimes get stuck and recover only after disconnecting the router from the power supply
-            self.log.error("Failed to switch modem to MBIM. You can unplug the router, wait a few seconds and try again. (%s)" % str(e))
-            return (False, str(e))
 
     def _get_grub_cores(self):
         """ Return number of cores dedicated for VPP workers parsed from current GRUB cmdline

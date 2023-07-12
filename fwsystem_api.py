@@ -30,7 +30,7 @@ import fwutils
 import fwnetplan
 import os
 from fwcfg_request_handler import FwCfgRequestHandler
-import fwlte
+import fwlte_utils
 import fw_os_utils
 import fwwifi
 
@@ -122,9 +122,9 @@ class FWSYSTEM_API(FwCfgRequestHandler):
             dev_id = wan['params']['dev_id']
             metric = wan['params']['metric']
 
-            modem = fwglobals.g.modems.get(dev_id)
+            modem = fwglobals.g.lte.get(dev_id)
 
-            if modem.is_resetting() or modem.is_connecting():
+            if modem.is_state_in_process():
                 continue
 
             name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True, print_log=False)
@@ -138,7 +138,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                 cmd = "fping 8.8.8.8 -C 1 -q -R -I %s > /dev/null 2>&1" % name
                 ok = not subprocess.call(cmd, shell=True)
                 if not ok:
-                    connected = fwlte.mbim_is_connected(dev_id)
+                    connected = modem.is_connected()
                     if not connected:
                         self.log.debug("lte modem is disconnected on %s" % dev_id)
 
@@ -158,8 +158,8 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                                 if not valid_arp_entries:
                                     self.log.debug(f'no valid ARP entry found. gw={gw}, name={name}, dev_id={dev_id}, \
                                         arp_entries={str(arp_entries)}. adding now')
-                                    fwglobals.g.modems.call(func='set_arp_entry', is_add=True, dev_id=dev_id, gw=gw)
-                            
+                                    fwglobals.g.lte.get(dev_id).set_arp_entry(is_add=True, gw=gw)
+
                             # ensure traffic control settings are configured
                             modem.ensure_tc_config()
 

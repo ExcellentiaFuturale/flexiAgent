@@ -36,7 +36,7 @@ import fwfirewall
 import threading
 import fw_os_utils
 import fw_vpp_coredump_utils
-import fwlte
+import fwlte_utils
 
 from sqlitedict import SqliteDict
 
@@ -61,7 +61,7 @@ from fwsystem_cfg import FwSystemCfg
 from fwjobs import FwJobs
 from fwstun_wrapper import FwStunWrap
 from fwpppoe import FwPppoeClient
-from fwmodem import FwModems
+from fwlte import FwLTE
 from fwthread import FwRouterThreading
 from fwwan_monitor import FwWanMonitor
 from fwikev2 import FwIKEv2
@@ -337,7 +337,7 @@ class Fwglobals(FwObject):
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
         self.pppoe = None
-        self.modems = None
+        self.lte = None
         self.loadsimulator = None
         self.routes = None
         self.router_api = None
@@ -448,7 +448,7 @@ class Fwglobals(FwObject):
         # We run it only if vpp is not running to make sure that we reload the driver
         # only on boot, and not if a user run `systemctl restart flexiwan-router` when vpp is running.
         if not fw_os_utils.vpp_does_run():
-            fwlte.reload_lte_drivers_if_needed()
+            fwlte_utils.reload_lte_drivers_if_needed()
 
         self.db               = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! Load data at the first place!
         self.fwagent          = FwAgent(handle_signals=False)
@@ -465,13 +465,12 @@ class Fwglobals(FwObject):
         self.stun_wrapper     = FwStunWrap()
         self.ikev2            = FwIKEv2()
         self.pppoe            = FwPppoeClient()
-        self.modems           = FwModems()
+        self.lte              = FwLTE()
         self.routes           = FwRoutes()
         self.qos              = FwQoS()
         self.statistics       = FwStatistics()
         self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
         self.message_handler  = FwMessageHandler()
-
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 
@@ -502,7 +501,7 @@ class Fwglobals(FwObject):
         del self.message_handler
         del self.routes
         del self.pppoe; self.pppoe = None
-        del self.modems
+        del self.lte
         del self.statistics; self.statistics = None
         del self.wan_monitor
         del self.stun_wrapper
@@ -556,7 +555,7 @@ class Fwglobals(FwObject):
             self.qos.finalize()
             self.routes.finalize()
             self.pppoe.finalize()
-            self.modems.finalize()
+            self.lte.finalize()
             self.statistics.finalize()
             self.wan_monitor.finalize()
             self.stun_wrapper.finalize()
@@ -870,8 +869,8 @@ class Fwglobals(FwObject):
                 func = getattr(self.stun_wrapper, func_name)
             elif object_name == 'fwglobals.g.jobs':
                 func = getattr(self.jobs, func_name)
-            elif object_name == 'fwglobals.g.modems':
-                func = getattr(self.modems, func_name)
+            elif object_name == 'fwglobals.g.lte':
+                func = getattr(self.lte, func_name)
             else:
                 return None
         except Exception as e:
