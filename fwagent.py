@@ -605,12 +605,16 @@ def reset(soft=False, quiet=False, pppoe=False):
         if not pppoe and fwpppoe.is_pppoe_configured():
             fwglobals.log.info("Note: this command doesn't clear pppoe configuration, use 'fwagent reset -p' to clear it")
 
-        fwglobals.log.info("Reset operation done")
+        fwglobals.log.info("reset operation done")
     else:
-        fwglobals.log.info("Reset operation aborted")
+        fwglobals.log.info("reset operation aborted")
 
     # Start daemon main loop if daemon is alive
-    start(start_router=False, start_applications=False)
+    if daemon_is_alive():
+        start(start_router=False, start_applications=False)
+    else:
+        fwglobals.log.warning("can't connect agent - daemon does not run")
+
 
 def stop(reset_device_config, stop_router, stop_applications):
     """Handles 'fwagent stop' command.
@@ -622,13 +626,21 @@ def stop(reset_device_config, stop_router, stop_applications):
 
     :returns: None.
     """
-    try:
-        daemon_rpc('stop_main_loop', stop_router=stop_router, stop_applications=stop_applications)
-    except:
-        # If failed to stop, kill vpp from shell and get interfaces back to Linux
+    if daemon_is_alive():
+        try:
+            daemon_rpc('stop_main_loop', stop_router=stop_router, stop_applications=stop_applications)
+        except:
+            # If failed to stop, kill vpp from shell and get interfaces back to Linux
+            if stop_router:
+                fwglobals.log.excep("failed to stop vpp gracefully, kill it")
+                fwutils.stop_vpp()
+    else:
         if stop_router:
-            fwglobals.log.excep("failed to stop vpp gracefully, kill it")
             fwutils.stop_vpp()
+        # We can't stop applications if daemon does not run,
+        # as it call fwglobals.g.applications_api.stop_applications()
+        #
+        # if stop_applications:
 
     if reset_device_config:
         fwutils.reset_device_config()
