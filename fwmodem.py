@@ -285,11 +285,10 @@ class FwModem(FwObject):
         for device in devices:
             try:
                 output = subprocess.check_output(f'tc -j filter show dev {device} root', shell=True).decode().strip()
-                data = json.loads(output)
-                if not data:
+                if not output or output == '[]':
                     need_to_recreate = True
                     break
-            except:
+            except Exception as e:
                 need_to_recreate = True
                 break
         
@@ -771,7 +770,8 @@ class FwModem(FwObject):
             'phone_number'        : self.get_phone_number(info),
             'pin_state'           : self.get_pin_state(info),
             'connection_state'    : fwlte.mbimcli_query_connection_state(self.dev_id),
-            'registration_network': fwlte.mbimcli_registration_state(self.dev_id)
+            'registration_network': fwlte.mbimcli_registration_state(self.dev_id),
+            'state'               : self.state
         }
         return response
 
@@ -930,73 +930,10 @@ class FwModems():
         self.modems = {}
         self.initialized = False
 
-    def reset_modem(self, dev_id):
+    def call(self, dev_id, func, *args, **kwargs):
         modem = self.get(dev_id)
-        return modem.reset_modem()
-
-    def get_pin_state(self, dev_id):
-        modem = self.get(dev_id)
-        return modem.get_pin_state()
-
-    def collect_lte_info(self, dev_id):
-        modem = self.get(dev_id)
-        return modem.collect_lte_info()
-
-    def get_sim_card_status(self, dev_id):
-        modem = self.get(dev_id)
-        return modem.get_sim_card_status()
-
-    def verify_pin(self, dev_id, pin):
-        modem = self.get(dev_id)
-        return modem.verify_pin(pin)
-
-    def enable_pin(self, dev_id, pin):
-        modem = self.get(dev_id)
-        return modem.enable_pin(pin)
-
-    def disable_pin(self, dev_id, pin):
-        modem = self.get(dev_id)
-        return modem.disable_pin(pin)
-
-    def change_pin(self, dev_id, old_pin, new_pin):
-        modem = self.get(dev_id)
-        return modem.change_pin(old_pin, new_pin)
-
-    def unblock_pin(self, dev_id, puk, new_pin):
-        modem = self.get(dev_id)
-        return modem.unblock_pin(puk, new_pin)
-
-    def get_hardware_info(self, dev_id):
-        modem = self.get(dev_id)
-        return modem.get_hardware_info()
-
-    def set_arp_entry(self, is_add, dev_id, gw=None):
-        modem = self.get(dev_id)
-        return modem.set_arp_entry(is_add, gw)
-
-    def add_del_traffic_control(self, dev_id, is_add):
-        modem = self.get(dev_id)
-        return modem.add_del_traffic_control(is_add)
-
-    def get_ip_configuration(self, dev_id, cache=True):
-        modem = self.get(dev_id)
-        return modem.get_ip_configuration(cache)
-
-    def connect(self, dev_id, apn=None, user=None, password=None, auth=None, pin=None):
-        modem = self.get(dev_id)
-        return modem.connect(apn=apn, user=user, password=password, auth=auth, pin=pin)
-
-    def disconnect(self, dev_id):
-        modem = self.get(dev_id)
-        return modem.disconnect()
-
-    def configure_interface(self, dev_id, metric):
-        modem = self.get(dev_id)
-        return modem.configure_interface(metric)
-
-    def get_usb_device(self, dev_id):
-        modem = self.get(dev_id)
-        return modem.get_usb_device()
+        modem_func = getattr(modem, func)
+        return modem_func(*args, **kwargs)
 
 
 def exec_modem_manager_cmd(flag, json_format=True):
@@ -1010,7 +947,7 @@ def exec_modem_manager_cmd(flag, json_format=True):
     return output
 
 def get_modem_ip_config(dev_id, key):
-    ip, gw, dns_servers = fwglobals.g.modems.get_ip_configuration(dev_id)
+    ip, gw, dns_servers = fwglobals.g.modems.call(dev_id, 'get_ip_configuration')
     if key == 'ip':
         return ip
     elif key == 'gateway':
@@ -1023,7 +960,7 @@ def disconnect(dev_id):
     """ Disconnect modem safely
     """
     if fwglobals.g.modems:
-        return fwglobals.g.modems.disconnect(dev_id)
+        return fwglobals.g.modems.call(dev_id, 'disconnect')
     else:
         with FwModems() as modems:
-            return modems.disconnect(dev_id)
+            return modems.call(dev_id, 'disconnect')

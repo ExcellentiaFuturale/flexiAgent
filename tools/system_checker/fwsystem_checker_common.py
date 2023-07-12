@@ -1134,44 +1134,20 @@ class Checker:
         os.system('systemctl daemon-reload')
         return True
 
-    def lte_get_vendor_and_model(self, dev_id):
-        try:
-            hardware_info = self.modems.get_hardware_info(dev_id)
-            return hardware_info
-        except Exception as e:
-            # If there is still an error, ask the user to reset the modem and try again
-            msg = f'An error occurred while identifying your modem ({str(e)}). Resetting the modem can help'
-            choice = input(msg + ". Reset it? ? [Y/n]: ")
-            if choice != 'y' and choice != 'Y' and choice != '':
-                raise Exception(f'We are unable to detect your modem. {dev_id}')
-
-            self.log.debug(f'Resetting the modem. Please wait')
-            self.modems.get(dev_id).reset_modem()
-
-            # after reset try once again but last
-            try:
-                hardware_info = self.modems.get_hardware_info(dev_id)
-                return hardware_info
-            except Exception as e:
-                raise Exception(f'We are unable to detect your modem ({str(e)}). dev_id={dev_id}')
-
     def lte_set_modem_to_mbim(self, dev_id):
         """Switch LTE modem to the MBIM mode
         """
         try:
             modem = self.modems.get(dev_id)
 
-            # if_name = modem.nicname # fwutils.dev_id_to_linux_if(dev_id)
-            lte_driver = modem.driver # fwutils.get_interface_driver(if_name)
+            lte_driver = modem.driver
             if lte_driver == 'cdc_mbim':
                 return (True, None)
 
             self.log.debug('Please wait a few moments...')
 
-            # hardware_info = self.lte_get_vendor_and_model(dev_id)
-
-            vendor = modem.vendor # hardware_info['vendor']
-            model = modem.model # hardware_info['model']
+            vendor = modem.vendor
+            model = modem.model
 
             self.log.debug(f'The modem is found. Vendor: {vendor}. Model: {model}')
 

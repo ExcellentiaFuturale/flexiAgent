@@ -76,13 +76,13 @@ def reset_modem_if_needed(err_str, dev_id):
 
     set_db_entry(dev_id, 'healing_reset_last_time', datetime.timestamp(now))
 
-    fwglobals.g.modems.reset_modem(dev_id)
+    fwglobals.g.modems.call(dev_id, 'reset_modem')
     return True
 
 def _run_qmicli_command(dev_id, flag, device=None):
     try:
         if not device:
-            device = fwglobals.g.modems.get_usb_device(dev_id)
+            device = fwglobals.g.modems.call(dev_id, 'get_usb_device')
         qmicli_cmd = 'qmicli --device=/dev/%s --device-open-proxy --%s' % (device, flag)
         fwglobals.log.debug("_run_qmicli_command: %s" % qmicli_cmd)
         output = subprocess.check_output(qmicli_cmd, shell=True, stderr=subprocess.STDOUT).decode()
@@ -101,7 +101,7 @@ def _run_qmicli_command(dev_id, flag, device=None):
 def _run_mbimcli_command(dev_id, cmd, print_error=False, device=None):
     try:
         if not device:
-            device = fwglobals.g.modems.get_usb_device(dev_id)
+            device = fwglobals.g.modems.call(dev_id, 'get_usb_device')
         mbimcli_cmd = 'mbimcli --device=/dev/%s --device-open-proxy %s' % (device, cmd)
         if '--attach-packet-service' in mbimcli_cmd:
             # This command might take a long or even get stuck.
@@ -249,8 +249,8 @@ def set_cache_val(dev_id, key, value):
 
 def set_pin_protection(dev_id, pin, is_enable):
     if is_enable:
-        return fwglobals.g.modems.enable_pin(dev_id, pin)
-    return fwglobals.g.modems.disable_pin(dev_id, pin)
+        return fwglobals.g.modems.call(dev_id, 'enable_pin', pin)
+    return fwglobals.g.modems.call(dev_id, 'disable_pin', pin)
 
 def mbimcli_query_connection_state(dev_id):
     lines, _ = _run_mbimcli_command(dev_id, '--query-connection-state')
@@ -348,7 +348,7 @@ def handle_unblock_sim(dev_id, puk, new_pin):
         raise Exception(LTE_ERROR_MESSAGES.NEW_PIN_IS_REQUIRED)
 
     # unblock the sim and get the updated status
-    updated_status, err = fwglobals.g.modems.unblock_pin(dev_id, puk, new_pin)
+    updated_status, err = fwglobals.g.modems.call(dev_id, 'unblock_pin', puk, new_pin)
     if err:
         raise Exception(LTE_ERROR_MESSAGES.PIN_IS_WRONG)
     updated_pin_state = updated_status.get('pin1_status')
@@ -369,7 +369,7 @@ def handle_change_pin_code(dev_id, current_pin, new_pin, is_currently_enabled):
     if not is_currently_enabled: # can't change disabled pin
         raise Exception(LTE_ERROR_MESSAGES.PIN_IS_DISABLED)
 
-    _, err = fwglobals.g.modems.change_pin(dev_id, current_pin, new_pin)
+    _, err = fwglobals.g.modems.call(dev_id, 'change_pin', current_pin, new_pin)
     if err:
         raise Exception(LTE_ERROR_MESSAGES.PIN_IS_WRONG)
 
@@ -377,7 +377,7 @@ def handle_change_pin_code(dev_id, current_pin, new_pin, is_currently_enabled):
     set_db_entry(dev_id, 'wrong_pin', None)
 
 def handle_verify_pin_code(dev_id, current_pin, is_currently_enabled, retries_left):
-    updated_status, err = fwglobals.g.modems.verify_pin(dev_id, current_pin)
+    updated_status, err = fwglobals.g.modems.call(dev_id, 'verify_pin', current_pin)
     if err and not is_currently_enabled: # can't verify disabled pin
         raise Exception(LTE_ERROR_MESSAGES.PIN_IS_DISABLED)
     if err:
@@ -394,7 +394,7 @@ def handle_verify_pin_code(dev_id, current_pin, is_currently_enabled, retries_le
     set_db_entry(dev_id, 'wrong_pin', None)
 
 def handle_pin_modifications(dev_id, current_pin, new_pin, enable, puk):
-    current_pin_state = fwglobals.g.modems.get_pin_state(dev_id)
+    current_pin_state = fwglobals.g.modems.call(dev_id, 'get_pin_state')
     is_currently_enabled = current_pin_state.get('pin1_status') != 'disabled'
     retries_left = current_pin_state.get('pin1_retries', '3')
 
@@ -467,7 +467,7 @@ def get_stats():
             continue
 
         try:
-            info = fwglobals.g.modems.collect_lte_info(lte_dev_id)
+            info = fwglobals.g.modems.call(lte_dev_id, 'collect_lte_info')
             out[lte_dev_id] = info
         except:
             pass

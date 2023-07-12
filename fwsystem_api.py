@@ -158,9 +158,9 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                                 if not valid_arp_entries:
                                     self.log.debug(f'no valid ARP entry found. gw={gw}, name={name}, dev_id={dev_id}, \
                                         arp_entries={str(arp_entries)}. adding now')
-                                    fwglobals.g.modems.set_arp_entry(is_add=True, dev_id=dev_id, gw=gw)
+                                    fwglobals.g.modems.call(func='set_arp_entry', is_add=True, dev_id=dev_id, gw=gw)
                             
-                            # ensure traffic control settings are configuerd
+                            # ensure traffic control settings are configured
                             modem.ensure_tc_config()
 
             # Ensure that provider did not change IP provisioned to modem,
