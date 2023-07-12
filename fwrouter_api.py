@@ -98,8 +98,8 @@ fwrouter_translators = {
                                     'supported_params': 'modify_vxlan_config_supported_params'
                                 },
 
-    'add-vrrp':                 {'module': __import__('fwtranslate_add_vrrp'), 'api':'add_vrrp'},
-    'remove-vrrp':              {'module': __import__('fwtranslate_revert'),   'api':'revert'},
+    'add-vrrp-group':           {'module': __import__('fwtranslate_add_vrrp_group'), 'api':'add_vrrp_group'},
+    'remove-vrrp-group':        {'module': __import__('fwtranslate_revert'),   'api':'revert'},
 }
 
 class FwRouterState(enum.Enum):
@@ -212,7 +212,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
     def _get_vrrp_optional_track_interfaces(self):
         res = ({}, {}, [])
-        vrrp_groups = fwglobals.g.router_cfg.get_vrrp()
+        vrrp_groups = fwglobals.g.router_cfg.get_vrrp_groups()
 
         for vrrp_group in vrrp_groups:
             virtual_router_id = vrrp_group.get('virtualRouterId')
@@ -233,7 +233,6 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         vpp_vrrp_groups = fwglobals.g.router_api.vpp_api.vpp.call('vrrp_vr_track_if_dump', dump_all=1)
         for vpp_vrrp_group in vpp_vrrp_groups:
-            vr_id = vpp_vrrp_group.vr_id
             for tracked_interface in vpp_vrrp_group.ifs:
                 sw_if_index = tracked_interface.sw_if_index
                 vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
@@ -323,7 +322,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         for virtual_router_id in vrrp_groups:
             vrrp_optional_values = set(vrrp_groups[virtual_router_id]['optional'].values())
 
-            is_all_down = len(vrrp_optional_values) == 1 and next(iter(vrrp_optional_values)) == False # next(iter(vrrp_optional_values)) brings the first item in the set
+            is_all_down = len(vrrp_optional_values) == 1 and vrrp_optional_values[0] == False
             is_one_up = True in vrrp_optional_values
 
             if is_all_down:
@@ -337,7 +336,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             vrrp_group_params = vrrp_groups[virtual_router_id]['params']
             sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(vrrp_group_params['devId'])
 
-            fwutils.vrrp_add_del_track_interfaces(
+            fwutils.vpp_vrrp_add_del_track_interfaces(
                 is_add=0,
                 track_interfaces=vrrp_group_params['trackInterfaces'],
                 vr_id=virtual_router_id,
@@ -346,7 +345,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 sw_if_index=sw_if_index
             )
 
-            fwutils.vrrp_add_del_track_interfaces(
+            fwutils.vpp_vrrp_add_del_track_interfaces(
                 is_add=1,
                 track_interfaces=vrrp_group_params['trackInterfaces'],
                 vr_id=virtual_router_id,
@@ -1167,7 +1166,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         '''
         add_order = [
             'add-ospf', 'add-routing-filter', 'add-routing-bgp', 'add-switch',
-            'add-interface', 'add-vrrp', 'add-vxlan-config', 'add-tunnel', 'add-route', 'add-dhcp-config',
+            'add-interface', 'add-vrrp-group', 'add-vxlan-config', 'add-tunnel', 'add-route', 'add-dhcp-config',
             'add-application', 'add-multilink-policy', 'add-firewall-policy',
             'add-qos-traffic-map', 'add-qos-policy'
         ]
@@ -1688,7 +1687,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-qos-policy',
             'add-route',            # Routes should come after tunnels and after BGP, as they might use them!
             'add-dhcp-config',
-            'add-vrrp',
+            'add-vrrp-group',
         ]
         last_msg = None
         messages = self.cfg_db.dump(types=types)

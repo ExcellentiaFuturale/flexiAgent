@@ -105,28 +105,26 @@ class FwStatistics(FwObject):
                 renew_lte_wifi_stats = ticks % (timeout * 2) == 0 # Renew LTE and WiFi statistics every second update
                 self._update_stats(renew_lte_wifi_stats=renew_lte_wifi_stats)
 
-    def _get_vrrp_state_str(self, enum):
-        if enum & 0:
-            return 'Initialize'
-
-        if enum & 1:
-            return 'Backup'
-
-        if enum & 2:
-            return 'Master'
-
-        if enum & 3:
-            return 'Interface Down'
-
-        return ''
 
     def _get_vrrp_status(self):
+
+        def _get_vrrp_state_str(enum):
+            if enum & 0:
+                return 'Initialize'
+            if enum & 1:
+                return 'Backup'
+            if enum & 2:
+                return 'Master'
+            if enum & 3:
+                return 'Interface Down'
+            return ''
+        
         states = {}
         vrrp_dump = fwglobals.g.router_api.vpp_api.vpp.call('vrrp_vr_dump')
         for vrrp in vrrp_dump:
             vrid = vrrp.config.vr_id
             states[vrid] = {}
-            states[vrid]['state'] = self._get_vrrp_state_str(vrrp.runtime.state)
+            states[vrid]['state'] = _get_vrrp_state_str(vrrp.runtime.state)
             states[vrid]['adjusted_priority'] = vrrp.runtime.tracking.priority
 
         return states

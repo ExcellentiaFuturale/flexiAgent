@@ -1083,7 +1083,7 @@ def pci_bytes_to_str(pci_bytes):
     function = (bytes) & 0x7
     return "%04x:%02x:%02x.%02x" % (domain, bus, slot, function)
 
-def dev_id_to_switch_sw_if_index(dev_id):
+def dev_id_to_bvi_sw_if_index(dev_id):
     bridge_addr = fwutils.is_bridged_interface(dev_id)
     if not bridge_addr:
         return None
@@ -1167,9 +1167,12 @@ def bridge_addr_to_bvi_sw_if_index(bridge_addr):
 
     return vpp_bridges_det[0].bvi_sw_if_index
 
-# 'bridge_addr_to_bvi_interface_tap' function get the addr of the interface in a bridge
-# and return the tap interface of the BVI interface
 def bridge_addr_to_bvi_interface_tap(bridge_addr):
+    """Convert bridge address to the tap interface name.
+
+    :param bridge_addr:        Bridge IP Address
+    :returns: Linux TAP interface name.
+    """
     bvi_sw_if_index = bridge_addr_to_bvi_sw_if_index(bridge_addr)
     return vpp_sw_if_index_to_tap(bvi_sw_if_index)
 
@@ -2373,15 +2376,11 @@ def restore_dhcpd_files():
     except Exception as e:
         fwglobals.log.error("restore_dhcpd_files: %s" % str(e))
 
-def modify_dhcpd(is_add, params):
-    """Modify /etc/dhcp/dhcpd configuration file.
-
-    :param params:   Parameters from flexiManage.
-
-    :returns: String with sed commands.
+def modify_dhcpd_conf(is_add, dev_id, range_start, range_end, dns, mac_assign, options, max_lease_time, default_lease_time):
+    """Modify /etc/dhcp/dhcpd.conf configuration file.
     """
 
-    def _calculate_dhcp_ranges(range_start, range_end, routers_dhcp_option_str):
+    def _split_ip_range(range_start, range_end, exclude_ips):
         """Calculate and return string contains the DHCP "range" option.
 
         DHCP doesn't exclude the IPs configured as routers from the IP pool.
@@ -2389,11 +2388,11 @@ def modify_dhcpd(is_add, params):
         The function removes the router IPs from the range configured
         by the user by splitting the range into multiple ranges.
 
-        :param range_start:             String of the first ip of the range (172.16.1.100)
-        :param range_end:               String of the last ip of the range (172.16.1.200)
-        :param routers_dhcp_option_str: String contains router IPs, comma separated (172.16.1.1,172.16.1.2)
+        :param range_start:     String of the first ip of the range (172.16.1.100)
+        :param range_end:       String of the last ip of the range (172.16.1.200)
+        :param exclude_ips:     List contains the IPs to exclude
 
-        :returns: String range option.
+        :returns: list of ranges
 
         """
         if not range_start or not range_end:
@@ -2403,54 +2402,41 @@ def modify_dhcpd(is_add, params):
         end_ip = ipaddress.ip_address(range_end)
         ranges = [[start_ip, end_ip]]
 
-        # convert the dhcp routers options to ip_address objects.
-        # we also sort the routers ip list as the order is mandatory for below logic
-        routers_ips = sorted(list(map(lambda x: ipaddress.ip_address(x.strip()), routers_dhcp_option_str.split(","))))
+        # convert the excluded IPs to ip_address objects.
+        # we also sort the list as the order is mandatory for below logic
+        exclude_ips = sorted(list(map(lambda x: ipaddress.ip_address(x.strip()), exclude_ips)))
 
-        # loop on the routers ips, and check
-        for router_ip in routers_ips:
+        for exclude_ip in exclude_ips:
             range_start_ip, range_end_ip = ranges[-1]
 
             # check if ip is in the range, if not, no need to manipulate the range
-            if router_ip < range_start_ip or router_ip > range_end_ip:
+            if exclude_ip < range_start_ip or exclude_ip > range_end_ip:
                 continue
 
             # at this point we know that ip is in the range.
             #
-            if router_ip == range_start_ip:
-                ranges[-1][0] = (router_ip + 1) # change the range's start to be next ip after the router ip
+            if exclude_ip == range_start_ip:
+                ranges[-1][0] = (exclude_ip + 1) # change the range's start to be next ip after the exclude_ip
                 continue
 
-            if router_ip == range_end_ip:
-                ranges[-1][1] = (router_ip - 1) # change the range's end to be next ip after the router ip
+            if exclude_ip == range_end_ip:
+                ranges[-1][1] = (exclude_ip - 1) # change the range's end to be next ip after the exclude_ip
                 continue
 
-            if router_ip == range_end_ip - 1:
-                ranges[-1][1] = (last_end_ip -2) # if the decrease by 1 is the router ip, decrease by 2 and no need to add a new range
+            if exclude_ip == range_end_ip - 1:
+                ranges[-1][1] = (range_end_ip -2) # if the decrease by 1 is the exclude_ip, decrease by 2 and no need to add a new range
                 continue
 
             # ip is within the range
-            # ranges[-1][1] = (router_ip - 1) # change the range's end to be up to the ip before the router ip
-            ranges[-1][1] = (range_end_ip - 1) # change the range's end to be up to the ip before the router ip
-            ranges.append([router_ip + 1, range_end_ip]) # add a new range starting from the next ip after the router ip to the end defined by the user.
+            ranges[-1][1] = (exclude_ip - 1) # change the range's end to be up to the ip before the router ip
+            ranges.append([exclude_ip + 1, range_end_ip]) # add a new range starting from the next ip after the router ip to the end defined by the user.
 
-        ranges = list(map(lambda range_arr: f'range {range_arr[0]} {range_arr[1]};\n', ranges))
-        return ''.join(ranges)
-
-    dev_id      = params['interface']
-    range_start = params.get('range_start', '')
-    range_end   = params.get('range_end', '')
-    dns         = params.get('dns', {})
-    mac_assign  = params.get('mac_assign', {})
-    options     = params.get('options', [])
-
-    max_lease_time     = params.get('maxLeaseTime')
-    default_lease_time     = params.get('defaultLeaseTime')
-
+        ranges = list(map(lambda range_arr: f'range {range_arr[0]} {range_arr[1]}', ranges))
+        return ranges
 
     interfaces = fwglobals.g.router_cfg.get_interfaces(dev_id=dev_id)
     if not interfaces:
-        return (False, "modify_dhcpd: %s was not found" % (dev_id))
+        return (False, "modify_dhcpd_conf: %s was not found" % (dev_id))
 
     address = IPNetwork(interfaces[0]['addr'])
     ifc_ip = str(address.ip)
@@ -2462,41 +2448,32 @@ def modify_dhcpd(is_add, params):
     remove_string = 'sudo sed -e "/subnet %s netmask %s {/,/}/d" ' \
                     '-i %s; ' % (subnet, netmask, config_file)
 
+    conf_lines = []
     if dns:
-        dns_string = 'option domain-name-servers'
-        for d in dns[:-1]:
-            dns_string += ' %s,' % d
-        dns_string += ' %s;\n' % dns[-1]
-    else:
-        dns_string = ''
+        conf_lines.append(f'option domain-name-servers {", ".join(dns)}')
 
-    lease_time_string = []
     if default_lease_time:
-        lease_time_string.append(f'default-lease-time {default_lease_time};')
+        conf_lines.append(f'default-lease-time {default_lease_time}')
     if max_lease_time:
-        lease_time_string.append(f'max-lease-time {max_lease_time};')
-    lease_time_string = '\n'.join(lease_time_string)
+        conf_lines.append(f'max-lease-time {max_lease_time}')
 
     routers_dhcp_option = None
-    options_str = []
     for option in options:
         name = option['option']
         value = option['value']
-        options_str.append(f'option {name} {value};')
+        conf_lines.append(f'option {name} {value}')
         if name == 'routers':
             routers_dhcp_option = value
 
     # if user didn't provide a gateway, we put the interface ip
     if not routers_dhcp_option:
-        options_str.append(f'option routers {ifc_ip};')
+        conf_lines.append(f'option routers {ifc_ip}')
         routers_dhcp_option = ifc_ip
-    options_str = '\n'.join(options_str)
 
-    range_string = _calculate_dhcp_ranges(range_start, range_end, routers_dhcp_option)
-
+    ranges_lines = _split_ip_range(range_start, range_end, routers_dhcp_option.split(','))
+    conf_lines.extend(ranges_lines)
     subnet_string = 'subnet %s netmask %s' % (subnet, netmask)
-    dhcp_string = 'echo "' + subnet_string + ' {\n' + range_string + \
-                 options_str + '\n' + dns_string + lease_time_string + '\n}"' + ' | sudo tee -a %s;' % config_file
+    dhcp_string = 'echo "' + subnet_string + ' {\n' + ';\n'.join(conf_lines) + ';\n}"' + ' | sudo tee -a %s;' % config_file
 
     if is_add == 1:
         exec_string = remove_string + dhcp_string
@@ -4313,20 +4290,12 @@ def vpp_vrrp_get_mac_address(vr_id):
     mac = mac[:-2] + ':' + mac[-2:]
     return mac
 
-def vrrp_add_del_vr(params, is_add, result_cache=None):
-    virtual_router_id = params.get('virtualRouterId')
-    virtual_router_ip = params.get('virtualIp')
-    priority = params.get('priority')
-    dev_id = params.get('devId')
-    interval = params.get('interval', 100)
-
-    preemption = params.get('preemption')
-    accept_mode = params.get('acceptMode')
+def vpp_vrrp_add_del_vr(is_add, dev_id, virtual_router_id, virtual_router_ip, priority, interval, preemption, accept_mode, result_cache=None):
     preemption_flag  = 0x1 if preemption else 0  # see VRRP_API_VR_PREEMPT = 1 in vrrp_api.json
     accept_mode_flag = 0x2 if accept_mode else 0 # see VRRP_API_VR_ACCEPT = 2 in vrrp_api.json
 
     is_switch = False
-    sw_if_index = dev_id_to_switch_sw_if_index(dev_id)
+    sw_if_index = dev_id_to_bvi_sw_if_index(dev_id)
     if sw_if_index:
        is_switch = True
     else:
@@ -4384,7 +4353,7 @@ def vrrp_add_del_vr(params, is_add, result_cache=None):
                     }
                 )
         except Exception as e:
-            fwglobals.log.error(f"vrrp_add_del_vr({str(params), is_add, str(result_cache)}) failed: {str(e)}")
+            fwglobals.log.error(f"vpp_vrrp_add_del_vr({is_add, str(result_cache)}) failed: {str(e)}")
             handler.revert(e)
 
     # Store 'sw_if_index' in cache if provided by caller.
@@ -4394,11 +4363,11 @@ def vrrp_add_del_vr(params, is_add, result_cache=None):
         result_cache['cache'][key] = sw_if_index
 
 
-def vrrp_add_del_track_interfaces(track_interfaces, is_add, vr_id, sw_if_index, track_ifc_priority, mandatory_only):
+def vpp_vrrp_add_del_track_interfaces(track_interfaces, is_add, vr_id, sw_if_index, track_ifc_priority, mandatory_only):
     interfaces = []
     for track_interface in track_interfaces:
-        is_optional = not track_interface.get('isMandatory', True)
-        if mandatory_only and is_optional:
+        is_mandatory = track_interface.get('isMandatory', True)
+        if mandatory_only and not is_mandatory:
             continue
 
         track_ifc_dev_id = track_interface.get('devId')

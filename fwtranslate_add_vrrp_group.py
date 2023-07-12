@@ -22,7 +22,7 @@
 
 # {
 #   "entity": "agent",
-#   "message": "add-vrrp",
+#   "message": "add-vrrp-group",
 #   "params": {
 #     "virtualRouterId": 30,
 #     "virtualIp": "172.16.1.100",
@@ -33,8 +33,22 @@
 #     "devId": "pci:0000:00:0a.00"
 #   }
 # }
+#
+# preemption - 
+#   Controls whether a higher priority Backup router preempts a lower priority Master.
+#   In other words, When router with high priority become backup due to link status failure,
+#   and then the problem fixed - the router will become Master back.
+#   In VRRP Protocol, it is enabled by default
+#
+# acceptMode - 
+#   Controls whether a virtual router in Master state will accept packets addressed to the virtual IP address
+#   In VRRP Protocol, it is disabled by default
+#
+# trackInterfaces -
+#   Router can go to backup state if the interface it self is not accessible,
+#   or if *other* interfaces are not accessible. The specified "other" interfaces are the tracked interface.
 
-def add_vrrp(params):
+def add_vrrp_group(params):
     """Generate commands to add a VRRP.
 
     :param params:        Parameters from flexiManage.
@@ -43,27 +57,44 @@ def add_vrrp(params):
     """
     cmd_list = []
 
+    dev_id = params.get('devId')
     virtual_router_id = params.get('virtualRouterId')
+    virtual_router_ip = params.get('virtualIp')
     priority = params.get('priority')
+    interval = params.get('interval', 100)
+    preemption = params.get('preemption', True)
+    accept_mode = params.get('acceptMode', False)
 
     cache_key = 'vrrp_sw_if_index'
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['func']      = "vrrp_add_del_vr"
+    cmd['cmd']['func']      = "vpp_vrrp_add_del_vr"
     cmd['cmd']['module']    = "fwutils"
     cmd['cmd']['params']    = {
-        'params': params,
         'is_add': 1,
+        'dev_id': dev_id,
+        'virtual_router_id': virtual_router_id,
+        'virtual_router_ip': virtual_router_ip,
+        'priority': priority,
+        'interval': interval,
+        'preemption': preemption,
+        'accept_mode': accept_mode
     }
     cmd['cmd']['descr']         = "create vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
     cmd['cmd']['cache_ret_val'] = ('sw_if_index', cache_key)
     cmd['revert'] = {}
-    cmd['revert']['func']      = "vrrp_add_del_vr"
+    cmd['revert']['func']      = "vpp_vrrp_add_del_vr"
     cmd['revert']['module']    = "fwutils"
     cmd['revert']['params'] = {
-        'params': params,
         'is_add': 0,
+        'dev_id': dev_id,
+        'virtual_router_id': virtual_router_id,
+        'virtual_router_ip': virtual_router_ip,
+        'priority': priority,
+        'interval': interval,
+        'preemption': preemption,
+        'accept_mode': accept_mode
     }
     cmd['revert']['descr']      = "delete vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
     cmd_list.append(cmd)
@@ -99,7 +130,7 @@ def add_vrrp(params):
     if track_interfaces:
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']      = "vrrp_add_del_track_interfaces"
+        cmd['cmd']['func']      = "vpp_vrrp_add_del_track_interfaces"
         cmd['cmd']['module']    = "fwutils"
         cmd['cmd']['descr']     = "add track interfaces to vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
         cmd['cmd']['params']    = {
@@ -111,7 +142,7 @@ def add_vrrp(params):
             'substs': [{'add_param': 'sw_if_index', 'val_by_key': cache_key}]
         }
         cmd['revert'] = {}
-        cmd['revert']['func']   = "vrrp_add_del_track_interfaces"
+        cmd['revert']['func']   = "vpp_vrrp_add_del_track_interfaces"
         cmd['revert']['module'] = "fwutils"
         cmd['revert']['descr']  = "delete track interfaces from vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
         cmd['revert']['params'] = {
@@ -133,5 +164,5 @@ def get_request_key(params):
 
     :returns: request key for add-lte request.
     """
-    key = 'add-vrrp-%s' % params['virtualRouterId']
+    key = 'add-vrrp-group-%s' % params['virtualRouterId']
     return key

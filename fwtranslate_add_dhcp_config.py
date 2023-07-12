@@ -32,18 +32,48 @@ def _change_dhcpd_conf(params, cmd_list):
 
     :returns: None.
     """
+
+    dev_id              = params.get('interface')
+    range_start         = params.get('range_start', '')
+    range_end           = params.get('range_end', '')
+    dns                 = params.get('dns', [])
+    mac_assign          = params.get('mac_assign', [])
+    options             = params.get('options', [])
+    max_lease_time      = params.get('maxLeaseTime')
+    default_lease_time  = params.get('defaultLeaseTime')
+
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['func']      = "modify_dhcpd"
+    cmd['cmd']['func']      = "modify_dhcpd_conf"
     cmd['cmd']['module']    = "fwutils"
     cmd['cmd']['descr']     = "update dhcpd config file"
-    cmd['cmd']['params']    = { 'is_add': 1, 'params': params }
+    cmd['cmd']['params']    = { 
+        'is_add': 1, 
+        'dev_id': dev_id,
+        'range_start': range_start,
+        'range_end': range_end,
+        'dns': dns,
+        'mac_assign': mac_assign,
+        'options': options,
+        'max_lease_time': max_lease_time,
+        'default_lease_time': default_lease_time
+    }
     cmd['revert'] = {}
-    cmd['revert']['func']   = "modify_dhcpd"
+    cmd['revert']['func']   = "modify_dhcpd_conf"
     cmd['revert']['module'] = "fwutils"
     cmd['revert']['descr']  = "clean dhcpd config file"
     cmd['revert']['filter'] = 'must'   # When 'remove-XXX' commands are generated out of the 'add-XXX' commands, run this command even if vpp doesn't run
-    cmd['revert']['params'] = { 'is_add': 0, 'params': params }
+    cmd['revert']['params'] = { 
+        'is_add': 0, 
+        'dev_id': dev_id,
+        'range_start': range_start,
+        'range_end': range_end,
+        'dns': dns,
+        'mac_assign': mac_assign,
+        'options': options,
+        'max_lease_time': max_lease_time,
+        'default_lease_time': default_lease_time
+    }
     cmd_list.append(cmd)
 
 
