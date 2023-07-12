@@ -2284,7 +2284,7 @@ def reset_traffic_control():
     lte_interface_names = get_lte_interfaces_names()
     for dev_name in lte_interface_names:
         try:
-            fwglobals.log.debug('clean Linux traffic control settings')
+            fwglobals.log.debug(f'clean Linux traffic control settings for {dev_name}')
             subprocess.check_call(f'sudo tc -force qdisc del dev {dev_name} ingress handle ffff: 2>/dev/null', shell=True)
         except:
             pass
