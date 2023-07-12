@@ -298,9 +298,10 @@ def get_tunnel_gateway(dst, dev_id):
         except Exception as e:
             fwglobals.log.error("get_tunnel_gateway: failed to check networks: dst=%s, dev_id=%s, network=%s, error=%s" % (dst, dev_id, network, str(e)))
 
-    # If src, dst are not on same subnet or any error, use the gateway defined on the device
-    gw_ip, _ = get_interface_gateway('', if_dev_id=dev_id)
-    return ipaddress.ip_address(gw_ip) if gw_ip else ipaddress.ip_address('0.0.0.0')
+        if interface['gateway']:
+            return ipaddress.ip_address(interface['gateway'])
+
+    return ipaddress.ip_address('0.0.0.0')
 
 def is_interface_assigned_to_vpp(dev_id):
     """ Check if dev_id is assigned to vpp.
@@ -702,6 +703,20 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
         if if_dev_id:
             return copy.deepcopy(interfaces.get(if_dev_id))
         return copy.deepcopy(interfaces)
+
+def update_linux_interfaces(dev_id, gw):
+    """updates specific interface in cache of interfaces without full cache rebuild.
+
+    :param dev_id: ID of interface to be updated.
+    :param gw: the GW addresses to be set into cache
+
+    :return: None.
+    """
+    with fwglobals.g.cache.lock:
+        interface = fwglobals.g.cache.linux_interfaces.get(dev_id, {})
+        interface.update({'gateway': gw})
+        fwglobals.g.cache.linux_interfaces[dev_id] = interface
+        fwglobals.log.debug(f"update_linux_interfaces({dev_id}): gw={gw}")
 
 def get_interface_dev_id(if_name):
     """Convert  interface name into bus address.
@@ -2257,6 +2272,11 @@ def is_interface_without_dev_id(if_name):
     if if_name.startswith('br_'):
         return True
 
+    # currently we use the t_ prefix for the remote vpn only.
+    # this interface doesn't have dev_id
+    if if_name.startswith('t_'):
+        return True
+
     return False
 
 def get_lte_interfaces_names():
@@ -2727,6 +2747,17 @@ def tunnel_change_postprocess(remove, vpp_if_name):
 # 'gw' fields if 'dhcp' is 'yes'. Than if the fixed message includes no other
 # modified parameters, it will be ignored by the agent.
 #
+# 3. July-2023 - the 'modify-interface' might change type of interface from
+# WAN to LAN (or via versa). As there are many features that depend on type
+# of interface that should be reconfigured, e.g. multi-link policies, NAT, etc.,
+# it was decided to implement a replacement of 'modify-' request with pair
+# of 'remove-' & 'add-interface' requests to avoid complexity and potential bugs.
+# Note, the built-in replacement of 'modify-X' requests with 'remove-' & 'add-'
+# pair is not good enough, as it implements partial modification: it adds
+# parameters from the existing configuration database to the simulated 'add-'.
+# In future we may redesign the 'modify-X' requests to allow smarter operation,
+# so flexiManage could provide exact instructions how to handle them.
+#
 def fix_received_message(msg):
 
     def _fix_aggregation_format(msg):
@@ -2853,6 +2884,35 @@ def fix_received_message(msg):
 
         return msg
 
+    def _fix_interface_type(msg):
+
+        def _is_type_modified(_request):
+            if _request['message'] == 'modify-interface':
+                new_type = _request['params'].get('type',"").lower()
+                if not new_type:
+                    return False
+                old_type = fwglobals.g.router_cfg.get_interfaces(dev_id=_request['params']['dev_id'])[0]['type'].lower()
+                if (new_type != old_type):
+                    return True
+            return False
+
+        if msg['message'] == 'modify-interface':
+            if _is_type_modified(msg):
+                msg = {
+                        'message': 'aggregated',
+                        'params' : { 'requests': [ msg ] }
+                }
+                # fall through into the next 'if', it will replace the found 'modify-interface'
+        if msg['message'] == 'aggregated':
+            requests = msg['params']['requests']
+            for idx, request in reversed(list(enumerate(requests))):    # reversed() -> optimize a bit requests.insert() below
+                if _is_type_modified(request):
+                    requests[idx]['message'] = 'add-interface'          # 'modify-interface' -> 'add-interface'
+                    remove_interface = {'message': 'remove-interface', 'params': {'dev_id': request['params']['dev_id']}}
+                    requests.insert(idx, remove_interface)
+            return msg
+        return msg
+
     try:
         # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         # Order of functions is important, as the first one (_fix_aggregation_format())
@@ -2862,6 +2922,7 @@ def fix_received_message(msg):
         msg = _fix_aggregation_format(msg)
         msg = _fix_dhcp(msg)
         msg = _fix_application(msg)
+        msg = _fix_interface_type(msg)  # 3. July-2023
         return msg
     except Exception as e:
         fwglobals.log.error(f"fix_received_message failed: {str(e)} {traceback.format_exc()}")

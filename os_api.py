@@ -20,44 +20,17 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-from netaddr import IPAddress
-import psutil
-import json
-import fwnetplan
-import fwutils
-import os
-import fwglobals
-
-# TBD: define all APIs in a file
 os_modules = {
-    'psutil':__import__('psutil'),
-    'os':__import__('os'),
     'fwutils':__import__('fwutils'),
 }
 
-# TBD: define all APIs in a file
 os_api_defs = {
-    'cpuutil':{'module':'psutil', 'api':'cpu_percent', 'decode':None},
-    'exec':{'module':'os', 'api':'popen', 'decode':'execd'},
     'exec_timeout':{'module':'fwutils', 'api':'exec_with_timeout', 'decode':'exec_timeout_decode'}
 }
 
 class OS_DECODERS:
     """OS DECODERS class representation.
     """
-    def execd(self, handle):
-        """Read from a descriptor.
-
-        :param handle:         File-like descriptor.
-
-        :returns: Dta read from descriptor and status code.
-        """
-        data = handle.read()
-        retcode = handle.close()
-        if retcode == None or retcode == 0: ok=1
-        else: ok=0
-        return (data, ok)
-
     def exec_timeout_decode(self, handle):
         """Read from a descriptor.
 

@@ -38,7 +38,11 @@ import socket
 import sys
 import time
 import random
-import psutil
+try:
+    import psutil
+except Exception as e:
+    print("failed to load psutil, ensure you use python 3.8 or later")
+    sys.exit(1)
 import Pyro4
 import re
 import subprocess
@@ -93,12 +97,11 @@ class FwAgent(FwObject):
 
         self.token                = None
         self.versions             = fwutils.get_device_versions(fwglobals.g.VERSIONS_FILE)
-        self.pending_msg_replies  = []
+        self.pending_replies      = []
         self.reconnecting         = False
 
         self.ws = fwwebsocket.FwWebSocketClient(
                                     on_open    = self._on_open,
-                                    on_message = self._on_message,
                                     on_close   = self._on_close)
 
         if handle_signals:
@@ -376,12 +379,26 @@ class FwAgent(FwObject):
                 "User-Agent": "fwagent/%s" % (self.versions['components']['agent']['version'])
             }
 
-            fwthread.set_request_processing_thread()
-
             self.ws.connect(
                         url, headers = headers,
                         check_certificate=(not fwglobals.g.cfg.BYPASS_CERT))
-            self.ws.run_loop_send_recv(timeout=30)                 # flexiManage should send 'get-device-stats' every 10 sec
+            while self.ws.is_connected():
+                try:
+                    received = self.ws.recv(timeout=1)
+                    msg = json.loads(received) if received else None
+                    if msg and msg['msg']['message'] == "sync-device" and fwglobals.g.loadsimulator:
+                        out_msgs = [{'seq':msg['seq'], 'msg':{'ok':1}}]
+                    else:
+                        out_msgs = fwglobals.g.message_handler.handle_incoming_message(msg)
+                    for msg in out_msgs:
+                        if not self.reconnecting:
+                            self.ws.send(json.dumps(msg, cls=fwutils.FwJsonEncoder))
+                        else:
+                            self.log.info(f"going to reconnect -> queue reply {msg['seq']}")
+                            self.pending_replies.append(msg)
+                except Exception as e:
+                    self.log.error(f"failed to handle received message or to send outgoing: {str(e)}")
+                    pass
             self.ws.close()
             return True
 
@@ -400,9 +417,6 @@ class FwAgent(FwObject):
             #
             self._mark_connection_failure(error)
             return False
-
-        finally:
-            fwthread.unset_request_processing_thread()
 
     def reconnect(self):
         """Closes and reestablishes the main WebSocket connection between
@@ -447,77 +461,15 @@ class FwAgent(FwObject):
         # Send pending message replies to the flexiManage upon connection reopen.
         # These are replies to messages that might have cause the connection
         # to the flexiManage to disconnect, and thus have to be sent on the new connection.
-        if len(self.pending_msg_replies) > 0:
-            self.log.info("_on_open: send %d pending replies to flexiManage" % len(self.pending_msg_replies))
-            for reply in self.pending_msg_replies:
-                self.log.debug("_on_open: sending reply: " + json.dumps(reply))
-                self.ws.send(json.dumps(reply))
-            del self.pending_msg_replies[:]
+        if len(self.pending_replies) > 0:
+            self.log.info("_on_open: send %d pending replies to flexiManage" % len(self.pending_replies))
+            for msg in self.pending_replies[:]:   # [:] creates a copy of the list, making it possible to modifying original list from within loop!
+                self.log.debug("_on_open: sending reply: " + json.dumps(msg))
+                self.ws.send(json.dumps(msg), cls=fwutils.FwJsonEncoder)
+                self.pending_replies.remove(msg)
 
         if not fw_os_utils.vpp_does_run():
             self.log.info("connect: router is not running, start it in flexiManage")
-
-    def _on_message(self, message):
-        """Websocket received message handler.
-        This callbacks invokes global handler of the received request defined
-        in the fwglobals.py module, gets back the response from the global
-        handler and sends it back to the server. The global handler dispatches
-        requests to appropriate request handlers. It is implemented
-        in the fwglobals.py module.
-
-        :param ws:       Websocket handler.
-        :param message:  Message instance.
-
-        :returns: None.
-        """
-        pmsg    = json.loads(message)
-        request = pmsg['msg']
-        seq     = str(pmsg['seq'])              # Sequence number of the received message
-        job_id  = str(pmsg.get('jobid',''))     # ID of job on flexiManage that sent this message
-
-        try:
-            # In load simulator mode always reply ok on sync message
-            if fwglobals.g.loadsimulator and request["message"] == "sync-device":
-                reply = {"ok":1}
-            else:
-                default_route_before = fwutils.get_default_route()
-
-                msg_id = seq + " " if not job_id else seq + " job_id:" + job_id + " "
-
-                msg = fwutils.fix_received_message(request)
-                if msg:
-                    fwglobals.g.jobs.start_recording(job_id, msg) # add a new job record
-                    reply  = self.handle_received_request(request, msg, log_prefix=msg_id)
-                    fwglobals.g.jobs.stop_recording(job_id, reply)
-                else:
-                    err_str = 'invalid message format'
-                    fwglobals.g.jobs.add_record(job_id, {'error': err_str})
-                    reply = {'ok':0, 'message': err_str}
-
-                default_route_after = fwutils.get_default_route()
-                if default_route_before[2] != default_route_after[2]:  # reconnect the agent to avoid WebSocket timeout
-                    self.log.debug(f"reconnect as default route was changed: '{default_route_before}' -> '{default_route_after}'")
-                    self.reconnect()
-
-            # Messages that change the interfaces might break the existing connection
-            # (for example, if the WAN interface IP/mask has changed). Since sending
-            # the reply on a broken connection will not work, we close the connection
-            # before sending the reply and save the reply into pending queue.
-            # Later, when daemon re-opens the new connection by connection loop,
-            # we will pop the reply out of queue and will send it to the flexiManage.
-            #
-            if self.reconnecting == True:
-                self.log.info("_on_message: goes to reestablish connection, queue reply %s" % str(pmsg['seq']))
-                self.pending_msg_replies.append({'seq':pmsg['seq'], 'msg':reply})
-            else:
-                self.ws.send(json.dumps({'seq':pmsg['seq'], 'msg':reply}, cls=fwutils.FwJsonEncoder))
-
-        except Exception as e:
-            self.log.error(f"exception in _on_message(), reject received request ({str(e)})")
-            err_str = 'unknown error'
-            fwglobals.g.jobs.add_record(job_id, {'error': err_str})
-            reply = {'ok':0, 'message': err_str}
-            return json.dumps({'seq':pmsg['seq'], 'msg':reply})
 
     def disconnect(self):
         """Shutdowns the WebSocket connection.
@@ -526,96 +478,6 @@ class FwAgent(FwObject):
         """
         if self.ws:
             self.ws.disconnect()
-
-    def handle_received_request(self, received_msg, msg=None, log_prefix=''):
-        """Handles received request: invokes the global request handler
-        while logging the request and the response returned by the global
-        request handler. Note the global request handler is implemented
-        in the fwglobals.py module. It dispatches requests to the appropriate
-        request handlers.
-
-        :param received_msg:  the receive instance.
-        :param msg:           the normalized received message
-        :param log_prefix:    the prefix to be added to the log line while printing message
-
-        :returns: (reply, msg), where reply is reply to be sent back to server,
-                  msg is normalized received message.
-        """
-
-        def log_request(fixed_msg, received_msg, log_prefix):
-            log_line = log_prefix + "handle_received_request:request\n" + json.dumps(received_msg, sort_keys=True, indent=1)
-            log_line_fixed_msg = None if fixed_msg == received_msg else \
-                       "handle_received_request:fixed\n" + json.dumps(fixed_msg, sort_keys=True, indent=1)
-            self.log.debug(log_line)
-            if log_line_fixed_msg:
-                self.log.debug(log_line_fixed_msg)
-
-            # Some requests like 'add-application' are huge, so we log them into
-            # dedicated file. This is in addition to logging into default file,
-            # where lines are truncated to 4K.
-            #
-            logger = fwglobals.g.get_logger(fixed_msg)
-            if logger:
-                logger.debug(log_line)
-                if log_line_fixed_msg:
-                    logger.debug(log_line_fixed_msg)
-            return logger
-
-        def log_reply(request, reply, log_prefix, logger):
-            # Mask huge or security sensitive replies
-            if re.match('get-device-(logs|packet-traces)|exec', request.get('message',"")):
-                reply_for_log = {"ok":1}
-            else:
-                reply_for_log = reply
-            log_line = log_prefix + "handle_received_request:reply\n" + json.dumps(reply_for_log, sort_keys=True, indent=1, cls=fwutils.FwJsonEncoder)
-            self.log.debug(log_line)
-            if logger:
-                logger.debug(log_line)
-        try:
-
-            if not msg:
-                msg = received_msg
-
-            logger = log_request(msg, received_msg, log_prefix)
-
-            # Use 'request_cond_var' conditional variable to suspend monitoring
-            # threads as long as configuration request, which was received from
-            # flexiManage, is being handled.
-            # Note, we don't suspend threads for non configuration requests,
-            # like 'get-device-stats' or 'exec_timeout.
-
-            handler_name = fwglobals.request_handlers.get(msg.get('message',''),{}).get('name')
-            if handler_name == '_call_agent_api' or handler_name == '_call_os_api':
-                reply = fwglobals.g.handle_request(msg, received_msg=received_msg)
-            else:
-                rt = fwglobals.g.router_threads
-                with rt.request_cond_var:
-
-                    rt.handling_request = True
-                    if len(rt.thread_names) > 0:
-                        self.log.debug(f"handle_received_request: wait for {rt.thread_names} threads to finish")
-                    rt.request_cond_var.wait_for(rt.is_no_active_threads)
-
-                    reply = fwglobals.g.handle_request(msg, received_msg=received_msg)
-
-                    rt.handling_request = False
-
-            if not 'entity' in reply and 'entity' in msg:
-                reply.update({'entity': msg['entity'] + 'Reply'})
-            if not 'message' in reply:
-                reply.update({'message': 'success'})
-
-            log_reply(msg, reply, log_prefix, logger)
-
-        except Exception as e:
-             self.log.error(f"handle_received_request failed: {str(e)} {traceback.format_exc()}")
-             return {'ok': 0, 'message': str(e)}
-
-        message = reply.get('message')
-        if reply['ok'] == 0 and message:
-            fwglobals.g.jobs.update_job_error(message)
-            reply['message'] = {'errors' : [message]}
-        return reply
 
     def inject_requests(self, filename, ignore_errors=False, json_requests=None):
         """Injects requests loaded from within 'file' JSON file,
@@ -629,33 +491,35 @@ class FwAgent(FwObject):
                               rest of loaded requests will be not executed.
         :returns: N/A.
         """
-        self.log.debug("inject_requests(filename=%s, ignore_errors=%s)" % \
-            (filename, str(ignore_errors)))
+        def _inject_single_request(request, seq=1, ignore_errors=False):
+                incoming_message = {
+                    'seq':          seq,
+                    'msg':          request,
+                    'processing': {
+                        'synchronous': True,  # bypass incoming message queue to get immediate reply
+                    }
+                }
+                outgoing_messages = fwglobals.g.message_handler.handle_incoming_message(incoming_message)
+                if not outgoing_messages and ignore_errors == False:
+                    raise Exception(f'failed to inject request #{seq} in {filename}: got no reply')
+                reply = outgoing_messages[0]['msg']
+                if reply['ok'] == 0 and ignore_errors == False:
+                    raise Exception(f"failed to inject request #{seq} in {filename}: {reply['message']}")
+                return reply
 
-        if json_requests:
-            requests = json.loads(json_requests)
-        else:
-            with open(filename, 'r') as f:
-                requests = json.loads(f.read())
 
-        fwthread.set_request_processing_thread()
+        self.log.debug(f"inject_requests({filename}, ignore_errors={ignore_errors})")
+
+        if not json_requests:
+            with open(filename, 'r') as f:  json_requests = f.read()
+        requests = json.loads(json_requests)
 
         if type(requests) is list:   # Take care of file with list of requests
             for (idx, req) in enumerate(requests):
-                msg = fwutils.fix_received_message(req)
-                reply = self.handle_received_request(req, msg)
-                if reply['ok'] == 0 and ignore_errors == False:
-                    raise Exception('failed to inject request #%d in %s: %s' % \
-                                    ((idx+1), filename, reply['message']))
-            fwthread.unset_request_processing_thread()
+                _inject_single_request(req, seq=(idx+1), ignore_errors=ignore_errors)
             return None
         else:   # Take care of file with single request
-            msg = fwutils.fix_received_message(requests)
-            reply = self.handle_received_request(requests, msg)
-            if reply['ok'] == 0:
-                raise Exception('failed to inject request from within %s: %s' % \
-                                (filename, reply['message']))
-            fwthread.unset_request_processing_thread()
+            reply = _inject_single_request(requests)
             return reply
 
 def version():

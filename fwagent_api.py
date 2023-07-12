@@ -20,20 +20,25 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import yaml
-import sys
-import os
-from shutil import copyfile
-import subprocess
 import json
+import os
+import psutil
+import subprocess
+import sys
+import traceback
+import yaml
+
+from shutil import copyfile
+
 import fwglobals
 import fwutils
 import fwlte
 import fwwifi
 import fwroutes
-import psutil
+import fw_os_utils
 
 from fwobject import FwObject
+from fw_os_utils import CalledProcessSigTerm
 
 system_checker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tools/system_checker/")
 sys.path.append(system_checker_path)
@@ -157,10 +162,11 @@ class FWAGENT_API(FwObject):
             info['distro'] = {'version': version, 'codename': codename}
 
             return {'message': info, 'ok': 1}
-        except CalledProcessSigTerm as e:
+        except fw_os_utils.CalledProcessSigTerm as e:
             raise e
         except Exception as e:
-            raise Exception("_get_device_info: failed to get device info: %s" % format(sys.exc_info()[1]))
+            fwglobals.log.error(f"_get_device_info: {str(e)}: {str(traceback.format_exc())}")
+            raise Exception(f"_get_device_info failed: {str(e)}")
 
 
     def _set_cpu_info(self, params):
