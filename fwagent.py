@@ -465,7 +465,7 @@ class FwAgent(FwObject):
             self.log.info("_on_open: send %d pending replies to flexiManage" % len(self.pending_replies))
             for msg in self.pending_replies[:]:   # [:] creates a copy of the list, making it possible to modifying original list from within loop!
                 self.log.debug("_on_open: sending reply: " + json.dumps(msg))
-                self.ws.send(json.dumps(msg), cls=fwutils.FwJsonEncoder)
+                self.ws.send(json.dumps(msg, cls=fwutils.FwJsonEncoder))
                 self.pending_replies.remove(msg)
 
         if not fw_os_utils.vpp_does_run():
