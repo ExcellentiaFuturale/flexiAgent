@@ -718,10 +718,10 @@ def update_linux_interfaces(dev_id, gw):
     :return: None.
     """
     with fwglobals.g.cache.lock:
-        interface = fwglobals.g.cache.linux_interfaces.get(dev_id, {})
-        interface.update({'gateway': gw})
-        fwglobals.g.cache.linux_interfaces[dev_id] = interface
-        fwglobals.log.debug(f"update_linux_interfaces({dev_id}): gw={gw}")
+        interface = fwglobals.g.cache.linux_interfaces.get(dev_id)
+        if interface:
+            interface.update({'gateway': gw})
+            fwglobals.log.debug(f"update_linux_interfaces({dev_id}): gw={gw}")
 
 def get_interface_dev_id(if_name):
     """Convert  interface name into bus address.
