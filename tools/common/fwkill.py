@@ -41,8 +41,8 @@ sys.path.append(agent_root_dir)
 import fwglobals
 import fwutils
 import fwnetplan
-import fwlte_utils
 import fwlte
+import fwlte_utils
 import fwpppoe
 import fwwifi
 

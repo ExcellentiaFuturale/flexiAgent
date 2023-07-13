@@ -45,11 +45,10 @@ import fwgrub
 import fwlog
 import fwutils
 import fwnetplan
-import fwlte_utils
 import fwwifi
-from fwlte import FwLTE
 from fw_vpp_coredump_utils import FW_VPP_COREDUMP_FOLDER, FW_VPP_COREDUMP_PERMISSIONS
 from fwexception import FwExceptionSkippedCheck
+from fwlte import FwLte
 from fwsystem_checker import TXT_COLOR
 
 from yaml.constructor import ConstructorError
@@ -86,7 +85,7 @@ class Checker:
         """Constructor method
         """
         fwglobals.initialize(quiet=True)
-        self.modems = fwglobals.g.lte if fwglobals.g.lte else FwLTE()
+        self.modems = fwglobals.g.lte if fwglobals.g.lte else FwLte()
 
         self.log = fwlog.FwLogFile(fwglobals.g.SYSTEM_CHECKER_LOG_FILE, level=fwlog.FWLOG_LEVEL_DEBUG)
         self.log.set_target(to_terminal=True)

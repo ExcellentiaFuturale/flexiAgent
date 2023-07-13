@@ -37,7 +37,10 @@ from fwobject import FwObject
 class MODEM_STATES():
     CONNECTING = 'CONNECTING'
     CONNECTED = 'CONNECTED'
+    NOT_CONNECTED = 'CONNECTED'
     RESETTING = 'RESETTING'
+    FAILED = 'FAILED'
+    UNDEFINED = 'UNDEFINED'
 
 class FwLteModem(FwObject):
     def __init__(self, dev_id):
@@ -45,7 +48,6 @@ class FwLteModem(FwObject):
         self.dev_id = dev_id
         self.nicname = None
         self.modem_manager_path = None
-        self.mode = None
         self.driver = None
         self.vendor = None
         self.model = None
@@ -54,10 +56,8 @@ class FwLteModem(FwObject):
         self.ip = None
         self.gateway = None
         self.dns_servers = []
-
         self.sim_presented = None
-
-        self.state = None
+        self.state = MODEM_STATES.UNDEFINED
 
         self.initialize()
 
@@ -76,6 +76,22 @@ class FwLteModem(FwObject):
         self.usb_device = fwlte_utils.dev_id_to_usb_device(self.dev_id)
         self.modem_manager_path = self._get_modem_manager_path()
 
+        self._initialize_state()
+
+    def _initialize_state(self):
+        if self.mode == 'QMI':
+            return
+
+        if self.is_connected():
+            self.state = MODEM_STATES.CONNECTED
+            return
+
+        state, _ = self.get_state()
+        if state == 'failed':
+            self.state = MODEM_STATES.FAILED
+            return
+
+        self.state = MODEM_STATES.NOT_CONNECTED
 
     def is_connecting(self):
         return self.state == MODEM_STATES.CONNECTING
@@ -83,140 +99,24 @@ class FwLteModem(FwObject):
     def is_resetting(self):
         return self.state == MODEM_STATES.RESETTING
 
-    def is_state_in_process(self):
+    def is_connecting_or_resetting(self):
         return self.is_resetting() or self.is_connecting()
+
+    def get_state(self, data=None):
+        if not data:
+            data = self.get_modem_manager_data()
+        state = data.get('generic', {}).get('state')
+        reason = data.get('generic', {}).get('state-failed-reason')
+        return state, reason
 
     def _get_modem_manager_path(self):
         # {
         #     "modem": {
-        #         "3gpp": {
-        #         "enabled-locks": [
-        #             "fixed-dialing"
-        #         ],
-        #         "eps": {
-        #             "initial-bearer": {
-        #             "dbus-path": "--",
-        #             "settings": {
-        #                 "apn": "--",
-        #                 "ip-type": "--",
-        #                 "password": "--",
-        #                 "user": "--"
-        #             }
-        #             },
-        #             "ue-mode-operation": "ps-2"
-        #         },
-        #         "imei": "866680040112569",
-        #         "operator-code": "--",
-        #         "operator-name": "--",
-        #         "pco": "--",
-        #         "registration-state": "--"
-        #         },
-        #         "cdma": {
-        #         "activation-state": "--",
-        #         "cdma1x-registration-state": "--",
-        #         "esn": "--",
-        #         "evdo-registration-state": "--",
-        #         "meid": "--",
-        #         "nid": "--",
-        #         "sid": "--"
-        #         },
+        #         ...
         #         "dbus-path": "/org/freedesktop/ModemManager1/Modem/0",
-        #         "generic": {
-        #         "access-technologies": [],
-        #         "bearers": [],
-        #         "carrier-configuration": "ROW_Generic_3GPP",
-        #         "carrier-configuration-revision": "06010821",
-        #         "current-bands": [
-        #             "utran-1",
-        #             "utran-3",
-        #             "utran-5",
-        #             "utran-8",
-        #             "eutran-1",
-        #             "eutran-3",
-        #             "eutran-5",
-        #             "eutran-7",
-        #             "eutran-8",
-        #             "eutran-20",
-        #             "eutran-28",
-        #             "eutran-32",
-        #             "eutran-38",
-        #             "eutran-40",
-        #             "eutran-41"
-        #         ],
-        #         "current-capabilities": [
-        #             "gsm-umts, lte"
-        #         ],
-        #         "current-modes": "allowed: 3g, 4g; preferred: 4g",
-        #         "device": "/sys/devices/pci0000:00/0000:00:15.0/usb1/1-3",
-        #         "device-identifier": "1cb7aed10665c820d13fa8459b4797c957d76059",
-        #         "drivers": [
-        #             "cdc_mbim",
-        #             "option"
-        #         ],
-        #         "equipment-identifier": "866680040112569",
-        #         "hardware-revision": "EM06-E",
-        #         "manufacturer": "Quectel",
-        #         "model": "EM06-E",
-        #         "own-numbers": [],
-        #         "plugin": "generic",
-        #         "ports": [
-        #             "cdc-wdm0 (mbim)",
-        #             "ttyUSB0 (qcdm)",
-        #             "ttyUSB1 (gps)",
-        #             "ttyUSB2 (at)",
-        #             "ttyUSB3 (at)",
-        #             "wwan0 (net)"
-        #         ],
-        #         "power-state": "on",
-        #         "primary-port": "cdc-wdm0",
-        #         "primary-sim-slot": "--",
-        #         "revision": "EM06ELAR03A08M4G",
-        #         "signal-quality": {
-        #             "recent": "no",
-        #             "value": "0"
-        #         },
-        #         "sim": "/org/freedesktop/ModemManager1/SIM/0",
-        #         "sim-slots": [],
-        #         "state": "disabled",
-        #         "state-failed-reason": "--",
-        #         "supported-bands": [
-        #             "utran-1",
-        #             "utran-3",
-        #             "utran-5",
-        #             "utran-8",
-        #             "eutran-1",
-        #             "eutran-3",
-        #             "eutran-5",
-        #             "eutran-7",
-        #             "eutran-8",
-        #             "eutran-20",
-        #             "eutran-28",
-        #             "eutran-32",
-        #             "eutran-38",
-        #             "eutran-40",
-        #             "eutran-41"
-        #         ],
-        #         "supported-capabilities": [
-        #             "gsm-umts, lte"
-        #         ],
-        #         "supported-ip-families": [
-        #             "ipv4",
-        #             "ipv6",
-        #             "ipv4v6"
-        #         ],
-        #         "supported-modes": [
-        #             "allowed: 3g; preferred: none",
-        #             "allowed: 4g; preferred: none",
-        #             "allowed: 3g, 4g; preferred: 4g",
-        #             "allowed: 3g, 4g; preferred: 3g"
-        #         ],
-        #         "unlock-required": "--",
-        #         "unlock-retries": [
-        #             "sim-pin2 (5)"
-        #         ]
-        #         }
-        #     }
-        #     }
+        #         ...
+        #      }
+        # }
         if not self.modem_manager_path:
             modem_list_output = _mmcli_exec('-L')
             modem_list = modem_list_output.get('modem-list', [])
@@ -289,17 +189,26 @@ class FwLteModem(FwObject):
 
             self.add_del_traffic_control(is_add=True)
 
+    def get_connection_state(self):
+        lines, err = fwlte_utils._run_mbimcli_command(self.dev_id, '--query-connection-state', print_error=True, device=self.usb_device)
+        for line in lines:
+            if 'Activation state' in line:
+                return line.split(':')[-1].strip().replace("'", '')
+        return ''
+
     def is_connected(self, cache=False):
         if cache:
             return self.state == MODEM_STATES.CONNECTED
-
-        return fwlte_utils.mbimcli_query_connection_state(self.dev_id) == 'activated'
+        return self.get_connection_state() == 'activated'
 
     def connect(self, apn=None, user=None, password=None, auth=None, pin=None):
         # To avoid wan failover monitor and lte watchdog at this time
         self.state = MODEM_STATES.CONNECTING
 
         try:
+            if self.mode == 'QMI':
+                raise Exception("Unsupported modem mode (QMI)")
+
             # check if sim exists
             if self.get_sim_card_status() != "present":
                 raise Exception("SIM not present")
@@ -513,14 +422,10 @@ class FwLteModem(FwObject):
             fwlte_utils.set_db_entry(self.dev_id, 'wrong_pin', None)
 
     def get_sim_card_status(self, data=None):
-        if not data:
-            data = self.get_modem_manager_data()
-        modem_state = data.get('generic', {}).get('state')
-        if modem_state == 'failed':
-            reason = data.get('generic', {}).get('state-failed-reason')
+        modem_state, reason = self.get_state(data)
+        if modem_state == 'failed' and reason == 'sim-missing':
             # if modem failed due to another reason, it means that sim is presented
-            if reason == 'sim-missing':
-                return reason
+            return reason
         return 'present' # to keep backward compatibility, this string indicates in flexiManage that sim is ok
 
     def enable_pin(self, pin):
@@ -577,7 +482,7 @@ class FwLteModem(FwObject):
             'rsrq' : 0,
             'sinr' : 0,
             'snr'  : 0,
-            'text' : ''
+            'text' : 'N/A'
         }
         if not self.sim_presented:
             return result
@@ -592,9 +497,7 @@ class FwLteModem(FwObject):
         result['sinr'] = evdo_signal.get('sinr')
         result['snr'] = lte_signal.get('snr')
 
-        if result['rssi'] == '--':
-            result['text'] = 'N/A'
-        else:
+        if result['rssi'] != '--':
             dbm_num = int(float(result['rssi']))
             if -95 >= dbm_num:
                 result['text'] = 'Marginal'
@@ -714,6 +617,136 @@ class FwLteModem(FwObject):
 
     def get_modem_manager_data(self):
         modem_data = self.mmcli_get()
+        # {
+        #     "modem": {
+        #         "3gpp": {
+        #         "enabled-locks": [
+        #             "fixed-dialing"
+        #         ],
+        #         "eps": {
+        #             "initial-bearer": {
+        #             "dbus-path": "--",
+        #             "settings": {
+        #                 "apn": "--",
+        #                 "ip-type": "--",
+        #                 "password": "--",
+        #                 "user": "--"
+        #             }
+        #             },
+        #             "ue-mode-operation": "ps-2"
+        #         },
+        #         "imei": "866680040112569",
+        #         "operator-code": "--",
+        #         "operator-name": "--",
+        #         "pco": "--",
+        #         "registration-state": "--"
+        #         },
+        #         "cdma": {
+        #         "activation-state": "--",
+        #         "cdma1x-registration-state": "--",
+        #         "esn": "--",
+        #         "evdo-registration-state": "--",
+        #         "meid": "--",
+        #         "nid": "--",
+        #         "sid": "--"
+        #         },
+        #         "dbus-path": "/org/freedesktop/ModemManager1/Modem/0",
+        #         "generic": {
+        #         "access-technologies": [],
+        #         "bearers": [],
+        #         "carrier-configuration": "ROW_Generic_3GPP",
+        #         "carrier-configuration-revision": "06010821",
+        #         "current-bands": [
+        #             "utran-1",
+        #             "utran-3",
+        #             "utran-5",
+        #             "utran-8",
+        #             "eutran-1",
+        #             "eutran-3",
+        #             "eutran-5",
+        #             "eutran-7",
+        #             "eutran-8",
+        #             "eutran-20",
+        #             "eutran-28",
+        #             "eutran-32",
+        #             "eutran-38",
+        #             "eutran-40",
+        #             "eutran-41"
+        #         ],
+        #         "current-capabilities": [
+        #             "gsm-umts, lte"
+        #         ],
+        #         "current-modes": "allowed: 3g, 4g; preferred: 4g",
+        #         "device": "/sys/devices/pci0000:00/0000:00:15.0/usb1/1-3",
+        #         "device-identifier": "1cb7aed10665c820d13fa8459b4797c957d76059",
+        #         "drivers": [
+        #             "cdc_mbim",
+        #             "option"
+        #         ],
+        #         "equipment-identifier": "866680040112569",
+        #         "hardware-revision": "EM06-E",
+        #         "manufacturer": "Quectel",
+        #         "model": "EM06-E",
+        #         "own-numbers": [],
+        #         "plugin": "generic",
+        #         "ports": [
+        #             "cdc-wdm0 (mbim)",
+        #             "ttyUSB0 (qcdm)",
+        #             "ttyUSB1 (gps)",
+        #             "ttyUSB2 (at)",
+        #             "ttyUSB3 (at)",
+        #             "wwan0 (net)"
+        #         ],
+        #         "power-state": "on",
+        #         "primary-port": "cdc-wdm0",
+        #         "primary-sim-slot": "--",
+        #         "revision": "EM06ELAR03A08M4G",
+        #         "signal-quality": {
+        #             "recent": "no",
+        #             "value": "0"
+        #         },
+        #         "sim": "/org/freedesktop/ModemManager1/SIM/0",
+        #         "sim-slots": [],
+        #         "state": "disabled",
+        #         "state-failed-reason": "--",
+        #         "supported-bands": [
+        #             "utran-1",
+        #             "utran-3",
+        #             "utran-5",
+        #             "utran-8",
+        #             "eutran-1",
+        #             "eutran-3",
+        #             "eutran-5",
+        #             "eutran-7",
+        #             "eutran-8",
+        #             "eutran-20",
+        #             "eutran-28",
+        #             "eutran-32",
+        #             "eutran-38",
+        #             "eutran-40",
+        #             "eutran-41"
+        #         ],
+        #         "supported-capabilities": [
+        #             "gsm-umts, lte"
+        #         ],
+        #         "supported-ip-families": [
+        #             "ipv4",
+        #             "ipv6",
+        #             "ipv4v6"
+        #         ],
+        #         "supported-modes": [
+        #             "allowed: 3g; preferred: none",
+        #             "allowed: 4g; preferred: none",
+        #             "allowed: 3g, 4g; preferred: 4g",
+        #             "allowed: 3g, 4g; preferred: 3g"
+        #         ],
+        #         "unlock-required": "--",
+        #         "unlock-retries": [
+        #             "sim-pin2 (5)"
+        #         ]
+        #         }
+        #     }
+        # }
         return modem_data.get('modem')
 
     def get_hardware_info(self):
@@ -724,6 +757,26 @@ class FwLteModem(FwObject):
         }
 
     def get_lte_info(self, data=None):
+        lte_info = {
+            'address'             : '',
+            'signals'             : {},
+            'connectivity'        : False,
+            'packet_service_state': {},
+            'hardware_info'       : {},
+            'system_info'         : {},
+            'sim_status'          : self.get_sim_card_status(),
+            'default_settings'    : {},
+            'phone_number'        : '',
+            'pin_state'           : {},
+            'connection_state'    : '',
+            'registration_network': {},
+            'state'               : self.state,
+            'mode'                : self.mode,
+        }
+
+        if self.mode == 'QMI' or self.is_resetting() or not self.sim_presented:
+            return lte_info
+
         data = self.get_modem_manager_data()
 
         # There is no need to check the tap name if the router is not entirely run.
@@ -739,21 +792,17 @@ class FwLteModem(FwObject):
         addr = fwutils.get_interface_address(interface_name)
         connectivity = os.system("ping -c 1 -W 1 -I %s 8.8.8.8 > /dev/null 2>&1" % interface_name) == 0
 
-        lte_info = {
-            'address'             : addr,
-            'signals'             : self.get_signal(),
-            'connectivity'        : connectivity,
-            'packet_service_state': fwlte_utils.mbimcli_get_packets_state(self.dev_id),
-            'hardware_info'       : self.get_hardware_info(),
-            'system_info'         : self.get_system_info(data),
-            'sim_status'          : self.get_sim_card_status(data),
-            'default_settings'    : self.get_default_settings(data),
-            'phone_number'        : self.get_phone_number(data),
-            'pin_state'           : self.get_pin_state(data),
-            'connection_state'    : fwlte_utils.mbimcli_query_connection_state(self.dev_id),
-            'registration_network': fwlte_utils.mbimcli_registration_state(self.dev_id),
-            'state'               : self.state
-        }
+        lte_info['address']              = addr
+        lte_info['signals']              = self.get_signal()
+        lte_info['connectivity']         = connectivity
+        lte_info['packet_service_state'] = fwlte_utils.mbimcli_get_packets_state(self.dev_id)
+        lte_info['hardware_info']        = self.get_hardware_info()
+        lte_info['system_info']          = self.get_system_info(data)
+        lte_info['default_settings']     = self.get_default_settings(data)
+        lte_info['phone_number']         = self.get_phone_number(data)
+        lte_info['pin_state']            = self.get_pin_state(data)
+        lte_info['connection_state']     = self.get_connection_state()
+        lte_info['registration_network'] = fwlte_utils.mbimcli_registration_state(self.dev_id)
         return lte_info
 
     def set_arp_entry(self, is_add, gw=None):
@@ -926,7 +975,7 @@ class FwLteModem(FwObject):
                 fwglobals.log.error(f"add_del_traffic_control({self.dev_id}, {lte_if_name}): {str(e)}")
                 handler.revert(e)
 
-class FwLTE():
+class FwLte():
     def __init__(self):
         self.modems = {}
         self.initialized = False
@@ -989,6 +1038,6 @@ def disconnect_all():
         for modem in fwglobals.g.lte.modems:
             modem.disconnect()
     else:
-        with FwLTE() as fwlte:
+        with FwLte() as fwlte:
             for modem in fwlte.modems:
                 modem.disconnect()

@@ -252,13 +252,6 @@ def set_pin_protection(dev_id, pin, is_enable):
         return fwglobals.g.lte.get(dev_id).enable_pin(pin)
     return fwglobals.g.lte.get(dev_id).disable_pin(pin)
 
-def mbimcli_query_connection_state(dev_id):
-    lines, _ = _run_mbimcli_command(dev_id, '--query-connection-state')
-    for line in lines:
-        if 'Activation state' in line:
-            return line.split(':')[-1].strip().replace("'", '')
-    return ''
-
 def mbimcli_registration_state(dev_id):
     res = {
         'register_state': '',
@@ -460,7 +453,7 @@ def get_stats():
     dev_ids = get_dev_ids()
     for dev_id in dev_ids:
         modem = fwglobals.g.lte.get(dev_id)
-        if modem.is_state_in_process():
+        if modem.is_connecting_or_resetting():
             continue
 
         try:

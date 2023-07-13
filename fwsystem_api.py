@@ -124,18 +124,19 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
             modem = fwglobals.g.lte.get(dev_id)
 
-            if modem.is_state_in_process():
+            if modem.is_connecting_or_resetting():
                 continue
 
-            name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True, print_log=False)
-            if not name:
-                name = modem.nicname
+            # "ifc_name" can be "wwan0" if vpp does not run, or "vppX" if vpp does run
+            ifc_name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True, print_log=False)
+            if not ifc_name:
+                ifc_name = modem.nicname # -> "wwan0"
 
             # Ensure that lte connection is opened.
             # Sometimes, the connection between modem and provider becomes disconnected
             #
             if check_lte_disconnection:
-                cmd = "fping 8.8.8.8 -C 1 -q -R -I %s > /dev/null 2>&1" % name
+                cmd = "fping 8.8.8.8 -C 1 -q -R -I %s > /dev/null 2>&1" % ifc_name
                 ok = not subprocess.call(cmd, shell=True)
                 if not ok:
                     connected = modem.is_connected()
@@ -151,12 +152,12 @@ class FWSYSTEM_API(FwCfgRequestHandler):
 
                         if fwglobals.g.router_api.state_is_started():
                             # if GW exists, ensure ARP entry exists in Linux
-                            gw, _ = fwutils.get_interface_gateway(name)
+                            gw, _ = fwutils.get_interface_gateway(ifc_name)
                             if gw:
                                 arp_entries = fwutils.get_gateway_arp_entries(gw)
                                 valid_arp_entries = list(filter(lambda entry: 'PERMANENT' in entry, arp_entries))
                                 if not valid_arp_entries:
-                                    self.log.debug(f'no valid ARP entry found. gw={gw}, name={name}, dev_id={dev_id}, \
+                                    self.log.debug(f'no valid ARP entry found. gw={gw}, name={ifc_name}, dev_id={dev_id}, \
                                         arp_entries={str(arp_entries)}. adding now')
                                     fwglobals.g.lte.get(dev_id).set_arp_entry(is_add=True, gw=gw)
 
@@ -170,7 +171,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
             if ticks % 30 == 0:
                 modem_addr, new_gw, _ = modem.get_ip_configuration(cache=False)
                 if modem_addr:
-                    iface_addr = fwutils.get_interface_address(name, log=False)
+                    iface_addr = fwutils.get_interface_address(ifc_name, log=False)
 
                     if iface_addr != modem_addr:
                         self.log.debug("%s: LTE IP change detected: %s -> %s" % (dev_id, iface_addr, modem_addr))
@@ -179,7 +180,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                         # Our IP monitoring thread should detect the change in Linux IPs
                         # and continue with applying rest configuration related to IP changes
                         if fwglobals.g.router_api.state_is_started():
-                            mtu = fwutils.get_linux_interface_mtu(name)
+                            mtu = fwutils.get_linux_interface_mtu(ifc_name)
 
                             fwnetplan.add_remove_netplan_interface(\
                                 is_add=True,

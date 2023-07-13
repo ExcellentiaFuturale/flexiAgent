@@ -53,6 +53,7 @@ from fwlog import FwObjectLogger
 from fwlog import FwSyslog
 from fwlog import FWLOG_LEVEL_INFO
 from fwlog import FWLOG_LEVEL_DEBUG
+from fwlte import FwLte
 from fwpolicies import FwPolicies
 from fwrouter_cfg import FwRouterCfg
 from fwroutes import FwRoutes
@@ -61,7 +62,6 @@ from fwsystem_cfg import FwSystemCfg
 from fwjobs import FwJobs
 from fwstun_wrapper import FwStunWrap
 from fwpppoe import FwPppoeClient
-from fwlte import FwLTE
 from fwthread import FwRouterThreading
 from fwwan_monitor import FwWanMonitor
 from fwikev2 import FwIKEv2
@@ -465,7 +465,7 @@ class Fwglobals(FwObject):
         self.stun_wrapper     = FwStunWrap()
         self.ikev2            = FwIKEv2()
         self.pppoe            = FwPppoeClient()
-        self.lte              = FwLTE()
+        self.lte              = FwLte()
         self.routes           = FwRoutes()
         self.qos              = FwQoS()
         self.statistics       = FwStatistics()
