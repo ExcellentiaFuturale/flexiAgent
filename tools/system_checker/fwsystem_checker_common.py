@@ -938,6 +938,7 @@ class Checker:
                 try:
                     self.log.debug('Please wait patiently. The process can take time (up to a minute)')
                     self.modems.get(inf['dev_id']).set_mbim_mode(self.log)
+                    self.modems.scan()
                 except:
                     return False
         return True

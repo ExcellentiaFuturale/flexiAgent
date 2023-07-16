@@ -109,7 +109,7 @@ class FwMobileModem(FwObject):
 
     def _get_state(self, data=None):
         if not data:
-            data = self._mmcli_get()
+            data = self._get_modem_manager_data()
         state = data.get('generic', {}).get('state')
         reason = data.get('generic', {}).get('state-failed-reason')
         return state, reason
@@ -200,6 +200,8 @@ class FwMobileModem(FwObject):
             raise Exception(err_str)
 
     def _run_mbimcli_command(self, cmd, print_error=False):
+        if self.mode != 'MBIM':
+            raise Exception("Cannot run mbimcli command as the modem is not in MBIM mode")
         try:
             mbimcli_cmd = f'mbimcli --device=/dev/{self.usb_device} --device-open-proxy {cmd}'
             if '--attach-packet-service' in mbimcli_cmd:
@@ -609,7 +611,7 @@ class FwMobileModem(FwObject):
 
     def _get_operator_name(self, data=None):
         if not data:
-            data = self._mmcli_get()
+            data = self._get_modem_manager_data()
         return data.get('3gpp', {}).get('operator-name')
 
     def set_mbim_mode(self, log=None):
@@ -696,7 +698,7 @@ class FwMobileModem(FwObject):
 
     def _get_phone_number(self, data=None):
         if not data:
-            data = self._mmcli_get()
+            data = self._get_modem_manager_data()
         own_numbers = data.get('generic', {}).get('own-numbers', [])
         return ', '.join(own_numbers)
 
@@ -709,7 +711,7 @@ class FwMobileModem(FwObject):
         }
 
         if not data:
-            data = self._mmcli_get()
+            data = self._get_modem_manager_data()
         bearer_path = data.get('3gpp', {}).get('eps', {}).get('initial-bearer', {}).get('dbus-path', '--')
         if bearer_path == '--': # modem manager sets "--" as default if not exists
             return default_settings
@@ -945,7 +947,7 @@ class FwModem(FwMobileModem):
         if self.mode == 'QMI' or self.is_resetting() or not self.sim_presented:
             return lte_info
 
-        data = self._mmcli_get()
+        data = self._get_modem_manager_data()
 
         # There is no need to check the tap name if the router is not entirely run.
         # When the router is in the start process, and the LTE is not yet fully configured,
@@ -1270,6 +1272,7 @@ class FwModemManager():
         return
 
     def scan(self):
+        self.modems = {}
         dev_ids = get_dev_ids(allow_qmi=True)
         for dev_id in dev_ids:
             modem = FwModem(dev_id)
@@ -1306,7 +1309,7 @@ class FwModemManager():
 
             try:
                 info = self.modems[modem].get_lte_info()
-                out[dev_id] = info
+                out[modem] = info
             except:
                 pass
 
@@ -1324,7 +1327,7 @@ def disconnect_all():
     else:
         with FwModemManager() as fw_modem_manager:
             for modem in fw_modem_manager.modems:
-                modem.disconnect()
+                fw_modem_manager.modems[modem].disconnect()
 
 def reload_lte_drivers_if_needed():
     if fwutils.is_need_to_reload_lte_drivers():
