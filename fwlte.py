@@ -427,7 +427,11 @@ def reset_modem(dev_id):
 
         if recreate_tc_filters:
             fwglobals.log.debug('reset_modem: removing TC configuration')
-            add_del_traffic_control(is_add=False, dev_id=dev_id, lte_if_name=lte_if_name)
+            try:
+                add_del_traffic_control(is_add=False, dev_id=dev_id, lte_if_name=lte_if_name)
+            except Exception as e:
+                # Forgive a failure in TC removal here, as it will prevent code to from resetting the modem.
+                fwglobals.log.error('reset_modem: failed to remove traffic control. Continue to reset...')
 
 
         _run_qmicli_command(dev_id,'dms-set-operating-mode=offline')

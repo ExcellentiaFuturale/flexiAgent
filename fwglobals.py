@@ -31,16 +31,17 @@ import signal
 import traceback
 import yaml
 from fwqos import FwQoS
-import fw_os_utils
 import fwutils
 import fwfirewall
 import threading
+import fw_os_utils
 import fw_vpp_coredump_utils
 import fwlte
 
 from sqlitedict import SqliteDict
 
 from fwagent import FwAgent
+from fwmessage_handler import FwMessageHandler
 from fwobject import FwObject
 from fwrouter_api import FWROUTER_API
 from fwsystem_api import FWSYSTEM_API
@@ -95,21 +96,21 @@ request_handlers = {
     # Agent API
     'get-device-info':                   {'name': '_call_agent_api'},
     'get-device-stats':                  {'name': '_call_agent_api'},
-    'get-device-logs':                   {'name': '_call_agent_api'},
+    'get-device-logs':                   {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
     'get-device-packet-traces':          {'name': '_call_agent_api'},
-    'get-device-os-routes':              {'name': '_call_agent_api'},
-    'get-device-config':                 {'name': '_call_agent_api'},
+    'get-device-os-routes':              {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
+    'get-device-config':                 {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
     'upgrade-device-sw':                 {'name': '_call_agent_api'},
     'upgrade-linux-sw':                  {'name': '_call_agent_api'},
     'reset-device':                      {'name': '_call_agent_api'},
     'sync-device':                       {'name': '_call_agent_api'},
-    'get-wifi-info':                     {'name': '_call_agent_api'},
-    'get-lte-info':                      {'name': '_call_agent_api'},
+    'get-wifi-info':                     {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
+    'get-lte-info':                      {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
     'reset-lte':                         {'name': '_call_agent_api'},
     'modify-lte-pin':                    {'name': '_call_agent_api'},
     'get-device-certificate':            {'name': '_call_agent_api'},
     'set-cpu-info':                      {'name': '_call_agent_api'},
-    'get-bgp-status':                    {'name': '_call_agent_api'},
+    'get-bgp-status':                    {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
 
     # Aggregated API
     'aggregated':                   {'name': '_call_aggregated', 'sign': True},
@@ -163,9 +164,7 @@ request_handlers = {
     'remove-app-config':           {'name': '_call_applications_api', 'sign': True},
 
     # OS API
-    'cpuutil':                      {'name': '_call_os_api'},
-    'exec':                         {'name': '_call_os_api'},
-    'exec_timeout':                 {'name': '_call_os_api'},
+    'exec_timeout':                 {'name': '_call_os_api', 'processing': {'synchronous': True, 'exclusive': False}},
 }
 
 global g_initialized
@@ -470,6 +469,8 @@ class Fwglobals(FwObject):
         self.qos              = FwQoS()
         self.statistics       = FwStatistics()
         self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
+        self.message_handler  = FwMessageHandler()
+
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 
@@ -497,6 +498,7 @@ class Fwglobals(FwObject):
         if self.fwagent_initialized:
             self.finalize_agent()
 
+        del self.message_handler
         del self.routes
         del self.pppoe; self.pppoe = None
         del self.statistics; self.statistics = None
@@ -538,6 +540,7 @@ class Fwglobals(FwObject):
         self.routes.initialize()
         self.applications_api.initialize()
         self.statistics.initialize()
+        self.message_handler.initialize()
 
         self.log.debug('initialize_agent: completed')
         self.fwagent_initialized = True
@@ -547,6 +550,7 @@ class Fwglobals(FwObject):
         self.fwagent_initialized = False
         self.router_threads.teardown = True   # Stop all threads in parallel to speedup gracefull exit
         try:
+            self.message_handler.finalize()
             self.qos.finalize()
             self.routes.finalize()
             self.pppoe.finalize()
@@ -559,7 +563,7 @@ class Fwglobals(FwObject):
             self.fwagent.finalize()
             self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
         except Exception as e:
-            self.log.error(f"finalize_agent: {str(e)}")
+            self.log.excep(f"finalize_agent: {str(e)}: {traceback.format_exc()}")
         self.log.debug('finalize_agent: completed')
 
     def __str__(self):
@@ -593,52 +597,57 @@ class Fwglobals(FwObject):
     def _call_applications_api(self, request):
         return self.applications_api.call(request)
 
-    def handle_request(self, request, received_msg=None):
+    def handle_request(self, request, original_request=None, lock_system=True):
         """Handle request received from flexiManage or injected locally.
 
-        :param request:      The request received from flexiManage after
-                             transformation by fwutils.fix_received_message().
-        :param received_msg: The original message received from flexiManage.
+        :param request:          The request received from flexiManage after
+                                 transformation by fwutils.fix_received_message().
+        :param original_request: The original request received from flexiManage.
 
         :returns: Dictionary with error string and status code.
         """
-        with self.handle_request_lock:
-            try:
-                req    = request['message']
-                params = request.get('params')
+        try:
+            if lock_system:
+                self.handle_request_lock.acquire()
 
-                handler      = request_handlers.get(req)
-                handler_func = getattr(self, handler.get('name'))
+            req    = request['message']
+            params = request.get('params')
 
-                reply = handler_func(request)
-                if reply['ok'] == 0:
-                    vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
-                    os.system('sudo vppctl api trace save %s' % (vpp_trace_file))
-                    raise Exception(reply['message'])
+            handler      = request_handlers.get(req)
+            handler_func = getattr(self, handler.get('name'))
 
-                # On router configuration request, e.g. add-interface,
-                # remove-tunnel, etc. update the configuration database
-                # signature. This is needed to assists the database synchronization
-                # feature that keeps the configuration set by user on the flexiManage
-                # in sync with the one stored on the flexiEdge device.
-                # Note we update signature on configuration requests received from flexiManage only,
-                # but retrieve it into replies for all requests. This is to simplify
-                # flexiManage code.
-                #
-                if reply['ok'] == 1 and handler.get('sign') and received_msg:
-                    fwutils.update_device_config_signature(received_msg)
-                reply['router-cfg-hash'] = fwutils.get_device_config_signature()
+            reply = handler_func(request)
+            if reply['ok'] == 0:
+                vpp_trace_file = fwutils.build_timestamped_filename('',self.VPP_TRACE_FILE_EXT)
+                os.system('sudo vppctl api trace save %s' % (vpp_trace_file))
+                raise Exception(reply['message'])
 
-                return reply
+            # On router configuration request, e.g. add-interface,
+            # remove-tunnel, etc. update the configuration database
+            # signature. This is needed to assists the database synchronization
+            # feature that keeps the configuration set by user on the flexiManage
+            # in sync with the one stored on the flexiEdge device.
+            # Note we update signature on configuration requests received from flexiManage only,
+            # but retrieve it into replies for all requests. This is to simplify
+            # flexiManage code.
+            #
+            if reply['ok'] == 1 and handler.get('sign') and original_request:
+                fwutils.update_device_config_signature(original_request)
+            reply['router-cfg-hash'] = fwutils.get_device_config_signature()
 
-            except Exception as e:
-                global log
-                err_str = "%s(%s): %s" % (req, format(params), str(e))
-                if isinstance(e, fw_os_utils.CalledProcessSigTerm):
-                    log.debug(err_str)
-                else:
-                    log.error(err_str + ': %s' % str(traceback.format_exc()))
-                return {'message': str(e), 'ok': 0}
+        except Exception as e:
+            global log
+            err_str = "%s(%s): %s" % (req, format(params), str(e))
+            if isinstance(e, fw_os_utils.CalledProcessSigTerm):
+                log.debug(err_str)
+            else:
+                log.error(err_str + ': %s' % str(traceback.format_exc()))
+            reply = {'message': str(e), 'ok': 0}
+
+        finally:
+            if lock_system:
+                self.handle_request_lock.release()
+            return reply
 
     def _get_api_object_attr(self, api_type, attr):
         if api_type == '_call_router_api':

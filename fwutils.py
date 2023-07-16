@@ -297,9 +297,10 @@ def get_tunnel_gateway(dst, dev_id):
         except Exception as e:
             fwglobals.log.error("get_tunnel_gateway: failed to check networks: dst=%s, dev_id=%s, network=%s, error=%s" % (dst, dev_id, network, str(e)))
 
-    # If src, dst are not on same subnet or any error, use the gateway defined on the device
-    gw_ip, _ = get_interface_gateway('', if_dev_id=dev_id)
-    return ipaddress.ip_address(gw_ip) if gw_ip else ipaddress.ip_address('0.0.0.0')
+        if interface['gateway']:
+            return ipaddress.ip_address(interface['gateway'])
+
+    return ipaddress.ip_address('0.0.0.0')
 
 def is_interface_assigned_to_vpp(dev_id):
     """ Check if dev_id is assigned to vpp.
@@ -539,8 +540,14 @@ def get_interface_is_dhcp(if_name):
     if is_dhcp_in_netplan == 'yes':
         return is_dhcp_in_netplan
 
-    dhclient_running_for_if_name = os.popen(f'ps -aux | grep "dhclient {if_name}" | grep -v grep').read()
-    if dhclient_running_for_if_name:
+    # FETCH 'dynamic' OUT OF 'ip address' output:
+    # 4: enp0s9: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000
+    #     link/ether 08:00:27:14:c9:8d brd ff:ff:ff:ff:ff:ff
+    #     inet 192.168.1.41/24 brd 192.168.1.255 scope global dynamic enp0s9
+    #        valid_lft 2396sec preferred_lft 2396sec
+    #
+    ret = os.system(f'ip address | grep -iE "inet .* dynamic {if_name}" > /dev/null 2>&1')
+    if ret == 0:
         return 'yes'
 
     if fwglobals.g.is_gcp_vm:
@@ -701,6 +708,20 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
         if if_dev_id:
             return copy.deepcopy(interfaces.get(if_dev_id))
         return copy.deepcopy(interfaces)
+
+def update_linux_interfaces(dev_id, gw):
+    """updates specific interface in cache of interfaces without full cache rebuild.
+
+    :param dev_id: ID of interface to be updated.
+    :param gw: the GW addresses to be set into cache
+
+    :return: None.
+    """
+    with fwglobals.g.cache.lock:
+        interface = fwglobals.g.cache.linux_interfaces.get(dev_id)
+        if interface:
+            interface.update({'gateway': gw})
+            fwglobals.log.debug(f"update_linux_interfaces({dev_id}): gw={gw}")
 
 def get_interface_dev_id(if_name):
     """Convert  interface name into bus address.
@@ -2246,6 +2267,11 @@ def is_interface_without_dev_id(if_name):
     if if_name.startswith('br_'):
         return True
 
+    # currently we use the t_ prefix for the remote vpn only.
+    # this interface doesn't have dev_id
+    if if_name.startswith('t_'):
+        return True
+
     return False
 
 def get_lte_interfaces_names():
@@ -2281,10 +2307,10 @@ def traffic_control_add_del_mirror_policy(is_add, from_ifc, to_ifc, set_dst_mac=
         raise e
 
 def reset_traffic_control():
-    fwglobals.log.debug('clean Linux traffic control settings')
     lte_interface_names = get_lte_interfaces_names()
     for dev_name in lte_interface_names:
         try:
+            fwglobals.log.debug(f'clean Linux traffic control settings for {dev_name}')
             subprocess.check_call(f'sudo tc -force qdisc del dev {dev_name} ingress handle ffff: 2>/dev/null', shell=True)
         except:
             pass
@@ -2628,6 +2654,17 @@ def tunnel_change_postprocess(remove, vpp_if_name):
 # 'gw' fields if 'dhcp' is 'yes'. Than if the fixed message includes no other
 # modified parameters, it will be ignored by the agent.
 #
+# 3. July-2023 - the 'modify-interface' might change type of interface from
+# WAN to LAN (or via versa). As there are many features that depend on type
+# of interface that should be reconfigured, e.g. multi-link policies, NAT, etc.,
+# it was decided to implement a replacement of 'modify-' request with pair
+# of 'remove-' & 'add-interface' requests to avoid complexity and potential bugs.
+# Note, the built-in replacement of 'modify-X' requests with 'remove-' & 'add-'
+# pair is not good enough, as it implements partial modification: it adds
+# parameters from the existing configuration database to the simulated 'add-'.
+# In future we may redesign the 'modify-X' requests to allow smarter operation,
+# so flexiManage could provide exact instructions how to handle them.
+#
 def fix_received_message(msg):
 
     def _fix_aggregation_format(msg):
@@ -2754,6 +2791,35 @@ def fix_received_message(msg):
 
         return msg
 
+    def _fix_interface_type(msg):
+
+        def _is_type_modified(_request):
+            if _request['message'] == 'modify-interface':
+                new_type = _request['params'].get('type',"").lower()
+                if not new_type:
+                    return False
+                old_type = fwglobals.g.router_cfg.get_interfaces(dev_id=_request['params']['dev_id'])[0]['type'].lower()
+                if (new_type != old_type):
+                    return True
+            return False
+
+        if msg['message'] == 'modify-interface':
+            if _is_type_modified(msg):
+                msg = {
+                        'message': 'aggregated',
+                        'params' : { 'requests': [ msg ] }
+                }
+                # fall through into the next 'if', it will replace the found 'modify-interface'
+        if msg['message'] == 'aggregated':
+            requests = msg['params']['requests']
+            for idx, request in reversed(list(enumerate(requests))):    # reversed() -> optimize a bit requests.insert() below
+                if _is_type_modified(request):
+                    requests[idx]['message'] = 'add-interface'          # 'modify-interface' -> 'add-interface'
+                    remove_interface = {'message': 'remove-interface', 'params': {'dev_id': request['params']['dev_id']}}
+                    requests.insert(idx, remove_interface)
+            return msg
+        return msg
+
     try:
         # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         # Order of functions is important, as the first one (_fix_aggregation_format())
@@ -2763,6 +2829,7 @@ def fix_received_message(msg):
         msg = _fix_aggregation_format(msg)
         msg = _fix_dhcp(msg)
         msg = _fix_application(msg)
+        msg = _fix_interface_type(msg)  # 3. July-2023
         return msg
     except Exception as e:
         fwglobals.log.error(f"fix_received_message failed: {str(e)} {traceback.format_exc()}")
@@ -3325,6 +3392,17 @@ def check_root_access():
 def disable_ipv6():
     """ disable default and all ipv6
     """
+    # Firstly check if the setting is already set to avoid unneeded calls and log prints
+    try:
+        out = subprocess.check_output(['sysctl', 'net.ipv6.conf.all.disable_ipv6']).decode().strip()
+        val = int(out.split('=')[1])
+        if val == 1:
+            return # already disabled
+    except subprocess.CalledProcessError as e:
+        fwglobals.log.error(f"Fetch disable IPv6 all command failed : {e.returncode}")
+    except:
+        pass
+
     sys_cmd = 'sysctl -w net.ipv6.conf.all.disable_ipv6=1 > /dev/null'
     rc = os.system(sys_cmd)
     if rc:

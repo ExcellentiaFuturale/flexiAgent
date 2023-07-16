@@ -57,6 +57,9 @@ TRAFFIC_IMPORTANCE_VALUES = {
     'high'                      : 2
 }
 
+# Unique ID to represent the list of application ACLs in classifier plugin
+APP_CLASSIFICATION_ACLS_LIST_ID = 0
+
 class FwTrafficIdentifications(FwObject):
 
     """ Encapsulates functions associated with storing/removing/searching traffic identifiers.

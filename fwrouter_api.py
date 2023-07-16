@@ -282,6 +282,11 @@ class FWROUTER_API(FwCfgRequestHandler):
 
             if old['gw'] != new['gw']:
                 if new['type'] == 'wan':
+
+                    # Update interface cache with new GW
+                    #
+                    fwutils.update_linux_interfaces(dev_id, new['gw'])
+
                     # Update FWABF link with new GW, it is used for multilink policies
                     #
                     link = self.multilink.get_link(dev_id)
@@ -1160,7 +1165,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         reinstall = False
         for _request in requests:
             req_name = _request['message']
-            if re.match('(add|remove)-(interface|switch|application)', req_name):
+            if re.match('(add|remove)-(switch|application)', req_name):
                 reinstall = True
             elif req_name == 'add-multilink-policy':
                 policies['multilink']['add_policy_found'] = True
@@ -1455,13 +1460,17 @@ class FWROUTER_API(FwCfgRequestHandler):
                         revert_params={ 'is_add': (not add), 'sw_if_index': sw_if_index },
                     )
 
-                # apply qos classification
-                handler.exec(
-                    func=fwqos.update_interface_qos_classification,
-                    params={ 'vpp_if_name': vpp_if_name, 'add': add },
-                    revert_func=fwqos.update_interface_qos_classification if add else None, # no need revert of revert
-                    revert_params={ 'vpp_if_name': vpp_if_name, 'add': (not add) } if add else None, # no need revert of revert
-                )
+                # apply qos classification on application interfaces
+                if dev_id.startswith('app_'):
+                    # Needed only for application interfaces as it is Not added via add-interface message
+                    hqos_enabled, _ = fwglobals.g.qos.get_hqos_worker_state()
+                    if hqos_enabled:
+                        handler.exec(
+                            func=fwqos.update_interface_qos_classification,
+                            params={ 'vpp_if_name': vpp_if_name, 'add': add },
+                            revert_func=fwqos.update_interface_qos_classification if add else None, # no need revert of revert
+                            revert_params={ 'vpp_if_name': vpp_if_name, 'add': (not add) } if add else None, # no need revert of revert
+                        )
 
                 # apply multilink
                 handler.exec(
@@ -1586,8 +1595,16 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-route',            # Routes should come after tunnels and after BGP, as they might use them!
             'add-dhcp-config'
         ]
+        last_msg = None
         messages = self.cfg_db.dump(types=types)
         for msg in messages:
+
+            # reconnect as soon as interfaces are initialized
+            #
+            if last_msg == 'add-interface' and msg['message'] != 'add-interface':
+                fwglobals.g.fwagent.reconnect()
+            last_msg = msg['message']
+
             reply = fwglobals.g.router_api._call_simple(msg)
             if reply.get('ok', 1) == 0:  # Break and return error on failure of any request
                 return reply

@@ -50,10 +50,8 @@ class FwWebSocketClient(FwObject):
         CLOSING       = 6
 
 
-    def __init__(self, on_message, on_open=None, on_close=None):
+    def __init__(self, on_open=None, on_close=None):
         """
-        :params on_message: the user callback which provides user with received
-                            message, when receiving is done by the run_loop_send_recv() method.
         :params on_open:    the user callback which notifies user of established connection.
         :params on_closed:  the user callback which notifies user of connection closure.
         """
@@ -61,7 +59,6 @@ class FwWebSocketClient(FwObject):
 
         self.ws           = None
         self.on_open      = on_open
-        self.on_message   = on_message
         self.on_close     = on_close
         self.ssl_context  = ssl.create_default_context()
         self.state        = self.FwWebSocketState.IDLE
@@ -186,32 +183,6 @@ class FwWebSocketClient(FwObject):
                     self.lock.acquire()
             self.state = self.FwWebSocketState.IDLE
 
-    def run_loop_send_recv(self, timeout=None):
-        """Runs infinite loop of recv/recv-n-send operations.
-        The loop exits in two cases:
-            - on timeout on waiting for incoming data to be read from connection
-            - on connection closure by remote peer (OPCODE_CLOSE is received).
-        In the first case the WebSocketTimeoutException exception is raised,
-        in the second - the function returns normally.
-
-        :params timeout: how much second to wait for the data to be received.
-                         If no data was received within 'timeout' seconds,
-                         raises the websocket.WebSocketTimeoutException exception.
-        """
-        while self.state == self.FwWebSocketState.CONNECTED:
-            received = self.recv(timeout)
-            if received:
-                to_send = None
-                try:
-                    to_send = self.on_message(received)
-                except Exception as e:
-                    self.log.error(f"run_loop_send_recv: exception in on_message() callback: {str(e)} ({traceback.format_exc()})")
-                    self.close()
-                    continue
-                if to_send:
-                    self.send(to_send)
-
-
     def recv(self, timeout=None):
         """Reads data from connection.
 
@@ -246,6 +217,9 @@ class FwWebSocketClient(FwObject):
             else:
                 raise Exception(f"not supported opcode {opcode}")
 
+        except websocket.WebSocketTimeoutException:
+            return None
+
         except Exception as e:
             self.log.error(f"recv: exception: {str(e)}")
             self.close()
@@ -261,3 +235,6 @@ class FwWebSocketClient(FwObject):
                 self.log.error(f"send: exception: {str(e)}")
                 self.close()     # close yourself gracefully on corrupted connection: report the closure to user
                 raise e
+
+    def is_connected(self):
+        return self.state == self.FwWebSocketState.CONNECTED

@@ -1889,6 +1889,7 @@ def get_interface_classification_setup_commands(dev_id, sw_if_index_key, cmd_lis
         'api' :  "classifier_acls_set_interface",
         'args': {
             'is_add': True,
+            'acl_list_id': fw_traffic_identification.APP_CLASSIFICATION_ACLS_LIST_ID,
         }
     }
     if sw_if_index_by_key:
@@ -1916,6 +1917,7 @@ def get_interface_classification_setup_commands(dev_id, sw_if_index_key, cmd_lis
         'api' : "classifier_acls_set_interface",
         'args': {
             'is_add': False,
+            'acl_list_id': fw_traffic_identification.APP_CLASSIFICATION_ACLS_LIST_ID,
         }
     }
     if sw_if_index_by_key:
@@ -2002,8 +2004,14 @@ def update_interface_qos_classification(vpp_if_name, add):
     :type add: Boolean
     """
     vpp_commands = []
-    params = vpp_if_name if add else vpp_if_name + ' del'
-    vpp_commands.append('classifier-acls set %s' % params)
+    params = ' %s acl-list-id %d ' %\
+        (vpp_if_name, fw_traffic_identification.APP_CLASSIFICATION_ACLS_LIST_ID)
+    if not add:
+      params += ' del'
+    vpp_commands.append('classifier-acls set-interface %s' % params)
+    params = ' %s ' % (vpp_if_name)
+    if not add:
+      params += ' del'
     vpp_commands.append('classifier-acls enable %s' % params)
     status, err = fwutils.vpp_cli_execute(vpp_commands)
     if not status:
