@@ -68,7 +68,7 @@ import fwwebsocket
 import loadsimulator
 import fwqos
 import fwlte
-import fwlte_utils
+import fwlte
 
 from fwapplications_api import FWAPPLICATIONS_API
 from fwfrr import FwFrr

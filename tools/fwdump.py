@@ -49,7 +49,7 @@ import fwglobals
 from fw_vpp_coredump_utils import vpp_coredump_copy_cores
 from fwobject import FwObject
 import fwapplications_api
-import fwlte_utils
+import fwlte
 import fw_os_utils
 
 g = fwglobals.Fwglobals()
@@ -337,14 +337,14 @@ class FwDump(FwObject):
 
     def add_lte_files(self):
         try:
-            dev_ids = fwlte_utils.get_dev_ids()
+            dev_ids = fwlte.get_dev_ids()
             for dev_id in dev_ids:
                 lte_if_name = dev_ids[dev_id]
                 file_name = f'lte_{lte_if_name}'
                 g_dumpers[file_name] = {
                     'python': {
-                        'func': 'fwlte_utils.dump',
-                        'args': { 'dev_id': dev_id, 'lte_if_name': lte_if_name, 'prefix_path': f'{self.temp_folder}/{file_name}' } }
+                        'func': 'fwlte.dump',
+                        'args': { 'lte_if_name': lte_if_name, 'prefix_path': f'{self.temp_folder}/{file_name}' } }
                 }
         except:
             pass # Do not crash in case of LTE code error

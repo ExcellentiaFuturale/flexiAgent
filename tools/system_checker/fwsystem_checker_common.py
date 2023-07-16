@@ -48,7 +48,7 @@ import fwnetplan
 import fwwifi
 from fw_vpp_coredump_utils import FW_VPP_COREDUMP_FOLDER, FW_VPP_COREDUMP_PERMISSIONS
 from fwexception import FwExceptionSkippedCheck
-from fwlte import FwLte
+from fwlte import FwModemManager
 from fwsystem_checker import TXT_COLOR
 
 from yaml.constructor import ConstructorError
@@ -85,10 +85,10 @@ class Checker:
         """Constructor method
         """
         fwglobals.initialize(quiet=True)
-        self.modems = fwglobals.g.lte if fwglobals.g.lte else FwLte()
-
         self.log = fwlog.FwLogFile(fwglobals.g.SYSTEM_CHECKER_LOG_FILE, level=fwlog.FWLOG_LEVEL_DEBUG)
         self.log.set_target(to_terminal=True)
+
+        self.modems = fwglobals.g.modem_manager if fwglobals.g.modem_manager else FwModemManager()
 
         self.CFG_VPP_CONF_FILE      = fwglobals.g.VPP_CONFIG_FILE
         self.CFG_FWAGENT_CONF_FILE  = fwglobals.g.FWAGENT_CONF_FILE
@@ -937,7 +937,7 @@ class Checker:
                     return False
                 try:
                     self.log.debug('Please wait patiently. The process can take time (up to a minute)')
-                    self.modems.get(inf['dev_id']).set_mbim_mode()
+                    self.modems.get(inf['dev_id']).set_mbim_mode(self.log)
                 except:
                     return False
         return True

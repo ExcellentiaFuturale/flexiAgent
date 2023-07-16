@@ -23,7 +23,7 @@
 import copy
 
 import fwglobals
-import fwlte_utils
+import fwlte
 import fwpppoe
 import fwutils
 import fwwifi
@@ -114,7 +114,7 @@ def add_interface(params):
         iface_addr = bridge_addr
 
     is_wifi = fwwifi.is_wifi_interface_by_dev_id(dev_id)
-    is_lte = fwlte_utils.is_lte_interface_by_dev_id(dev_id) if not is_wifi else False
+    is_lte = fwlte.is_lte_interface_by_dev_id(dev_id) if not is_wifi else False
     is_pppoe = fwpppoe.is_pppoe_interface(dev_id=dev_id)
     is_vlan = fwutils.is_vlan_interface(dev_id=dev_id)
     add_to_netplan = True
@@ -646,7 +646,7 @@ def add_interface(params):
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']    = "call"
-        cmd['cmd']['object']  = "fwglobals.g.lte"
+        cmd['cmd']['object']  = "fwglobals.g.modem_manager"
         cmd['cmd']['params'] = {
                                 'is_add': True,
                                 'dev_id': dev_id,
@@ -656,7 +656,7 @@ def add_interface(params):
         cmd['cmd']['descr'] = f"set arp entry for lte interface {dev_id}"
         cmd['revert'] = {}
         cmd['revert']['func']   = "call"
-        cmd['revert']['object'] = "fwglobals.g.lte"
+        cmd['revert']['object'] = "fwglobals.g.modem_manager"
         cmd['revert']['params'] = {
                                 'is_add': False,
                                 'func': 'set_arp_entry',
@@ -668,7 +668,7 @@ def add_interface(params):
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']    = "call"
-        cmd['cmd']['object']  = "fwglobals.g.lte"
+        cmd['cmd']['object']  = "fwglobals.g.modem_manager"
         cmd['cmd']['descr']   = "add traffic control configuration to LTE interface"
         cmd['cmd']['params']  = {
                     'is_add': 1,
@@ -677,7 +677,7 @@ def add_interface(params):
         }
         cmd['revert'] = {}
         cmd['revert']['func']   = "call"
-        cmd['revert']['object'] = "fwglobals.g.lte"
+        cmd['revert']['object'] = "fwglobals.g.modem_manager"
         cmd['revert']['descr']  = "remove traffic control configuration from LTE interface"
         cmd['revert']['params'] = {
                     'is_add': 0,

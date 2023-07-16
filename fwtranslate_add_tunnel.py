@@ -27,7 +27,7 @@ import socket
 from netaddr import *
 
 import fwglobals
-import fwlte_utils
+import fwlte
 import fwutils
 
 IPSEC_ANTI_REPLAY_WINDOW = 448
@@ -768,7 +768,7 @@ def _add_vxlan_tunnel(cmd_list, cache_key, dev_id, bridge_id, src, dst, params):
     dst_addr = ipaddress.ip_address(dst)
 
     # for lte interface, we need to get the current source IP, and not the one stored in DB. The IP may have changed due last 'add-interface' job.
-    if fwlte_utils.is_lte_interface_by_dev_id(dev_id):
+    if fwlte.is_lte_interface_by_dev_id(dev_id):
         tap_name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True)
         if tap_name:
             source = fwutils.get_interface_address(tap_name)

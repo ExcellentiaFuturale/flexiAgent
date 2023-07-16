@@ -30,7 +30,6 @@ import fwutils
 import fwnetplan
 import os
 from fwcfg_request_handler import FwCfgRequestHandler
-import fwlte_utils
 import fw_os_utils
 import fwwifi
 
@@ -122,7 +121,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
             dev_id = wan['params']['dev_id']
             metric = wan['params']['metric']
 
-            modem = fwglobals.g.lte.get(dev_id)
+            modem = fwglobals.g.modem_manager.get(dev_id)
 
             if modem.is_connecting_or_resetting():
                 continue
@@ -130,7 +129,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
             # "ifc_name" can be "wwan0" if vpp does not run, or "vppX" if vpp does run
             ifc_name = fwutils.dev_id_to_tap(dev_id, check_vpp_state=True, print_log=False)
             if not ifc_name:
-                ifc_name = modem.nicname # -> "wwan0"
+                ifc_name = modem.linux_if # -> "wwan0"
 
             # Ensure that lte connection is opened.
             # Sometimes, the connection between modem and provider becomes disconnected
@@ -148,7 +147,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                         fwglobals.g.system_api.restore_configuration(types=['add-lte'])
                     else:
                         # Make sure that LTE Linux interface is up
-                        os.system(f'ifconfig {modem.nicname} up')
+                        os.system(f'ifconfig {modem.linux_if} up')
 
                         if fwglobals.g.router_api.state_is_started():
                             # if GW exists, ensure ARP entry exists in Linux
@@ -159,7 +158,7 @@ class FWSYSTEM_API(FwCfgRequestHandler):
                                 if not valid_arp_entries:
                                     self.log.debug(f'no valid ARP entry found. gw={gw}, name={ifc_name}, dev_id={dev_id}, \
                                         arp_entries={str(arp_entries)}. adding now')
-                                    fwglobals.g.lte.get(dev_id).set_arp_entry(is_add=True, gw=gw)
+                                    fwglobals.g.modem_manager.get(dev_id).set_arp_entry(is_add=True, gw=gw)
 
                             # ensure traffic control settings are configured
                             modem.ensure_tc_config()

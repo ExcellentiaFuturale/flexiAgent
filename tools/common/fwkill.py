@@ -42,7 +42,6 @@ import fwglobals
 import fwutils
 import fwnetplan
 import fwlte
-import fwlte_utils
 import fwpppoe
 import fwwifi
 

@@ -37,7 +37,7 @@ import psutil
 
 import fw_os_utils
 import fwglobals
-import fwlte_utils
+import fwlte
 import fwthread
 import fwutils
 import fwwifi
@@ -173,7 +173,7 @@ class FwStatistics(FwObject):
                     self.stats['running'] = True if fw_os_utils.vpp_does_run() else False
 
         if renew_lte_wifi_stats:
-            self.stats['lte_stats'] = fwlte_utils.get_stats()
+            self.stats['lte_stats'] = fwglobals.g.modem_manager.get_stats()
             self.stats['wifi_stats'] = fwwifi.get_stats()
         else:
             self.stats['lte_stats'] = prev_stats['lte_stats']

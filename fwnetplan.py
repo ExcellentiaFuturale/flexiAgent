@@ -29,7 +29,7 @@ import time
 import yaml
 
 import fwglobals
-import fwlte_utils
+import fwlte
 import fwutils
 import fwpppoe
 import fwroutes
@@ -417,7 +417,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         # But if the user has configured in the netplan file also the LTE with set-name option,
         # we need to make sure that in any action, of any kind, that set-name will apply to the physical interface.
         # Note the comments below in the appropriate places.
-        is_lte = fwlte_utils.is_lte_interface_by_dev_id(dev_id)
+        is_lte = fwlte.is_lte_interface_by_dev_id(dev_id)
 
         if is_add == True:
             '''

@@ -46,7 +46,7 @@ import base64
 
 from netaddr import IPNetwork, IPAddress
 
-import fwlte_utils
+import fwlte
 import fwwifi
 import fwqos
 import fwtranslate_add_switch
@@ -331,7 +331,7 @@ def get_all_interfaces():
         if not dev_id:
             continue
 
-        if fwlte_utils.is_lte_interface(nic_name):
+        if fwlte.is_lte_interface(nic_name):
             tap_name = dev_id_to_tap(dev_id, check_vpp_state=True)
             if tap_name:
                 nic_name = tap_name
@@ -607,7 +607,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
 
             is_pppoe = fwpppoe.is_pppoe_interface(if_name=if_name)
             is_wifi = fwwifi.is_wifi_interface(if_name)
-            is_lte = fwlte_utils.is_lte_interface(if_name)
+            is_lte = fwlte.is_lte_interface(if_name)
             is_vlan = is_vlan_interface(dev_id=dev_id)
 
             if is_lte:
@@ -655,7 +655,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                         interface[addr_af_name + 'Mask'] = (str(IPAddress(addr.netmask).netmask_bits()))
 
             if is_lte:
-                modem = fwglobals.g.lte.get(dev_id)
+                modem = fwglobals.g.modem_manager.get(dev_id)
                 interface['dhcp'] = 'yes'
                 interface['deviceParams'] = {
                     'initial_pin1_state': modem.get_pin_state(),
@@ -998,7 +998,7 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
             lte_vpp_if_name = data.split(' ', 1)[0]
             if 'dpdk-tap' in lte_vpp_if_name: #VPP LTE tap name starts with dpdk-tap
                 if lte_dev_id_dict is None:
-                    lte_dev_id_dict = fwlte_utils.get_dev_ids()
+                    lte_dev_id_dict = fwlte.get_dev_ids()
                 for _, linux_dev_name in lte_dev_id_dict.items():
                     # For LTE tap interfaces, data would have device args as 'iface=tap_wwan0'
                     lte_dev_args = 'iface=' + generate_linux_interface_short_name("tap", linux_dev_name)
@@ -2275,7 +2275,7 @@ def get_lte_interfaces_names():
 
     for nic_name, _ in list(interfaces.items()):
         dev_id = get_interface_dev_id(nic_name)
-        if dev_id and fwlte_utils.is_lte_interface(nic_name):
+        if dev_id and fwlte.is_lte_interface(nic_name):
             names.append(nic_name)
 
     return names
@@ -3024,7 +3024,7 @@ def is_non_dpdk_interface(dev_id):
 
     if fwwifi.is_wifi_interface_by_dev_id(dev_id):
         return True
-    if fwlte_utils.is_lte_interface_by_dev_id(dev_id):
+    if fwlte.is_lte_interface_by_dev_id(dev_id):
         return True
     if fwutils.is_vlan_interface(dev_id=dev_id):
         return True

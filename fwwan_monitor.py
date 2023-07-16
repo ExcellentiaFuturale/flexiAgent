@@ -29,7 +29,7 @@ import time
 import traceback
 
 import fwglobals
-import fwlte_utils
+import fwlte
 import fwnetplan
 import fwpppoe
 import fwroutes
@@ -106,7 +106,7 @@ class FwWanMonitor(FwObject):
         if server:
             routes = self._get_routes()
             for r in routes:
-                modem = fwglobals.g.lte.get_safe(r.dev_id)
+                modem = fwglobals.g.modem_manager.get_safe(r.dev_id)
                 if modem and modem.is_resetting():
                     continue
                 self._check_connectivity(r, server)
