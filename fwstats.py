@@ -66,25 +66,18 @@ class EventMonitor:
     def add_value(self, event_type, value, event_unit, warning_threshold=None, critical_threshold=None, tunnel_id=None):
         if event_type not in event_counts:
             event_counts[event_type] = {tunnel_id: [MARKED_AS_SUCCESS] * (SAMPLES_ARRAY_SIZE-1)} if tunnel_id else [MARKED_AS_SUCCESS] * (SAMPLES_ARRAY_SIZE-1)
-        elif tunnel_id and event_type in event_counts:
-            if tunnel_id not in event_counts[event_type]:
-                event_counts[event_type][tunnel_id] = [MARKED_AS_SUCCESS] * (SAMPLES_ARRAY_SIZE-1)
-            else:
-                event_counts[event_type][tunnel_id].pop(0)
-
+        elif tunnel_id:
+            event_counts[event_type].setdefault(tunnel_id, [MARKED_AS_SUCCESS] * SAMPLES_ARRAY_SIZE).pop(0)
         # there is no tunnel_id but the event_type is present in the event_counts
-        elif event_type in event_counts:
+        else:
             event_counts[event_type].pop(0)
 
+        event_status = MARKED_AS_SUCCESS
         if critical_threshold and value >= critical_threshold:
-            event_counts[event_type][tunnel_id].append(MARKED_AS_CRITICAL) if tunnel_id else event_counts[event_type].append(MARKED_AS_CRITICAL)
-        
+            event_status = MARKED_AS_CRITICAL      
         elif warning_threshold and value >= warning_threshold:
-            event_counts[event_type][tunnel_id].append(MARKED_AS_WARNING) if tunnel_id else event_counts[event_type].append(MARKED_AS_WARNING)
-
-        else:
-            event_counts[event_type][tunnel_id].append(MARKED_AS_SUCCESS) if tunnel_id else event_counts[event_type].append(MARKED_AS_SUCCESS)
-
+            event_status = MARKED_AS_WARNING
+        event_counts[event_type][tunnel_id].append(event_status) if tunnel_id else event_counts[event_type].append(event_status)
         # Update alerts if necessary
         self.update_alerts(event_type, value, warning_threshold, critical_threshold, event_unit, tunnel_id)
 
@@ -121,7 +114,8 @@ class EventMonitor:
             alert_object = self.create_or_get_alert_object(event_type, tunnel_id)
             self.update_alert(alert_object, value, warning_threshold, 'warning', event_unit)
 
-        elif event_type in alerts:
+        # an alert removal operation can be done only if the current sample is success/warning
+        if event_type in alerts and not self.is_critical:
             event_samples = event_counts[event_type] if not tunnel_id else event_counts[event_type][tunnel_id]
             last_severity = self.get_last_severity(event_type, tunnel_id)
             success_count = event_samples.count(MARKED_AS_SUCCESS)
