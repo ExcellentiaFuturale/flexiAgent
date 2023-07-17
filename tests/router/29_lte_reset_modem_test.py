@@ -78,9 +78,15 @@ def test():
         (ok, _) = agent.cli('-f %s' % cli_reset_modem_file)
         assert ok
 
-        time.sleep(30) # usually after reset, LTE IP is changed. Give some time to agent to detect changes
+        time.sleep(60) # usually after reset, LTE IP is changed. Give some time to agent to detect changes
 
         assert _check_connectivity(router_is_running=True), 'LTE has no connectivity after reset when router is running'
+
+        # remove tc control command for wwan0 interface and ensure that watchdog fixed it
+        os.system('tc filter del dev tap_wwan0 root')
+        time.sleep(30) # usually after reset, LTE IP is changed. Give some time to agent to detect changes
+        assert _check_connectivity(router_is_running=True), 'LTE has no connectivity after TC removal'
+        # remove tc control command for tap_wwan0 interface and ensure that watchdog fixed it
 
 
 if __name__ == '__main__':

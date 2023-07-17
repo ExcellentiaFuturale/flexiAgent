@@ -88,7 +88,7 @@ class Checker:
         self.log = fwlog.FwLogFile(fwglobals.g.SYSTEM_CHECKER_LOG_FILE, level=fwlog.FWLOG_LEVEL_DEBUG)
         self.log.set_target(to_terminal=True)
 
-        self.modems = fwglobals.g.modem_manager if fwglobals.g.modem_manager else FwModemManager()
+        self.modems = fwglobals.g.modems if fwglobals.g.modems else FwModemManager()
 
         self.CFG_VPP_CONF_FILE      = fwglobals.g.VPP_CONFIG_FILE
         self.CFG_FWAGENT_CONF_FILE  = fwglobals.g.FWAGENT_CONF_FILE
@@ -936,7 +936,7 @@ class Checker:
                 if not fix:
                     return False
                 try:
-                    self.log.debug('Please wait patiently. The process can take time (up to a minute)')
+                    self.log.debug('Please wait, the process might take few minutes')
                     self.modems.get(inf['dev_id']).set_mbim_mode(self.log)
                     self.modems.scan()
                 except:

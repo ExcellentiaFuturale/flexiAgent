@@ -58,6 +58,7 @@ from http import server as hsvr
 
 import fwglobals
 import fwikev2
+import fwlte
 import fwmultilink
 import fw_os_utils
 import fwpppoe
@@ -67,8 +68,6 @@ import fwutils
 import fwwebsocket
 import loadsimulator
 import fwqos
-import fwlte
-import fwlte
 
 from fwapplications_api import FWAPPLICATIONS_API
 from fwfrr import FwFrr

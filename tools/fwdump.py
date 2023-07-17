@@ -337,9 +337,9 @@ class FwDump(FwObject):
 
     def add_lte_files(self):
         try:
-            dev_ids = fwlte.get_dev_ids()
-            for dev_id in dev_ids:
-                lte_if_name = dev_ids[dev_id]
+            dev_ids_dict = fwlte.get_dev_id_if_name_mapping()
+            for dev_id in dev_ids_dict:
+                lte_if_name = dev_ids_dict[dev_id]
                 file_name = f'lte_{lte_if_name}'
                 g_dumpers[file_name] = {
                     'python': {
