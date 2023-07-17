@@ -541,8 +541,14 @@ def get_interface_is_dhcp(if_name):
     if is_dhcp_in_netplan == 'yes':
         return is_dhcp_in_netplan
 
-    dhclient_running_for_if_name = os.popen(f'ps -aux | grep "dhclient {if_name}" | grep -v grep').read()
-    if dhclient_running_for_if_name:
+    # FETCH 'dynamic' OUT OF 'ip address' output:
+    # 4: enp0s9: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000
+    #     link/ether 08:00:27:14:c9:8d brd ff:ff:ff:ff:ff:ff
+    #     inet 192.168.1.41/24 brd 192.168.1.255 scope global dynamic enp0s9
+    #        valid_lft 2396sec preferred_lft 2396sec
+    #
+    ret = os.system(f'ip address | grep -iE "inet .* dynamic {if_name}" > /dev/null 2>&1')
+    if ret == 0:
         return 'yes'
 
     if fwglobals.g.is_gcp_vm:
@@ -713,10 +719,10 @@ def update_linux_interfaces(dev_id, gw):
     :return: None.
     """
     with fwglobals.g.cache.lock:
-        interface = fwglobals.g.cache.linux_interfaces.get(dev_id, {})
-        interface.update({'gateway': gw})
-        fwglobals.g.cache.linux_interfaces[dev_id] = interface
-        fwglobals.log.debug(f"update_linux_interfaces({dev_id}): gw={gw}")
+        interface = fwglobals.g.cache.linux_interfaces.get(dev_id)
+        if interface:
+            interface.update({'gateway': gw})
+            fwglobals.log.debug(f"update_linux_interfaces({dev_id}): gw={gw}")
 
 def get_interface_dev_id(if_name):
     """Convert  interface name into bus address.
@@ -2315,10 +2321,10 @@ def traffic_control_add_del_mirror_policy(is_add, from_ifc, to_ifc, set_dst_mac=
         raise e
 
 def reset_traffic_control():
-    fwglobals.log.debug('clean Linux traffic control settings')
     lte_interface_names = get_lte_interfaces_names()
     for dev_name in lte_interface_names:
         try:
+            fwglobals.log.debug(f'clean Linux traffic control settings for {dev_name}')
             subprocess.check_call(f'sudo tc -force qdisc del dev {dev_name} ingress handle ffff: 2>/dev/null', shell=True)
         except:
             pass
@@ -3462,6 +3468,17 @@ def check_root_access():
 def disable_ipv6():
     """ disable default and all ipv6
     """
+    # Firstly check if the setting is already set to avoid unneeded calls and log prints
+    try:
+        out = subprocess.check_output(['sysctl', 'net.ipv6.conf.all.disable_ipv6']).decode().strip()
+        val = int(out.split('=')[1])
+        if val == 1:
+            return # already disabled
+    except subprocess.CalledProcessError as e:
+        fwglobals.log.error(f"Fetch disable IPv6 all command failed : {e.returncode}")
+    except:
+        pass
+
     sys_cmd = 'sysctl -w net.ipv6.conf.all.disable_ipv6=1 > /dev/null'
     rc = os.system(sys_cmd)
     if rc:
