@@ -1464,6 +1464,10 @@ def vpp_tap_connect(linux_tap_if_name):
     fwglobals.log.debug("vppctl " + vppctl_cmd)
     subprocess.check_call("sudo vppctl %s" % vppctl_cmd, shell=True)
 
+def vpp_sw_if_index_to_dev_id(sw_if_index):
+    vpp_if_name = vpp_sw_if_index_to_name(sw_if_index)
+    return vpp_if_name_to_dev_id(vpp_if_name)
+
 def vpp_sw_if_index_to_name(sw_if_index):
     """Convert VPP sw_if_index into VPP interface name.
 
@@ -2429,13 +2433,12 @@ def modify_dhcpd_conf(is_add, dev_id, range_start, range_end, dns, mac_assign, o
                 ranges[-1][1] = (exclude_ip - 1) # change the range's end to be next ip after the exclude_ip
                 continue
 
+            # exclude_ip is within the range
             if exclude_ip == range_end_ip - 1:
                 ranges[-1][1] = (range_end_ip -2) # if the decrease by 1 is the exclude_ip, decrease by 2 and no need to add a new range
-                continue
-
-            # ip is within the range
-            ranges[-1][1] = (exclude_ip - 1) # change the range's end to be up to the ip before the router ip
-            ranges.append([exclude_ip + 1, range_end_ip]) # add a new range starting from the next ip after the router ip to the end defined by the user.
+            else:
+                ranges[-1][1] = (exclude_ip - 1) # change the range's end to be up to the ip before the exclude_ip
+            ranges.append([exclude_ip + 1, range_end_ip]) # add a new range starting from the next ip after the exclude_ip to the end defined by the user
 
         ranges = list(map(lambda range_arr: f'range {range_arr[0]} {range_arr[1]}', ranges))
         return ranges

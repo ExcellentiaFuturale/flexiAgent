@@ -25,13 +25,14 @@ import os
 import fwutils
 import fwglobals
 
-def _change_dhcpd_conf(params, cmd_list):
-    """Change /etc/dhcp/dhcpd.conf config file.
+def add_dhcp_config(params):
+    """Generate commands to add DHCP configuration.
 
-    :param cmd_list:            List of commands.
+    :param params:        Parameters from flexiManage.
 
-    :returns: None.
+    :returns: List of commands.
     """
+    cmd_list = []
 
     dev_id              = params.get('interface')
     range_start         = params.get('range_start', '')
@@ -47,8 +48,8 @@ def _change_dhcpd_conf(params, cmd_list):
     cmd['cmd']['func']      = "modify_dhcpd_conf"
     cmd['cmd']['module']    = "fwutils"
     cmd['cmd']['descr']     = "update dhcpd config file"
-    cmd['cmd']['params']    = { 
-        'is_add': 1, 
+    cmd['cmd']['params']    = {
+        'is_add': 1,
         'dev_id': dev_id,
         'range_start': range_start,
         'range_end': range_end,
@@ -63,8 +64,8 @@ def _change_dhcpd_conf(params, cmd_list):
     cmd['revert']['module'] = "fwutils"
     cmd['revert']['descr']  = "clean dhcpd config file"
     cmd['revert']['filter'] = 'must'   # When 'remove-XXX' commands are generated out of the 'add-XXX' commands, run this command even if vpp doesn't run
-    cmd['revert']['params'] = { 
-        'is_add': 0, 
+    cmd['revert']['params'] = {
+        'is_add': 0,
         'dev_id': dev_id,
         'range_start': range_start,
         'range_end': range_end,
@@ -76,14 +77,6 @@ def _change_dhcpd_conf(params, cmd_list):
     }
     cmd_list.append(cmd)
 
-
-def _restart_dhcp_server(cmd_list):
-    """Restart DHCP server.
-
-    :param cmd_list:            List of commands.
-
-    :returns: None.
-    """
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['func']   = "os_system"
@@ -96,19 +89,6 @@ def _restart_dhcp_server(cmd_list):
     cmd['revert']['params'] = { 'cmd': 'systemctl restart isc-dhcp-server', 'log_prefix': '_restart_dhcp_server' }
     cmd['revert']['descr'] = "restart dhcp service"
     cmd_list.append(cmd)
-
-
-def add_dhcp_config(params):
-    """Generate commands to add DHCP configuration.
-
-    :param params:        Parameters from flexiManage.
-
-    :returns: List of commands.
-    """
-    cmd_list = []
-
-    _change_dhcpd_conf(params, cmd_list)
-    _restart_dhcp_server(cmd_list)
 
     return cmd_list
 
