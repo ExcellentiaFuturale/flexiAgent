@@ -216,7 +216,7 @@ class FWROUTER_API(FwCfgRequestHandler):
            tracked by VPP.
         '''
         router_ids_by_dev_id = {} # -> { dev_id: [5] }
-        dev_ids_by_router_id = {} # -> { 5: { dev_id: None }
+        dev_ids_by_router_id = {} # -> { 5: { [dev_id]: None }
         vrrp_group_by_router_id  = {} # -> { 5: vrrp_group  }
         tracked_dev_ids = [] # -> [dev_id, dev_id]
 
@@ -286,16 +286,17 @@ class FWROUTER_API(FwCfgRequestHandler):
             = self._get_vrrp_optional_tracked_interfaces()
 
         for interface in interfaces:
-            if (fwutils.is_vlan_interface(dev_id=interface['dev_id']) or
-               fwpppoe.is_pppoe_interface(dev_id=interface['dev_id'])):
+            dev_id = interface['dev_id']
+            if (fwutils.is_vlan_interface(dev_id=dev_id) or
+               fwpppoe.is_pppoe_interface(dev_id=dev_id)):
                 continue
-            tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
+            tap_name    = fwutils.dev_id_to_tap(dev_id)
 
-            if fwlte.is_lte_interface_by_dev_id(dev_id=interface['dev_id']):
-                connected = fwlte.mbim_is_connected(interface['dev_id'])
+            if fwlte.is_lte_interface_by_dev_id(dev_id=dev_id):
+                connected = fwlte.mbim_is_connected(dev_id)
                 status_vpp = 'up' if connected else 'down'
             else:
-                status_vpp = fwutils.vpp_get_interface_status(dev_id=interface['dev_id']).get('link')
+                status_vpp = fwutils.vpp_get_interface_status(dev_id=dev_id).get('link')
             (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{tap_name}/carrier")
             if status_vpp == 'down' and ok and status_linux and int(status_linux)==1:
                 self.log.debug(f"detected NO-CARRIER for {tap_name}")
@@ -303,23 +304,26 @@ class FWROUTER_API(FwCfgRequestHandler):
             elif status_vpp == 'up' and ok and status_linux and int(status_linux)==0:
                 self.log.debug(f"detected CARRIER UP for {tap_name}")
                 fwutils.os_system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
-                if interface['dev_id'] in fwglobals.g.db.get('router_api',{}).get('dhcpd',{}).get('interfaces',{}):
+                if dev_id in fwglobals.g.db.get('router_api',{}).get('dhcpd',{}).get('interfaces',{}):
                     restart_dhcpd = True
 
-            virtual_router_ids = vrrp_router_ids_by_tracked_dev_id.get(interface['dev_id'], [])
-            if status_vpp == 'down' and interface['dev_id'] not in vpp_vrrp_tracked_dev_ids:
+            virtual_router_ids = vrrp_router_ids_by_tracked_dev_id.get(dev_id, [])
+            if status_vpp == 'down' and dev_id not in vpp_vrrp_tracked_dev_ids:
                 for virtual_router_id in virtual_router_ids:
-                    vrrp_tracked_dev_ids_by_router_id[virtual_router_id][interface['dev_id']] = False
-            elif status_vpp == 'up' and interface['dev_id'] in vpp_vrrp_tracked_dev_ids:
+                    vrrp_tracked_dev_ids_by_router_id[virtual_router_id][dev_id] = False
+            elif status_vpp == 'up' and dev_id in vpp_vrrp_tracked_dev_ids:
                 for virtual_router_id in virtual_router_ids:
-                    vrrp_tracked_dev_ids_by_router_id[virtual_router_id][interface['dev_id']] = True
+                    vrrp_tracked_dev_ids_by_router_id[virtual_router_id][dev_id] = True
 
         if restart_dhcpd:
             time.sleep(1)  # give a second to Linux to reconfigure interface
             cmd = 'systemctl restart isc-dhcp-server'
             fwutils.os_system(cmd, '_sync_link_status')
 
-        self._check_and_update_vrrp_tracked_interfaces(vrrp_tracked_dev_ids_by_router_id, vrrp_group_by_router_id)
+        self._check_and_update_vrrp_tracked_interfaces(
+            vrrp_tracked_dev_ids_by_router_id,
+            vrrp_group_by_router_id
+        )
 
     def _check_and_update_vrrp_tracked_interfaces(self, vrrp_tracked_dev_ids_by_router_id, vrrp_group_by_router_id):
         '''
@@ -340,9 +344,18 @@ class FWROUTER_API(FwCfgRequestHandler):
             # {
             #   5: {
             #       [dev_id_1]: False,
-            #       [dev_id_2]: False,
+            #       [dev_id_2]: True,
             #   }
             # }
+            # Each interface's link status can be True, False, or None.
+            #
+            # True means the link is up and exists in VPP as tracked interface.
+            # False means the link is down and does not exist in VPP as tracked interface.
+            # None means the link is synchronized with VPP, and there is no need to change anything.
+            #
+            # Now, by using "set", create a list of unique values of link statuses.
+            # If the "set" is [False] it means that all interfaces are in down state
+            # If the set has "True", regardless of other values, it means that not all interfaces are down.
             link_statuses = list(set(vrrp_tracked_dev_ids_by_router_id[virtual_router_id].values()))
             is_all_optional_down = len(link_statuses) == 1 and link_statuses[0] == False
             at_least_one_optional_is_up = True in link_statuses
@@ -350,7 +363,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             if at_least_one_optional_is_up:
                 mandatory_only = 1
             elif is_all_optional_down:
-                mandatory_only = 0 # if all optionals are down, add optionals to vpp, not only the mandatory
+                mandatory_only = 0
             else:
                 continue
 
