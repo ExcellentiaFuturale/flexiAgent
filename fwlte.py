@@ -1346,9 +1346,7 @@ class FwModem(FwLinuxModem):
 class FwModemManager():
     def __init__(self):
         self.modems = {}
-        self.initialized = False
-
-        self.initialize()
+        self.scan()
 
     def __enter__(self):
         return self
@@ -1375,14 +1373,6 @@ class FwModemManager():
     def get_safe(self, dev_id):
         modem = self.modems.get(dev_id)
         return modem
-
-    def initialize(self):
-        self.scan()
-        self.initialized = True
-
-    def finalize(self):
-        self.modems = {}
-        self.initialized = False
 
     def call(self, dev_id, func, *args, **kwargs):
         modem = self.get(dev_id)

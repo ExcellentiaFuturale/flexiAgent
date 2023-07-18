@@ -554,7 +554,6 @@ class Fwglobals(FwObject):
             self.qos.finalize()
             self.routes.finalize()
             self.pppoe.finalize()
-            self.modems.finalize()
             self.statistics.finalize()
             self.wan_monitor.finalize()
             self.stun_wrapper.finalize()
