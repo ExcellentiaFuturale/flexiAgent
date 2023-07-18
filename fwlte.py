@@ -1348,6 +1348,8 @@ class FwModemManager():
         self.modems = {}
         self.initialized = False
 
+        self.initialize()
+
     def __enter__(self):
         return self
 
@@ -1412,7 +1414,6 @@ def disconnect_all():
             modem.disconnect()
     else:
         with FwModemManager() as fw_modem_manager:
-            fw_modem_manager.initialize()
             for modem in fw_modem_manager.modems:
                 fw_modem_manager.modems[modem].disconnect()
 
