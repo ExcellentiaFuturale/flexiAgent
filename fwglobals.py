@@ -464,12 +464,14 @@ class Fwglobals(FwObject):
         self.stun_wrapper     = FwStunWrap()
         self.ikev2            = FwIKEv2()
         self.pppoe            = FwPppoeClient()
-        self.modems           = fwlte.FwModemManager()
         self.routes           = FwRoutes()
         self.qos              = FwQoS()
         self.statistics       = FwStatistics()
         self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
         self.message_handler  = FwMessageHandler()
+
+        self.modems           = fwlte.FwModemManager()
+        self.modems.initialize() # IMPORTANT! modems initialization should be before restore_configuration
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 
