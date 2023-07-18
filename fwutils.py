@@ -1004,12 +1004,12 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
             lte_vpp_if_name = data.split(' ', 1)[0]
             if 'dpdk-tap' in lte_vpp_if_name: #VPP LTE tap name starts with dpdk-tap
                 if lte_dev_id_dict is None:
-                    lte_dev_id_dict = fwlte.get_dev_id_if_name_mapping()
-                for _, linux_dev_name in lte_dev_id_dict.items():
+                    lte_dev_id_dict = fwlte.get_if_names_by_dev_ids()
+                for _, linux_if_name in lte_dev_id_dict.items():
                     # For LTE tap interfaces, data would have device args as 'iface=tap_wwan0'
-                    lte_dev_args = 'iface=' + generate_linux_interface_short_name("tap", linux_dev_name)
+                    lte_dev_args = 'iface=' + generate_linux_interface_short_name("tap", linux_if_name)
                     if lte_dev_args in data:
-                        lte_dev_bus = build_interface_dev_id(linux_dev_name)
+                        lte_dev_bus = build_interface_dev_id(linux_if_name)
                         fwglobals.g.cache.dev_id_to_vpp_if_name[lte_dev_bus] = lte_vpp_if_name
                         fwglobals.g.cache.vpp_if_name_to_dev_id[lte_vpp_if_name] = lte_dev_bus
 

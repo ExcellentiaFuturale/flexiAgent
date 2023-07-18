@@ -337,14 +337,14 @@ class FwDump(FwObject):
 
     def add_lte_files(self):
         try:
-            dev_ids_dict = fwlte.get_dev_id_if_name_mapping()
-            for dev_id in dev_ids_dict:
-                lte_if_name = dev_ids_dict[dev_id]
-                file_name = f'lte_{lte_if_name}'
+            if_names_by_dev_ids = fwlte.get_if_names_by_dev_ids()
+            for dev_id in if_names_by_dev_ids:
+                if_name = if_names_by_dev_ids[dev_id]
+                file_name = f'lte_{if_name}'
                 g_dumpers[file_name] = {
                     'python': {
                         'func': 'fwlte.dump',
-                        'args': { 'lte_if_name': lte_if_name, 'prefix_path': f'{self.temp_folder}/{file_name}' } }
+                        'args': { 'lte_if_name': if_name, 'prefix_path': f'{self.temp_folder}/{file_name}' } }
                 }
         except:
             pass # Do not crash in case of LTE code error
