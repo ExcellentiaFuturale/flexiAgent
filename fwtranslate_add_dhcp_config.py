@@ -35,8 +35,8 @@ def add_dhcp_config(params):
     cmd_list = []
 
     dev_id              = params.get('interface')
-    range_start         = params.get('range_start', '')
-    range_end           = params.get('range_end', '')
+    range_start         = params.get('range_start')
+    range_end           = params.get('range_end')
     dns                 = params.get('dns', [])
     mac_assign          = params.get('mac_assign', [])
     options             = params.get('options', [])

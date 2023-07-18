@@ -18,9 +18,10 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import base64
+import binascii
 import copy
 import ctypes
-import binascii
 import datetime
 import glob
 import hashlib
@@ -28,45 +29,43 @@ import inspect
 import ipaddress
 import json
 import os
-import time
 import platform
-import subprocess
-import psutil
-import socket
 import re
+import shutil
+import socket
+import subprocess
+import sys
+import time
+import traceback
+import zlib
+
+import psutil
+import yaml
+from netaddr import IPAddress, IPNetwork
+
+import fw_os_utils
 import fwglobals
+import fwlte
 import fwnetplan
 import fwpppoe
-import shutil
-import sys
-import traceback
-import yaml
-import zlib
-import base64
-
-from netaddr import IPNetwork, IPAddress
-
-import fwlte
-import fwwifi
 import fwqos
 import fwtranslate_add_switch
 import fwutils
-import fw_os_utils
-
-from fwapplications_api import call_applications_hook, FWAPPLICATIONS_API
-from fwfrr          import FwFrr
-from fwikev2        import FwIKEv2
-from fwmultilink    import FwMultilink
-from fwpolicies     import FwPolicies
-from fwrouter_cfg   import FwRouterCfg
-from fwsystem_cfg   import FwSystemCfg
-from fwroutes       import FwLinuxRoutes
-from fwjobs         import FwJobs
-from fwapplications_cfg import FwApplicationsCfg
-from fwwan_monitor  import get_wan_failover_metric
+import fwwifi
 from fw_traffic_identification import FwTrafficIdentifications
-from tools.common.fw_vpp_startupconf import FwStartupConf
+from fwapplications_api import FWAPPLICATIONS_API, call_applications_hook
+from fwapplications_cfg import FwApplicationsCfg
 from fwcfg_request_handler import FwCfgMultiOpsWithRevert
+from fwfrr import FwFrr
+from fwikev2 import FwIKEv2
+from fwjobs import FwJobs
+from fwmultilink import FwMultilink
+from fwpolicies import FwPolicies
+from fwrouter_cfg import FwRouterCfg
+from fwroutes import FwLinuxRoutes
+from fwsystem_cfg import FwSystemCfg
+from fwwan_monitor import get_wan_failover_metric
+from tools.common.fw_vpp_startupconf import FwStartupConf
 
 libc = None
 
@@ -644,7 +643,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                 # bridged interface is only when vpp is running
                 bridge_addr = is_bridged_interface(dev_id)
                 if bridge_addr:
-                    tap_name = bridge_addr_to_bvi_interface_tap(bridge_addr)
+                    tap_name = bridge_addr_to_bvi_tap(bridge_addr)
 
                 if tap_name:
                     if_name = tap_name
@@ -1163,17 +1162,17 @@ def bridge_addr_to_bvi_sw_if_index(bridge_addr):
     # check if interface indeed in a bridge
     bd_id = fwtranslate_add_switch.get_bridge_id(bridge_addr)
     if not bd_id:
-        fwglobals.log.error('bridge_addr_to_bvi_interface_tap: failed to fetch bridge id for address: %s' % str(bridge_addr))
+        fwglobals.log.error('bridge_addr_to_bvi_tap: failed to fetch bridge id for address: %s' % str(bridge_addr))
         return None
 
     vpp_bridges_det = fwglobals.g.router_api.vpp_api.vpp.call('bridge_domain_dump', bd_id=bd_id)
     if not vpp_bridges_det:
-        fwglobals.log.error('bridge_addr_to_bvi_interface_tap: failed to fetch vpp bridges for bd_id %s' % str(bd_id))
+        fwglobals.log.error('bridge_addr_to_bvi_tap: failed to fetch vpp bridges for bd_id %s' % str(bd_id))
         return None
 
     return vpp_bridges_det[0].bvi_sw_if_index
 
-def bridge_addr_to_bvi_interface_tap(bridge_addr):
+def bridge_addr_to_bvi_tap(bridge_addr):
     """Convert bridge address to the tap interface name.
 
     :param bridge_addr:        Bridge IP Address
@@ -2405,8 +2404,6 @@ def modify_dhcpd_conf(is_add, dev_id, range_start, range_end, dns, mac_assign, o
         :returns: list of ranges
 
         """
-        if not range_start or not range_end:
-            return ''
 
         start_ip = ipaddress.ip_address(range_start)
         end_ip = ipaddress.ip_address(range_end)
@@ -2419,26 +2416,19 @@ def modify_dhcpd_conf(is_add, dev_id, range_start, range_end, dns, mac_assign, o
         for exclude_ip in exclude_ips:
             range_start_ip, range_end_ip = ranges[-1]
 
-            # check if ip is in the range, if not, no need to manipulate the range
             if exclude_ip < range_start_ip or exclude_ip > range_end_ip:
                 continue
 
-            # at this point we know that ip is in the range.
-            #
             if exclude_ip == range_start_ip:
-                ranges[-1][0] = (exclude_ip + 1) # change the range's start to be next ip after the exclude_ip
+                ranges[-1][0] = (exclude_ip + 1)
                 continue
 
             if exclude_ip == range_end_ip:
-                ranges[-1][1] = (exclude_ip - 1) # change the range's end to be next ip after the exclude_ip
+                ranges[-1][1] = (exclude_ip - 1)
                 continue
 
-            # exclude_ip is within the range
-            if exclude_ip == range_end_ip - 1:
-                ranges[-1][1] = (range_end_ip -2) # if the decrease by 1 is the exclude_ip, decrease by 2 and no need to add a new range
-            else:
-                ranges[-1][1] = (exclude_ip - 1) # change the range's end to be up to the ip before the exclude_ip
-            ranges.append([exclude_ip + 1, range_end_ip]) # add a new range starting from the next ip after the exclude_ip to the end defined by the user
+            ranges[-1][1] = (exclude_ip - 1)
+            ranges.append([exclude_ip + 1, range_end_ip])
 
         ranges = list(map(lambda range_arr: f'range {range_arr[0]} {range_arr[1]}', ranges))
         return ranges
@@ -3946,7 +3936,7 @@ def set_ip_on_bridge_bvi_interface(bridge_addr, dev_id, is_add):
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
     try:
-        tap = bridge_addr_to_bvi_interface_tap(bridge_addr)
+        tap = bridge_addr_to_bvi_tap(bridge_addr)
         if not tap:
             return (False, 'tap is not found for bvi interface')
 
