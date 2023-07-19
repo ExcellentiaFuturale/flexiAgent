@@ -347,7 +347,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             # Each interface's link status can be True, False indicates if link is up or down.
             #
             # First, check if all optional links are down to figure out what should be configured in vpp.
-            is_all_optional_links_down = False if True in dev_ids_by_router_id[router_id].values() else False
+            is_all_optional_links_down = False if True in dev_ids_by_router_id[router_id].values() else True
 
             # once we know what should be configured in vpp, go and check if vpp is synced
             is_vpp_synced = True

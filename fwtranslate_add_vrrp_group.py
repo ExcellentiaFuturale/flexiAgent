@@ -48,8 +48,10 @@
 #   Router can go to backup state if the interface it self is not accessible,
 #   or if *other* interfaces are not accessible. The specified "other" interfaces are the tracked interface.
 
-import fwutils
 import ipaddress
+
+import fwglobals
+import fwutils
 
 def add_vrrp_group(params):
     """Generate commands to add a VRRP.

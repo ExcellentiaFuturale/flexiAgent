@@ -136,8 +136,10 @@ def _get_classification_setup_command(app_acl_ids, cmd_list):
         args['substs'] = [{
             'add_param':            'acls',
             'val_by_func':          'map_keys_to_acl_ids',
-            'arg':                  {'keys': app_acl_ids},
-            'add_cmd_cache_as_arg':  True
+            'arg': {
+                'keys': app_acl_ids,
+                'cmd_cache': fwglobals.g.router_api.cmd_cache
+            }
         }]
     else:
         args['acls'] = app_acl_ids

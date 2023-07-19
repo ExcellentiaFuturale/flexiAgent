@@ -3282,6 +3282,9 @@ def frr_clean_files():
     if os.path.exists(fwglobals.g.FRR_ZEBRA_FILE + '.sav'): # frr cache file
         os.remove(fwglobals.g.FRR_ZEBRA_FILE + '.sav')
 
+    with FwFrr(fwglobals.g.FRR_DB_FILE) as db_frr:
+        db_frr.clean()
+
 def frr_setup_config():
     '''Setup the /etc/frr/frr.conf file, initializes it and
     ensures that ospf is switched on in the frr configuration'''
