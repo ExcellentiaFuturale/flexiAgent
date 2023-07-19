@@ -3892,12 +3892,11 @@ def send_udp_packet(src_ip, src_port, dst_ip, dst_port, dev_name, msg):
 
     s.close()
 
-def map_keys_to_acl_ids(acl_ids, arg):
+def map_keys_to_acl_ids(keys, cmd_cache):
     # arg carries command cache
-    keys = acl_ids['keys']
     out_keys = []
     for key in keys:
-        out_keys.append(arg[key])
+        out_keys.append(cmd_cache[key])
     return out_keys
 
 
@@ -4290,21 +4289,10 @@ def dev_id_get_parent (dev_id):
         parent_dev_id = dev_id
     return parent_dev_id
 
-def loopback_mac_address_by_sw_if_index(sw_if_index):
+def build_loopback_mac_address(sw_if_index):
     mac = "de:ad:00:00:%0.4x" % sw_if_index
     mac = mac[:-2] + ':' + mac[-2:]
     return mac_str_to_bytes(mac)
-
-def vpp_vrrp_get_mac_address(vr_id):
-    mac = "00:00:5e:00:01%0.2x" % vr_id
-    mac = mac[:-2] + ':' + mac[-2:]
-    return mac_str_to_bytes(mac)
-
-def dev_id_to_bvi_or_ifc_sw_if_index(dev_id, cache_key=None, result_cache=None):
-    sw_if_index = dev_id_to_bvi_sw_if_index(dev_id)
-    if not sw_if_index:
-        sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
-    return sw_if_index
 
 def vpp_vrrp_add_del_track_interfaces(track_interfaces, is_add, vr_id, sw_if_index, track_ifc_priority, mandatory_only):
     interfaces = []

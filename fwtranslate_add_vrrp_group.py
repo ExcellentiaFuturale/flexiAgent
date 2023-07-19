@@ -51,18 +51,6 @@
 import fwutils
 import ipaddress
 
-def vpp_vrrp_dev_id_to_sw_if_index(dev_id, result_cache=None):
-    ''' Resolve sw_if_index for the VRRP.
-
-    If the selected vrrp interface is bridged, we need to setup the VRRP on the BVI interface.
-    Otherwise, we set it on the selected interface itself.
-    '''
-    sw_if_index = fwutils.dev_id_to_bvi_or_ifc_sw_if_index(dev_id)
-    if result_cache and result_cache['result_attr'] == 'sw_if_index':
-        key = result_cache['key']
-        result_cache['cache'][key] = sw_if_index
-    return sw_if_index
-
 def add_vrrp_group(params):
     """Generate commands to add a VRRP.
 
@@ -87,15 +75,6 @@ def add_vrrp_group(params):
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['func']          = "vpp_vrrp_dev_id_to_sw_if_index"
-    cmd['cmd']['module']        = "fwtranslate_add_vrrp_group"
-    cmd['cmd']['params']        = { 'dev_id':  dev_id }
-    cmd['cmd']['descr']         = f"resolve sw_if_index by vrrp dev_id (virtual_router_id={virtual_router_id})"
-    cmd['cmd']['cache_ret_val'] = ('sw_if_index', cache_key)
-    cmd_list.append(cmd)
-
-    cmd = {}
-    cmd['cmd'] = {}
     cmd['cmd']['func']      = "call_vpp_api"
     cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['params']    = {
@@ -108,7 +87,15 @@ def add_vrrp_group(params):
             'addrs': [ipaddress.ip_address(virtual_router_ip)],
             'n_addrs': 1,
             'interval': interval,
-            'substs': [{ 'add_param': 'sw_if_index', 'val_by_key': cache_key }]
+            'substs': [{
+                'add_param': 'sw_if_index',
+                'val_by_func': 'fwtranslate_add_vrrp_group.vpp_vrrp_dev_id_to_sw_if_index',
+                'arg': {
+                    'dev_id':  dev_id,
+                    'cmd_cache_key': cache_key
+                },
+                'add_cmd_cache_as_arg':  True
+            }]
         }
     }
     cmd['cmd']['descr']         = f"create vrrp vr (virtual_router_id={virtual_router_id})"
@@ -133,6 +120,11 @@ def add_vrrp_group(params):
 
     is_switch = fwutils.is_bridged_interface(dev_id)
     if is_switch:
+        # In VRRP the BVI interface has a virtual IP.
+        # As DHCP clients on LAN run ARP resolution for the virtual IP,
+        # the interface that owns this IP should have VRRP virtual MAC address,
+        # so VPP could answer ARP requests. So, assign virtual MAC address on BVI interface.
+        #
         cmd = {}
         cmd['cmd'] = {}
         cmd['cmd']['func']      = "call_vpp_api"
@@ -142,7 +134,11 @@ def add_vrrp_group(params):
             'args': {
                 'substs': [
                     { 'add_param': 'sw_if_index', 'val_by_key': cache_key },
-                    { 'add_param': 'mac_address', 'val_by_func': 'vpp_vrrp_get_mac_address', 'arg': virtual_router_id }
+                    {
+                        'add_param': 'mac_address',
+                        'val_by_func': 'fwtranslate_add_vrrp_group.build_vrrp_virtual_mac_address',
+                        'arg': virtual_router_id
+                    }
                 ]
             }
         }
@@ -155,7 +151,7 @@ def add_vrrp_group(params):
             'args': {
                 'substs': [
                     { 'add_param': 'sw_if_index', 'val_by_key': cache_key },
-                    { 'add_param': 'mac_address', 'val_by_func': 'loopback_mac_address_by_sw_if_index', 'arg_by_key': cache_key }
+                    { 'add_param': 'mac_address', 'val_by_func': 'build_loopback_mac_address', 'arg_by_key': cache_key }
                 ]
             }
         }
@@ -220,8 +216,25 @@ def add_vrrp_group(params):
 
     return cmd_list
 
+def vpp_vrrp_dev_id_to_sw_if_index(dev_id, cmd_cache_key, cmd_cache):
+    ''' Resolve sw_if_index for the VRRP.
+
+    If the selected vrrp interface is bridged, we need to setup the VRRP on the BVI interface.
+    Otherwise, we set it on the selected interface itself.
+    '''
+    sw_if_index = fwutils.dev_id_to_bvi_sw_if_index(dev_id)
+    if not sw_if_index:
+        sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(dev_id)
+    cmd_cache[cmd_cache_key] = sw_if_index
+    return sw_if_index
+
+def build_vrrp_virtual_mac_address(vr_id):
+    mac = "00:00:5e:00:01%0.2x" % vr_id
+    mac = mac[:-2] + ':' + mac[-2:]
+    return fwutils.mac_str_to_bytes(mac)
+
 def get_request_key(params):
-    """Get add-switch key.
+    """Get add-vrrp-group key.
 
     :param params:        Parameters from flexiManage.
 

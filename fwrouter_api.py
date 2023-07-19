@@ -322,7 +322,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             vpp_vrrp_tracked_dev_ids
         )
 
-    def _check_and_update_vrrp_tracked_interfaces(self, dev_ids_by_router_id, vrrp_group_by_router_id, tracked_dev_ids):
+    def _check_and_update_vrrp_tracked_interfaces(self, dev_ids_by_router_id, vrrp_group_by_router_id, vpp_tracked_dev_ids):
         '''
         We have two types of VRRP tracked interfaces - Mandatory and Optional.
         Mandatory means that the router should go to the Backup state if this interface fails. Regardless of other interfaces.
@@ -347,24 +347,20 @@ class FWROUTER_API(FwCfgRequestHandler):
             # Each interface's link status can be True, False indicates if link is up or down.
             #
             # First, check if all optional links are down to figure out what should be configured in vpp.
-            is_all_optional_links_down = True
-            for link_status in dev_ids_by_router_id[router_id].values():
-                if link_status == True:
-                    is_all_optional_links_down = False
-                    break
+            is_all_optional_links_down = False if True in dev_ids_by_router_id[router_id].values() else False
 
             # once we know what should be configured in vpp, go and check if vpp is synced
             is_vpp_synced = True
             if is_all_optional_links_down:
                 # If all down, all of them should be in vpp
-                for tracked_dev_id in dev_ids_by_router_id[router_id]:
-                    if tracked_dev_id not in tracked_dev_ids:
+                for dev_id in dev_ids_by_router_id[router_id]:
+                    if dev_id not in vpp_tracked_dev_ids:
                         is_vpp_synced = False
                         break
             else:
                 # If not all down, none of them should be in vpp
-                for tracked_dev_id in dev_ids_by_router_id[router_id]:
-                    if tracked_dev_id in tracked_dev_ids:
+                for dev_id in dev_ids_by_router_id[router_id]:
+                    if dev_id in vpp_tracked_dev_ids:
                         is_vpp_synced = False
                         break
             if is_vpp_synced:

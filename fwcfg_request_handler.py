@@ -510,19 +510,24 @@ class FwCfgRequestHandler(FwObject):
                         module = __import__(module_name)
                     func = getattr(module, func_name)
                 old  = s['arg'] if 'arg' in s else cache[s['arg_by_key']]
-                func_uses_cmd_cache = s['func_uses_cmd_cache']  if 'func_uses_cmd_cache' in s else False
-                if func_uses_cmd_cache:
+                add_cmd_cache_as_arg = s['add_cmd_cache_as_arg']  if 'add_cmd_cache_as_arg' in s else False
+                if add_cmd_cache_as_arg:
                     # The parameter indicates that the command cache need to be passed as
                     # parameter to the transforming function
                     # (For an example: refer function add_interface_attachment())
-                    new = func(old, cache)
-                else:
                     if type(old) == list:
-                        new = func(*old)
+                        old.append(cache)
                     elif type(old) == dict:
-                        new = func(**old)
+                        old['cmd_cache'] = cache
                     else:
-                        new = func(old)
+                        old = [old, cache]
+
+                if type(old) == list:
+                    new = func(*old)
+                elif type(old) == dict:
+                    new = func(**old)
+                else:
+                    new = func(old)
                 if new is None:
                     raise Exception("fwutils.py:substitute: %s failed to map %s in '%s'" % (func, old, format(params)))
             elif 'val_by_key' in s:

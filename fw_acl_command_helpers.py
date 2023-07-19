@@ -269,8 +269,8 @@ def add_interface_attachment(ingress_ids=[], egress_ids=[], dev_ids=[]):
     add_params = {
         'is_add': True,
         'dev_ids': dev_ids,
-        'substs': [{ 'add_param': 'ingress_acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': ingress_ids}, 'func_uses_cmd_cache':  True },
-                   { 'add_param': 'egress_acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': egress_ids}, 'func_uses_cmd_cache':  True }]
+        'substs': [{ 'add_param': 'ingress_acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': ingress_ids}, 'add_cmd_cache_as_arg':  True },
+                   { 'add_param': 'egress_acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': egress_ids}, 'add_cmd_cache_as_arg':  True }]
     }
     revert_params = copy.deepcopy(add_params)
     revert_params['is_add'] = False
@@ -301,7 +301,7 @@ def translate_cache_acl_rule(dev_id, direction, acl_ids, type = "outbound"):
     params = {
         'dev_id': dev_id,
         'direction': direction,
-        'substs': [{ 'add_param': 'acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': acl_ids}, 'func_uses_cmd_cache':  True }]
+        'substs': [{ 'add_param': 'acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': acl_ids}, 'add_cmd_cache_as_arg':  True }]
     }
 
     cmd['cmd'] = {}
