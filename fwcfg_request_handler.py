@@ -129,6 +129,7 @@ class FwCfgRequestHandler(FwObject):
         :returns: dictionary with status code and optional error message.
         """
         self.set_request_logger(request)   # Use request specific logger (this is to offload heavy 'add-application' logging)
+        self.cmd_cache = {}
         try:
             # Translate request to list of commands to be executed
             cmd_list = self._translate(request)
@@ -253,8 +254,6 @@ class FwCfgRequestHandler(FwObject):
                             If None, the check for filter is not applied.
         :returns: None.
         """
-        cmd_cache = {}
-
         req = request['message']
 
         self.log.debug("=== start execution of %s ===" % (req))
@@ -275,13 +274,13 @@ class FwCfgRequestHandler(FwObject):
             try:
                 # Firstly perform substitutions if needed.
                 # The params might include 'substs' key with list of substitutions.
-                self.substitute(cmd_cache, cmd.get('params'))
+                self.substitute(self.cmd_cache, cmd.get('params'))
 
                 self.log.debug(f"_execute: {self._dump_translation_cmd_params(cmd)}")
 
                 # Now execute command
                 execute_result = None if not 'cache_ret_val' in cmd else \
-                    { 'result_attr' : cmd['cache_ret_val'][0] , 'cache' : cmd_cache , 'key' :  cmd['cache_ret_val'][1] }
+                    { 'result_attr' : cmd['cache_ret_val'][0] , 'cache' : self.cmd_cache , 'key' :  cmd['cache_ret_val'][1] }
                 err_str = self._execute_translation_command(cmd, execute_result)
                 if err_str:   # On failure go back revert already executed commands
                     fwglobals.g.jobs.update_current_record({'request': req, 'command': cmd, 'error': err_str})
@@ -305,7 +304,7 @@ class FwCfgRequestHandler(FwObject):
             # Now substitute the revert command, as it will be needed for complement request, e.g. for remove-tunnel.
             if 'revert' in t and 'params' in t['revert']:
                 try:
-                    self.substitute(cmd_cache, t['revert'].get('params'))
+                    self.substitute(self.cmd_cache, t['revert'].get('params'))
                 except Exception as e:
                     self.log.excep("_execute: failed to substitute revert command: %s\n%s, %s" % \
                                 (str(t), str(e), str(traceback.format_exc())))
@@ -510,17 +509,6 @@ class FwCfgRequestHandler(FwObject):
                         module = __import__(module_name)
                     func = getattr(module, func_name)
                 old  = s['arg'] if 'arg' in s else cache[s['arg_by_key']]
-                add_cmd_cache_as_arg = s['add_cmd_cache_as_arg']  if 'add_cmd_cache_as_arg' in s else False
-                if add_cmd_cache_as_arg:
-                    # The parameter indicates that the command cache need to be passed as
-                    # parameter to the transforming function
-                    # (For an example: refer function add_interface_attachment())
-                    if type(old) == list:
-                        old.append(cache)
-                    elif type(old) == dict:
-                        old['cmd_cache'] = cache
-                    else:
-                        old = [old, cache]
 
                 if type(old) == list:
                     new = func(*old)

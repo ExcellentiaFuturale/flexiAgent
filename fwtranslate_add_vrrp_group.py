@@ -92,9 +92,9 @@ def add_vrrp_group(params):
                 'val_by_func': 'fwtranslate_add_vrrp_group.vpp_vrrp_dev_id_to_sw_if_index',
                 'arg': {
                     'dev_id':  dev_id,
-                    'cmd_cache_key': cache_key
+                    'cmd_cache_key': cache_key,
+                    'cmd_cache': fwglobals.g.router_api.cmd_cache
                 },
-                'add_cmd_cache_as_arg':  True
             }]
         }
     }
