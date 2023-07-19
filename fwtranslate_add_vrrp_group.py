@@ -34,19 +34,34 @@
 #   }
 # }
 #
-# preemption - 
+# preemption -
 #   Controls whether a higher priority Backup router preempts a lower priority Master.
 #   In other words, When router with high priority become backup due to link status failure,
 #   and then the problem fixed - the router will become Master back.
 #   In VRRP Protocol, it is enabled by default
 #
-# acceptMode - 
+# acceptMode -
 #   Controls whether a virtual router in Master state will accept packets addressed to the virtual IP address
 #   In VRRP Protocol, it is disabled by default
 #
 # trackInterfaces -
 #   Router can go to backup state if the interface it self is not accessible,
 #   or if *other* interfaces are not accessible. The specified "other" interfaces are the tracked interface.
+
+import fwutils
+import ipaddress
+
+def vpp_vrrp_dev_id_to_sw_if_index(dev_id, result_cache=None):
+    ''' Resolve sw_if_index for the VRRP.
+
+    If the selected vrrp interface is bridged, we need to setup the VRRP on the BVI interface.
+    Otherwise, we set it on the selected interface itself.
+    '''
+    sw_if_index = fwutils.dev_id_to_bvi_or_ifc_sw_if_index(dev_id)
+    if result_cache and result_cache['result_attr'] == 'sw_if_index':
+        key = result_cache['key']
+        result_cache['cache'][key] = sw_if_index
+    return sw_if_index
 
 def add_vrrp_group(params):
     """Generate commands to add a VRRP.
@@ -67,37 +82,85 @@ def add_vrrp_group(params):
 
     cache_key = 'vrrp_sw_if_index'
 
+    preemption_flag  = 0x1 if preemption else 0  # see VRRP_API_VR_PREEMPT = 1 in vrrp_api.json
+    accept_mode_flag = 0x2 if accept_mode else 0 # see VRRP_API_VR_ACCEPT = 2 in vrrp_api.json
+
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['func']      = "vpp_vrrp_add_del_vr"
-    cmd['cmd']['module']    = "fwutils"
-    cmd['cmd']['params']    = {
-        'is_add': 1,
-        'dev_id': dev_id,
-        'virtual_router_id': virtual_router_id,
-        'virtual_router_ip': virtual_router_ip,
-        'priority': priority,
-        'interval': interval,
-        'preemption': preemption,
-        'accept_mode': accept_mode
-    }
-    cmd['cmd']['descr']         = "create vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
+    cmd['cmd']['func']          = "vpp_vrrp_dev_id_to_sw_if_index"
+    cmd['cmd']['module']        = "fwtranslate_add_vrrp_group"
+    cmd['cmd']['params']        = { 'dev_id':  dev_id }
+    cmd['cmd']['descr']         = f"resolve sw_if_index by vrrp dev_id (virtual_router_id={virtual_router_id})"
     cmd['cmd']['cache_ret_val'] = ('sw_if_index', cache_key)
-    cmd['revert'] = {}
-    cmd['revert']['func']      = "vpp_vrrp_add_del_vr"
-    cmd['revert']['module']    = "fwutils"
-    cmd['revert']['params'] = {
-        'is_add': 0,
-        'dev_id': dev_id,
-        'virtual_router_id': virtual_router_id,
-        'virtual_router_ip': virtual_router_ip,
-        'priority': priority,
-        'interval': interval,
-        'preemption': preemption,
-        'accept_mode': accept_mode
-    }
-    cmd['revert']['descr']      = "delete vrrp vr (virtual_router_id=%s)" % (virtual_router_id)
     cmd_list.append(cmd)
+
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']      = "call_vpp_api"
+    cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['cmd']['params']    = {
+        'api':  "vrrp_vr_add_del",
+        'args': {
+            'is_add': 1,
+            'vr_id': virtual_router_id,
+            'priority': priority,
+            'flags': (preemption_flag|accept_mode_flag),
+            'addrs': [ipaddress.ip_address(virtual_router_ip)],
+            'n_addrs': 1,
+            'interval': interval,
+            'substs': [{ 'add_param': 'sw_if_index', 'val_by_key': cache_key }]
+        }
+    }
+    cmd['cmd']['descr']         = f"create vrrp vr (virtual_router_id={virtual_router_id})"
+    cmd['revert'] = {}
+    cmd['revert']['func']      = "call_vpp_api"
+    cmd['revert']['object']    = "fwglobals.g.router_api.vpp_api"
+    cmd['revert']['params'] = {
+        'api':  "vrrp_vr_add_del",
+        'args': {
+            'is_add': 0,
+            'vr_id': virtual_router_id,
+            'priority': priority,
+            'flags': (preemption_flag|accept_mode_flag),
+            'addrs': [ipaddress.ip_address(virtual_router_ip)],
+            'n_addrs': 1,
+            'interval': interval,
+            'substs': [{ 'add_param': 'sw_if_index', 'val_by_key': cache_key }]
+        }
+    }
+    cmd['revert']['descr']      = f"delete vrrp vr (virtual_router_id={virtual_router_id})"
+    cmd_list.append(cmd)
+
+    is_switch = fwutils.is_bridged_interface(dev_id)
+    if is_switch:
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']      = "call_vpp_api"
+        cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+        cmd['cmd']['params']    = {
+            'api':  "sw_interface_set_mac_address",
+            'args': {
+                'substs': [
+                    { 'add_param': 'sw_if_index', 'val_by_key': cache_key },
+                    { 'add_param': 'mac_address', 'val_by_func': 'vpp_vrrp_get_mac_address', 'arg': virtual_router_id }
+                ]
+            }
+        }
+        cmd['cmd']['descr']         = f"set VRRP mac address on the bvi interface (virtual_router_id={virtual_router_id})"
+        cmd['revert'] = {}
+        cmd['revert']['func']      = "call_vpp_api"
+        cmd['revert']['object']    = "fwglobals.g.router_api.vpp_api"
+        cmd['revert']['params']    = {
+            'api':  "sw_interface_set_mac_address",
+            'args': {
+                'substs': [
+                    { 'add_param': 'sw_if_index', 'val_by_key': cache_key },
+                    { 'add_param': 'mac_address', 'val_by_func': 'loopback_mac_address_by_sw_if_index', 'arg_by_key': cache_key }
+                ]
+            }
+        }
+        cmd['revert']['descr']      = f"remove VRRP mac address on the bvi interface (virtual_router_id={virtual_router_id})"
+        cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}

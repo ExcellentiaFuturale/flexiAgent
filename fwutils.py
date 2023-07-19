@@ -4290,88 +4290,21 @@ def dev_id_get_parent (dev_id):
         parent_dev_id = dev_id
     return parent_dev_id
 
-def vpp_loopback_get_mac_address(sw_if_index):
+def loopback_mac_address_by_sw_if_index(sw_if_index):
     mac = "de:ad:00:00:%0.4x" % sw_if_index
     mac = mac[:-2] + ':' + mac[-2:]
-    return mac
+    return mac_str_to_bytes(mac)
 
 def vpp_vrrp_get_mac_address(vr_id):
     mac = "00:00:5e:00:01%0.2x" % vr_id
     mac = mac[:-2] + ':' + mac[-2:]
-    return mac
+    return mac_str_to_bytes(mac)
 
-def vpp_vrrp_add_del_vr(is_add, dev_id, virtual_router_id, virtual_router_ip, priority, interval, preemption, accept_mode, result_cache=None):
-    preemption_flag  = 0x1 if preemption else 0  # see VRRP_API_VR_PREEMPT = 1 in vrrp_api.json
-    accept_mode_flag = 0x2 if accept_mode else 0 # see VRRP_API_VR_ACCEPT = 2 in vrrp_api.json
-
-    is_switch = False
+def dev_id_to_bvi_or_ifc_sw_if_index(dev_id, cache_key=None, result_cache=None):
     sw_if_index = dev_id_to_bvi_sw_if_index(dev_id)
-    if sw_if_index:
-       is_switch = True
-    else:
-       sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
-
-    with FwCfgMultiOpsWithRevert() as handler:
-        try:
-            handler.exec(
-                func=fwglobals.g.router_api.vpp_api.vpp.call,
-                params={
-                    'api_name': 'vrrp_vr_add_del',
-                    'is_add': is_add,
-                    'vr_id': virtual_router_id,
-                    'priority': priority,
-                    'flags': (preemption_flag|accept_mode_flag),
-                    'addrs': [ipaddress.ip_address(virtual_router_ip)],
-                    'n_addrs': 1,
-                    'interval': interval,
-                    'sw_if_index': sw_if_index
-                },
-                revert_func=fwglobals.g.router_api.vpp_api.vpp.call,
-                revert_params={
-                    'api_name': 'vrrp_vr_add_del',
-                    'is_add': 0 if is_add else 1,
-                    'vr_id': virtual_router_id,
-                    'priority': priority,
-                    'flags': (preemption_flag|accept_mode_flag),
-                    'addrs': [ipaddress.ip_address(virtual_router_ip)],
-                    'n_addrs': 1,
-                    'interval': interval,
-                    'sw_if_index': sw_if_index
-                }
-            )
-
-            if is_switch:
-                if is_add:
-                    set_mac_address = vpp_vrrp_get_mac_address(virtual_router_id)
-                    revert_mac_address = vpp_loopback_get_mac_address(sw_if_index)
-                else:
-                    set_mac_address = vpp_loopback_get_mac_address(sw_if_index)
-                    revert_mac_address = vpp_vrrp_get_mac_address(virtual_router_id)
-
-                handler.exec(
-                    func=fwglobals.g.router_api.vpp_api.vpp.call,
-                    params={
-                        'api_name': 'sw_interface_set_mac_address',
-                        'sw_if_index': sw_if_index,
-                        'mac_address': mac_str_to_bytes(set_mac_address)
-                    },
-                    revert_func=fwglobals.g.router_api.vpp_api.vpp.call,
-                    revert_params={
-                        'api_name': 'sw_interface_set_mac_address',
-                        'sw_if_index': sw_if_index,
-                        'mac_address': mac_str_to_bytes(revert_mac_address)
-                    }
-                )
-        except Exception as e:
-            fwglobals.log.error(f"vpp_vrrp_add_del_vr({is_add, str(result_cache)}) failed: {str(e)}")
-            handler.revert(e)
-
-    # Store 'sw_if_index' in cache if provided by caller.
-    #
-    if result_cache and result_cache['result_attr'] == 'sw_if_index':
-        key = result_cache['key']
-        result_cache['cache'][key] = sw_if_index
-
+    if not sw_if_index:
+        sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
+    return sw_if_index
 
 def vpp_vrrp_add_del_track_interfaces(track_interfaces, is_add, vr_id, sw_if_index, track_ifc_priority, mandatory_only):
     interfaces = []

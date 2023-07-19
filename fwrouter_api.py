@@ -216,13 +216,15 @@ class FWROUTER_API(FwCfgRequestHandler):
            tracked by VPP.
         '''
         router_ids_by_dev_id = {} # -> { dev_id: [5] }
-        dev_ids_by_router_id = {} # -> { 5: { [dev_id]: None }
         vrrp_group_by_router_id  = {} # -> { 5: vrrp_group  }
         tracked_dev_ids = [] # -> [dev_id, dev_id]
 
         vrrp_groups = fwglobals.g.router_cfg.get_vrrp_groups()
         for vrrp_group in vrrp_groups:
             router_id = vrrp_group.get('virtualRouterId')
+
+            if not router_id in vrrp_group_by_router_id:
+                vrrp_group_by_router_id[router_id] = vrrp_group
 
             for track_interface in vrrp_group.get('trackInterfaces', []):
                 is_optional = not track_interface.get('isMandatory', True)
@@ -234,20 +236,13 @@ class FWROUTER_API(FwCfgRequestHandler):
                     router_ids_by_dev_id[track_ifc_dev_id] = []
                 router_ids_by_dev_id[track_ifc_dev_id].append(router_id)
 
-                if not router_id in dev_ids_by_router_id:
-                    dev_ids_by_router_id[router_id] = { }
-                dev_ids_by_router_id[router_id][track_ifc_dev_id] = None
-
-                if not router_id in vrrp_group_by_router_id:
-                    vrrp_group_by_router_id[router_id] = vrrp_group
-
         vpp_vrrp_groups = fwglobals.g.router_api.vpp_api.vpp.call('vrrp_vr_track_if_dump', dump_all=1)
         for vpp_vrrp_group in vpp_vrrp_groups:
             for tracked_interface in vpp_vrrp_group.ifs:
                 dev_id = fwutils.vpp_sw_if_index_to_dev_id(tracked_interface.sw_if_index)
                 tracked_dev_ids.append(dev_id)
 
-        return router_ids_by_dev_id, dev_ids_by_router_id, vrrp_group_by_router_id, tracked_dev_ids
+        return router_ids_by_dev_id, vrrp_group_by_router_id, tracked_dev_ids
 
     def _sync_link_status(self):
         '''Monitors link status (CARRIER-UP / NO-CARRIER or CABLE PLUGGED / CABLE UNPLUGGED)
@@ -280,10 +275,11 @@ class FWROUTER_API(FwCfgRequestHandler):
         interfaces = fwglobals.g.router_cfg.get_interfaces()
 
         vrrp_router_ids_by_tracked_dev_id, \
-        vrrp_tracked_dev_ids_by_router_id, \
         vrrp_group_by_router_id, \
         vpp_vrrp_tracked_dev_ids \
             = self._get_vrrp_optional_tracked_interfaces()
+
+        vrrp_tracked_dev_ids_by_router_id = {id: {} for id in vrrp_group_by_router_id}
 
         for interface in interfaces:
             dev_id = interface['dev_id']
@@ -308,12 +304,12 @@ class FWROUTER_API(FwCfgRequestHandler):
                     restart_dhcpd = True
 
             virtual_router_ids = vrrp_router_ids_by_tracked_dev_id.get(dev_id, [])
-            if status_vpp == 'down' and dev_id not in vpp_vrrp_tracked_dev_ids:
+            if status_vpp == 'down':
                 for virtual_router_id in virtual_router_ids:
-                    vrrp_tracked_dev_ids_by_router_id[virtual_router_id][dev_id] = False
-            elif status_vpp == 'up' and dev_id in vpp_vrrp_tracked_dev_ids:
+                    vrrp_tracked_dev_ids_by_router_id[virtual_router_id].update({dev_id: False})
+            elif status_vpp == 'up':
                 for virtual_router_id in virtual_router_ids:
-                    vrrp_tracked_dev_ids_by_router_id[virtual_router_id][dev_id] = True
+                    vrrp_tracked_dev_ids_by_router_id[virtual_router_id].update({dev_id: True})
 
         if restart_dhcpd:
             time.sleep(1)  # give a second to Linux to reconfigure interface
@@ -322,10 +318,11 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         self._check_and_update_vrrp_tracked_interfaces(
             vrrp_tracked_dev_ids_by_router_id,
-            vrrp_group_by_router_id
+            vrrp_group_by_router_id,
+            vpp_vrrp_tracked_dev_ids
         )
 
-    def _check_and_update_vrrp_tracked_interfaces(self, vrrp_tracked_dev_ids_by_router_id, vrrp_group_by_router_id):
+    def _check_and_update_vrrp_tracked_interfaces(self, dev_ids_by_router_id, vrrp_group_by_router_id, tracked_dev_ids):
         '''
         We have two types of VRRP tracked interfaces - Mandatory and Optional.
         Mandatory means that the router should go to the Backup state if this interface fails. Regardless of other interfaces.
@@ -339,42 +336,51 @@ class FWROUTER_API(FwCfgRequestHandler):
         2. If *all* of them fail and they don't exist in VPP, we add them to VPP.
         3. If one of them is OK and they exist in VPP, we remove them from VPP.
         '''
-        for virtual_router_id in vrrp_tracked_dev_ids_by_router_id:
-            # "vpp_vrrp_tracked_dev_ids[virtual_router_id]" is a dict looks as follows:
+        for router_id in dev_ids_by_router_id:
+            # "dev_ids_by_router_id[router_id]" is a dict looks as follows:
             # {
             #   5: {
             #       [dev_id_1]: False,
             #       [dev_id_2]: True,
             #   }
             # }
-            # Each interface's link status can be True, False, or None.
+            # Each interface's link status can be True, False indicates if link is up or down.
             #
-            # True means the link is up and exists in VPP as tracked interface.
-            # False means the link is down and does not exist in VPP as tracked interface.
-            # None means the link is synchronized with VPP, and there is no need to change anything.
-            #
-            # Now, by using "set", create a list of unique values of link statuses.
-            # If the "set" is [False] it means that all interfaces are in down state
-            # If the set has "True", regardless of other values, it means that not all interfaces are down.
-            link_statuses = list(set(vrrp_tracked_dev_ids_by_router_id[virtual_router_id].values()))
-            is_all_optional_down = len(link_statuses) == 1 and link_statuses[0] == False
-            at_least_one_optional_is_up = True in link_statuses
+            # First, check if all optional links are down to figure out what should be configured in vpp.
+            is_all_optional_links_down = True
+            for link_status in dev_ids_by_router_id[router_id].values():
+                if link_status == True:
+                    is_all_optional_links_down = False
+                    break
 
-            if at_least_one_optional_is_up:
-                mandatory_only = 1
-            elif is_all_optional_down:
-                mandatory_only = 0
+            # once we know what should be configured in vpp, go and check if vpp is synced
+            is_vpp_synced = True
+            if is_all_optional_links_down:
+                # If all down, all of them should be in vpp
+                for tracked_dev_id in dev_ids_by_router_id[router_id]:
+                    if tracked_dev_id not in tracked_dev_ids:
+                        is_vpp_synced = False
+                        break
             else:
-                continue
+                # If not all down, none of them should be in vpp
+                for tracked_dev_id in dev_ids_by_router_id[router_id]:
+                    if tracked_dev_id in tracked_dev_ids:
+                        is_vpp_synced = False
+                        break
+            if is_vpp_synced:
+                return
 
             self.log.debug(f"Going to change optional VRRP tracked interfaces")
-            vrrp_group = vrrp_group_by_router_id[virtual_router_id]
+            # if all down, we adding all interfaces, mandatory and optionals,
+            # if not all down, we adding only mandatory interfaces
+            mandatory_only = 0 if is_all_optional_links_down else 1
+            vrrp_group = vrrp_group_by_router_id[router_id]
             sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(vrrp_group['devId'])
 
             fwutils.vpp_vrrp_add_del_track_interfaces(
                 is_add=0,
                 track_interfaces=vrrp_group['trackInterfaces'],
-                vr_id=virtual_router_id,
+                vr_id=router_id,
                 track_ifc_priority=(vrrp_group['priority'] - 1), # vpp allows priority less than VRID priority
                 mandatory_only=0,
                 sw_if_index=sw_if_index
@@ -383,7 +389,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             fwutils.vpp_vrrp_add_del_track_interfaces(
                 is_add=1,
                 track_interfaces=vrrp_group['trackInterfaces'],
-                vr_id=virtual_router_id,
+                vr_id=router_id,
                 track_ifc_priority=(vrrp_group['priority'] - 1), # vpp allows priority less than VRID priority
                 mandatory_only=mandatory_only, # if even one optional is ok, add only mandatory,
                 sw_if_index=sw_if_index
