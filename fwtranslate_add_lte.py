@@ -43,13 +43,15 @@ def add_lte(params):
     cmd['cmd']['func']   = "call"
     cmd['cmd']['object'] = "fwglobals.g.modems"
     cmd['cmd']['params'] = {
-        'dev_id': dev_id,
-        'func': 'connect',
-        'apn': apn,
-        'user': user,
-        'password': password,
-        'auth': auth,
-        'pin': pin,
+                            'dev_id': dev_id,
+                            'func': 'connect',
+                            'args': {
+                                'apn': apn,
+                                'user': user,
+                                'password': password,
+                                'auth': auth,
+                                'pin': pin,
+                            }
     }
     cmd['cmd']['descr'] = "Connect LTE to the cellular provider"
     cmd['revert'] = {}
@@ -64,7 +66,11 @@ def add_lte(params):
 
     cmd['cmd']['func']   = "call"
     cmd['cmd']['object'] = "fwglobals.g.modems"
-    cmd['cmd']['params'] = { 'dev_id': dev_id, 'func': 'configure_interface', 'metric': metric }
+    cmd['cmd']['params'] = {
+                            'dev_id': dev_id,
+                            'func': 'configure_interface',
+                            'args': { 'metric': metric }
+    }
     cmd['cmd']['descr'] = "Configure LTE IP and gateway on linux interface if vpp is not run"
     cmd_list.append(cmd)
 
