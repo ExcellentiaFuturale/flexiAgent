@@ -661,10 +661,11 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                         interface[addr_af_name + 'Mask'] = (str(IPAddress(addr.netmask).netmask_bits()))
 
             if is_lte:
+                modem = fwglobals.g.modems.get(dev_id)
                 interface['dhcp'] = 'yes'
                 interface['deviceParams'] = {
-                    'initial_pin1_state': fwlte.get_pin_state(dev_id),
-                    'default_settings':   fwlte.get_default_settings(dev_id)
+                    'initial_pin1_state': modem.get_pin_state(),
+                    'default_settings':   modem.get_default_settings()
                 }
 
             elif is_wifi:
@@ -1003,12 +1004,12 @@ def _build_dev_id_to_vpp_if_name_maps(dev_id, vpp_if_name):
             lte_vpp_if_name = data.split(' ', 1)[0]
             if 'dpdk-tap' in lte_vpp_if_name: #VPP LTE tap name starts with dpdk-tap
                 if lte_dev_id_dict is None:
-                    lte_dev_id_dict = fwlte.get_lte_interfaces_dev_ids()
-                for _, linux_dev_name in lte_dev_id_dict.items():
+                    lte_dev_id_dict = fwlte.get_if_names_by_dev_ids()
+                for _, linux_if_name in lte_dev_id_dict.items():
                     # For LTE tap interfaces, data would have device args as 'iface=tap_wwan0'
-                    lte_dev_args = 'iface=' + generate_linux_interface_short_name("tap", linux_dev_name)
+                    lte_dev_args = 'iface=' + generate_linux_interface_short_name("tap", linux_if_name)
                     if lte_dev_args in data:
-                        lte_dev_bus = build_interface_dev_id(linux_dev_name)
+                        lte_dev_bus = build_interface_dev_id(linux_if_name)
                         fwglobals.g.cache.dev_id_to_vpp_if_name[lte_dev_bus] = lte_vpp_if_name
                         fwglobals.g.cache.vpp_if_name_to_dev_id[lte_vpp_if_name] = lte_dev_bus
 
@@ -3781,7 +3782,7 @@ def replace_file_variables(template_fname, replace_fname):
                 }
             }
         ]
-    
+
     The function loops on the requests and replaces the variables.
     There are two types of variables. template and specific field.
     If we want to use all the data for a given interface (addr, gateway, dev_id etc.), we can use __INTERFACE_1__ only.
@@ -3837,28 +3838,6 @@ def replace_file_variables(template_fname, replace_fname):
                 requests[req] = replace(requests[req])
 
     return requests
-
-def is_need_to_reload_lte_drivers():
-    # 2c7c:0125 is the vendor Id and product Id of quectel EC25 card.
-    ec25_card_exists = os.popen('lsusb | grep 2c7c:0125').read()
-    if not ec25_card_exists:
-        return False
-
-    # check if driver is associated with the modem. (see the problematic output "Driver=").
-    # venko@PCENGINE2:~$ lsusb -t
-    # /:  Bus 02.Port 1: Dev 1, Class=root_hub, Driver=ehci-pci/2p, 480M
-    #     |__ Port 1: Dev 2, If 0, Class=Hub, Driver=hub/4p, 480M
-    #         |__ Port 3: Dev 3, If 0, Class=Vendor Specific Class, Driver=option, 480M
-    #         |__ Port 3: Dev 3, If 1, Class=Vendor Specific Class, Driver=option, 480M
-    #         |__ Port 3: Dev 3, If 2, Class=Vendor Specific Class, Driver=option, 480M
-    #         |__ Port 3: Dev 3, If 3, Class=Vendor Specific Class, Driver=option, 480M
-    #         |__ Port 3: Dev 3, If 4, Class=Communications, Driver=, 480M
-    #         |__ Port 3: Dev 3, If 5, Class=CDC Data, Driver=option, 480M
-    cmd = 'lsusb -t | grep "Class=Communications" | awk -F "Driver=" {\'print $2\'} | awk -F "," {\'print $1\'}'
-    driver = os.popen(cmd).read().strip()
-    if not driver:
-        return True
-    return False
 
 def send_udp_packet(src_ip, src_port, dst_ip, dst_port, dev_name, msg):
     """
@@ -4235,7 +4214,7 @@ def get_version(version_str):
 
 def version_less_than(source_version_str, target_version_str):
     source_major_version, source_minor_version = get_version(source_version_str)
-    target_major_version, target_minor_version = get_version(target_version_str) 
+    target_major_version, target_minor_version = get_version(target_version_str)
     return source_major_version < target_major_version or \
         (source_major_version == target_major_version and source_minor_version < target_minor_version)
 

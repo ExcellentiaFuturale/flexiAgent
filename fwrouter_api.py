@@ -286,10 +286,9 @@ class FWROUTER_API(FwCfgRequestHandler):
             if (fwutils.is_vlan_interface(dev_id=dev_id) or
                fwpppoe.is_pppoe_interface(dev_id=dev_id)):
                 continue
-            tap_name    = fwutils.dev_id_to_tap(dev_id)
-
-            if fwlte.is_lte_interface_by_dev_id(dev_id=dev_id):
-                connected = fwlte.mbim_is_connected(dev_id)
+            tap_name = fwutils.dev_id_to_tap(dev_id)
+            if fwlte.is_lte_interface_by_dev_id(dev_id):
+                connected = fwglobals.g.modems.get(dev_id).is_connected()
                 status_vpp = 'up' if connected else 'down'
             else:
                 status_vpp = fwutils.vpp_get_interface_status(dev_id=dev_id).get('link')
@@ -427,8 +426,8 @@ class FWROUTER_API(FwCfgRequestHandler):
                     # Update ARP entry of LTE interface
                     try:
                         if new['deviceType'] == 'lte':
-                            fwlte.set_arp_entry(is_add=False, dev_id=dev_id, gw=old['gw'])
-                            fwlte.set_arp_entry(is_add=True,  dev_id=dev_id, gw=new['gw'])
+                            fwglobals.g.modems.get(dev_id).set_arp_entry(is_add=False, gw=old['gw'])
+                            fwglobals.g.modems.get(dev_id).set_arp_entry(is_add=True, gw=new['gw'])
                     except:
                         pass
 

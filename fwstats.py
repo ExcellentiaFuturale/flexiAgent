@@ -199,7 +199,7 @@ class FwStatistics(FwObject):
                     self.stats['vrrp'] = self._get_vrrp_status()
 
         if renew_lte_wifi_stats:
-            self.stats['lte_stats'] = fwlte.get_stats()
+            self.stats['lte_stats'] = fwglobals.g.modems.get_stats()
             self.stats['wifi_stats'] = fwwifi.get_stats()
         else:
             self.stats['lte_stats'] = prev_stats['lte_stats']

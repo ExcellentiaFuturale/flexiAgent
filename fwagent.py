@@ -597,10 +597,7 @@ def reset(soft=False, quiet=False, pppoe=False):
         if os.path.exists(fwglobals.g.DEVICE_TOKEN_FILE):
             os.remove(fwglobals.g.DEVICE_TOKEN_FILE)
 
-        # stop LTE connections
-        lte_interfaces = fwlte.get_lte_interfaces_dev_ids()
-        for dev_id in lte_interfaces:
-            fwlte.disconnect(dev_id, False)
+        fwlte.disconnect_all()
 
         if not pppoe and fwpppoe.is_pppoe_configured():
             fwglobals.log.info("Note: this command doesn't clear pppoe configuration, use 'fwagent reset -p' to clear it")
