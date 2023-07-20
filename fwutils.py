@@ -18,9 +18,10 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
+import base64
+import binascii
 import copy
 import ctypes
-import binascii
 import datetime
 import glob
 import hashlib
@@ -28,43 +29,42 @@ import inspect
 import ipaddress
 import json
 import os
-import time
 import platform
-import subprocess
-import psutil
-import socket
 import re
+import shutil
+import socket
+import subprocess
+import sys
+import time
+import traceback
+import zlib
+
+import psutil
+import yaml
+from netaddr import IPAddress, IPNetwork
+
+import fw_os_utils
 import fwglobals
+import fwlte
 import fwnetplan
 import fwpppoe
-import shutil
-import sys
-import traceback
-import yaml
-import zlib
-import base64
-
-from netaddr import IPNetwork, IPAddress
-
-import fwlte
-import fwwifi
 import fwqos
 import fwtranslate_add_switch
 import fwutils
-import fw_os_utils
-
-from fwapplications_api import call_applications_hook, FWAPPLICATIONS_API
-from fwfrr          import FwFrr
-from fwikev2        import FwIKEv2
-from fwmultilink    import FwMultilink
-from fwpolicies     import FwPolicies
-from fwrouter_cfg   import FwRouterCfg
-from fwsystem_cfg   import FwSystemCfg
-from fwroutes       import FwLinuxRoutes
-from fwjobs         import FwJobs
-from fwapplications_cfg import FwApplicationsCfg
-from fwwan_monitor  import get_wan_failover_metric
+import fwwifi
 from fw_traffic_identification import FwTrafficIdentifications
+from fwapplications_api import FWAPPLICATIONS_API, call_applications_hook
+from fwapplications_cfg import FwApplicationsCfg
+from fwcfg_request_handler import FwCfgMultiOpsWithRevert
+from fwfrr import FwFrr
+from fwikev2 import FwIKEv2
+from fwjobs import FwJobs
+from fwmultilink import FwMultilink
+from fwpolicies import FwPolicies
+from fwrouter_cfg import FwRouterCfg
+from fwroutes import FwLinuxRoutes
+from fwsystem_cfg import FwSystemCfg
+from fwwan_monitor import get_wan_failover_metric
 from tools.common.fw_vpp_startupconf import FwStartupConf
 
 libc = None
@@ -643,7 +643,7 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                 # bridged interface is only when vpp is running
                 bridge_addr = is_bridged_interface(dev_id)
                 if bridge_addr:
-                    tap_name = bridge_addr_to_bvi_interface_tap(bridge_addr)
+                    tap_name = bridge_addr_to_bvi_tap(bridge_addr)
 
                 if tap_name:
                     if_name = tap_name
@@ -1088,6 +1088,13 @@ def pci_bytes_to_str(pci_bytes):
     function = (bytes) & 0x7
     return "%04x:%02x:%02x.%02x" % (domain, bus, slot, function)
 
+def dev_id_to_bvi_sw_if_index(dev_id):
+    bridge_addr = fwutils.is_bridged_interface(dev_id)
+    if not bridge_addr:
+        return None
+
+    return bridge_addr_to_bvi_sw_if_index(bridge_addr)
+
 def dev_id_to_vpp_sw_if_index(dev_id, verbose=True):
     """Convert device bus address into VPP sw_if_index.
 
@@ -1148,24 +1155,30 @@ def vpp_if_name_to_sw_if_index(vpp_if_name):
 
     return None
 
-# 'bridge_addr_to_bvi_interface_tap' function get the addr of the interface in a bridge
-# and return the tap interface of the BVI interface
-def bridge_addr_to_bvi_interface_tap(bridge_addr):
+def bridge_addr_to_bvi_sw_if_index(bridge_addr):
     if not fw_os_utils.vpp_does_run():
         return None
 
     # check if interface indeed in a bridge
     bd_id = fwtranslate_add_switch.get_bridge_id(bridge_addr)
     if not bd_id:
-        fwglobals.log.error('bridge_addr_to_bvi_interface_tap: failed to fetch bridge id for address: %s' % str(bridge_addr))
+        fwglobals.log.error('bridge_addr_to_bvi_tap: failed to fetch bridge id for address: %s' % str(bridge_addr))
         return None
 
     vpp_bridges_det = fwglobals.g.router_api.vpp_api.vpp.call('bridge_domain_dump', bd_id=bd_id)
     if not vpp_bridges_det:
-        fwglobals.log.error('bridge_addr_to_bvi_interface_tap: failed to fetch vpp bridges for bd_id %s' % str(bd_id))
+        fwglobals.log.error('bridge_addr_to_bvi_tap: failed to fetch vpp bridges for bd_id %s' % str(bd_id))
         return None
 
-    bvi_sw_if_index = vpp_bridges_det[0].bvi_sw_if_index
+    return vpp_bridges_det[0].bvi_sw_if_index
+
+def bridge_addr_to_bvi_tap(bridge_addr):
+    """Convert bridge address to the tap interface name.
+
+    :param bridge_addr:        Bridge IP Address
+    :returns: Linux TAP interface name.
+    """
+    bvi_sw_if_index = bridge_addr_to_bvi_sw_if_index(bridge_addr)
     return vpp_sw_if_index_to_tap(bvi_sw_if_index)
 
 # 'dev_id_to_tap' function maps interface referenced by dev_id, e.g '0000:00:08.00'
@@ -1449,6 +1462,10 @@ def vpp_tap_connect(linux_tap_if_name):
     vppctl_cmd = "tap connect %s" % linux_tap_if_name
     fwglobals.log.debug("vppctl " + vppctl_cmd)
     subprocess.check_call("sudo vppctl %s" % vppctl_cmd, shell=True)
+
+def vpp_sw_if_index_to_dev_id(sw_if_index):
+    vpp_if_name = vpp_sw_if_index_to_name(sw_if_index)
+    return vpp_if_name_to_dev_id(vpp_if_name)
 
 def vpp_sw_if_index_to_name(sw_if_index):
     """Convert VPP sw_if_index into VPP interface name.
@@ -2368,25 +2385,60 @@ def restore_dhcpd_files():
     except Exception as e:
         fwglobals.log.error("restore_dhcpd_files: %s" % str(e))
 
-def modify_dhcpd(is_add, params):
-    """Modify /etc/dhcp/dhcpd configuration file.
-
-    :param params:   Parameters from flexiManage.
-
-    :returns: String with sed commands.
+def modify_dhcpd_conf(is_add, dev_id, range_start, range_end, dns, mac_assign, options, max_lease_time, default_lease_time):
+    """Modify /etc/dhcp/dhcpd.conf configuration file.
     """
-    dev_id      = params['interface']
-    range_start = params.get('range_start', '')
-    range_end   = params.get('range_end', '')
-    dns         = params.get('dns', {})
-    mac_assign  = params.get('mac_assign', {})
+
+    def _split_ip_range(range_start, range_end, exclude_ips):
+        """Calculate and return string contains the DHCP "range" option.
+
+        DHCP doesn't exclude the IPs configured as routers from the IP pool.
+        It may offer clients the router ip itself.
+        The function removes the router IPs from the range configured
+        by the user by splitting the range into multiple ranges.
+
+        :param range_start:     String of the first ip of the range (172.16.1.100)
+        :param range_end:       String of the last ip of the range (172.16.1.200)
+        :param exclude_ips:     List contains the IPs to exclude
+
+        :returns: list of ranges
+
+        """
+
+        start_ip = ipaddress.ip_address(range_start)
+        end_ip = ipaddress.ip_address(range_end)
+        ranges = [[start_ip, end_ip]]
+
+        # convert the excluded IPs to ip_address objects.
+        # we also sort the list as the order is mandatory for below logic
+        exclude_ips = sorted(list(map(lambda x: ipaddress.ip_address(x.strip()), exclude_ips)))
+
+        for exclude_ip in exclude_ips:
+            range_start_ip, range_end_ip = ranges[-1]
+
+            if exclude_ip < range_start_ip or exclude_ip > range_end_ip:
+                continue
+
+            if exclude_ip == range_start_ip:
+                ranges[-1][0] = (exclude_ip + 1)
+                continue
+
+            if exclude_ip == range_end_ip:
+                ranges[-1][1] = (exclude_ip - 1)
+                continue
+
+            ranges[-1][1] = (exclude_ip - 1)
+            ranges.append([exclude_ip + 1, range_end_ip])
+
+        ranges = list(map(lambda range_arr: f'range {range_arr[0]} {range_arr[1]}', ranges))
+        return ranges
 
     interfaces = fwglobals.g.router_cfg.get_interfaces(dev_id=dev_id)
     if not interfaces:
-        return (False, "modify_dhcpd: %s was not found" % (dev_id))
+        return (False, "modify_dhcpd_conf: %s was not found" % (dev_id))
 
     address = IPNetwork(interfaces[0]['addr'])
-    router = str(address.ip)
+    ifc_ip = str(address.ip)
     subnet = str(address.network)
     netmask = str(address.netmask)
 
@@ -2395,22 +2447,32 @@ def modify_dhcpd(is_add, params):
     remove_string = 'sudo sed -e "/subnet %s netmask %s {/,/}/d" ' \
                     '-i %s; ' % (subnet, netmask, config_file)
 
-    range_string = ''
-    if range_start:
-        range_string = 'range %s %s;\n' % (range_start, range_end)
-
+    conf_lines = []
     if dns:
-        dns_string = 'option domain-name-servers'
-        for d in dns[:-1]:
-            dns_string += ' %s,' % d
-        dns_string += ' %s;\n' % dns[-1]
-    else:
-        dns_string = ''
+        conf_lines.append(f'option domain-name-servers {", ".join(dns)}')
 
+    if default_lease_time:
+        conf_lines.append(f'default-lease-time {default_lease_time}')
+    if max_lease_time:
+        conf_lines.append(f'max-lease-time {max_lease_time}')
+
+    routers_dhcp_option = None
+    for option in options:
+        name = option['option']
+        value = option['value']
+        conf_lines.append(f'option {name} {value}')
+        if name == 'routers':
+            routers_dhcp_option = value
+
+    # if user didn't provide a gateway, we put the interface ip
+    if not routers_dhcp_option:
+        conf_lines.append(f'option routers {ifc_ip}')
+        routers_dhcp_option = ifc_ip
+
+    ranges_lines = _split_ip_range(range_start, range_end, routers_dhcp_option.split(','))
+    conf_lines.extend(ranges_lines)
     subnet_string = 'subnet %s netmask %s' % (subnet, netmask)
-    routers_string = 'option routers %s;\n' % (router)
-    dhcp_string = 'echo "' + subnet_string + ' {\n' + range_string + \
-                 routers_string + dns_string + '}"' + ' | sudo tee -a %s;' % config_file
+    dhcp_string = 'echo "' + subnet_string + ' {\n' + ';\n'.join(conf_lines) + ';\n}"' + ' | sudo tee -a %s;' % config_file
 
     if is_add == 1:
         exec_string = remove_string + dhcp_string
@@ -2418,13 +2480,20 @@ def modify_dhcpd(is_add, params):
         exec_string = remove_string
 
     for mac in mac_assign:
+        host = mac.get('host')
         remove_string_2 = 'sudo sed -e "/host %s {/,/}/d" ' \
-                          '-i %s; ' % (mac['host'], config_file)
+                          '-i %s; ' % (host, config_file)
 
-        host_string = 'host %s {\n' % (mac['host'])
+        host_string = 'host %s {\n' % (host)
         ethernet_string = 'hardware ethernet %s;\n' % (mac['mac'])
         ip_address_string = 'fixed-address %s;\n' % (mac['ipv4'])
-        mac_assign_string = 'echo "' + host_string + ethernet_string + ip_address_string + \
+
+        host_name_string = ''
+        use_host_name_as_dhcp_option = mac.get('useHostNameAsDhcpOption')
+        if use_host_name_as_dhcp_option:
+            host_name_string = f'option host-name {host};\n'
+
+        mac_assign_string = 'echo "' + host_string + ethernet_string + ip_address_string + host_name_string + \
                             '}"' + ' | sudo tee -a %s;' % config_file
 
         if is_add == 1:
@@ -3213,6 +3282,9 @@ def frr_clean_files():
     if os.path.exists(fwglobals.g.FRR_ZEBRA_FILE + '.sav'): # frr cache file
         os.remove(fwglobals.g.FRR_ZEBRA_FILE + '.sav')
 
+    with FwFrr(fwglobals.g.FRR_DB_FILE) as db_frr:
+        db_frr.clean()
+
 def frr_setup_config():
     '''Setup the /etc/frr/frr.conf file, initializes it and
     ensures that ospf is switched on in the frr configuration'''
@@ -3823,12 +3895,11 @@ def send_udp_packet(src_ip, src_port, dst_ip, dst_port, dev_name, msg):
 
     s.close()
 
-def map_keys_to_acl_ids(acl_ids, arg):
+def map_keys_to_acl_ids(keys, cmd_cache):
     # arg carries command cache
-    keys = acl_ids['keys']
     out_keys = []
     for key in keys:
-        out_keys.append(arg[key])
+        out_keys.append(cmd_cache[key])
     return out_keys
 
 
@@ -3867,7 +3938,7 @@ def set_ip_on_bridge_bvi_interface(bridge_addr, dev_id, is_add):
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
     try:
-        tap = bridge_addr_to_bvi_interface_tap(bridge_addr)
+        tap = bridge_addr_to_bvi_tap(bridge_addr)
         if not tap:
             return (False, 'tap is not found for bvi interface')
 
@@ -4220,6 +4291,35 @@ def dev_id_get_parent (dev_id):
     else:
         parent_dev_id = dev_id
     return parent_dev_id
+
+def build_loopback_mac_address(sw_if_index):
+    mac = "de:ad:00:00:%0.4x" % sw_if_index
+    mac = mac[:-2] + ':' + mac[-2:]
+    return mac_str_to_bytes(mac)
+
+def vpp_vrrp_add_del_track_interfaces(track_interfaces, is_add, vr_id, sw_if_index, track_ifc_priority, mandatory_only):
+    interfaces = []
+    for track_interface in track_interfaces:
+        is_mandatory = track_interface.get('isMandatory', True)
+        if mandatory_only and not is_mandatory:
+            continue
+
+        track_ifc_dev_id = track_interface.get('devId')
+        track_sw_if_index = dev_id_to_vpp_sw_if_index(track_ifc_dev_id)
+        interfaces.append({ 'sw_if_index': track_sw_if_index, 'priority': track_ifc_priority })
+
+    if not interfaces:
+        return (True, None)
+
+    fwglobals.log.debug(f"{'Adding' if is_add else 'Removing'} VRRP tracked interfaces from VPP. interfaces={str(interfaces)}")
+    fwglobals.g.router_api.vpp_api.vpp.call(
+        'vrrp_vr_track_if_add_del',
+        is_add=is_add,
+        vr_id=vr_id,
+        n_ifs=len(interfaces),
+        ifs=interfaces,
+        sw_if_index=sw_if_index
+    )
 
 class DYNAMIC_INTERVAL():
     def __init__(self, value, max_value_on_failure):

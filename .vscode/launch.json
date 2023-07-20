@@ -23,6 +23,9 @@
             "subProcess": true,
             "sudo": true,
             "justMyCode": false,
+            "autoReload": {
+                "enable": true
+            },
             "cwd": "${workspaceRoot}",
             "env": {
                 "PYTHONPATH": "${workspaceRoot}/flexiagent"

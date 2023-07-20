@@ -72,6 +72,7 @@ class FwStatistics(FwObject):
             'lte_stats':            {},
             'wifi_stats':           {},
             'application_stats':    {},
+            'vrrp':                 {},
         }
 
     def __enter__(self):
@@ -103,6 +104,30 @@ class FwStatistics(FwObject):
             else:
                 renew_lte_wifi_stats = ticks % (timeout * 2) == 0 # Renew LTE and WiFi statistics every second update
                 self._update_stats(renew_lte_wifi_stats=renew_lte_wifi_stats)
+
+
+    def _get_vrrp_status(self):
+
+        def _get_vrrp_state_str(enum):
+            if enum & 0:
+                return 'Initialize'
+            if enum & 1:
+                return 'Backup'
+            if enum & 2:
+                return 'Master'
+            if enum & 3:
+                return 'Interface Down'
+            return ''
+        
+        states = {}
+        vrrp_dump = fwglobals.g.router_api.vpp_api.vpp.call('vrrp_vr_dump')
+        for vrrp in vrrp_dump:
+            vrid = vrrp.config.vr_id
+            states[vrid] = {}
+            states[vrid]['state'] = _get_vrrp_state_str(vrrp.runtime.state)
+            states[vrid]['adjusted_priority'] = vrrp.runtime.tracking.priority
+
+        return states
 
     def _update_stats(self, renew_lte_wifi_stats=True):
         """Update statistics dictionary using values retrieved from VPP interfaces.
@@ -171,6 +196,7 @@ class FwStatistics(FwObject):
                     self.stats['tunnel_stats'] = tunnel_stats
                     self.stats['period'] = self.stats['time'] - prev_stats['time']
                     self.stats['running'] = True if fw_os_utils.vpp_does_run() else False
+                    self.stats['vrrp'] = self._get_vrrp_status()
 
         if renew_lte_wifi_stats:
             self.stats['lte_stats'] = fwlte.get_stats()
@@ -192,7 +218,8 @@ class FwStatistics(FwObject):
                 'lte_stats': stats['lte_stats'],
                 'wifi_stats': stats['wifi_stats'],
                 'health': self._get_system_health(),
-                'utc': time.time()
+                'utc': time.time(),
+                'vrrp': stats['vrrp'],
             })
 
 
@@ -262,6 +289,7 @@ class FwStatistics(FwObject):
                 'stats': {},
                 'application_stats': apps_stats,
                 'tunnel_stats': {},
+                'vrrp': {},
                 'lte_stats': {},
                 'wifi_stats': {},
                 'health': {},
