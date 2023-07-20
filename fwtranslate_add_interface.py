@@ -648,19 +648,21 @@ def add_interface(params):
         cmd['cmd']['func']    = "call"
         cmd['cmd']['object']  = "fwglobals.g.modems"
         cmd['cmd']['params'] = {
-                                'is_add': True,
-                                'dev_id': dev_id,
-                                'func': 'set_arp_entry',
-                                'substs': [ {'add_param': 'gw', 'val_by_func': 'fwlte.get_ip_configuration', 'arg':[dev_id, 'gateway']} ]
+                                    'dev_id': dev_id,
+                                    'func': 'set_arp_entry',
+                                    'args': {
+                                        'is_add': True,
+                                        'substs': [ {'add_param': 'gw', 'val_by_func': 'fwlte.get_ip_configuration', 'arg':[dev_id, 'gateway']} ]
+                                    }
         }
         cmd['cmd']['descr'] = f"set arp entry for lte interface {dev_id}"
         cmd['revert'] = {}
         cmd['revert']['func']   = "call"
         cmd['revert']['object'] = "fwglobals.g.modems"
         cmd['revert']['params'] = {
-                                'is_add': False,
-                                'func': 'set_arp_entry',
-                                'dev_id': dev_id,
+                                    'dev_id': dev_id,
+                                    'func': 'set_arp_entry',
+                                    'args': { 'is_add': False }
         }
         cmd['revert']['descr']  = f"remove arp entry for lte interface {dev_id}"
         cmd_list.append(cmd)
@@ -671,18 +673,18 @@ def add_interface(params):
         cmd['cmd']['object']  = "fwglobals.g.modems"
         cmd['cmd']['descr']   = "add traffic control configuration to LTE interface"
         cmd['cmd']['params']  = {
-                    'is_add': 1,
-                    'func': 'add_del_traffic_control',
-                    'dev_id': dev_id,
+                                    'dev_id': dev_id,
+                                    'func': 'add_del_traffic_control',
+                                    'args': { 'is_add': True }
         }
         cmd['revert'] = {}
         cmd['revert']['func']   = "call"
         cmd['revert']['object'] = "fwglobals.g.modems"
         cmd['revert']['descr']  = "remove traffic control configuration from LTE interface"
         cmd['revert']['params'] = {
-                    'is_add': 0,
-                    'func': 'add_del_traffic_control',
-                    'dev_id': dev_id,
+                                    'dev_id': dev_id,
+                                    'func': 'add_del_traffic_control',
+                                    'args': { 'is_add': False }
         }
         cmd_list.append(cmd)
 

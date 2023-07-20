@@ -1374,10 +1374,10 @@ class FwModemManager():
         modem = self.modems.get(dev_id)
         return modem
 
-    def call(self, dev_id, func, *args, **kwargs):
+    def call(self, dev_id, func, args):
         modem = self.get(dev_id)
         modem_func = getattr(modem, func)
-        return modem_func(*args, **kwargs)
+        return modem_func(**args)
 
     def get_stats(self):
         out = {}
