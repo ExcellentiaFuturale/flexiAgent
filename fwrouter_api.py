@@ -97,6 +97,9 @@ fwrouter_translators = {
     'modify-vxlan-config':      {'module': __import__('fwtranslate_add_vxlan_config'), 'api':'modify_vxlan_config',
                                     'supported_params': 'modify_vxlan_config_supported_params'
                                 },
+
+    'add-vrrp-group':           {'module': __import__('fwtranslate_add_vrrp_group'), 'api':'add_vrrp_group'},
+    'remove-vrrp-group':        {'module': __import__('fwtranslate_revert'),   'api':'revert'},
 }
 
 class FwRouterState(enum.Enum):
@@ -207,6 +210,40 @@ class FWROUTER_API(FwCfgRequestHandler):
                 f"_sync_interfaces: {str(e)} ({traceback.format_exc()})")
 
 
+    def _get_vrrp_optional_tracked_interfaces(self):
+        '''This function builds helper mappings between dev-id of the VRRP tracked interfaces
+           and VRRP Virtual Router ID-s. As well it fetches dev-ids of the interfaces actually
+           tracked by VPP.
+        '''
+        router_ids_by_dev_id = {} # -> { dev_id: [5] }
+        vrrp_group_by_router_id  = {} # -> { 5: vrrp_group  }
+        tracked_dev_ids = [] # -> [dev_id, dev_id]
+
+        vrrp_groups = fwglobals.g.router_cfg.get_vrrp_groups()
+        for vrrp_group in vrrp_groups:
+            router_id = vrrp_group.get('virtualRouterId')
+
+            if not router_id in vrrp_group_by_router_id:
+                vrrp_group_by_router_id[router_id] = vrrp_group
+
+            for track_interface in vrrp_group.get('trackInterfaces', []):
+                is_optional = not track_interface.get('isMandatory', True)
+                if not is_optional:
+                    continue
+
+                track_ifc_dev_id = track_interface.get('devId')
+                if not track_ifc_dev_id in router_ids_by_dev_id:
+                    router_ids_by_dev_id[track_ifc_dev_id] = []
+                router_ids_by_dev_id[track_ifc_dev_id].append(router_id)
+
+        vpp_vrrp_groups = fwglobals.g.router_api.vpp_api.vpp.call('vrrp_vr_track_if_dump', dump_all=1)
+        for vpp_vrrp_group in vpp_vrrp_groups:
+            for tracked_interface in vpp_vrrp_group.ifs:
+                dev_id = fwutils.vpp_sw_if_index_to_dev_id(tracked_interface.sw_if_index)
+                tracked_dev_ids.append(dev_id)
+
+        return router_ids_by_dev_id, vrrp_group_by_router_id, tracked_dev_ids
+
     def _sync_link_status(self):
         '''Monitors link status (CARRIER-UP / NO-CARRIER or CABLE PLUGGED / CABLE UNPLUGGED)
         of the VPP physical interfaces and updates the correspondent tap inject
@@ -236,16 +273,25 @@ class FWROUTER_API(FwCfgRequestHandler):
         restart_dhcpd = False
 
         interfaces = fwglobals.g.router_cfg.get_interfaces()
+
+        vrrp_router_ids_by_tracked_dev_id, \
+        vrrp_group_by_router_id, \
+        vpp_vrrp_tracked_dev_ids \
+            = self._get_vrrp_optional_tracked_interfaces()
+
+        vrrp_tracked_dev_ids_by_router_id = {id: {} for id in vrrp_group_by_router_id}
+
         for interface in interfaces:
-            if (fwutils.is_vlan_interface(dev_id=interface['dev_id']) or
-               fwpppoe.is_pppoe_interface(dev_id=interface['dev_id'])):
+            dev_id = interface['dev_id']
+            if (fwutils.is_vlan_interface(dev_id=dev_id) or
+               fwpppoe.is_pppoe_interface(dev_id=dev_id)):
                 continue
-            tap_name    = fwutils.dev_id_to_tap(interface['dev_id'])
-            if fwlte.is_lte_interface_by_dev_id(dev_id=interface['dev_id']):
-                connected = fwglobals.g.modems.get(interface['dev_id']).is_connected()
+            tap_name = fwutils.dev_id_to_tap(dev_id)
+            if fwlte.is_lte_interface_by_dev_id(dev_id):
+                connected = fwglobals.g.modems.get(dev_id).is_connected()
                 status_vpp = 'up' if connected else 'down'
             else:
-                status_vpp = fwutils.vpp_get_interface_status(dev_id=interface['dev_id']).get('link')
+                status_vpp = fwutils.vpp_get_interface_status(dev_id=dev_id).get('link')
             (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{tap_name}/carrier")
             if status_vpp == 'down' and ok and status_linux and int(status_linux)==1:
                 self.log.debug(f"detected NO-CARRIER for {tap_name}")
@@ -253,13 +299,96 @@ class FWROUTER_API(FwCfgRequestHandler):
             elif status_vpp == 'up' and ok and status_linux and int(status_linux)==0:
                 self.log.debug(f"detected CARRIER UP for {tap_name}")
                 fwutils.os_system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
-                if interface['dev_id'] in fwglobals.g.db.get('router_api',{}).get('dhcpd',{}).get('interfaces',{}):
+                if dev_id in fwglobals.g.db.get('router_api',{}).get('dhcpd',{}).get('interfaces',{}):
                     restart_dhcpd = True
+
+            virtual_router_ids = vrrp_router_ids_by_tracked_dev_id.get(dev_id, [])
+            if status_vpp == 'down':
+                for virtual_router_id in virtual_router_ids:
+                    vrrp_tracked_dev_ids_by_router_id[virtual_router_id].update({dev_id: False})
+            elif status_vpp == 'up':
+                for virtual_router_id in virtual_router_ids:
+                    vrrp_tracked_dev_ids_by_router_id[virtual_router_id].update({dev_id: True})
 
         if restart_dhcpd:
             time.sleep(1)  # give a second to Linux to reconfigure interface
             cmd = 'systemctl restart isc-dhcp-server'
             fwutils.os_system(cmd, '_sync_link_status')
+
+        self._check_and_update_vrrp_tracked_interfaces(
+            vrrp_tracked_dev_ids_by_router_id,
+            vrrp_group_by_router_id,
+            vpp_vrrp_tracked_dev_ids
+        )
+
+    def _check_and_update_vrrp_tracked_interfaces(self, dev_ids_by_router_id, vrrp_group_by_router_id, vpp_tracked_dev_ids):
+        '''
+        We have two types of VRRP tracked interfaces - Mandatory and Optional.
+        Mandatory means that the router should go to the Backup state if this interface fails. Regardless of other interfaces.
+        Optional means that the router should go to the Backup state only if *all* optional interfaces fail.
+
+        VPP doesn't support this functionality and terminology of Mandatory and optional.
+        We introduced it to simplify the configuration for our users.
+        The Mandatory interfaces, we add in "fwtranslate_add_vrrp".
+        For optional, we added the logic below.
+        1. We monitor the link status of the optional interfaces.
+        2. If *all* of them fail and they don't exist in VPP, we add them to VPP.
+        3. If one of them is OK and they exist in VPP, we remove them from VPP.
+        '''
+        for router_id in dev_ids_by_router_id:
+            # "dev_ids_by_router_id[router_id]" is a dict looks as follows:
+            # {
+            #   5: {
+            #       [dev_id_1]: False,
+            #       [dev_id_2]: True,
+            #   }
+            # }
+            # Each interface's link status can be True, False indicates if link is up or down.
+            #
+            # First, check if all optional links are down to figure out what should be configured in vpp.
+            is_all_optional_links_down = False if True in dev_ids_by_router_id[router_id].values() else True
+
+            # once we know what should be configured in vpp, go and check if vpp is synced
+            is_vpp_synced = True
+            if is_all_optional_links_down:
+                # If all down, all of them should be in vpp
+                for dev_id in dev_ids_by_router_id[router_id]:
+                    if dev_id not in vpp_tracked_dev_ids:
+                        is_vpp_synced = False
+                        break
+            else:
+                # If not all down, none of them should be in vpp
+                for dev_id in dev_ids_by_router_id[router_id]:
+                    if dev_id in vpp_tracked_dev_ids:
+                        is_vpp_synced = False
+                        break
+            if is_vpp_synced:
+                return
+
+            self.log.debug(f"Going to change optional VRRP tracked interfaces")
+            # if all down, we adding all interfaces, mandatory and optionals,
+            # if not all down, we adding only mandatory interfaces
+            mandatory_only = 0 if is_all_optional_links_down else 1
+            vrrp_group = vrrp_group_by_router_id[router_id]
+            sw_if_index = fwutils.dev_id_to_vpp_sw_if_index(vrrp_group['devId'])
+
+            fwutils.vpp_vrrp_add_del_track_interfaces(
+                is_add=0,
+                track_interfaces=vrrp_group['trackInterfaces'],
+                vr_id=router_id,
+                track_ifc_priority=(vrrp_group['priority'] - 1), # vpp allows priority less than VRID priority
+                mandatory_only=0,
+                sw_if_index=sw_if_index
+            )
+
+            fwutils.vpp_vrrp_add_del_track_interfaces(
+                is_add=1,
+                track_interfaces=vrrp_group['trackInterfaces'],
+                vr_id=router_id,
+                track_ifc_priority=(vrrp_group['priority'] - 1), # vpp allows priority less than VRID priority
+                mandatory_only=mandatory_only, # if even one optional is ok, add only mandatory,
+                sw_if_index=sw_if_index
+            )
 
     def _sync_addresses(self, old_interfaces, new_interfaces):
         """Monitors VPP interfaces for IP/GW change and updates system as follows:
@@ -1073,7 +1202,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         '''
         add_order = [
             'add-ospf', 'add-routing-filter', 'add-routing-bgp', 'add-switch',
-            'add-interface', 'add-vxlan-config', 'add-tunnel', 'add-route', 'add-dhcp-config',
+            'add-interface', 'add-vrrp-group', 'add-vxlan-config', 'add-tunnel', 'add-route', 'add-dhcp-config',
             'add-application', 'add-multilink-policy', 'add-firewall-policy',
             'add-qos-traffic-map', 'add-qos-policy'
         ]
@@ -1593,7 +1722,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-qos-traffic-map',
             'add-qos-policy',
             'add-route',            # Routes should come after tunnels and after BGP, as they might use them!
-            'add-dhcp-config'
+            'add-dhcp-config',
+            'add-vrrp-group',
         ]
         last_msg = None
         messages = self.cfg_db.dump(types=types)

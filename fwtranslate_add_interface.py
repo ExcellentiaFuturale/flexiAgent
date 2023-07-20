@@ -589,7 +589,7 @@ def add_interface(params):
             func = 'dev_id_to_tap'
             arg = dev_id
             if bridge_addr:
-                func = 'bridge_addr_to_bvi_interface_tap'
+                func = 'bridge_addr_to_bvi_tap'
                 arg = bridge_addr
 
             cmd = {}

@@ -266,25 +266,30 @@ def add_interface_attachment(ingress_ids=[], egress_ids=[], dev_ids=[]):
     """
     cmd = {}
 
-    add_params = {
-        'is_add': True,
-        'dev_ids': dev_ids,
-        'substs': [{ 'add_param': 'ingress_acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': ingress_ids}, 'func_uses_cmd_cache':  True },
-                   { 'add_param': 'egress_acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': egress_ids}, 'func_uses_cmd_cache':  True }]
-    }
-    revert_params = copy.deepcopy(add_params)
-    revert_params['is_add'] = False
-
     cmd['cmd'] = {}
     cmd['cmd']['func']   = "add_acl_rules_interfaces"
     cmd['cmd']['module'] = "fw_acl_command_helpers"
     cmd['cmd']['descr'] = "Attach ACLs to interface"
-    cmd['cmd']['params'] = add_params
+    cmd['cmd']['params'] = {
+        'is_add': True,
+        'dev_ids': dev_ids,
+        'substs': [
+            { 'add_param': 'ingress_acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': ingress_ids, 'cmd_cache': fwglobals.g.router_api.cmd_cache } },
+            { 'add_param': 'egress_acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': egress_ids, 'cmd_cache': fwglobals.g.router_api.cmd_cache } }
+        ]
+    }
     cmd['revert'] = {}
     cmd['revert']['func']   = "add_acl_rules_interfaces"
     cmd['revert']['module'] = "fw_acl_command_helpers"
     cmd['revert']['descr'] = "Detach ACLs from interface"
-    cmd['revert']['params'] = revert_params
+    cmd['revert']['params'] = {
+        'is_add': False,
+        'dev_ids': dev_ids,
+        'substs': [
+            { 'add_param': 'ingress_acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': ingress_ids, 'cmd_cache': fwglobals.g.router_api.cmd_cache } },
+            { 'add_param': 'egress_acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': egress_ids, 'cmd_cache': fwglobals.g.router_api.cmd_cache } }
+        ]
+    }
 
     return cmd
 
@@ -301,7 +306,7 @@ def translate_cache_acl_rule(dev_id, direction, acl_ids, type = "outbound"):
     params = {
         'dev_id': dev_id,
         'direction': direction,
-        'substs': [{ 'add_param': 'acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': acl_ids}, 'func_uses_cmd_cache':  True }]
+        'substs': [{ 'add_param': 'acl_ids', 'val_by_func': 'map_keys_to_acl_ids', 'arg': {'keys': acl_ids, 'cmd_cache': fwglobals.g.router_api.cmd_cache } }]
     }
 
     cmd['cmd'] = {}
