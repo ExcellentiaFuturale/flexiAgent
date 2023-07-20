@@ -1362,7 +1362,7 @@ class FwModemManager():
                 modem = FwModem(dev_id)
                 self.modems[dev_id] = modem
             except Exception as e:
-                self.log.error(f'failed to load modem. dev_id={dev_id}, err={str(e)}')
+                fwglobals.log.error(f'failed to load modem. dev_id={dev_id}, err={str(e)}')
 
     def get(self, dev_id):
         modem = self.modems.get(dev_id)
