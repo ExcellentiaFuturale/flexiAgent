@@ -176,11 +176,8 @@ class FwLinuxModem(FwObject):
                     at_port = port.split('(at)')[0].strip()
                     self.at_ports.append(at_port)
 
-            try:
-                self._mmcli_enable_modem()
-                self._mmcli_signal_setup()
-            except:
-                pass
+            self._mmcli_enable_modem()
+            self._mmcli_signal_setup()
 
             break
 
@@ -191,16 +188,16 @@ class FwLinuxModem(FwObject):
 
     def _mmcli_enable_modem(self):
         try:
-            self._mmcli_modem_exec(f'-e', False)
+            self._mmcli_exec(f'-m {self.modem_manager_id} -e', False)
         except Exception as e:
             self.log.error(f"_mmcli_enable_modem: failed to enable modem. err={str(e)}")
             pass
 
     def _mmcli_signal_setup(self):
         try:
-            self._mmcli_modem_exec(f'--signal-setup=5', False)
+            self._mmcli_exec(f'-m {self.modem_manager_id} --signal-setup=5', False)
         except Exception as e:
-            self.log.error(f"_mmcli_signal_setup: failed to enable modem. err={str(e)}")
+            self.log.error(f"_mmcli_signal_setup: failed to setup signal. err={str(e)}")
             pass
 
     def _run_qmicli_command(self, cmd, print_error=False):
@@ -1394,7 +1391,7 @@ class FwModemManager():
         modem = self.modems.get(dev_id)
         return modem
 
-    def call(self, dev_id, func, args):
+    def call(self, dev_id, func, args = {}):
         modem = self.get(dev_id)
         modem_func = getattr(modem, func)
         return modem_func(**args)
