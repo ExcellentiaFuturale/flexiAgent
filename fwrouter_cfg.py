@@ -80,6 +80,7 @@ class FwRouterCfg(FwCfgDatabase):
                 'add-ospf',
                 'add-qos-traffic-map',
                 'add-qos-policy',
+                'add-vrrp-group',
             ]
 
         return FwCfgDatabase.dump(self, types, escape, full, keys)
@@ -109,6 +110,7 @@ class FwRouterCfg(FwCfgDatabase):
             'add-routing-filter':   "============= ROUTING FILTERS =============",
             'add-qos-traffic-map':  "============= QOS TRAFFIC MAP =============",
             'add-qos-policy':       "============= QOS POLICY =============",
+            'add-vrrp-group':       "============= VRRP =============",
         }
 
         cfg = self.dump(types=types, escape=escape, full=full, keys=True)
@@ -154,6 +156,9 @@ class FwRouterCfg(FwCfgDatabase):
         if not bgp_req:
             return None
         return bgp_req[0]
+
+    def get_vrrp_groups(self):
+        return self.get_requests('add-vrrp-group')
 
     def get_vxlan_config(self):
         vxlan_config = self.get_requests('add-vxlan-config')

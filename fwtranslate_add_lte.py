@@ -29,24 +29,48 @@ def add_lte(params):
     """
     cmd_list = []
 
+    dev_id = params['dev_id']
+
+    metric = params.get('metric')
+    apn = params.get('apn')
+    user = params.get('user')
+    password = params.get('password')
+    auth = params.get('auth')
+    pin = params.get('pin')
+
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['func']   = "connect"
-    cmd['cmd']['module'] = "fwlte"
-    cmd['cmd']['params'] = { 'params': params }
+    cmd['cmd']['func']   = "call"
+    cmd['cmd']['object'] = "fwglobals.g.modems"
+    cmd['cmd']['params'] = {
+                            'dev_id': dev_id,
+                            'func': 'connect',
+                            'args': {
+                                'apn': apn,
+                                'user': user,
+                                'password': password,
+                                'auth': auth,
+                                'pin': pin,
+                            }
+    }
     cmd['cmd']['descr'] = "Connect LTE to the cellular provider"
     cmd['revert'] = {}
-    cmd['revert']['func']   = "disconnect"
-    cmd['revert']['module'] = "fwlte"
-    cmd['revert']['params'] = { 'dev_id': params['dev_id'] }
+    cmd['revert']['func']   = "call"
+    cmd['revert']['object'] = "fwglobals.g.modems"
+    cmd['revert']['params'] = { 'dev_id': dev_id, 'func': 'disconnect' }
     cmd['revert']['descr'] = "Disconnect LTE from the cellular provider"
     cmd_list.append(cmd)
 
     cmd = {}
     cmd['cmd'] = {}
-    cmd['cmd']['func']   = "configure_interface"
-    cmd['cmd']['module'] = "fwlte"
-    cmd['cmd']['params'] = { 'params': params }
+
+    cmd['cmd']['func']   = "call"
+    cmd['cmd']['object'] = "fwglobals.g.modems"
+    cmd['cmd']['params'] = {
+                            'dev_id': dev_id,
+                            'func': 'configure_interface',
+                            'args': { 'metric': metric }
+    }
     cmd['cmd']['descr'] = "Configure LTE IP and gateway on linux interface if vpp is not run"
     cmd_list.append(cmd)
 

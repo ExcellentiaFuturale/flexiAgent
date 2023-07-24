@@ -151,7 +151,9 @@ request_handlers = {
     'add-vxlan-config':             {'name': '_call_router_api', 'sign': True},
     'remove-vxlan-config':          {'name': '_call_router_api', 'sign': True},
     'modify-vxlan-config':          {'name': '_call_router_api', 'sign': True},
-
+    'add-vrrp-group':               {'name': '_call_router_api', 'sign': True},
+    'remove-vrrp-group':            {'name': '_call_router_api', 'sign': True},
+    
     # System API
     'add-lte':                      {'name': '_call_system_api', 'sign': True},
     'remove-lte':                   {'name': '_call_system_api', 'sign': True},
@@ -168,7 +170,7 @@ request_handlers = {
     'exec_timeout':                 {'name': '_call_os_api', 'processing': {'synchronous': True, 'exclusive': False}},
 }
 
-global g_initialized
+g             = None
 g_initialized = False
 
 @Pyro4.expose
@@ -339,6 +341,7 @@ class Fwglobals(FwObject):
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
         self.fwagent = None
         self.pppoe = None
+        self.modems = None
         self.loadsimulator = None
         self.routes = None
         self.router_api = None
@@ -467,12 +470,12 @@ class Fwglobals(FwObject):
         self.stun_wrapper     = FwStunWrap()
         self.ikev2            = FwIKEv2()
         self.pppoe            = FwPppoeClient()
+        self.modems           = fwlte.FwModemManager()
         self.routes           = FwRoutes()
         self.qos              = FwQoS()
         self.statistics       = FwStatistics()
         self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
         self.message_handler  = FwMessageHandler()
-
 
         self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
 
@@ -503,6 +506,7 @@ class Fwglobals(FwObject):
         del self.message_handler
         del self.routes
         del self.pppoe; self.pppoe = None
+        del self.modems
         del self.statistics; self.statistics = None
         del self.wan_monitor
         del self.stun_wrapper
@@ -869,6 +873,8 @@ class Fwglobals(FwObject):
                 func = getattr(self.stun_wrapper, func_name)
             elif object_name == 'fwglobals.g.jobs':
                 func = getattr(self.jobs, func_name)
+            elif object_name == 'fwglobals.g.modems':
+                func = getattr(self.modems, func_name)
             else:
                 return None
         except Exception as e:

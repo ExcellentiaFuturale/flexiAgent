@@ -77,9 +77,7 @@ def main():
     os.system('systemctl stop flexiwan-router')
     fwutils.stop_vpp()
 
-    lte_interfaces = fwlte.get_lte_interfaces_dev_ids()
-    for dev_id in lte_interfaces:
-        fwlte.disconnect(dev_id, False)
+    fwlte.disconnect_all()
 
     # reset startup.conf file
     if os.path.exists(fwglobals.g.VPP_CONFIG_FILE_BACKUP):
