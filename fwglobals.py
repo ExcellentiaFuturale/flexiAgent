@@ -167,7 +167,7 @@ request_handlers = {
     'exec_timeout':                 {'name': '_call_os_api', 'processing': {'synchronous': True, 'exclusive': False}},
 }
 
-global g_initialized
+g             = None
 g_initialized = False
 
 @Pyro4.expose
