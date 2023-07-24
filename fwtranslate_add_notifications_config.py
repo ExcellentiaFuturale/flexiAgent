@@ -4,7 +4,7 @@
 # flexiWAN SD-WAN software - flexiEdge, flexiManage.
 # For more information go to https://flexiwan.com
 #
-# Copyright (C) 2019  flexiWAN Ltd.
+# Copyright (C) 2023  flexiWAN Ltd.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Affero General Public License as published by the Free
@@ -25,28 +25,30 @@
 # Translates request:
 # {
 #     "entity": "agent",
-#     "message": "set-device-notifications",
+#     "message": "add-notifications-config",
 #     "params": {
-#         "rules": [{
-#           warningThreshold: null,
-#           criticalThreshold: null,
-#           thresholdUnit: 'C°',
-#           severity: 'critical',
-#           immediateEmail: false,
-#           resolvedAlert: true,
-#           _id: ....,
-#           event: 'Temperature'
+#         "rules": {
+#           Temperature: {
+#              warningThreshold: null,
+#              criticalThreshold: null,
+#              thresholdUnit: 'C°',
+#              severity: 'critical',
+#              immediateEmail: false,
+#              resolvedAlert: true,
+#              sendWebHook: false,
+#              type: device
 #           },
-#           warningThreshold: null,
-#           criticalThreshold: null,
-#           thresholdUnit: 'C°',
-#           severity: 'critical',
-#           immediateEmail: false,
-#           resolvedAlert: true,
-#           _id: ....,
-#           event: 'Device connection'
+#           Hard drive usage: {
+#              warningThreshold: 85,
+#              criticalThreshold: 95,
+#              thresholdUnit: '%',
+#              severity: null,
+#              immediateEmail: false,
+#              resolvedAlert: true,,
+#              sendWebHook: false,
+#              type: device
 #           },..........
-#           }]
+#           }
 #     }
 # }
 

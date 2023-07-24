@@ -65,6 +65,7 @@ from fwthread import FwRouterThreading
 from fwwan_monitor import FwWanMonitor
 from fwikev2 import FwIKEv2
 from fw_traffic_identification import FwTrafficIdentifications
+from fwnotifications import EventMonitor
 
 # sync flag indicated if module implement sync logic.
 # IMPORTANT! Please keep the list order. It indicates the sync priorities
@@ -450,6 +451,7 @@ class Fwglobals(FwObject):
         if not fw_os_utils.vpp_does_run():
             fwlte.reload_lte_drivers_if_needed()
 
+        self.notifications    = EventMonitor()
         self.db               = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! Load data at the first place!
         self.fwagent          = FwAgent(handle_signals=False)
         self.router_cfg       = FwRouterCfg(self.ROUTER_CFG_FILE) # IMPORTANT! Initialize database at the first place!
