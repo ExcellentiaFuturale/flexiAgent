@@ -122,9 +122,12 @@ class FwLinuxModem(FwObject):
             output = self._mmcli_exec(f'-m {modem_path} {flag}', json_format)
             return output
         except Exception as e:
-            if "modem is not enabled yet" in str(e):
-                self._mmcli_modem_exec('-e', False)
-            elif "couldn't find modem" not in str(e):
+            err_str = str(e)
+            if "modem is not enabled yet" in err_str:
+                self._mmcli_enable_modem()
+            if "modem has no extended signal capabilities" in err_str:
+                self._mmcli_signal_setup()
+            elif "couldn't find modem" not in err_str:
                 raise e
 
             # try to load modem once again. ModemManager may re-index it with a different "modem_path".
@@ -174,14 +177,31 @@ class FwLinuxModem(FwObject):
                     self.at_ports.append(at_port)
 
             try:
-                self._mmcli_modem_exec(f'-e', False)
-                self._mmcli_modem_exec(f'--signal-setup=5', False)
+                self._mmcli_enable_modem()
+                self._mmcli_signal_setup()
             except:
                 pass
 
             break
 
+        if not modem_info:
+            raise Exception(f"cannot load modem from ModemManager. modem_list={str(modem_list)}. usb_device={self.usb_device}")
+
         return modem_info
+
+    def _mmcli_enable_modem(self):
+        try:
+            self._mmcli_modem_exec(f'-e', False)
+        except Exception as e:
+            self.log.error(f"_mmcli_enable_modem: failed to enable modem. err={str(e)}")
+            pass
+
+    def _mmcli_signal_setup(self):
+        try:
+            self._mmcli_modem_exec(f'--signal-setup=5', False)
+        except Exception as e:
+            self.log.error(f"_mmcli_signal_setup: failed to enable modem. err={str(e)}")
+            pass
 
     def _run_qmicli_command(self, cmd, print_error=False):
         if self.mode != 'QMI':
