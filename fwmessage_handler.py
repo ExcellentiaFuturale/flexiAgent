@@ -21,9 +21,10 @@
 ################################################################################
 
 import fwglobals
-import fw_os_utils
+import fwroutes
 import fwthread
 import fwutils
+import fw_os_utils
 
 import queue
 from functools import partial
@@ -226,12 +227,15 @@ class FwMessageHandler(FwObject):
                 self.log.debug(f"_handle_received_request: wait for {rt.thread_names} threads to finish")
             rt.request_cond_var.wait_for(rt.is_no_active_threads)
 
-            default_route_before = fwutils.get_default_route()
+            default_route_before = fwroutes.get_default_route()
 
             reply = fwglobals.g.handle_request(request, original_request)
 
-            default_route_after = fwutils.get_default_route()
-            if default_route_before[2] != default_route_after[2]:  # reconnect the agent to avoid WebSocket timeout
+            default_route_after = fwroutes.get_default_route()
+
+            if default_route_before.dev != default_route_after.dev or \
+               default_route_before.via != default_route_after.via:
+                # reconnect the agent to avoid WebSocket timeout
                 self.log.debug(f"reconnect as default route was changed: '{default_route_before}' -> '{default_route_after}'")
                 fwglobals.g.fwagent.reconnect()
 

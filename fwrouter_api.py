@@ -614,16 +614,12 @@ class FWROUTER_API(FwCfgRequestHandler):
             #    It should be restarted on addition/removal interfaces in order
             #    to capture new interface /release old interface back to Linux.
             # 2. Agent should reconnect proactively to flexiManage.
-            #    It should reconnect on add-/remove-/modify-interface, as they might
-            #    impact on connection under the connection legs. So it might take
-            #    a time for connection to detect the change, to report error and to
-            #    reconnect again by the agent infinite connection loop with random
-            #    sleep between retrials.
+            #    It should reconnect on QoS policy change.
             # 3. Gateway of WAN interfaces are going to be modified.
             #    In this case we have to ping the GW-s after modification.
             #    See explanations on that workaround later in this function.
             #
-            (restart_router, reconnect_agent, gateways, restart_dhcp_service) = self._analyze_request(request)
+            (restart_router, gateways, restart_dhcp_service) = self._analyze_request(request)
 
             # Some requests require preprocessing.
             # For example before handling 'add-application' the currently configured
@@ -655,12 +651,6 @@ class FWROUTER_API(FwCfgRequestHandler):
                 if not restart_router: # on router restart DHCP service is restarted as well
                     cmd = 'systemctl restart isc-dhcp-server'
                     fwutils.os_system(cmd, 'call')
-
-            # Reconnect agent if needed
-            #
-            if reconnect_agent:
-                fwglobals.g.fwagent.reconnect()
-
 
             ########################################################################
             # Workaround for following problem:
@@ -873,13 +863,6 @@ class FWROUTER_API(FwCfgRequestHandler):
                         'remove-interface' was detected in request.
                         These operations require vpp restart as vpp should
                         capture or should release interfaces back to Linux.
-            reconnect_agent - Agent should reconnect proactively to flexiManage
-                        as add-/remove-/modify-interface was detected in request.
-                        These operations might cause connection failure on TCP
-                        timeout, which might take up to few minutes to detect!
-                        As well the connection retrials are performed with some
-                        interval. To short no connectivity periods we close and
-                        retries the connection proactively.
             gateways - List of gateways to be pinged after request handling
                         in order to solve following problem:
                         today 'modify-interface' request is replaced by pair of
@@ -902,16 +885,6 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         """
 
-        def _should_reconnect_agent_on_modify_interface(old_params, new_params):
-            if new_params.get('addr') and new_params.get('addr') != old_params.get('addr'):
-                return True
-            if new_params.get('gateway') != old_params.get('gateway'):
-                return True
-            if new_params.get('metric') != old_params.get('metric'):
-                return True
-            return False
-
-
         def _should_restart_on_qos_policy(request):
             hqos_enabled, total_cpu_workers = fwglobals.g.qos.get_hqos_worker_state()
             if (self.state_is_started() is False) or (total_cpu_workers < 2):
@@ -927,25 +900,20 @@ class FWROUTER_API(FwCfgRequestHandler):
                     return True
             return False
 
-        (restart_router, reconnect_agent, gateways, restart_dhcp_service) = \
-        (False,          False,           [],       False,              )
+        (restart_router, gateways, restart_dhcp_service) = \
+        (False,          [],       False,              )
 
         def _return_val():
-            return (restart_router, reconnect_agent, gateways, restart_dhcp_service)
+            return (restart_router, gateways, restart_dhcp_service)
 
         if re.match('(add|remove)-interface', request['message']):
             if self.state_is_started():
                 if not fwutils.is_vlan_interface(dev_id=request['params']['dev_id']):
                     restart_router  = True
-                    reconnect_agent = True
-            return _return_val()
-        elif re.match('(start|stop)-router', request['message']):
-            reconnect_agent = True
             return _return_val()
         elif re.match('(add|remove)-qos-policy', request['message']):
             if (_should_restart_on_qos_policy(request)):
                 restart_router  = True
-                reconnect_agent = True
             return _return_val()
         elif request['message'] != 'aggregated':
             return _return_val()
@@ -954,12 +922,9 @@ class FWROUTER_API(FwCfgRequestHandler):
             modify_requests = {}
             only_vlans = True
             for _request in request['params']['requests']:
-                if re.match('(start|stop)-router', _request['message']):
-                    reconnect_agent = True
-                elif re.match('(add|remove)-qos-policy', _request['message']):
+                if re.match('(add|remove)-qos-policy', _request['message']):
                     if (_should_restart_on_qos_policy(_request)):
                         restart_router  = True
-                        reconnect_agent = True
                 elif re.match('(add|remove)-interface', _request['message']):
                     dev_id = _request['params']['dev_id']
                     # Track vlans. If only vlans in add/remove requests do not restart router
@@ -980,33 +945,6 @@ class FWROUTER_API(FwCfgRequestHandler):
                         if gw:
                             gateways.append(gw)
 
-                        # If the interface to be modified is used by the WebSocket
-                        # connection, we have to reconnect the agent.
-                        # We use following heuristic to determine, if the interface
-                        # is used for the WebSocket connection: we assume that
-                        # there is no static route for the flexiManage address,
-                        # so the connection uses the default route.
-                        # Hence, if the default route with the lowest metric
-                        # uses the interface, we should reconnect.
-                        if not reconnect_agent:
-                            (_, _, default_route_dev_id, _, _) = fwutils.get_default_route()
-                            if dev_id == default_route_dev_id:
-                                reconnect_agent = True
-
-                        # If the interface to be modified might become the interface
-                        # for default route due to IP/metric/GW modification,
-                        # we have to reconnect agent too.
-                        #
-                        if not reconnect_agent:
-                            if (_request['message'] == 'add-interface'):
-                                new_params = _request['params']
-                                old_params = add_remove_requests[dev_id]['params']
-                            else:
-                                old_params = _request['params']
-                                new_params = add_remove_requests[dev_id]['params']
-                            if _should_reconnect_agent_on_modify_interface(old_params, new_params):
-                                reconnect_agent = True
-
                         # Move the request to the set of modify-interface-s
                         #
                         del add_remove_requests[dev_id]
@@ -1015,7 +953,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             if add_remove_requests and self.state_is_started():
                 if not only_vlans:
                     restart_router = True
-                reconnect_agent = True
             if modify_requests and self.state_is_started():
                 restart_dhcp_service = True
             return _return_val()
