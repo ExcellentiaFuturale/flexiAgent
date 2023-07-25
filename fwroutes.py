@@ -316,7 +316,15 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
     exist_in_linux = routes_linux.exist(addr, metric, via)
 
     if remove and not exist_in_linux:
-        return (True, None)
+        # There is a chance the route metric was increased by WAN Monitor to (2000000000 + metric).
+        # So, try to find the route with watermarked metric.
+        #
+        metric = metric + fwglobals.g.WAN_FAILOVER_METRIC_WATERMARK
+        if (metric < metric):
+            routes_linux   = FwLinuxRoutes(prefix=addr, preference=metric, proto=proto)
+            exist_in_linux = routes_linux.exist(addr, metric, via)
+            if not exist_in_linux:
+                return (True, None)
 
     if not remove and exist_in_linux:
         return (True, None)
