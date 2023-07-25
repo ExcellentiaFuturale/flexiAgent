@@ -34,14 +34,14 @@ class EventMonitor:
     Alerts are turned off after counting 6 successes for warning alerts, and after counting 6 warnings and successes for critical alerts.
     """
     # Number of success/failure samples to turn off an alert/define a severity to an alert
-    NOTIFICATIONS_CRITICAL_SAMPLES_THRESHOLD = 2
-    NOTIFICATIONS_WARNING_SAMPLES_THRESHOLD = 2
-    NOTIFICATIONS_SUCCESS_SAMPLES_THRESHOLD = 2
+    NOTIFICATIONS_CRITICAL_SAMPLES_THRESHOLD = 6
+    NOTIFICATIONS_WARNING_SAMPLES_THRESHOLD = 6
+    NOTIFICATIONS_SUCCESS_SAMPLES_THRESHOLD = 6
     # Numbers to mark success/warning/critical samples in the samples array
     MARKED_AS_SUCCESS = 0
     MARKED_AS_WARNING = 1
     MARKED_AS_CRITICAL = 2
-    SAMPLES_ARRAY_SIZE = 3
+    SAMPLES_ARRAY_SIZE = 10
 
     alerts = {}
     event_counts = {}
