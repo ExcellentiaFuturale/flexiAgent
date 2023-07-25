@@ -72,14 +72,14 @@ class FwRouteNextHop:
 
 class FwRoute:
     """Class used as a route data."""
-    def __init__(self, prefix, via, dev, proto, metric):
+    def __init__(self, prefix, via, dev, proto, metric, dev_id=None):
         self.key        = FwRouteKey(metric, prefix, via)
         self.prefix     = prefix
         self.via        = via
         self.dev        = dev
         self.proto      = proto
         self.metric     = metric
-        self.dev_id     = fwutils.get_interface_dev_id(dev)
+        self.dev_id     = dev_id if dev_id else fwutils.get_interface_dev_id(dev)
         self.probes     = {}        # Ping results per server
         self.ok         = True      # If True there is connectivity to internet
         self.stats      = {'ifname': '', 'rtt': 0, 'drop_rate':0}    # Connectivity stats results
@@ -91,6 +91,11 @@ class FwRoute:
         if self.metric:
             route += (' metric ' + str(self.metric))
         return route
+
+
+def get_default_route():
+    via, dev, dev_id, proto, metric = fwutils.get_default_route()
+    return FwRoute("0.0.0.0/0", via, dev, proto, metric, dev_id=dev_id)
 
 class FwRoutes(FwObject):
     """Manages all route related activity, e.g. watchdog on sync of static
