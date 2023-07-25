@@ -63,7 +63,8 @@ class FwLinuxModem(FwObject):
         self._initialize()
 
     def _initialize(self):
-        modem_data = self._load_modem_manager_info()
+        self._enable()
+        modem_data = self._load_info_from_modem_manager()
         drivers = modem_data.get('generic', {}).get('drivers', [])
         if 'cdc_mbim' in drivers:
             self.driver = 'cdc_mbim'
@@ -117,26 +118,26 @@ class FwLinuxModem(FwObject):
         '''
         Run ModemManager command for a specific modem index by adding the "-m {modem_path}  flag
         '''
-        modem_path = self.modem_manager_id
+        modem_manager_id = self.modem_manager_id
         try:
-            output = self._mmcli_exec(f'-m {modem_path} {flag}', json_format)
+            output = self._mmcli_exec(f'-m {modem_manager_id} {flag}', json_format)
             return output
         except Exception as e:
             err_str = str(e)
-            if "modem is not enabled yet" in err_str:
-                self._mmcli_enable_modem()
+            if "modem not enabled yet" in err_str:
+                self._modem_manager_enable_modem()
             if "modem has no extended signal capabilities" in err_str:
-                self._mmcli_signal_setup()
+                self._modem_manager_signal_setup()
             elif "couldn't find modem" not in err_str:
                 raise e
 
             # try to load modem once again. ModemManager may re-index it with a different "modem_path".
-            self._load_modem_manager_info()
-            if modem_path != self.modem_manager_id:
-                return self._mmcli_exec(f'-m {self.modem_manager_id} {flag}', json_format)
+            current_modem_manager_id = self._enable()
+            if modem_manager_id != current_modem_manager_id:
+                return self._mmcli_exec(f'-m {current_modem_manager_id} {flag}', json_format)
             raise e
 
-    def _load_modem_manager_info(self):
+    def _enable(self):
         # {
         #     "modem": {
         #         ...
@@ -154,50 +155,56 @@ class FwLinuxModem(FwObject):
 
         modem_info = None
         for modem in modem_list:
-            modem_info_output = self._mmcli_exec(f'-m {modem}')
-            modem_info = modem_info_output.get('modem')
-            generic = modem_info.get('generic', {})
-
-            primary_port = generic.get('primary-port')
+            modem_info = self._mmcli_exec(f'-m {modem}').get('modem', {})
+            primary_port =  modem_info.get('generic', {}).get('primary-port')
             if primary_port != self.usb_device:
                 continue
 
             self.modem_manager_id = modem_info.get('dbus-path')
-            self.vendor = generic.get('manufacturer')
-            self.model = generic.get('model')
-            self.imei = modem_info.get('3gpp', {}).get('imei')
-            self.sim_presented = self._get_sim_card_status(modem_info) == 'present'
-
-            ports = generic.get('ports', [])
-            for port in ports:
-                if '(net)' in port:
-                    self.linux_if = port.split('(net)')[0].strip()
-                elif '(at)' in port:
-                    at_port = port.split('(at)')[0].strip()
-                    self.at_ports.append(at_port)
-
-            self._mmcli_enable_modem()
-            self._mmcli_signal_setup()
-
-            break
+            self._modem_manager_enable_modem()
+            self._modem_manager_signal_setup()
 
         if not modem_info:
-            raise Exception(f"cannot load modem from ModemManager. modem_list={str(modem_list)}. usb_device={self.usb_device}")
+            raise Exception(f"modem {self.usb_device} not found in modem list: {str(modem_list)}")
+        return self.modem_manager_id
 
-        return modem_info
+    def _load_info_from_modem_manager(self):
+        # {
+        #     "modem": {
+        #         ...
+        #         "dbus-path": "/org/freedesktop/ModemManager1/Modem/0",
+        #         ...
+        #      }
+        # }
+        info = self._get_modem_manager_data()
+        generic = info.get('generic', {})
 
-    def _mmcli_enable_modem(self):
+        self.imei = info.get('3gpp', {}).get('imei')
+        self.model = generic.get('model')
+        self.sim_presented = self._get_sim_card_status(info) == 'present'
+        self.vendor = generic.get('manufacturer')
+
+        ports = generic.get('ports', [])
+        for port in ports:
+            if '(net)' in port:
+                self.linux_if = port.split('(net)')[0].strip()
+            elif '(at)' in port:
+                at_port = port.split('(at)')[0].strip()
+                self.at_ports.append(at_port)
+        return info
+
+    def _modem_manager_enable_modem(self):
         try:
             self._mmcli_exec(f'-m {self.modem_manager_id} -e', False)
         except Exception as e:
-            self.log.error(f"_mmcli_enable_modem: failed to enable modem. err={str(e)}")
+            self.log.error(f"_modem_manager_enable_modem: failed to enable modem. err={str(e)}")
             pass
 
-    def _mmcli_signal_setup(self):
+    def _modem_manager_signal_setup(self):
         try:
             self._mmcli_exec(f'-m {self.modem_manager_id} --signal-setup=5', False)
         except Exception as e:
-            self.log.error(f"_mmcli_signal_setup: failed to setup signal. err={str(e)}")
+            self.log.error(f"_modem_manager_signal_setup: failed to setup signal. err={str(e)}")
             pass
 
     def _run_qmicli_command(self, cmd, print_error=False):
