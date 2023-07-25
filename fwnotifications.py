@@ -26,7 +26,7 @@ import json
 import fwglobals
 
 
-class EventMonitor:
+class FwNotifications:
     """
     This class monitors statistics data and updates an alerts dictionary based on the last 10 samples of each event type and tunnel.
     If there are more than 6 warning or critical samples, an alert is created.
@@ -43,10 +43,10 @@ class EventMonitor:
     MARKED_AS_CRITICAL = 2
     SAMPLES_ARRAY_SIZE = 10
 
-    alerts = {}
-    event_counts = {}
 
     def __init__(self):
+        self.alerts = {}
+        self.event_counts = {}
         pass
 
     def get_alerts_hash(self):
@@ -58,11 +58,10 @@ class EventMonitor:
         :return: A string containing the MD5 hash of the dictionary contents.
         """
         # global alerts
-        alerts = EventMonitor.alerts
         alert_data = {}
-        for key, value in alerts.items():
+        for key, value in self.alerts.items():
             alert_data[key] = {k: v for k, v in value.items() if k not in ('value', 'threshold')}
-        return hashlib.md5(json.dumps(alert_data, sort_keys=True).encode()).hexdigest() if alerts else ''
+        return hashlib.md5(json.dumps(alert_data, sort_keys=True).encode()).hexdigest() if self.alerts else ''
 
     # add success(0)/warning(1)/critical(2) to the count array of the event_type
     def _add_value(self, event_type, value, event_unit, warning_threshold=None, critical_threshold=None, tunnel_id=None):
@@ -92,25 +91,22 @@ class EventMonitor:
         return count_array.count(self.MARKED_AS_WARNING) + count_array.count(self.MARKED_AS_CRITICAL) >= self.NOTIFICATIONS_WARNING_SAMPLES_THRESHOLD
 
     def _get_last_severity(self, event_type, tunnel_id=None):
-        alerts = EventMonitor.alerts
-        alerts.setdefault(event_type, {})
-        if tunnel_id and tunnel_id not in alerts[event_type]:
+        self.alerts.setdefault(event_type, {})
+        if tunnel_id and tunnel_id not in self.alerts[event_type]:
             return None
-        last_severity = alerts[event_type].get('severity') if not tunnel_id else alerts[event_type][tunnel_id].get('severity')
+        last_severity = self.alerts[event_type].get('severity') if not tunnel_id else self.alerts[event_type][tunnel_id].get('severity')
         return last_severity
 
     def _create_or_get_alert_object(self, event_type, tunnel_id):
-        alerts = EventMonitor.alerts
-        alerts.setdefault(event_type, {})
+        self.alerts.setdefault(event_type, {})
         if tunnel_id:
-            alerts[event_type].setdefault(tunnel_id, {})
-        return alerts[event_type][tunnel_id] if tunnel_id else alerts[event_type]
+            self.alerts[event_type].setdefault(tunnel_id, {})
+        return self.alerts[event_type][tunnel_id] if tunnel_id else self.alerts[event_type]
 
     def _update_alert(self, alert_object, value, threshold, severity, event_unit):
         alert_object.update({'value': value,'threshold': threshold, 'severity': severity, 'unit': event_unit})
 
     def _update_alerts(self, event_type, value, warning_threshold, critical_threshold, event_unit, tunnel_id=None):
-        alerts = EventMonitor.alerts
         if self._is_critical(event_type, tunnel_id) and self._get_last_severity(event_type, tunnel_id) != 'critical':
             alert_object = self._create_or_get_alert_object(event_type, tunnel_id)
             self._update_alert(alert_object, value, critical_threshold, 'critical', event_unit)
@@ -120,7 +116,7 @@ class EventMonitor:
             self._update_alert(alert_object, value, warning_threshold, 'warning', event_unit)
 
         # an alert removal operation can be done only if the current sample is success/warning
-        if event_type in alerts and not self._is_critical:
+        if event_type in self.alerts and not self._is_critical(event_type, tunnel_id):
             event_samples = self.event_counts[event_type] if not tunnel_id else self.event_counts[event_type][tunnel_id]
             last_severity = self._get_last_severity(event_type, tunnel_id)
             success_count = event_samples.count(self.MARKED_AS_SUCCESS)
@@ -128,13 +124,13 @@ class EventMonitor:
 
             if ((last_severity == 'warning' and success_count >= self.NOTIFICATIONS_SUCCESS_SAMPLES_THRESHOLD)
                 or (last_severity == 'critical' and (success_count + warning_count) >= self.NOTIFICATIONS_SUCCESS_SAMPLES_THRESHOLD)):
-                if tunnel_id and tunnel_id in alerts[event_type]:
-                    del alerts[event_type][tunnel_id]
+                if tunnel_id and tunnel_id in self.alerts[event_type]:
+                    del self.alerts[event_type][tunnel_id]
                     # Delete event_type key from alerts if its associated dictionary is empty
-                    if not alerts[event_type]:
-                        del alerts[event_type]
+                    if not self.alerts[event_type]:
+                        del self.alerts[event_type]
                 elif not tunnel_id:
-                    del alerts[event_type]
+                    del self.alerts[event_type]
 
     def _get_threshold(self, event_type, rule, health_stats):
         if event_type != 'Temperature':
@@ -196,5 +192,5 @@ class EventMonitor:
                 event_unit = rules[tunnel_rule].get('thresholdUnit')
                 current_value = self._get_current_value(tunnel_rule, tunnel_statistics=tunnel_statistics)
                 self._add_value(tunnel_rule, current_value, event_unit, warning, critical, tunnel_id)
-        return EventMonitor.alerts
+        return self.alerts
 

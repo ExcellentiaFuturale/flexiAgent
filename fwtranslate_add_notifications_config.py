@@ -52,17 +52,6 @@
 #     }
 # }
 
-import os
-import re
-
-import fwnetplan
-import fwglobals
-import fwikev2
-import fwutils
-import fwlte
-import fw_nat_command_helpers
-import json
-
 def add_notifications_config(params=None):
     return []
 
