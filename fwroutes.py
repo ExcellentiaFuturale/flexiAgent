@@ -262,19 +262,23 @@ class FwLinuxRoutes(dict):
                     self[FwRouteKey(metric, addr, nexthop.via)] = FwRoute(addr, nexthop.via, nexthop.dev, rt_proto, metric)
 
     def exist(self, addr, metric, via):
+        route = self.find(addr, metric, via)
+        return True if route else False
+
+    def find(self, addr, metric, via):
         metric = int(metric) if metric else 0
         key = FwRouteKey(metric, addr, via)
         if key in self:
-            return True
+            return dict.get(self, key)
 
         # Check if this route exist but with metric changed by WAN_MONITOR
         #
         metric = metric + fwglobals.g.WAN_FAILOVER_METRIC_WATERMARK
         key = FwRouteKey(metric, addr, via)
         if key in self:
-            return True
+            return dict.get(self, key)
 
-        return False
+        return None
 
 def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev=None, netplan_apply=True, on_link=False):
     """Add/Remove route.
@@ -293,6 +297,7 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
 
     :returns: (True, None) tuple on success, (False, <error string>) on failure.
     """
+    add    = not remove
     metric = int(metric) if metric else 0
 
     if dev_id and not dev:
@@ -313,21 +318,24 @@ def add_remove_route(addr, via, metric, remove, dev_id=None, proto='static', dev
                 return (True, None)
 
     routes_linux = FwLinuxRoutes(prefix=addr, preference=metric, proto=proto)
-    exist_in_linux = routes_linux.exist(addr, metric, via)
+    route_in_linux = routes_linux.find(addr, metric, via)
 
-    if remove and not exist_in_linux:
-        # There is a chance the route metric was increased by WAN Monitor to (2000000000 + metric).
-        # So, try to find the route with watermarked metric.
+    if not route_in_linux:
+        # WAN Monitor might increase the metric to 2.000.000.000+. Check if this is the case.
         #
         metric = metric + fwglobals.g.WAN_FAILOVER_METRIC_WATERMARK
-        if (metric < metric):
-            routes_linux   = FwLinuxRoutes(prefix=addr, preference=metric, proto=proto)
-            exist_in_linux = routes_linux.exist(addr, metric, via)
-            if not exist_in_linux:
-                return (True, None)
+        routes_linux   = FwLinuxRoutes(prefix=addr, preference=metric, proto=proto)
+        route_in_linux = routes_linux.find(addr, metric, via)
+        if remove and not route_in_linux:
+            return (True, None)     # route to be removed does not exist
+        if add and route_in_linux:
+            return (True, None)     # route to be added exist already
 
-    if not remove and exist_in_linux:
-        return (True, None)
+        # Now we should restore original metric for add operation.
+        # Remove operation should stay with found metric, either original or watermarked,
+        # so 'ip route del' could do the job.
+        #
+        metric = (metric - fwglobals.g.WAN_FAILOVER_METRIC_WATERMARK) if add else route_in_linux.metric
 
     next_hops = ''
     if routes_linux:

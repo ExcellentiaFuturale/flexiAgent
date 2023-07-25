@@ -398,36 +398,43 @@ class FwWanMonitor(FwObject):
             #       default via 192.168.43.1 dev vpp1 proto dhcp src 192.168.43.99 metric 600
             #       192.168.43.1 dev vpp1 proto dhcp scope link src 192.168.43.99 metric 600
             #
+            # Note, we don't save metric into netplan, if the route was installed
+            # by user using the 'add-route' request (we call such routes static routes).
+            # This is to simplify code, as in this case there is no need to synchronize
+            # static route database with WAN monitor / netplan database.
+            # Implement that on demand :)
             #
-            try:
-                name = fwutils.dev_id_to_tap(route.dev_id) # as vpp runs we fetch ip from taps
-                if not name:
-                    name = route.dev
+            static_route = fwglobals.g.router_cfg.get_routes(addr=route.prefix, via=route.via, dev_id=route.dev_id)
+            if not static_route:
+                try:
+                    name = fwutils.dev_id_to_tap(route.dev_id) # as vpp runs we fetch ip from taps
+                    if not name:
+                        name = route.dev
 
-                ip   = fwutils.get_interface_address(name, log=False)
-                proto = route.proto
-                dhcp = 'yes' if proto == 'dhcp' else 'no'
-                via = route.via
+                    ip   = fwutils.get_interface_address(name, log=False)
+                    proto = route.proto
+                    dhcp = 'yes' if proto == 'dhcp' else 'no'
+                    via = route.via
 
-                ifc = db_if[0] if db_if else {}
-                mtu = ifc.get('mtu')
-                dnsServers  = ifc.get('dnsServers', [])
-                # If for any reason, static IP interface comes without static dns servers, we set the default automatically
-                if dhcp == 'no' and len(dnsServers) == 0:
-                    dnsServers = fwglobals.g.DEFAULT_DNS_SERVERS
-                dnsDomains  = ifc.get('dnsDomains', None)
+                    ifc = db_if[0] if db_if else {}
+                    mtu = ifc.get('mtu')
+                    dnsServers  = ifc.get('dnsServers', [])
+                    # If for any reason, static IP interface comes without static dns servers, we set the default automatically
+                    if dhcp == 'no' and len(dnsServers) == 0:
+                        dnsServers = fwglobals.g.DEFAULT_DNS_SERVERS
+                    dnsDomains  = ifc.get('dnsDomains', None)
 
-                (success, err_str) = fwnetplan.add_remove_netplan_interface(\
-                                     True, route.dev_id, ip, via, new_metric, dhcp,
-                                     'WAN', dnsServers, dnsDomains,
-                                     mtu, if_name=route.dev)
+                    (success, err_str) = fwnetplan.add_remove_netplan_interface(\
+                                        True, route.dev_id, ip, via, new_metric, dhcp,
+                                        'WAN', dnsServers, dnsDomains,
+                                        mtu, if_name=route.dev)
 
-                if not success:
-                    route.ok = prev_ok
-                    self.log.error("failed to update metric in netplan: %s" % err_str)
-                    return
-            except Exception as e:
-                self.log.error("_update_metric failed: %s" % str(e))
+                    if not success:
+                        route.ok = prev_ok
+                        self.log.error("failed to update metric in netplan: %s" % err_str)
+                        return
+                except Exception as e:
+                    self.log.error("_update_metric failed: %s" % str(e))
 
         self.log.debug("'%s' update metric: %d -> %d - done" % \
             (str(route), route.metric, new_metric))
