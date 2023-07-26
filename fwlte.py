@@ -262,15 +262,16 @@ class FwLinuxModem(FwObject):
 
         return ",".join(connection_params)
 
-    def _parse_ip_configuration_output(self, lines):
-        for idx, line in enumerate(lines):
-            if 'IPv4 configuration available' in line and 'none' in line:
-                self.log.debug(f'connect: failed to get IPv4 from the ISP. lines={str(lines)}')
-                raise Exception(f'Failed to get IPv4 configuration from the ISP')
-            if 'Session ID:' in line:
-                session = line.split(':')[-1].strip().replace("'", '')
-                self.mbim_session = session
-                continue
+    def _update_ip_configuration(self):
+        lines, _ = self._run_mbimcli_command('--query-ip-configuration')
+        # [/dev/cdc-wdm0] IPv4 configuration available: 'address, gateway, dns, mtu'
+        #     IP [0]: '10.196.122.165/30'
+        #     Gateway: '10.196.122.166'
+        #     DNS [0]: '91.135.102.8'
+        #     DNS [1]: '91.135.104.8'
+        #         MTU: '1500'
+        # [/dev/cdc-wdm0] IPv6 configuration available: 'none'
+        for line in lines:
             if 'IP [0]:' in line:
                 ip = line.split(':')[-1].strip().replace("'", '')
                 self.ip = ip
@@ -286,7 +287,6 @@ class FwLinuxModem(FwObject):
             if 'DNS [1]:' in line:
                 dns_secondary = line.split(':')[-1].strip().replace("'", '')
                 self.dns_servers.append(dns_secondary)
-                break
 
     def connect(self, apn=None, user=None, password=None, auth=None):
         connection_params = self._prepare_connection_params(apn, user, password, auth)
@@ -294,14 +294,24 @@ class FwLinuxModem(FwObject):
             '--query-subscriber-ready-status',
             '--query-registration-state',
             '--attach-packet-service',
-            f'--connect={connection_params}'
         ]
         for cmd in mbim_commands:
             lines, err = self._run_mbimcli_command(cmd, print_error=True)
             if err:
                 raise Exception(err)
 
-        self._parse_ip_configuration_output(lines)
+        lines, err = self._run_mbimcli_command(f'--connect={connection_params}')
+        if err:
+            raise Exception(err)
+        for line in lines:
+            if 'IPv4 configuration available' in line and 'none' in line:
+                self.log.debug(f'connect: failed to get IPv4 from the ISP. lines={str(lines)}')
+                raise Exception(f'Failed to get IPv4 configuration from the ISP')
+            elif 'Session ID:' in line:
+                session = line.split(':')[-1].strip().replace("'", '')
+                self.mbim_session = session
+
+        self._update_ip_configuration()
 
     def disconnect(self):
         self._run_mbimcli_command(f'--disconnect={self.mbim_session}')
@@ -312,8 +322,7 @@ class FwLinuxModem(FwObject):
     def get_ip_configuration(self, cache=True, config_name=None):
         # if not exists, take from modem and update cache
         if not self.ip or not self.gateway or not self.dns_servers or cache == False:
-            lines, _ = self._run_mbimcli_command('--query-ip-configuration')
-            self._parse_ip_configuration_output(lines)
+            self._update_ip_configuration()
 
         if config_name == 'ip':
             return self.ip
