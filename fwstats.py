@@ -120,7 +120,7 @@ class FwStatistics(FwObject):
             if enum & 3:
                 return 'Interface Down'
             return ''
-        
+
         states = {}
         vrrp_dump = fwglobals.g.router_api.vpp_api.vpp.call('vrrp_vr_dump')
         for vrrp in vrrp_dump:
@@ -211,6 +211,7 @@ class FwStatistics(FwObject):
             self.updates_list.pop(0)
 
         stats = dict(self.stats)
+        system_health = self._get_system_health()
         self.updates_list.append({
                 'ok': stats['ok'],
                 'running': stats['running'],
@@ -219,14 +220,14 @@ class FwStatistics(FwObject):
                 'tunnel_stats': stats['tunnel_stats'],
                 'lte_stats': stats['lte_stats'],
                 'wifi_stats': stats['wifi_stats'],
-                'health': self.get_system_health(),
+                'health': self._get_system_health(),
                 'utc': time.time(),
                 'vrrp': stats['vrrp'],
-                'alerts': fwglobals.g.notifications.calculate_alerts(stats['tunnel_stats']),
+                'alerts': fwglobals.g.notifications.calculate_alerts(stats['tunnel_stats'], system_health),
                 'alerts_hash': fwglobals.g.notifications.get_alerts_hash()
             })
 
-    def get_system_health(self):
+    def _get_system_health(self):
         # Get CPU info
         try:
             cpu_stats = psutil.cpu_percent(percpu = True)
@@ -311,7 +312,7 @@ class FwStatistics(FwObject):
             res_update_list[-1]['stateReason'] = reason
             res_update_list[-1]['reconfig'] = reconfig
             res_update_list[-1]['application_stats'] = apps_stats
-            res_update_list[-1]['health'] = self.get_system_health()
+            res_update_list[-1]['health'] = self._get_system_health()
             if fwglobals.g.ikev2.is_private_key_created():
                 res_update_list[-1]['ikev2'] = ikev2_certificate_expiration
         return res_update_list
