@@ -75,6 +75,9 @@ class FwIKEv2(FwObject):
     def get_certificate_expiration(self):
         '''This function retrieves local certificates expiration time.
         '''
+        if not self.is_private_key_created():
+            return {}
+
         public_pem = self.IKEV2_PUBLIC_CERTIFICATE_FILE
         private_pem = self.IKEV2_PRIVATE_KEY_FILE
 

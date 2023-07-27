@@ -94,8 +94,8 @@ request_handlers = {
     ##############################################################
 
     # Agent API
-    'get-device-info':                   {'name': '_call_agent_api'},
-    'get-device-stats':                  {'name': '_call_agent_api'},
+    'get-device-info':                   {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
+    'get-device-stats':                  {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
     'get-device-logs':                   {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
     'get-device-packet-traces':          {'name': '_call_agent_api'},
     'get-device-os-routes':              {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
