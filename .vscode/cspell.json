@@ -13,7 +13,7 @@
         "hugepage",
         "hugepages",
         "iommu",
-        "fwsqlitedict",
+        "fwsqlitedict"
         "fwwebsocket",
         "fwwifi",
         "hugepage",
