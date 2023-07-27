@@ -133,8 +133,20 @@ class FwRouterCfg(FwCfgDatabase):
             result.append(params)
         return result
 
-    def get_routes(self):
-        return self.get_requests('add-route')
+    def get_routes(self, addr=None, via=None, dev_id=None):
+        routes = self.get_requests('add-route')
+        if not addr and not via and not dev_id:
+            return routes
+        result = []
+        for params in routes:
+            if addr and params['addr'] != addr:
+                continue
+            elif via and params['via'] != via:
+                continue
+            elif dev_id and 'dev_id' in params and params['dev_id'] != dev_id:
+                continue
+            result.append(params)
+        return result
 
     def get_routing_filters(self):
         return self.get_requests('add-routing-filter')

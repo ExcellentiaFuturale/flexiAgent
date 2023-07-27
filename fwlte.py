@@ -63,7 +63,8 @@ class FwLinuxModem(FwObject):
         self._initialize()
 
     def _initialize(self):
-        modem_data = self._load_modem_manager_info()
+        self._enable()
+        modem_data = self._load_info_from_modem_manager()
         drivers = modem_data.get('generic', {}).get('drivers', [])
         if 'cdc_mbim' in drivers:
             self.driver = 'cdc_mbim'
@@ -117,23 +118,26 @@ class FwLinuxModem(FwObject):
         '''
         Run ModemManager command for a specific modem index by adding the "-m {modem_path}  flag
         '''
-        modem_path = self.modem_manager_id
+        modem_manager_id = self.modem_manager_id
         try:
-            output = self._mmcli_exec(f'-m {modem_path} {flag}', json_format)
+            output = self._mmcli_exec(f'-m {modem_manager_id} {flag}', json_format)
             return output
         except Exception as e:
-            if "modem is not enabled yet" in str(e):
-                self._mmcli_modem_exec('-e', False)
-            elif "couldn't find modem" not in str(e):
+            err_str = str(e)
+            if "modem not enabled yet" in err_str:
+                self._modem_manager_enable_modem()
+            if "modem has no extended signal capabilities" in err_str:
+                self._modem_manager_signal_setup()
+            elif "couldn't find modem" not in err_str:
                 raise e
 
             # try to load modem once again. ModemManager may re-index it with a different "modem_path".
-            self._load_modem_manager_info()
-            if modem_path != self.modem_manager_id:
-                return self._mmcli_exec(f'-m {self.modem_manager_id} {flag}', json_format)
+            current_modem_manager_id = self._enable()
+            if modem_manager_id != current_modem_manager_id:
+                return self._mmcli_exec(f'-m {current_modem_manager_id} {flag}', json_format)
             raise e
 
-    def _load_modem_manager_info(self):
+    def _enable(self):
         # {
         #     "modem": {
         #         ...
@@ -151,37 +155,57 @@ class FwLinuxModem(FwObject):
 
         modem_info = None
         for modem in modem_list:
-            modem_info_output = self._mmcli_exec(f'-m {modem}')
-            modem_info = modem_info_output.get('modem')
-            generic = modem_info.get('generic', {})
-
-            primary_port = generic.get('primary-port')
+            modem_info = self._mmcli_exec(f'-m {modem}').get('modem', {})
+            primary_port =  modem_info.get('generic', {}).get('primary-port')
             if primary_port != self.usb_device:
                 continue
 
             self.modem_manager_id = modem_info.get('dbus-path')
-            self.vendor = generic.get('manufacturer')
-            self.model = generic.get('model')
-            self.imei = modem_info.get('3gpp', {}).get('imei')
-            self.sim_presented = self._get_sim_card_status(modem_info) == 'present'
+            self._modem_manager_enable_modem()
+            self._modem_manager_signal_setup()
 
-            ports = generic.get('ports', [])
-            for port in ports:
-                if '(net)' in port:
-                    self.linux_if = port.split('(net)')[0].strip()
-                elif '(at)' in port:
-                    at_port = port.split('(at)')[0].strip()
-                    self.at_ports.append(at_port)
+        if not modem_info:
+            raise Exception(f"modem {self.usb_device} not found in modem list: {str(modem_list)}")
+        return self.modem_manager_id
 
-            try:
-                self._mmcli_modem_exec(f'-e', False)
-                self._mmcli_modem_exec(f'--signal-setup=5', False)
-            except:
-                pass
+    def _load_info_from_modem_manager(self):
+        # {
+        #     "modem": {
+        #         ...
+        #         "dbus-path": "/org/freedesktop/ModemManager1/Modem/0",
+        #         ...
+        #      }
+        # }
+        info = self._get_modem_manager_data()
+        generic = info.get('generic', {})
 
-            break
+        self.imei = info.get('3gpp', {}).get('imei')
+        self.model = generic.get('model')
+        self.sim_presented = self._get_sim_card_status(info) == 'present'
+        self.vendor = generic.get('manufacturer')
 
-        return modem_info
+        ports = generic.get('ports', [])
+        for port in ports:
+            if '(net)' in port:
+                self.linux_if = port.split('(net)')[0].strip()
+            elif '(at)' in port:
+                at_port = port.split('(at)')[0].strip()
+                self.at_ports.append(at_port)
+        return info
+
+    def _modem_manager_enable_modem(self):
+        try:
+            self._mmcli_exec(f'-m {self.modem_manager_id} -e', False)
+        except Exception as e:
+            self.log.error(f"_modem_manager_enable_modem: failed to enable modem. err={str(e)}")
+            pass
+
+    def _modem_manager_signal_setup(self):
+        try:
+            self._mmcli_exec(f'-m {self.modem_manager_id} --signal-setup=5', False)
+        except Exception as e:
+            self.log.error(f"_modem_manager_signal_setup: failed to setup signal. err={str(e)}")
+            pass
 
     def _run_qmicli_command(self, cmd, print_error=False):
         if self.mode != 'QMI':
@@ -238,27 +262,16 @@ class FwLinuxModem(FwObject):
 
         return ",".join(connection_params)
 
-    def connect(self, apn=None, user=None, password=None, auth=None):
-        connection_params = self._prepare_connection_params(apn, user, password, auth)
-        mbim_commands = [
-            '--query-subscriber-ready-status',
-            '--query-registration-state',
-            '--attach-packet-service',
-            f'--connect={connection_params}'
-        ]
-        for cmd in mbim_commands:
-            lines, err = self._run_mbimcli_command(cmd, print_error=True)
-            if err:
-                raise Exception(err)
-
-        for idx, line in enumerate(lines):
-            if 'IPv4 configuration available' in line and 'none' in line:
-                self.log.debug(f'connect: failed to get IPv4 from the ISP. lines={str(lines)}')
-                raise Exception(f'Failed to get IPv4 configuration from the ISP')
-            if 'Session ID:' in line:
-                session = line.split(':')[-1].strip().replace("'", '')
-                self.mbim_session = session
-                continue
+    def _update_ip_configuration(self):
+        lines, _ = self._run_mbimcli_command('--query-ip-configuration')
+        # [/dev/cdc-wdm0] IPv4 configuration available: 'address, gateway, dns, mtu'
+        #     IP [0]: '10.196.122.165/30'
+        #     Gateway: '10.196.122.166'
+        #     DNS [0]: '91.135.102.8'
+        #     DNS [1]: '91.135.104.8'
+        #         MTU: '1500'
+        # [/dev/cdc-wdm0] IPv6 configuration available: 'none'
+        for line in lines:
             if 'IP [0]:' in line:
                 ip = line.split(':')[-1].strip().replace("'", '')
                 self.ip = ip
@@ -269,9 +282,36 @@ class FwLinuxModem(FwObject):
                 continue
             if 'DNS [0]:' in line:
                 dns_primary = line.split(':')[-1].strip().replace("'", '')
-                dns_secondary = lines[idx + 1].split(':')[-1].strip().replace("'", '')
-                self.dns_servers = [dns_primary, dns_secondary]
-                break
+                self.dns_servers = [dns_primary]
+                continue
+            if 'DNS [1]:' in line:
+                dns_secondary = line.split(':')[-1].strip().replace("'", '')
+                self.dns_servers.append(dns_secondary)
+
+    def connect(self, apn=None, user=None, password=None, auth=None):
+        connection_params = self._prepare_connection_params(apn, user, password, auth)
+        mbim_commands = [
+            '--query-subscriber-ready-status',
+            '--query-registration-state',
+            '--attach-packet-service',
+        ]
+        for cmd in mbim_commands:
+            lines, err = self._run_mbimcli_command(cmd, print_error=True)
+            if err:
+                raise Exception(err)
+
+        lines, err = self._run_mbimcli_command(f'--connect={connection_params}')
+        if err:
+            raise Exception(err)
+        for line in lines:
+            if 'IPv4 configuration available' in line and 'none' in line:
+                self.log.debug(f'connect: failed to get IPv4 from the ISP. lines={str(lines)}')
+                raise Exception(f'Failed to get IPv4 configuration from the ISP')
+            elif 'Session ID:' in line:
+                session = line.split(':')[-1].strip().replace("'", '')
+                self.mbim_session = session
+
+        self._update_ip_configuration()
 
     def disconnect(self):
         self._run_mbimcli_command(f'--disconnect={self.mbim_session}')
@@ -282,16 +322,7 @@ class FwLinuxModem(FwObject):
     def get_ip_configuration(self, cache=True, config_name=None):
         # if not exists, take from modem and update cache
         if not self.ip or not self.gateway or not self.dns_servers or cache == False:
-            lines, _ = self._run_mbimcli_command('--query-ip-configuration')
-            for idx, line in enumerate(lines):
-                if not 'IPv4 configuration' in line:
-                    continue
-                self.ip = lines[idx + 1].split(':')[-1].strip().replace("'", '')
-                self.gateway = lines[idx + 2].split(':')[-1].strip().replace("'", '')
-                primary_dns = lines[idx + 3].split(':')[-1].strip().replace("'", '')
-                secondary_dns = lines[idx + 4].split(':')[-1].strip().replace("'", '')
-                self.dns_servers = [primary_dns, secondary_dns]
-                break
+            self._update_ip_configuration()
 
         if config_name == 'ip':
             return self.ip
@@ -1374,7 +1405,7 @@ class FwModemManager():
         modem = self.modems.get(dev_id)
         return modem
 
-    def call(self, dev_id, func, args):
+    def call(self, dev_id, func, args = {}):
         modem = self.get(dev_id)
         modem_func = getattr(modem, func)
         return modem_func(**args)
