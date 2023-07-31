@@ -327,34 +327,41 @@ class FwStatistics(FwObject):
 
         return res_update_list
 
-    def get_device_info(self, cached=True):
-        if cached and self.device_info:
-            return copy.deepcopy(self.device_info)
+    def get_device_info(self, cached=True, job_ids=None, tunnel_ids=None):
 
-        info = {}
+        if not self.device_info or cached == False:
 
-        with open(fwglobals.g.VERSIONS_FILE, 'r') as stream:
-            info = yaml.load(stream, Loader=yaml.BaseLoader)
+            info = {}
 
-        job_ids = fwglobals.g.jobs.get_job_ids_by_request(['upgrade-device-sw', 'upgrade-linux-sw'])
-        info['jobs'] = fwglobals.g.jobs.dump(job_ids)
+            with open(fwglobals.g.VERSIONS_FILE, 'r') as stream:
+                info = yaml.load(stream, Loader=yaml.BaseLoader)
 
-        version, codename = fwutils.get_linux_distro()
-        info['distro'] = {'version': version, 'codename': codename}
+            predefined_job_ids = fwglobals.g.jobs.get_job_ids_by_request(['upgrade-device-sw', 'upgrade-linux-sw'])
+            info['jobs'] = fwglobals.g.jobs.dump(predefined_job_ids)
 
-        # The device info parts below might be impacted by configuration requests,
-        # so we take a lock to avoid re-configuration under our legs.
-        #
-        with fwglobals.g.handle_request_lock:
-            info['network'] = {}
-            info['network']['interfaces'] = list(fwutils.get_linux_interfaces(cached=False).values())
-            info['reconfig']              = '' if fwglobals.g.loadsimulator else fwutils.get_reconfig_hash()
-            info['ikev2']                 = fwglobals.g.ikev2.get_certificate_expiration()
-            info['cpuInfo']               = fwsystem_checker_common.Checker().get_cpu_info()
+            version, codename = fwutils.get_linux_distro()
+            info['distro'] = {'version': version, 'codename': codename}
 
-        self.device_info = info
-        self.log.debug("device info refreshed")
-        return copy.deepcopy(self.device_info)
+            # The device info parts below might be impacted by configuration requests,
+            # so we take a lock to avoid re-configuration under our legs.
+            #
+            with fwglobals.g.handle_request_lock:
+                info['network'] = {}
+                info['network']['interfaces'] = list(fwutils.get_linux_interfaces(cached=False).values())
+                info['reconfig']              = '' if fwglobals.g.loadsimulator else fwutils.get_reconfig_hash()
+                info['ikev2']                 = fwglobals.g.ikev2.get_certificate_expiration()
+                info['cpuInfo']               = fwsystem_checker_common.Checker().get_cpu_info()
+
+            self.device_info = info
+            self.log.debug("device info refreshed")
+
+
+        info = copy.deepcopy(self.device_info)
+        if job_ids:
+            info.update({'jobs': info['jobs'] + fwglobals.g.jobs.dump(job_ids)})
+        if tunnel_ids:
+            info.update({'tunnels': self._prepare_tunnel_info(tunnel_ids)})
+        return info
 
 
     def update_vpp_state(self, running):

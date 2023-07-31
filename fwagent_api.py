@@ -134,18 +134,11 @@ class FWAGENT_API(FwObject):
 
         :returns: Dictionary with information and status code.
         """
-        device_info = fwglobals.g.statistics.get_device_info()
 
-        job_ids = params.get('jobs') if params else None
-        if job_ids:
-            device_info['jobs'] += fwglobals.g.jobs.dump(job_ids)
-
-        tunnel_ids = params.get('tunnels') if params else None
-        if tunnel_ids:
-            device_info.update({'tunnels': self._prepare_tunnel_info(tunnel_ids)})
-
-        reply = {'message': device_info, 'ok': 1}
-        return reply
+        job_ids     = params.get('jobs') if params else None
+        tunnel_ids  = params.get('tunnels') if params else None
+        device_info = fwglobals.g.statistics.get_device_info(job_ids=job_ids, tunnel_ids=tunnel_ids)
+        return {'message': device_info, 'ok': 1}
 
     def _set_cpu_info(self, params):
         """Get device information.
