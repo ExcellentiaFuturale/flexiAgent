@@ -220,7 +220,7 @@ class FwStatistics(FwObject):
                 'tunnel_stats': stats['tunnel_stats'],
                 'lte_stats': stats['lte_stats'],
                 'wifi_stats': stats['wifi_stats'],
-                'health': self._get_system_health(),
+                'health': system_health,
                 'utc': time.time(),
                 'vrrp': stats['vrrp'],
                 'alerts': fwglobals.g.notifications.calculate_alerts(stats['tunnel_stats'], system_health),
