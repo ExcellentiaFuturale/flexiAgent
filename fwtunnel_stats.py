@@ -66,7 +66,7 @@ def peer_stats_get_ping_time(tunnels):
         hosts =  tunnel['hosts']
         rows = None
 
-        cmd = "fping {hosts} -C 1 -q".format(hosts=" ".join(hosts))
+        cmd = "fping %s -C 1 -q -t %s" % (" ".join(hosts), fwglobals.g.cfg.WAN_MONITOR_PROBE_TIMEOUT)
         cmd += " -I %s" % interface
         if tunnel_id in fping_processes:
             if fping_processes[tunnel_id].poll() is not None:
@@ -101,7 +101,7 @@ def tunnel_stats_get_ping_time(tunnels):
     if not tunnels:
         return ret
 
-    cmd = "fping {hosts} -C 1 -q".format(hosts=" ".join(tunnels.keys()))
+    cmd = "fping %s -C 1 -q -t %s" % (" ".join(tunnels.keys()), fwglobals.g.cfg.WAN_MONITOR_PROBE_TIMEOUT)
 
     # use single process with process_id = 0 for all non-peering tunnels
     # and combine fping into one call with multiple destinations

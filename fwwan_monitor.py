@@ -247,7 +247,7 @@ class FwWanMonitor(FwObject):
 
     def _check_connectivity(self, route, server_address):
 
-        cmd = "fping %s -C 1 -q -R -I %s 2>&1" % (server_address, route.dev)
+        cmd = "fping %s -C 1 -q -R -I %s -t %s 2>&1" % (server_address, route.dev, fwglobals.g.cfg.WAN_MONITOR_PROBE_TIMEOUT)
         (ok, output) = fwutils.exec(cmd)
 
         new_rtt = 0.0
