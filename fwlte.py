@@ -161,8 +161,11 @@ class FwLinuxModem(FwObject):
                 continue
 
             self.modem_manager_id = modem_info.get('dbus-path')
-            self._modem_manager_enable_modem()
-            self._modem_manager_signal_setup()
+
+            modem_state, _ = self._get_modem_state(modem_info)
+            if modem_state != 'locked': # locked modem will be enabled once PIN will be verified
+                self._modem_manager_enable_modem()
+                self._modem_manager_signal_setup()
 
         if not modem_info:
             raise Exception(f"modem {self.usb_device} not found in modem list: {str(modem_list)}")
@@ -501,7 +504,14 @@ class FwLinuxModem(FwObject):
 
     def _verify_pin(self, pin):
         self.log.debug('verifying lte pin number')
-        return self._run_pin_command(f'--pin={pin}')
+        output, err = self._run_pin_command(f'--pin={pin}')
+        if not err:
+            # after verifying pin, ensure the modem is not locked
+            modem_state, _ = self._get_modem_state()
+            if modem_state == 'disabled':
+                self._modem_manager_enable_modem()
+                self._modem_manager_signal_setup()
+        return (output, err)
 
     def _run_pin_command(self, mmcli_pin_flag):
         data = self._get_modem_manager_data()
@@ -563,40 +573,44 @@ class FwLinuxModem(FwObject):
 
     def _get_signal(self):
         result = {
-            'rssi' : 0,
-            'rsrp' : 0,
-            'rsrq' : 0,
-            'sinr' : 0,
-            'snr'  : 0,
-            'text' : 'N/A'
+            'rssi'        : '',
+            'rsrp'        : '',
+            'rsrq'        : '',
+            'rscp'        : '',
+            'sinr'        : '',
+            'ecio'        : '',
+            'snr'         : '',
+            'quality'     : '',
+            'technologies': []
         }
         if not self.sim_presented:
             return result
 
         output = self._mmcli_modem_exec('--signal-get')
-        lte_signal = output.get('modem', {}).get('signal', {}).get('lte', {})
-        evdo_signal = output.get('modem', {}).get('signal', {}).get('evdo', {})
+        rate = output.get('modem', {}).get('signal', {}).get('refresh', {}).get('rate')
+        if rate == '0':
+            self._modem_manager_signal_setup()
+            output = self._mmcli_modem_exec('--signal-get')
 
-        result['rssi'] = lte_signal.get('rssi')
-        result['rsrp'] = lte_signal.get('rsrp')
-        result['rsrq'] = lte_signal.get('rsrq')
-        result['sinr'] = evdo_signal.get('sinr')
-        result['snr'] = lte_signal.get('snr')
+        signal = output.get('modem', {}).get('signal', {})
 
-        if result['rssi'] != '--':
-            dbm_num = int(float(result['rssi']))
-            if -95 >= dbm_num:
-                result['text'] = 'Marginal'
-            elif -85 >= dbm_num:
-                result['text'] = 'Very low'
-            elif -80 >= dbm_num:
-                result['text'] = 'Low'
-            elif -70 >= dbm_num:
-                result['text'] = 'Good'
-            elif -60 >= dbm_num:
-                result['text'] = 'Very Good'
-            else:
-                result['text'] = 'Excellent'
+        def _fill_result_if_has_value(signal_dict):
+            for key in signal_dict:
+                val = signal_dict[key]
+                if not val or val == '--':
+                    continue
+                result[key] = val
+
+        _fill_result_if_has_value(signal.get('lte', {}))
+        _fill_result_if_has_value(signal.get('evdo', {}))
+        _fill_result_if_has_value(signal.get('umts', {}))
+        _fill_result_if_has_value(signal.get('gsm', {}))
+        _fill_result_if_has_value(signal.get('cdma1x', {}))
+        _fill_result_if_has_value(signal.get('5g', {}))
+
+        data = self._get_modem_manager_data()
+        result['quality'] = data.get('generic', {}).get('signal-quality', {}).get('value', '0')
+        result['technologies'] = data.get('generic', {}).get('access-technologies', [])
         return result
 
     def _get_system_info(self, data=None):
@@ -982,6 +996,20 @@ class FwModem(FwLinuxModem):
             return lte_info
 
         data = self._get_modem_manager_data()
+        modem_state, _ = self._get_modem_state(data)
+
+        lte_info['sim_status']           = self._get_sim_card_status(data)
+        lte_info['packet_service_state'] = self._get_packets_state()
+        lte_info['hardware_info']        = self._get_hardware_info()
+        lte_info['default_settings']     = self.get_default_settings(data)
+        lte_info['phone_number']         = self._get_phone_number(data)
+        lte_info['pin_state']            = self.get_pin_state(data)
+        lte_info['connection_state']     = self._get_connection_state()
+        lte_info['registration_network'] = self._get_registration_state()
+
+        # to fetch information below, modem cannot be locked
+        if modem_state == 'locked':
+            return lte_info
 
         # There is no need to check the tap name if the router is not entirely run.
         # When the router is in the start process, and the LTE is not yet fully configured,
@@ -995,19 +1023,10 @@ class FwModem(FwLinuxModem):
 
         addr = fwutils.get_interface_address(if_name)
         connectivity = os.system("ping -c 1 -W 1 -I %s 8.8.8.8 > /dev/null 2>&1" % if_name) == 0
-
-        lte_info['sim_status']           = self._get_sim_card_status(data)
         lte_info['address']              = addr
-        lte_info['signals']              = self._get_signal()
         lte_info['connectivity']         = connectivity
-        lte_info['packet_service_state'] = self._get_packets_state()
-        lte_info['hardware_info']        = self._get_hardware_info()
+        lte_info['signals']              = self._get_signal()
         lte_info['system_info']          = self._get_system_info(data)
-        lte_info['default_settings']     = self.get_default_settings(data)
-        lte_info['phone_number']         = self._get_phone_number(data)
-        lte_info['pin_state']            = self.get_pin_state(data)
-        lte_info['connection_state']     = self._get_connection_state()
-        lte_info['registration_network'] = self._get_registration_state()
         return lte_info
 
     def set_arp_entry(self, is_add, gw=None):
@@ -1257,7 +1276,7 @@ class FwModem(FwLinuxModem):
             raise Exception(PIN_ERROR_MESSAGES.PIN_IS_WRONG)
 
         # at this point, pin is verified so we reset wrong pin protection
-        self.set_db_entry('wrong_pin', None)
+        self._set_db_entry('wrong_pin', None)
 
     def handle_pin_modifications(self, current_pin, new_pin, enable, puk):
         current_pin_state = self.get_pin_state()
