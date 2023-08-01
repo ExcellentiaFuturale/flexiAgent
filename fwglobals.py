@@ -194,6 +194,7 @@ class Fwglobals(FwObject):
             DEFAULT_UUID           = None
             DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES = True
             DEFAULT_WAN_MONITOR_SERVERS = ['1.1.1.1','8.8.8.8']
+            DEFAULT_WAN_MONITOR_PROBE_TIMEOUT = 500  # msec
             DEFAULT_DAEMON_SOCKET_NAME  = "127.0.0.1:9090"  # Used for RPC to daemon
             try:
                 with open(filename, 'r') as conf_file:
@@ -205,7 +206,8 @@ class Fwglobals(FwObject):
                 self.TOKEN_FILE     = agent_conf.get('token',  DEFAULT_TOKEN_FILE)
                 self.UUID           = agent_conf.get('uuid',   DEFAULT_UUID)
                 self.WAN_MONITOR_UNASSIGNED_INTERFACES = agent_conf.get('monitor_wan',{}).get('monitor_unassigned_interfaces', DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES)
-                self.WAN_MONITOR_SERVERS = agent_conf.get('monitor_wan',{}).get('servers', DEFAULT_WAN_MONITOR_SERVERS)
+                self.WAN_MONITOR_SERVERS               = agent_conf.get('monitor_wan',{}).get('servers', DEFAULT_WAN_MONITOR_SERVERS)
+                self.WAN_MONITOR_PROBE_TIMEOUT         = agent_conf.get('monitor_wan',{}).get('probe_timeout', DEFAULT_WAN_MONITOR_PROBE_TIMEOUT)
                 self.DAEMON_SOCKET_NAME  = agent_conf.get('daemon_socket',  DEFAULT_DAEMON_SOCKET_NAME)
             except Exception as e:
                 if log:
@@ -216,7 +218,8 @@ class Fwglobals(FwObject):
                 self.TOKEN_FILE     = DEFAULT_TOKEN_FILE
                 self.UUID           = DEFAULT_UUID
                 self.WAN_MONITOR_UNASSIGNED_INTERFACES = DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES
-                self.WAN_MONITOR_SERVERS = DEFAULT_WAN_MONITOR_SERVERS
+                self.WAN_MONITOR_SERVERS               = DEFAULT_WAN_MONITOR_SERVERS
+                self.WAN_MONITOR_PROBE_TIMEOUT         = DEFAULT_WAN_MONITOR_PROBE_TIMEOUT
                 self.DAEMON_SOCKET_NAME  = DEFAULT_DAEMON_SOCKET_NAME
             if self.DEBUG and log:
                 log.set_level(FWLOG_LEVEL_DEBUG)
