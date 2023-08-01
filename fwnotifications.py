@@ -75,6 +75,7 @@ class FwNotifications:
                 tunnel_rules.append(event_type)
                 continue
             self._analyze_stats_value(event_type, event_settings, system_health)
+
         tunnels = fwglobals.g.router_api.cfg_db.get_tunnels()
         tunnel_dict = {tunnel['tunnel-id']: tunnel for tunnel in tunnels}
         for tunnel_id in tunnel_stats:
@@ -156,11 +157,6 @@ class FwNotifications:
                         or (last_severity == 'critical' and (success_count + warning_count) >= self.NOTIFICATIONS_SUCCESS_SAMPLES_THRESHOLD)):
                         self._delete_alerts_entry(event_type, tunnel_id)
 
-    def _create_or_get_alert_object(self, event_type, tunnel_id):
-        self.alerts.setdefault(event_type, {})
-        if tunnel_id:
-            self.alerts[event_type].setdefault(tunnel_id, {})
-        return self.alerts[event_type][tunnel_id] if tunnel_id else self.alerts[event_type]
 
     def _get_last_severity(self, event_entry):
         return event_entry.get('severity')
