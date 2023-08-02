@@ -191,7 +191,7 @@ class Fwglobals(FwObject):
             DEFAULT_UUID           = None
             DEFAULT_WAN_MONITOR_UNASSIGNED_INTERFACES = True
             DEFAULT_WAN_MONITOR_SERVERS = ['1.1.1.1','8.8.8.8']
-            DEFAULT_WAN_MONITOR_PROBE_TIMEOUT = 500  # msec
+            DEFAULT_WAN_MONITOR_PROBE_TIMEOUT = 1000  # msec
             DEFAULT_DAEMON_SOCKET_NAME  = "127.0.0.1:9090"  # Used for RPC to daemon
             try:
                 with open(filename, 'r') as conf_file:
