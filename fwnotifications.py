@@ -153,9 +153,10 @@ class FwNotifications:
         elif not self._is_critical(counts_entry):
             success_count = counts_entry.count(self.MARKED_AS_SUCCESS)
             warning_count = counts_entry.count(self.MARKED_AS_WARNING)
-            if ((last_severity == 'warning' and success_count >= self.NOTIFICATIONS_SUCCESS_SAMPLES_THRESHOLD)
-                        or (last_severity == 'critical' and (success_count + warning_count) >= self.NOTIFICATIONS_SUCCESS_SAMPLES_THRESHOLD)):
-                        self._delete_alerts_entry(event_type, tunnel_id)
+            if last_severity == 'warning' and success_count >= self.NOTIFICATIONS_SUCCESS_SAMPLES_THRESHOLD:
+                self._delete_alerts_entry(event_type, tunnel_id)
+            if last_severity == 'critical' and (success_count + warning_count) >= self.NOTIFICATIONS_SUCCESS_SAMPLES_THRESHOLD:
+                self._delete_alerts_entry(event_type, tunnel_id)
 
 
     def _get_last_severity(self, event_entry):
