@@ -31,10 +31,13 @@
 import warnings
 
 warnings.filterwarnings(action="ignore", message="ignoring.*/sys/class/hwmon/hwmon", category=RuntimeWarning, module=".*psutil")
+import copy
 import math
 import time
-
+import os
 import psutil
+import sys
+import yaml
 
 import fw_os_utils
 import fwglobals
@@ -44,6 +47,10 @@ import fwutils
 import fwwifi
 from fwobject import FwObject
 from fwtunnel_stats import tunnel_stats_get
+
+system_checker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tools/system_checker/")
+sys.path.append(system_checker_path)
+import fwsystem_checker_common
 
 # Keep updates up to 1 hour ago
 UPDATE_LIST_MAX_SIZE = 120
@@ -56,6 +63,7 @@ class FwStatistics(FwObject):
 
         self.updates_list   = []   # list of probes - keeps probes that are not fetched by flexiManage
         self.stats          = {}   # latest probe
+        self.device_info    = {}   # various data that are not exactly statistics, like reconfig hash
         self.vpp_pid        = ''
 
         self._reset_stats()
@@ -90,6 +98,8 @@ class FwStatistics(FwObject):
     def initialize(self):
         self.thread_statistics = fwthread.FwThread(target=self.statistics_thread_func, name='Statistics', log=self.log)
         self.thread_statistics.start()
+        self.thread_device_info = fwthread.FwThread(target=self.device_info_thread_func, name='Device Info', log=self.log)
+        self.thread_device_info.start()
 
     def finalize(self):
         """Destructor method
@@ -97,6 +107,9 @@ class FwStatistics(FwObject):
         if self.thread_statistics:
             self.thread_statistics.join()
             self.thread_statistics = None
+        if self.thread_device_info:
+            self.thread_device_info.join()
+            self.thread_device_info = None
 
     def statistics_thread_func(self, ticks):
         timeout = 30
@@ -107,6 +120,9 @@ class FwStatistics(FwObject):
                 renew_lte_wifi_stats = ticks % (timeout * 2) == 0 # Renew LTE and WiFi statistics every second update
                 self._update_stats(renew_lte_wifi_stats=renew_lte_wifi_stats)
 
+    def device_info_thread_func(self, ticks):
+        if (ticks % 10) == 0:
+            self.get_device_info(cached=False)
 
     def _get_vrrp_status(self):
 
@@ -261,7 +277,7 @@ class FwStatistics(FwObject):
 
         return {'cpu': cpu_stats, 'mem': memory_stats, 'disk': disk_stats, 'temp': temp_stats}
 
-    def get_stats(self):
+    def get_device_stats(self):
         """Return a new statistics dictionary.
 
         :returns: Statistics dictionary.
@@ -269,8 +285,8 @@ class FwStatistics(FwObject):
         res_update_list = list(self.updates_list)
         del self.updates_list[:]
 
-        reconfig = fwutils.get_reconfig_hash()
-        ikev2_certificate_expiration = fwglobals.g.ikev2.get_certificate_expiration()
+        reconfig                     = self.device_info.get('reconfig',"")
+        ikev2_certificate_expiration = self.device_info.get('ikev2', {})
         apps_stats = fwglobals.g.applications_api.get_stats()
 
         # If the list of updates is empty, append a dummy update to
@@ -299,12 +315,11 @@ class FwStatistics(FwObject):
                 'health': {},
                 'period': 0,
                 'utc': time.time(),
+                'ikev2': ikev2_certificate_expiration,
                 'reconfig': reconfig,
                 'alerts': fwglobals.g.notifications.alerts,
                 'alerts_hash': fwglobals.g.notifications.get_alerts_hash()
             }
-            if fwglobals.g.ikev2.is_private_key_created():
-                info['ikev2'] = ikev2_certificate_expiration
             res_update_list.append(info)
         else:
             res_update_list[-1]['running'] = status
@@ -313,9 +328,45 @@ class FwStatistics(FwObject):
             res_update_list[-1]['reconfig'] = reconfig
             res_update_list[-1]['application_stats'] = apps_stats
             res_update_list[-1]['health'] = self._get_system_health()
-            if fwglobals.g.ikev2.is_private_key_created():
-                res_update_list[-1]['ikev2'] = ikev2_certificate_expiration
+            res_update_list[-1]['ikev2'] = ikev2_certificate_expiration
         return res_update_list
+
+    def get_device_info(self, cached=True, job_ids=None, tunnel_ids=None):
+
+        if not self.device_info or cached == False:
+
+            info = {}
+
+            with open(fwglobals.g.VERSIONS_FILE, 'r') as stream:
+                info = yaml.load(stream, Loader=yaml.BaseLoader)
+
+            predefined_job_ids = fwglobals.g.jobs.get_job_ids_by_request(['upgrade-device-sw', 'upgrade-linux-sw'])
+            info['jobs'] = fwglobals.g.jobs.dump(predefined_job_ids)
+
+            version, codename = fwutils.get_linux_distro()
+            info['distro'] = {'version': version, 'codename': codename}
+
+            # The device info parts below might be impacted by configuration requests,
+            # so we take a lock to avoid re-configuration under our legs.
+            #
+            with fwglobals.g.handle_request_lock:
+                info['network'] = {}
+                info['network']['interfaces'] = list(fwutils.get_linux_interfaces(cached=False).values())
+                info['reconfig']              = '' if fwglobals.g.loadsimulator else fwutils.get_reconfig_hash()
+                info['ikev2']                 = fwglobals.g.ikev2.get_certificate_expiration()
+                info['cpuInfo']               = fwsystem_checker_common.Checker().get_cpu_info()
+
+            self.device_info = info
+            self.log.debug("device info refreshed")
+
+
+        info = copy.deepcopy(self.device_info)
+        if job_ids:
+            info.update({'jobs': info['jobs'] + fwglobals.g.jobs.dump(job_ids)})
+        if tunnel_ids:
+            info.update({'tunnels': self._prepare_tunnel_info(tunnel_ids)})
+        return info
+
 
     def update_vpp_state(self, running):
         """Update router state field.
