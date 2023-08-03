@@ -134,40 +134,11 @@ class FWAGENT_API(FwObject):
 
         :returns: Dictionary with information and status code.
         """
-        try:
-            info = {}
-            # Load component versions
-            with open(fwglobals.g.VERSIONS_FILE, 'r') as stream:
-                info = yaml.load(stream, Loader=yaml.BaseLoader)
-            info['stats'] = fwglobals.g.statistics.get_stats()[-1]
-            # Load network configuration.
-            info['network'] = {}
-            info['network']['interfaces'] = list(fwutils.get_linux_interfaces(cached=False).values())
-            info['reconfig'] = '' if fwglobals.g.loadsimulator else fwutils.get_reconfig_hash()
-            if fwglobals.g.ikev2.is_private_key_created():
-                info['ikev2'] = fwglobals.g.ikev2.get_certificate_expiration()
-            # Load tunnel info, if requested by the management
-            if params and params.get('tunnels'):
-                info['tunnels'] = self._prepare_tunnel_info(params['tunnels'])
 
-            # get the failed jobs requested by management plus all upgrade-device-sw jobs
-            all_job_ids = []
-            if params and params.get('jobs'):
-                all_job_ids = all_job_ids + params['jobs']
-            all_job_ids = all_job_ids + fwglobals.g.jobs.get_job_ids_by_request(['upgrade-device-sw', 'upgrade-linux-sw'])
-            info['jobs'] = fwglobals.g.jobs.dump(job_ids=all_job_ids)
-
-            info['cpuInfo'] = fwsystem_checker_common.Checker().get_cpu_info()
-            version, codename = fwutils.get_linux_distro()
-            info['distro'] = {'version': version, 'codename': codename}
-
-            return {'message': info, 'ok': 1}
-        except fw_os_utils.CalledProcessSigTerm as e:
-            raise e
-        except Exception as e:
-            fwglobals.log.error(f"_get_device_info: {str(e)}: {str(traceback.format_exc())}")
-            raise Exception(f"_get_device_info failed: {str(e)}")
-
+        job_ids     = params.get('jobs') if params else None
+        tunnel_ids  = params.get('tunnels') if params else None
+        device_info = fwglobals.g.statistics.get_device_info(job_ids=job_ids, tunnel_ids=tunnel_ids)
+        return {'message': device_info, 'ok': 1}
 
     def _set_cpu_info(self, params):
         """Get device information.
@@ -200,7 +171,7 @@ class FWAGENT_API(FwObject):
 
         :returns: Dictionary with statistics.
         """
-        reply = {'message': fwglobals.g.statistics.get_stats(), 'ok': 1}
+        reply = {'message': fwglobals.g.statistics.get_device_stats(), 'ok': 1}
         return reply
 
     def _upgrade_device_sw(self, params):
