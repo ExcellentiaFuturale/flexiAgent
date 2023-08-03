@@ -308,9 +308,12 @@ class FwLinuxModem(FwObject):
                     break
 
             if not exists:
+                self.log.info(f'_ensure_pdp_context({apn}): APN not found in modem. Adding now. pdp_context_lines={str(pdp_context_lines)} ')
                 self._run_at_command(f'AT+CGDCONT=1,\\"IP\\",\\"{apn}\\"')
                 self._run_at_command(f'AT+CFUN=0')
                 self._run_at_command(f'AT+CFUN=1')
+                # give it a bit time. If it is not enough, watchdog takes care to connect it again
+                time.sleep(2)
         except Exception as e:
             self.log.error(f'_ensure_pdp_context({apn}): {str(e)}')
             # do not raise error as it not mandatory for most of ISPs
