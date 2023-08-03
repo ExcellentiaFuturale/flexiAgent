@@ -302,14 +302,15 @@ class FwLinuxModem(FwObject):
             pdp_context_lines = self._run_at_command('AT+CGDCONT?').splitlines()
             # response = '+CGDCONT: 1,"IP","internet.rl","0.0.0.0",0,0,0,0'
             for pdp_context_line in pdp_context_lines:
-                pdp_apn = pdp_context_line.split(',')
-                if len(pdp_apn) > 3 and pdp_apn[2].strip('"') == apn:
+                line_params = pdp_context_line.split(',')
+                if len(line_params) > 3 and line_params[2].strip('"') == apn:
                     exists = True
                     break
 
             if not exists:
                 self.log.info(f'_ensure_pdp_context({apn}): APN not found in modem. Adding now. pdp_context_lines={str(pdp_context_lines)} ')
                 self._run_at_command(f'AT+CGDCONT=1,\\"IP\\",\\"{apn}\\"')
+                # in order to apply it, run "CFUN" commands which is kind of soft reboot.
                 self._run_at_command(f'AT+CFUN=0')
                 self._run_at_command(f'AT+CFUN=1')
                 # give it a bit time. If it is not enough, watchdog takes care to connect it again
