@@ -97,7 +97,7 @@ class FwStatistics(FwObject):
     def initialize(self):
         self.thread_statistics = fwthread.FwThread(target=self.statistics_thread_func, name='Statistics', log=self.log)
         self.thread_statistics.start()
-        self.thread_device_info = fwthread.FwThread(target=self.device_info_thread_func, name='Device Info', log=self.log)
+        self.thread_device_info = fwthread.FwRouterThread(target=self.device_info_thread_func, name='Device Info', log=self.log)
         self.thread_device_info.start()
 
     def finalize(self):
