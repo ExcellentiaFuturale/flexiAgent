@@ -695,7 +695,7 @@ class FwLinuxModem(FwObject):
 
             at_commands = []
             if 'Quectel' in self.vendor or re.match('Quectel', self.model, re.IGNORECASE): # Special fix for Quectel ec25 mini pci card
-                at_commands = ['AT+QCFG="usbnet",2']
+                at_commands = ['AT+QCFG=\\"usbnet\\",2']
                 self._run_at_commands(at_commands)
             elif 'Sierra Wireless' in self.vendor:
                 self._run_qmicli_command('--dms-swi-set-usb-composition=8')
