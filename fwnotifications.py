@@ -85,18 +85,10 @@ class FwNotifications:
                 # Determine the event settings for this tunnel, either using specific settings
                 # or falling back to the general organization's settings
                 event_settings = tunnel_notifications.get(tunnel_rule, rules[tunnel_rule])
-                self._analyze_stats_value(tunnel_rule, event_settings, tunnel_statistics, tunnel_id)
+                unit = rules[tunnel_rule].get('thresholdUnit')
+                self._analyze_stats_value(tunnel_rule, event_settings, tunnel_statistics, tunnel_id, unit)
         self.alerts = self._get_dict_without_empty_entries_recursive(self.alerts)
         return self.alerts
-
-    def _get_entry(self, dictionary, event_type, initial_value, tunnel_id=None):
-        if not tunnel_id:
-            return dictionary.setdefault(event_type, initial_value)
-        if not event_type in dictionary:
-            dictionary[event_type] = {tunnel_id: initial_value}
-        elif tunnel_id not in dictionary[event_type]:
-            dictionary[event_type][tunnel_id] = initial_value
-        return dictionary[event_type][tunnel_id]
 
     def _get_value_from_stats(self, event_type, stats):
         stats_key_by_event_type = {
@@ -127,7 +119,7 @@ class FwNotifications:
             event_warning_threshold = event_settings.get('warningThreshold')
         return event_critical_threshold, event_warning_threshold
 
-    def _analyze_stats_value(self, event_type, event_settings, stats, tunnel_id=None):
+    def _analyze_stats_value(self, event_type, event_settings, stats, tunnel_id=None, unit=None):
         stats_value = self._get_value_from_stats(event_type, stats)
         critical_threshold, warning_threshold = self._get_threshold(event_type, event_settings, stats)
 
@@ -138,26 +130,27 @@ class FwNotifications:
         else:
             event_status = self.MARKED_AS_SUCCESS
 
-        counts_entry = self._get_entry(self.event_counts, event_type, [self.MARKED_AS_SUCCESS] * (self.SAMPLES_ARRAY_SIZE), tunnel_id)
+        counts_entry = self._get_entry(self.event_counts, event_type, [self.MARKED_AS_SUCCESS] * (self.SAMPLES_ARRAY_SIZE), tunnel_id, True)
         counts_entry.append(event_status)
         del counts_entry[0] # Keep WINDOWS SIZE
 
-        event_entry = self._get_entry(self.alerts, event_type, {}, tunnel_id)
-        last_severity = self._get_last_severity(event_entry)
+        event_entry = self._get_entry(self.alerts, event_type, None, tunnel_id, False)
+        last_severity = self._get_last_severity(event_entry) if event_entry is not None else ''
 
         if self._is_critical(counts_entry) and last_severity != 'critical':
-            event_entry.update({'value': stats_value,'threshold': critical_threshold, 'severity': 'critical', 'unit': event_settings.get('thresholdUnit')})
+            event_data = {'value': stats_value,'threshold': critical_threshold, 'severity': 'critical', 'unit': unit or event_settings.get('thresholdUnit')}
+            self._update_entry(self.alerts, event_entry, event_data, event_type, tunnel_id)
         elif self._is_warning(counts_entry) and last_severity != 'warning':
-            event_entry.update({'value': stats_value,'threshold': warning_threshold, 'severity': 'warning', 'unit': event_settings.get('thresholdUnit')})
+            event_data = {'value': stats_value,'threshold': critical_threshold, 'severity': 'critical', 'unit': unit or event_settings.get('thresholdUnit')}
+            self._update_entry(self.alerts, event_entry, event_data, event_type, tunnel_id)
         # an alert removal operation can be done only if the current sample is success/warning
         elif not self._is_critical(counts_entry):
             success_count = counts_entry.count(self.MARKED_AS_SUCCESS)
             warning_count = counts_entry.count(self.MARKED_AS_WARNING)
             if last_severity == 'warning' and success_count >= self.NOTIFICATIONS_SUCCESS_SAMPLES_THRESHOLD:
-                self._delete_alerts_entry(event_type, tunnel_id)
+                self._delete_entry(event_type, tunnel_id)
             if last_severity == 'critical' and (success_count + warning_count) >= self.NOTIFICATIONS_SUCCESS_SAMPLES_THRESHOLD:
-                self._delete_alerts_entry(event_type, tunnel_id)
-
+                self._delete_entry(event_type, tunnel_id)
 
     def _get_last_severity(self, event_entry):
         return event_entry.get('severity')
@@ -168,7 +161,36 @@ class FwNotifications:
     def _is_warning(self, counts_entry):
         return counts_entry.count(self.MARKED_AS_WARNING) + counts_entry.count(self.MARKED_AS_CRITICAL) >= self.NOTIFICATIONS_WARNING_SAMPLES_THRESHOLD
 
-    def _delete_alerts_entry(self, event_type, tunnel_id):
+    def _get_entry(self, dictionary, event_type, initial_value, tunnel_id=None, set_default = False):
+        if tunnel_id is None:
+            return dictionary.setdefault(event_type, initial_value) if set_default else dictionary.get(event_type)
+        # tunnel_id is provided
+        event_data = dictionary.get(event_type)
+        if event_data is None:
+            if set_default:
+                event_data = {tunnel_id: initial_value}
+                dictionary[event_type] = event_data
+            else:
+                return None
+        elif tunnel_id not in event_data:
+            if set_default:
+                event_data[tunnel_id] = initial_value
+            else:
+                return None
+        return event_data[tunnel_id]
+
+    def _update_entry(self,dictionary, event_entry, event_data, event_type, tunnel_id):
+        # event_entry is an existing entry in the dictionary and we want to update it's severity and value
+        if event_entry is not None:
+            event_entry.update(event_data)
+        # we want to create a new alert
+        else:
+            if tunnel_id is None:
+                dictionary.setdefault(event_type, event_data)
+            else:
+                dictionary.setdefault(event_type, {})[tunnel_id] = event_data
+
+    def _delete_entry(self, event_type, tunnel_id):
         if not tunnel_id:
             del self.alerts[event_type]
             return
@@ -178,12 +200,3 @@ class FwNotifications:
         if not self.alerts[event_type]:
             del self.alerts[event_type]
 
-     # Discard empty dictionaries from initialization; final alerts dictionary only requires keys with data
-    def _get_dict_without_empty_entries_recursive(self, dictionary):
-        new_dict = {}
-        for key, value in dictionary.items():
-            if isinstance(value, dict):
-                value = self._get_dict_without_empty_entries_recursive(value)
-            if value:
-                new_dict[key] = value
-        return new_dict
