@@ -309,8 +309,10 @@ class FwLinuxModem(FwObject):
 
             if not exists:
                 self._run_at_command(f'AT+CGDCONT=1,\\"IP\\",\\"{apn}\\"')
+                self._run_at_command(f'AT+CFUN=0')
+                self._run_at_command(f'AT+CFUN=1')
         except Exception as e:
-            self.log.error(f'_ensure_pdp_context({apn}): str({e})')
+            self.log.error(f'_ensure_pdp_context({apn}): {str(e)}')
             # do not raise error as it not mandatory for most of ISPs
 
     def connect(self, apn=None, user=None, password=None, auth=None):
@@ -361,7 +363,17 @@ class FwLinuxModem(FwObject):
         return self.ip, self.gateway, self.dns_servers
 
     def reset(self):
-        self._mmcli_modem_exec(f'-r', False)
+        try:
+            self._mmcli_modem_exec(f'-r', False)
+        except Exception as e:
+            # if it doesn't work with modem manager, do reset with AT command
+            if 'Quectel' in self.vendor:
+                self._run_at_command('AT+QPOWD=0')
+            elif 'Sierra' in self.vendor == 'Sierra':
+                self._run_at_command('AT!RESET')
+            else:
+                raise e
+
         self.modem_manager_id = None # modem manager gives another id after reset
 
         # In the reset process, the LTE interface (wwan) is deleted from Linux, and then comes back up.
@@ -704,7 +716,6 @@ class FwLinuxModem(FwObject):
 
             log.debug(f'Modem Vendor: {self.vendor}. Modem Model: {self.model}')
 
-            at_commands = []
             if 'Quectel' in self.vendor or re.match('Quectel', self.model, re.IGNORECASE): # Special fix for Quectel ec25 mini pci card
                 self._run_at_command('AT+QCFG=\\"usbnet\\",2')
             elif 'Sierra Wireless' in self.vendor:
@@ -912,7 +923,7 @@ class FwModem(FwLinuxModem):
         finally:
             self.state = MODEM_STATES.IDLE
 
-    def configure_interface(self, metric='0'):
+    def configure_interface(self, metric=None):
         '''
         To get LTE connectivity, two steps are required:
         1. Creating a connection between the modem and cellular provider.
@@ -938,6 +949,8 @@ class FwModem(FwLinuxModem):
                 for r in routes:
                     fwutils.os_system(f"ip route del {r}")
             # set updated default route
+            if not metric:
+                metric = '0'
             fwutils.os_system(f"ip route add default via {gateway} proto static metric {metric}")
 
             # configure dns servers for the interface.
