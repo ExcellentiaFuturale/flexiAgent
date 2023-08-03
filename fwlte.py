@@ -369,7 +369,7 @@ class FwLinuxModem(FwObject):
             # if it doesn't work with modem manager, do reset with AT command
             if 'Quectel' in self.vendor:
                 self._run_at_command('AT+QPOWD=0')
-            elif 'Sierra' in self.vendor == 'Sierra':
+            elif 'Sierra' in self.vendor:
                 self._run_at_command('AT!RESET')
             else:
                 raise e
@@ -1025,13 +1025,15 @@ class FwModem(FwLinuxModem):
             'mode'                : self.mode,
         }
 
-        if self.mode == 'QMI' or self.is_resetting() or not self.sim_presented:
+        if self.mode == 'QMI' or self.is_resetting():
             return lte_info
 
         data = self._get_modem_manager_data()
-        modem_state, _ = self._get_modem_state(data)
 
-        lte_info['sim_status']           = self._get_sim_card_status(data)
+        lte_info['sim_status'] = self._get_sim_card_status(data)
+        if not self.sim_presented:
+            return lte_info
+
         lte_info['packet_service_state'] = self._get_packets_state()
         lte_info['hardware_info']        = self._get_hardware_info()
         lte_info['default_settings']     = self.get_default_settings(data)
@@ -1041,6 +1043,7 @@ class FwModem(FwLinuxModem):
         lte_info['registration_network'] = self._get_registration_state()
 
         # to fetch information below, modem cannot be locked
+        modem_state, _ = self._get_modem_state(data)
         if modem_state == 'locked':
             return lte_info
 
