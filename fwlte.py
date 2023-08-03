@@ -288,7 +288,32 @@ class FwLinuxModem(FwObject):
                 dns_secondary = line.split(':')[-1].strip().replace("'", '')
                 self.dns_servers.append(dns_secondary)
 
+    def _ensure_pdp_context(self, apn):
+        '''
+        Check deeply in modem if Packet Data Protocol is defined.
+        This check is not mandatory for most of the ISPs,
+        but we found that for AT&T it is required in order to connect to the network.
+        '''
+        try:
+            exists = False
+            pdp_context_lines = self._run_at_commands(['AT+CGDCONT?'])
+            # response = '+CGDCONT: 1,"IP","internet.rl","0.0.0.0",0,0,0,0'
+            for pdp_context_line in pdp_context_lines:
+                pdp_apn = pdp_context_line.split(',')
+                if len(pdp_apn) > 3 and pdp_apn[2].strip('"') == apn:
+                    exists = True
+                    break
+
+            if not exists:
+                self._run_at_commands([f'AT+CGDCONT=1,\\"IP\\",\\"{apn}\\"'])
+        except Exception as e:
+            self.log.error(f'_ensure_pdp_context({apn}): str({e})')
+            # do not raise error as it not mandatory for most of ISPs
+
     def connect(self, apn=None, user=None, password=None, auth=None):
+        if apn:
+            self._ensure_pdp_context(apn)
+
         connection_params = self._prepare_connection_params(apn, user, password, auth)
         mbim_commands = [
             '--query-subscriber-ready-status',
@@ -647,6 +672,14 @@ class FwLinuxModem(FwObject):
             data = self._get_modem_manager_data()
         return data.get('3gpp', {}).get('operator-name')
 
+    def _run_at_commands(self, at_commands):
+        outputs = []
+        for at_command in at_commands:
+            output = self._mmcli_modem_exec(f'--command={at_command}', False)
+            output = output.replace('response:', '').replace("\'", '').strip()
+            outputs.append(output)
+        return outputs
+
     def set_mbim_mode(self, log=None):
         """Switch LTE modem to the MBIM mode
         """
@@ -663,16 +696,7 @@ class FwLinuxModem(FwObject):
             at_commands = []
             if 'Quectel' in self.vendor or re.match('Quectel', self.model, re.IGNORECASE): # Special fix for Quectel ec25 mini pci card
                 at_commands = ['AT+QCFG="usbnet",2']
-
-                if not self.at_ports:
-                    raise Exception(f'No serial port is found')
-
-                ser = serial.Serial(f'/dev/{self.at_ports[0]}')
-                for at in at_commands:
-                    at_cmd = bytes(at + '\r', 'utf-8')
-                    ser.write(at_cmd)
-                    time.sleep(0.5)
-                ser.close()
+                self._run_at_commands(at_commands)
             elif 'Sierra Wireless' in self.vendor:
                 self._run_qmicli_command('--dms-swi-set-usb-composition=8')
             else:
