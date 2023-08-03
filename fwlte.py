@@ -299,7 +299,7 @@ class FwLinuxModem(FwObject):
         '''
         try:
             exists = False
-            pdp_context_lines = self._run_at_commands(['AT+CGDCONT?'])
+            pdp_context_lines = self._run_at_command('AT+CGDCONT?').splitlines()
             # response = '+CGDCONT: 1,"IP","internet.rl","0.0.0.0",0,0,0,0'
             for pdp_context_line in pdp_context_lines:
                 pdp_apn = pdp_context_line.split(',')
@@ -308,7 +308,7 @@ class FwLinuxModem(FwObject):
                     break
 
             if not exists:
-                self._run_at_commands([f'AT+CGDCONT=1,\\"IP\\",\\"{apn}\\"'])
+                self._run_at_command(f'AT+CGDCONT=1,\\"IP\\",\\"{apn}\\"')
         except Exception as e:
             self.log.error(f'_ensure_pdp_context({apn}): str({e})')
             # do not raise error as it not mandatory for most of ISPs
@@ -686,13 +686,10 @@ class FwLinuxModem(FwObject):
             data = self._get_modem_manager_data()
         return data.get('3gpp', {}).get('operator-name')
 
-    def _run_at_commands(self, at_commands):
-        outputs = []
-        for at_command in at_commands:
-            output = self._mmcli_modem_exec(f'--command={at_command}', False)
-            output = output.replace('response:', '').replace("\'", '').strip()
-            outputs.append(output)
-        return outputs
+    def _run_at_command(self, at_command):
+        output = self._mmcli_modem_exec(f'--command={at_command}', False)
+        output = output.replace('response:', '').replace("\'", '').strip()
+        return output
 
     def set_mbim_mode(self, log=None):
         """Switch LTE modem to the MBIM mode
@@ -709,8 +706,7 @@ class FwLinuxModem(FwObject):
 
             at_commands = []
             if 'Quectel' in self.vendor or re.match('Quectel', self.model, re.IGNORECASE): # Special fix for Quectel ec25 mini pci card
-                at_commands = ['AT+QCFG=\\"usbnet\\",2']
-                self._run_at_commands(at_commands)
+                self._run_at_command('AT+QCFG=\\"usbnet\\",2')
             elif 'Sierra Wireless' in self.vendor:
                 self._run_qmicli_command('--dms-swi-set-usb-composition=8')
             else:
