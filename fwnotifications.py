@@ -87,7 +87,6 @@ class FwNotifications:
                 event_settings = tunnel_notifications.get(tunnel_rule, rules[tunnel_rule])
                 unit = rules[tunnel_rule].get('thresholdUnit')
                 self._analyze_stats_value(tunnel_rule, event_settings, tunnel_statistics, tunnel_id, unit)
-        self.alerts = self._get_dict_without_empty_entries_recursive(self.alerts)
         return self.alerts
 
     def _get_value_from_stats(self, event_type, stats):
