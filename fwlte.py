@@ -302,15 +302,21 @@ class FwLinuxModem(FwObject):
             pdp_context_lines = self._run_at_command('AT+CGDCONT?').splitlines()
             # response = '+CGDCONT: 1,"IP","internet.rl","0.0.0.0",0,0,0,0'
             for pdp_context_line in pdp_context_lines:
-                pdp_apn = pdp_context_line.split(',')
-                if len(pdp_apn) > 3 and pdp_apn[2].strip('"') == apn:
+                line_params = pdp_context_line.split(',')
+                if len(line_params) > 3 and line_params[2].strip('"') == apn:
                     exists = True
                     break
 
             if not exists:
+                self.log.info(f'_ensure_pdp_context({apn}): APN not found in {str(pdp_context_lines)}. Adding now')
                 self._run_at_command(f'AT+CGDCONT=1,\\"IP\\",\\"{apn}\\"')
+                # in order to apply it, run "CFUN" commands which is kind of soft reboot.
+                self._run_at_command(f'AT+CFUN=0')
+                self._run_at_command(f'AT+CFUN=1')
+                # give it a bit time. If it is not enough, watchdog takes care to connect it again
+                time.sleep(2)
         except Exception as e:
-            self.log.error(f'_ensure_pdp_context({apn}): str({e})')
+            self.log.error(f'_ensure_pdp_context({apn}): {str(e)}')
             # do not raise error as it not mandatory for most of ISPs
 
     def connect(self, apn=None, user=None, password=None, auth=None):
@@ -361,7 +367,17 @@ class FwLinuxModem(FwObject):
         return self.ip, self.gateway, self.dns_servers
 
     def reset(self):
-        self._mmcli_modem_exec(f'-r', False)
+        try:
+            self._mmcli_modem_exec(f'-r', False)
+        except Exception as e:
+            # if it doesn't work with modem manager, do reset with AT command
+            if 'Quectel' in self.vendor:
+                self._run_at_command('AT+QPOWD=0')
+            elif 'Sierra' in self.vendor:
+                self._run_at_command('AT!RESET')
+            else:
+                raise e
+
         self.modem_manager_id = None # modem manager gives another id after reset
 
         # In the reset process, the LTE interface (wwan) is deleted from Linux, and then comes back up.
@@ -704,7 +720,6 @@ class FwLinuxModem(FwObject):
 
             log.debug(f'Modem Vendor: {self.vendor}. Modem Model: {self.model}')
 
-            at_commands = []
             if 'Quectel' in self.vendor or re.match('Quectel', self.model, re.IGNORECASE): # Special fix for Quectel ec25 mini pci card
                 self._run_at_command('AT+QCFG=\\"usbnet\\",2')
             elif 'Sierra Wireless' in self.vendor:
@@ -912,7 +927,7 @@ class FwModem(FwLinuxModem):
         finally:
             self.state = MODEM_STATES.IDLE
 
-    def configure_interface(self, metric='0'):
+    def configure_interface(self, metric=None):
         '''
         To get LTE connectivity, two steps are required:
         1. Creating a connection between the modem and cellular provider.
@@ -938,6 +953,8 @@ class FwModem(FwLinuxModem):
                 for r in routes:
                     fwutils.os_system(f"ip route del {r}")
             # set updated default route
+            if not metric:
+                metric = '0'
             fwutils.os_system(f"ip route add default via {gateway} proto static metric {metric}")
 
             # configure dns servers for the interface.
@@ -1012,13 +1029,15 @@ class FwModem(FwLinuxModem):
             'mode'                : self.mode,
         }
 
-        if self.mode == 'QMI' or self.is_resetting() or not self.sim_presented:
+        if self.mode == 'QMI' or self.is_resetting():
             return lte_info
 
         data = self._get_modem_manager_data()
-        modem_state, _ = self._get_modem_state(data)
 
-        lte_info['sim_status']           = self._get_sim_card_status(data)
+        lte_info['sim_status'] = self._get_sim_card_status(data)
+        if not self.sim_presented:
+            return lte_info
+
         lte_info['packet_service_state'] = self._get_packets_state()
         lte_info['hardware_info']        = self._get_hardware_info()
         lte_info['default_settings']     = self.get_default_settings(data)
@@ -1028,6 +1047,7 @@ class FwModem(FwLinuxModem):
         lte_info['registration_network'] = self._get_registration_state()
 
         # to fetch information below, modem cannot be locked
+        modem_state, _ = self._get_modem_state(data)
         if modem_state == 'locked':
             return lte_info
 
