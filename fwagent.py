@@ -410,9 +410,13 @@ class FwAgent(FwObject):
                             self.log.info(f"going to reconnect -> queue reply {msg['seq']}")
                             self.pending_replies.append(msg)
                 except Exception as e:
-                    if not self.start_stop_router_seq:
+                    if self.start_stop_router_seq:
+                        self.ws.pop_logger()
+                        self.start_stop_router_seq = None
+                    else:
                         self.log.error(f"failed to handle received message or to send outgoing: {str(e)}")
                     pass
+
             self.ws.close()
             return True
 
