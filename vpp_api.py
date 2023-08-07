@@ -138,7 +138,7 @@ class VPP_API(FwObject):
             return True
         self.log.debug("connect_to_vpp: connecting")
 
-        num_retries = 7
+        num_retries = 9
         for i in range(num_retries):
             try:
                 self.log.debug("connect_to_vpp: trying to connect, num " + str(i))
