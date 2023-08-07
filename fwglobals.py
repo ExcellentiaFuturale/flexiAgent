@@ -48,11 +48,8 @@ from fwsystem_api import FWSYSTEM_API
 from fwagent_api import FWAGENT_API
 from fwapplications_api import FWAPPLICATIONS_API
 from os_api import OS_API
-from fwlog import FwLogFile
-from fwlog import FwObjectLogger
-from fwlog import FwSyslog
-from fwlog import FWLOG_LEVEL_INFO
-from fwlog import FWLOG_LEVEL_DEBUG
+from fwlog import FwObjectLogger, FwLogFile, FwLogSyslog, FwLogDevNull
+from fwlog import FWLOG_LEVEL_INFO, FWLOG_LEVEL_DEBUG
 from fwpolicies import FwPolicies
 from fwrouter_cfg import FwRouterCfg
 from fwroutes import FwRoutes
@@ -446,6 +443,8 @@ class Fwglobals(FwObject):
             'add-firewall-policy':    self.logger_add_firewall_policy,
             'remove-firewall-policy': self.logger_add_firewall_policy,
         }
+        self.logger_devnull = FwObjectLogger('/dev/null',  log=FwLogDevNull())
+
 
         # Some lte modules have a problem with drivers binding.
         # As workaround, we reload the driver to fix it.
@@ -891,7 +890,7 @@ def initialize(log_level=FWLOG_LEVEL_INFO, quiet=False):
     global g_initialized
     if not g_initialized:
         global log
-        log = FwSyslog(log_level)
+        log = FwLogSyslog(log_level)
         if quiet:
             log.set_target(to_terminal=False)
         global g
