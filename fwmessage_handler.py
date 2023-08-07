@@ -245,7 +245,7 @@ class FwMessageHandler(FwObject):
             dev_before, dev_after, via_before, via_after, ip_before, ip_after = \
                 default_route_before.dev, default_route_after.dev,              \
                 default_route_before.via, default_route_after.via,              \
-                default_iface_before['IPv4'], default_iface_after['IPv4']
+                default_iface_before.get('IPv4'), default_iface_after.get('IPv4')
 
             if dev_before != dev_after or via_before != via_after or ip_before != ip_after:
                 if dev_before != dev_after or via_before != via_after:

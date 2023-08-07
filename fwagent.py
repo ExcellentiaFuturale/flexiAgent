@@ -99,6 +99,7 @@ class FwAgent(FwObject):
         self.versions             = fwutils.get_device_versions(fwglobals.g.VERSIONS_FILE)
         self.pending_replies      = []
         self.reconnecting         = False
+        self.start_stop_router_seq = None
 
         self.ws = fwwebsocket.FwWebSocketClient(
                                     on_open    = self._on_open,
@@ -386,18 +387,31 @@ class FwAgent(FwObject):
                 try:
                     received = self.ws.recv(timeout=1)
                     msg = json.loads(received) if received else None
-                    if msg and msg['msg']['message'] == "sync-device" and fwglobals.g.loadsimulator:
+
+                    # Suppress exception and error log prints by WebSocket on VPP start/stop
+                    # to calm down customers and QA :)
+                    #
+                    req = msg['msg']['message'] if msg else None
+                    if req == 'start-router' or req == 'stop-router':
+                        self.ws.push_logger(fwglobals.g.logger_devnull)
+                        self.start_stop_router_seq = msg['seq']
+
+                    if req == "sync-device" and fwglobals.g.loadsimulator:
                         out_msgs = [{'seq':msg['seq'], 'msg':{'ok':1}}]
                     else:
                         out_msgs = fwglobals.g.message_handler.handle_incoming_message(msg)
                     for msg in out_msgs:
+                        if msg['seq'] == self.start_stop_router_seq:
+                            self.ws.pop_logger()
+                            self.start_stop_router_seq = None
                         if not self.reconnecting:
                             self.ws.send(json.dumps(msg, cls=fwutils.FwJsonEncoder))
                         else:
                             self.log.info(f"going to reconnect -> queue reply {msg['seq']}")
                             self.pending_replies.append(msg)
                 except Exception as e:
-                    self.log.error(f"failed to handle received message or to send outgoing: {str(e)}")
+                    if not self.start_stop_router_seq:
+                        self.log.error(f"failed to handle received message or to send outgoing: {str(e)}")
                     pass
             self.ws.close()
             return True
@@ -410,7 +424,8 @@ class FwAgent(FwObject):
                     error  = "not approved"
             else:
                 self.connection_error_code = fwglobals.g.WS_STATUS_ERROR_LOCAL_ERROR
-            self.log.error(f"connect: {error}")
+            if not self.start_stop_router_seq:
+                self.log.error(f"connect: {error}")
 
             # Create a file to signal the upgrade process that the
             # upgraded agent failed to connect to the management.

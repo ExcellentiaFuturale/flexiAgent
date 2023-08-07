@@ -35,7 +35,7 @@ class Fwlog:
 
     :param level: Start logging from this severity level.
     """
-    def __init__(self, level, name):
+    def __init__(self, name, level=0x00):
         """Constructor method
         """
         self.level = level
@@ -145,7 +145,7 @@ class Fwlog:
         self.to_terminal_enabled = to_terminal
 
 
-class FwSyslog(Fwlog):
+class FwLogSyslog(Fwlog):
     def __init__(self, level=FWLOG_LEVEL_INFO, identification="fwagent"):
         """Constructor method
         """
@@ -191,6 +191,26 @@ class FwSyslog(Fwlog):
                     syslog.syslog(msg)
                 else:
                     syslog.syslog(">> " + msg)
+
+class FwLogDevNull(Fwlog):
+    def __init__(self, identification="fwagent"):
+        """Constructor method
+        """
+        Fwlog.__init__(self, name=f"dev_null(ident={identification})")
+
+    def __str__(self):
+        return "dev_null"
+
+    def _log(self, log_message, to_terminal=True, to_syslog=True, truncate_long_line=True):
+        """Print log message.
+
+        :param log_message:       Message contents.
+        :param to_terminal:       Print to terminal.
+        :param to_syslog:         Print to syslog.
+
+        :returns: None.
+        """
+        return
 
 
 class FwLogFile(Fwlog):
@@ -269,7 +289,7 @@ class FwObjectLogger:
     """
     def __init__(self, object_name, log=None):
         import fwglobals
-        self.log = log if log else fwglobals.log if fwglobals.g_initialized else FwSyslog()
+        self.log = log if log else fwglobals.log if fwglobals.g_initialized else FwLogSyslog()
         self.prefix = f"{object_name}: "
 
     def __str__(self):
