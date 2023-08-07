@@ -2863,18 +2863,21 @@ def fix_received_message(msg):
 
     def _fix_interface_type(msg):
 
-        def _is_type_modified(_request):
+        def _is_lan_wan_type_modified(_request):
             if _request['message'] == 'modify-interface':
                 new_type = _request['params'].get('type',"").lower()
                 if not new_type:
                     return False
-                old_type = fwglobals.g.router_cfg.get_interfaces(dev_id=_request['params']['dev_id'])[0]['type'].lower()
+                interfaces = fwglobals.g.router_cfg.get_interfaces(dev_id=_request['params']['dev_id'])
+                if not interfaces:
+                    return False
+                old_type = interfaces[0].get('type',"").lower()
                 if (new_type != old_type):
                     return True
             return False
 
         if msg['message'] == 'modify-interface':
-            if _is_type_modified(msg):
+            if _is_lan_wan_type_modified(msg):
                 msg = {
                         'message': 'aggregated',
                         'params' : { 'requests': [ msg ] }
@@ -2883,7 +2886,7 @@ def fix_received_message(msg):
         if msg['message'] == 'aggregated':
             requests = msg['params']['requests']
             for idx, request in reversed(list(enumerate(requests))):    # reversed() -> optimize a bit requests.insert() below
-                if _is_type_modified(request):
+                if _is_lan_wan_type_modified(request):
                     requests[idx]['message'] = 'add-interface'          # 'modify-interface' -> 'add-interface'
                     remove_interface = {'message': 'remove-interface', 'params': {'dev_id': request['params']['dev_id']}}
                     requests.insert(idx, remove_interface)
