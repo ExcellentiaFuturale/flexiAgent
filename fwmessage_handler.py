@@ -227,32 +227,7 @@ class FwMessageHandler(FwObject):
                 self.log.debug(f"_handle_received_request: wait for {rt.thread_names} threads to finish")
             rt.request_cond_var.wait_for(rt.is_no_active_threads)
 
-            default_route_before = fwroutes.get_default_route()
-            default_iface_before = fwutils.get_linux_interfaces(if_dev_id=default_route_before.dev_id)
-
-
             reply = fwglobals.g.handle_request(request, original_request)
-
-
-            # Reconnect the agent to avoid WebSocket timeout, if the default route was changed or
-            # if address of the interface used for default route was changed.
-            # Note, the get_linux_interfaces() cache is updated by 'netplan apply', which should
-            # happen if interface address is modified by user on flexiManage UI.
-            #
-            default_route_after = fwroutes.get_default_route()
-            default_iface_after = fwutils.get_linux_interfaces(if_dev_id=default_route_after.dev_id)
-
-            dev_before, dev_after, via_before, via_after, ip_before, ip_after = \
-                default_route_before.dev, default_route_after.dev,              \
-                default_route_before.via, default_route_after.via,              \
-                default_iface_before.get('IPv4'), default_iface_after.get('IPv4')
-
-            if dev_before != dev_after or via_before != via_after or ip_before != ip_after:
-                if dev_before != dev_after or via_before != via_after:
-                    self.log.debug(f"reconnect as default route was changed: '{default_route_before}'->'{default_route_after}'")
-                else:
-                    self.log.debug(f"reconnect as address of {dev_before} was changed: '{ip_before}'->'{ip_after}'")
-                fwglobals.g.fwagent.reconnect()
 
             rt.handling_request = False
             return reply
