@@ -1432,6 +1432,12 @@ class FwModem(FwLinuxModem):
 
         self.log.debug("%s: LTE IP was changed: %s -> %s" % (self.dev_id, iface_addr, modem_addr))
 
+    def is_sim_unlocked(self):
+        modem_state, _ = self._get_modem_state()
+        if modem_state == 'locked':
+            return (False, 'SIM card is locked with PIN')
+        return (True, None)
+
 class FwModemManager():
     def __init__(self):
         self.modems = {}
