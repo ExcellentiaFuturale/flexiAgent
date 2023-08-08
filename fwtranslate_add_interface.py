@@ -363,13 +363,13 @@ def add_interface(params):
 
     if is_lte:
         netplan_params['substs'] = [
-            { 'add_param':'ip', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'ip'] },
-            { 'add_param':'gw', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'gateway'] },
+            { 'add_param':'ip', 'val_by_func':'fwlte.get_one_ip_configuration', 'arg': [dev_id, 'ip'] },
+            { 'add_param':'gw', 'val_by_func':'fwlte.get_one_ip_configuration', 'arg': [dev_id, 'gateway'] },
         ]
 
         # If a user doesn't configure static dns servers, we use the servers received from ISP
         if len(dnsServers) == 0:
-            netplan_params['substs'].append({ 'add_param':'dnsServers', 'val_by_func':'fwlte.get_ip_configuration', 'arg': [dev_id, 'dns_servers'] })
+            netplan_params['substs'].append({ 'add_param':'dnsServers', 'val_by_func':'fwlte.get_one_ip_configuration', 'arg': [dev_id, 'dns_servers'] })
 
     if bridge_addr:
         netplan_params['ip'] = ''
@@ -652,7 +652,7 @@ def add_interface(params):
                                     'func': 'set_arp_entry',
                                     'args': {
                                         'is_add': True,
-                                        'substs': [ {'add_param': 'gw', 'val_by_func': 'fwlte.get_ip_configuration', 'arg':[dev_id, 'gateway']} ]
+                                        'substs': [ {'add_param': 'gw', 'val_by_func': 'fwlte.get_one_ip_configuration', 'arg':[dev_id, 'gateway']} ]
                                     }
         }
         cmd['cmd']['descr'] = f"set arp entry for lte interface {dev_id}"

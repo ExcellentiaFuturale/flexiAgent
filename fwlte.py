@@ -54,9 +54,8 @@ class FwLinuxModem(FwObject):
         self.imei = None
         self.sim_presented = None
         self.mode = None
-        self.ip = None
-        self.gateway = None
-        self.dns_servers = []
+
+        self._initialize_ip_config()
 
         self.mbim_session = '0'
 
@@ -72,6 +71,11 @@ class FwLinuxModem(FwObject):
         elif 'qmi_wwan' in drivers:
             self.driver = 'qmi_wwan'
             self.mode = 'QMI'
+
+    def _initialize_ip_config(self):
+        self.ip = None
+        self.gateway = None
+        self.dns_servers = []
 
     def is_connected(self):
         return self._get_connection_state() == 'activated'
@@ -349,21 +353,16 @@ class FwLinuxModem(FwObject):
 
     def disconnect(self):
         self._run_mbimcli_command(f'--disconnect={self.mbim_session}')
-        self.ip = None
-        self.gateway = None
-        self.dns_servers = []
+        self._initialize_ip_config()
 
-    def get_ip_configuration(self, cache=True, config_name=None):
+    def get_ip_configuration(self, cache=True):
+        if cache == False:
+            self._initialize_ip_config()
+
         # if not exists, take from modem and update cache
-        if not self.ip or not self.gateway or not self.dns_servers or cache == False:
+        if not self.ip or not self.gateway or not self.dns_servers:
             self._update_ip_configuration()
 
-        if config_name == 'ip':
-            return self.ip
-        elif config_name == 'gateway':
-            return self.gateway
-        elif config_name == 'dns_servers':
-            return self.dns_servers
         return self.ip, self.gateway, self.dns_servers
 
     def reset(self):
@@ -1483,8 +1482,20 @@ class FwModemManager():
 
         return out
 
-def get_ip_configuration(dev_id, key):
-    return fwglobals.g.modems.get(dev_id).get_ip_configuration(config_name=key)
+def get_one_ip_configuration(dev_id, config_name):
+    """ Get IP configuration by a config name.
+
+    :param config_name: The config name to return - One of: ip, gateway, dns_servers
+
+    :return: Config value or empty string.
+    """
+    ip, gateway, dns_servers = fwglobals.g.modems.get(dev_id).get_ip_configuration()
+    if config_name == 'ip':
+        return ip or '' # do not return None to translation substitute function
+    elif config_name == 'gateway':
+        return gateway or '' # do not return None to translation substitute function
+    elif config_name == 'dns_servers':
+        return dns_servers or '' # do not return None to translation substitute function
 
 def disconnect_all():
     """ Disconnect all modems safely
