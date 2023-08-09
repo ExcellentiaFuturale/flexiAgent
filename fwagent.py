@@ -143,13 +143,6 @@ class FwAgent(FwObject):
         except Exception as e:
             self.log.excep("Failed to create connection failure file: %s" % str(e))
 
-    def _clean_connection_failure(self):
-        # We use 'subprocess.check_call()' to get an exception if writing into file fails.
-        # The file update is vital for the upgrade process by fwupgrade.sh.
-        #
-        subprocess.check_call(f'echo "success" > {fwglobals.g.CONN_FAILURE_FILE}', shell=True)
-        self.log.debug("_clean_connection_failure")
-
     def _setup_repository(self, repo):
         # Extract repo info. e.g. 'https://deb.flexiwan.com|flexiWAN|main'
         repo_split = repo.split('|')
@@ -475,7 +468,12 @@ class FwAgent(FwObject):
         self.log.info("connected to flexiManage")
 
         self.reconnecting = False
-        self._clean_connection_failure()
+
+        # Update connection status file used by fwupgrade.sh.
+        # We use 'subprocess.check_call()' to get an exception if writing into file fails.
+        # The file update is vital for the upgrade process.
+        #
+        subprocess.check_call(f'echo "success" > {fwglobals.g.CONN_FAILURE_FILE}', shell=True)
 
         # Send pending message replies to the flexiManage upon connection reopen.
         # These are replies to messages that might have cause the connection

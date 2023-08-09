@@ -20,12 +20,14 @@
 
 import enum
 import socket
+import subprocess
+import time
+
 import fwglobals
 import fwpppoe
 import fwthread
 import fwtunnel_stats
 import fwutils
-import subprocess
 
 from fwobject import FwObject
 from pyroute2 import IPRoute
@@ -105,7 +107,8 @@ class FwRoutes(FwObject):
     def __init__(self):
         FwObject.__init__(self)
         self.thread_routes = None
-        self.default_route = fwutils.get_default_route()
+        self.default_route = None
+        self.default_iface = None
 
     def __enter__(self):
         return self
@@ -140,16 +143,15 @@ class FwRoutes(FwObject):
             if ticks % 5 == 0:  # Check routes every ~5 seconds
                 self._check_reinstall_static_routes()
 
-        # Check if the default route was modified.
-        # If it was, reconnect the agent to avoid WebSocket timeout.
+        # Check if the default route was modified or if address of the interface
+        # used for default route was changed. If it was, reconnect the agent
+        # to avoid WebSocket timeout.
+        # Note, the get_linux_interfaces() cache is updated by 'netplan apply',
+        # which should happen if interface address is modified by user on
+        # flexiManage UI.
         #
         if fwglobals.g.fwagent:
-            default_route = fwutils.get_default_route()
-            if self.default_route[2] != default_route[2]:
-                self.log.debug(f"reconnect as default route was changed: '{self.default_route}' -> '{default_route}'")
-                self.default_route = default_route
-                fwglobals.g.fwagent.reconnect()
-
+            self._check_reconnect_on_default_route_change()
 
     def _check_reinstall_static_routes(self):
         routes_db = fwglobals.g.router_cfg.get_routes()
@@ -180,6 +182,47 @@ class FwRoutes(FwObject):
                 else:
                     fwglobals.log.error(f"failed to restore static route ({str(route)}): {err_str}")
 
+
+    def _check_reconnect_on_default_route_change(self):
+
+        default_route = get_default_route()
+        default_iface = fwutils.get_linux_interfaces(if_dev_id=default_route.dev_id)
+
+        # Avoid reconnect on module initialization, it should be done afte
+        #
+        if self.default_route == None or self.default_iface == None:
+            self.default_route = default_route
+            self.default_iface = default_iface
+            return
+
+        new_dev, new_via, new_ip = \
+            default_route.dev,      default_route.via,      default_iface.get('IPv4')
+        old_dev, old_via, old_ip = \
+            self.default_route.dev, self.default_route.via, self.default_iface.get('IPv4')
+
+        # To cope with temporary fluctuations of default route caused by 'netplan apply'
+        # that might be run for various reasons and that might temporary reset default
+        # routes via DHCP interfaces until DHCP renegotiation is finished,
+        # we check it few more times to ensure that old default route was not restored.
+        #
+        for _ in range(3):
+            if old_dev == new_dev and old_via == new_via and old_ip == new_ip:
+                return   # No change or old default route was restored -> return
+            if not new_dev or not new_via or not new_ip:
+                return   # No default route is available - reconnection will not help, hope it is temporary due to netplan
+            time.sleep(1)
+            default_route = get_default_route()
+            default_iface = fwutils.get_linux_interfaces(if_dev_id=default_route.dev_id)
+            new_dev, new_via, new_ip = \
+                default_route.dev, default_route.via, default_iface.get('IPv4')
+
+        if old_dev != new_dev or old_via != new_via:
+            self.log.debug(f"reconnect as default route was changed: '{self.default_route}'->'{default_route}'")
+        else:
+            self.log.debug(f"reconnect as address of {old_dev} was changed: '{old_ip}'->'{new_ip}'")
+        fwglobals.g.fwagent.reconnect()
+        self.default_route = default_route
+        self.default_iface = default_iface
 
 class FwLinuxRoutes(dict):
     """The object that represents routing rules found in OS.
