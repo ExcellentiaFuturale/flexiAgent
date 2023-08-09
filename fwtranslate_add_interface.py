@@ -321,17 +321,6 @@ def add_interface(params):
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']   = "call"
-        cmd['cmd']['object'] = "fwglobals.g.modems"
-        cmd['cmd']['params'] = {
-                                'dev_id': dev_id,
-                                'func': 'is_sim_unlocked'
-        }
-        cmd['cmd']['descr']  = f"Ensure that SIM card is unlocked for {iface_name}"
-        cmd_list.append(cmd)
-
-        cmd = {}
-        cmd['cmd'] = {}
         cmd['cmd']['func']      = "exec"
         cmd['cmd']['module']    = "fwutils"
         cmd['cmd']['descr']     = "UP interface %s in Linux" % iface_name

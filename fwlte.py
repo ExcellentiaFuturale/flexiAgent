@@ -186,7 +186,7 @@ class FwLinuxModem(FwObject):
         info = self._get_modem_manager_data()
         generic = info.get('generic', {})
 
-        self.imei = info.get('3gpp', {}).get('imei')
+        self.imei = generic.get('equipment-identifier')
         self.model = generic.get('model')
         self.sim_presented = self._get_sim_card_status(info) == 'present'
         self.vendor = generic.get('manufacturer')
@@ -553,6 +553,13 @@ class FwLinuxModem(FwObject):
                 self._modem_manager_signal_setup()
         return (output, err)
 
+    def _get_modem_manager_sim_data(self, modem_data=None):
+        if not modem_data:
+            modem_data = self._get_modem_manager_data()
+        sim_path = modem_data.get('generic', {}).get('sim')
+        sim_data = self._mmcli_exec(f'-i {sim_path}')
+        return sim_data.get('sim', {})
+
     def _run_pin_command(self, mmcli_pin_flag):
         data = self._get_modem_manager_data()
         sim_path = data.get('generic', {}).get('sim')
@@ -777,6 +784,14 @@ class FwLinuxModem(FwObject):
                 break
         return res
 
+    def get_sim_info(self, data=None):
+        sim_data = self._get_modem_manager_sim_data(data)
+        sim_info = {
+            'iccid': sim_data.get('properties', {}).get('iccid'),
+            'imsi': sim_data.get('properties', {}).get('imsi')
+        }
+        return sim_info
+
     def _get_phone_number(self, data=None):
         if not data:
             data = self._get_modem_manager_data()
@@ -880,36 +895,6 @@ class FwModem(FwLinuxModem):
         self.state = MODEM_STATES.CONNECTING
 
         try:
-            if self.mode == 'QMI':
-                raise Exception("Unsupported modem mode (QMI)")
-
-            # check if sim exists
-            if self._get_sim_card_status() != "present":
-                raise Exception("SIM not present")
-
-            # check PIN status
-            pin_state = self.get_pin_state().get('pin1_status', 'disabled')
-            if pin_state not in ['disabled', 'enabled-verified']:
-                if not pin:
-                    raise Exception("PIN is required")
-
-                # If a user enters a wrong pin, the function will fail, but flexiManage will send three times `sync` jobs.
-                # As a result, the SIM may be locked. So we save the wrong pin in the cache
-                # and we will not try again with this wrong one.
-                wrong_pin = self._get_db_entry('wrong_pin')
-                if wrong_pin and wrong_pin == pin:
-                    raise Exception("Wrong PIN provisioned")
-
-                _, err = self._verify_pin(pin)
-                if err:
-                    self._set_db_entry('wrong_pin', pin)
-                    raise Exception("PIN is wrong")
-
-            # At this point, we sure that the sim is unblocked.
-            # After a block, the sim might open it from different places (manually qmicli command, for example),
-            # so we need to make sure to clear this cache
-            self._set_db_entry('wrong_pin', None)
-
             # Check if modem already connected to ISP.
             if self.is_connected():
                 return
@@ -1024,6 +1009,7 @@ class FwModem(FwLinuxModem):
             'pin_state'           : {},
             'connection_state'    : '',
             'registration_network': {},
+            'sim'                 : {},
             'state'               : self.state,
             'mode'                : self.mode,
         }
@@ -1044,6 +1030,7 @@ class FwModem(FwLinuxModem):
         lte_info['pin_state']            = self.get_pin_state(data)
         lte_info['connection_state']     = self._get_connection_state()
         lte_info['registration_network'] = self._get_registration_state()
+        lte_info['sim']                  = self.get_sim_info()
 
         # to fetch information below, modem cannot be locked
         modem_state, _ = self._get_modem_state(data)
@@ -1432,11 +1419,56 @@ class FwModem(FwLinuxModem):
 
         self.log.debug("%s: LTE IP was changed: %s -> %s" % (self.dev_id, iface_addr, modem_addr))
 
-    def is_sim_unlocked(self):
-        modem_state, _ = self._get_modem_state()
-        if modem_state == 'locked':
-            return (False, 'SIM card is locked with PIN')
-        return (True, None)
+    def validate_modem(self):
+        if self.mode == 'QMI':
+            return (False, "Unsupported modem mode (QMI)")
+
+    def validate_sim(self, pin):
+        pin_state = self.get_pin_state().get('pin1_status', 'disabled')
+        # pin state can be: disabled, sim-missing, blocked, enabled-verified, enabled-not-verified.
+
+        # check if sim exists
+        if pin_state == 'sim-missing' or self._get_sim_card_status() != "present":
+            return (False, "SIM not present")
+
+        if pin_state == 'disabled':
+            self._set_db_entry('wrong_pin', None)
+            return
+
+        if pin_state == 'blocked':
+            return (False, "SIM is blocked with PUK")
+
+        # At this point, sim status is enabled-verified or enabled-not-verified.
+        if not pin:
+            return (False, "PIN is required")
+
+        # In case of an incorrect PIN entry,
+        # we store the PIN and refrain from attempting it again to prevent the SIM from being blocked.
+        wrong_pin = self._get_db_entry('wrong_pin')
+        if wrong_pin and wrong_pin == pin:
+            return (False, "Wrong PIN provisioned")
+
+        if pin_state == 'enabled-not-verified': # We cannot verify a SIM card that has already been verified
+            _, err = self._verify_pin(pin)
+            if err:
+                self._set_db_entry('wrong_pin', pin)
+                return (False, "PIN is wrong")
+
+        if pin_state == 'enabled-verified':
+            # If a user changes the PIN and it has already been verified,
+            # it is not possible to directly confirm whether the new PIN is correct.
+            # To check, we use a "trick" by executing the change PIN command with
+            # the requested PIN entered as both the old and new PIN.
+            # If the command fails, then the PIN is incorrect.
+            # If the command succeeds, then the new PIN is correct.
+            _, err = self._change_pin(pin, pin)
+            if err:
+                self._set_db_entry('wrong_pin', pin)
+                return (False, "PIN is wrong")
+
+        # We can now confirm that the PIN is either valid or disabled,
+        # which means we can remove the protection for incorrect PINs.
+        self._set_db_entry('wrong_pin', None)
 
 class FwModemManager():
     def __init__(self):
