@@ -44,6 +44,29 @@ def add_lte(params):
     cmd['cmd']['object'] = "fwglobals.g.modems"
     cmd['cmd']['params'] = {
                             'dev_id': dev_id,
+                            'func': 'validate_modem'
+    }
+    cmd['cmd']['descr']  = f"validate modem for {dev_id}"
+    cmd_list.append(cmd)
+
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']   = "call"
+    cmd['cmd']['object'] = "fwglobals.g.modems"
+    cmd['cmd']['params'] = {
+                            'dev_id': dev_id,
+                            'func': 'validate_sim',
+                            'args': { 'pin': pin }
+    }
+    cmd['cmd']['descr']  = f"validate SIM card for {dev_id}"
+    cmd_list.append(cmd)
+
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']   = "call"
+    cmd['cmd']['object'] = "fwglobals.g.modems"
+    cmd['cmd']['params'] = {
+                            'dev_id': dev_id,
                             'func': 'connect',
                             'args': {
                                 'apn': apn,

@@ -363,7 +363,7 @@ class FWAGENT_API(FwObject):
         if non_supported_messages:
             raise Exception("_sync_device: unsupported requests found: %s" % str(non_supported_messages))
 
-        err_str = ''
+        err_str = []
 
         for module_name, module in list(fwglobals.modules.items()):
             if module.get('sync', False) == True:
@@ -373,9 +373,10 @@ class FWAGENT_API(FwObject):
                     api_module.sync(params['requests'], full_sync_enforced)
                 except Exception as e:
                     self.log.error(f"{module_name}.sync() failed: {str(e)}")
-                    err_str += f"{module_name}.sync() failed: {str(e)} ; "
+                    err_str.append(str(e))
 
         if err_str:
+            err_str = ' ; '.join(err_str)
             return {'message': err_str, 'ok': 0}
 
         fwutils.reset_device_config_signature(log=self.log)
