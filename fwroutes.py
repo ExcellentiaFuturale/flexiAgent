@@ -205,14 +205,12 @@ class FwRoutes(FwObject):
         # routes via DHCP interfaces until DHCP renegotiation is finished,
         # we check it few more times to ensure that old default route was not restored.
         #
-        retrials = 3
-        while retrials > 0:
+        for _ in range(3):
             if old_dev == new_dev and old_via == new_via and old_ip == new_ip:
                 return   # No change or old default route was restored -> return
             if not new_dev or not new_via or not new_ip:
                 return   # No default route is available - reconnection will not help, hope it is temporary due to netplan
             time.sleep(1)
-            retrials -= 1
             default_route = get_default_route()
             default_iface = fwutils.get_linux_interfaces(if_dev_id=default_route.dev_id)
             new_dev, new_via, new_ip = \
