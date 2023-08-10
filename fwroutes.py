@@ -82,9 +82,6 @@ class FwRoute:
         self.proto      = proto
         self.metric     = metric
         self.dev_id     = dev_id if dev_id else fwutils.get_interface_dev_id(dev)
-        self.probes     = {}        # Ping results per server
-        self.ok         = True      # If True there is connectivity to internet
-        self.stats      = {'ifname': '', 'rtt': 0, 'drop_rate':0}    # Connectivity stats results
 
     def __str__(self):
         route = '%s via %s dev %s(%s)' % (self.prefix, self.via, self.dev, self.dev_id)
