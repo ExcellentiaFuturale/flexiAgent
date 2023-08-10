@@ -1070,6 +1070,12 @@ class FwModem(FwLinuxModem):
                 self.log.debug(f"set_arp_entry: no GW was found for {self.dev_id}")
                 return
 
+        if_name = self._get_lte_if_name()
+        if_addr = fwutils.get_interface_address(if_name, log=False)
+        if not if_addr:
+            self.log.debug(f"set_arp_entry: no IP was found for {if_name} interfaces")
+            return
+
         log_prefix=f"set_arp_entry({self.dev_id})"
 
         if is_add:
