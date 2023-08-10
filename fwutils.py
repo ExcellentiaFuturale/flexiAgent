@@ -1507,6 +1507,12 @@ def vpp_sw_if_index_to_tap(sw_if_index):
     _, tap_if_name = vpp_get_tap_info(vpp_sw_if_index=sw_if_index)
     return tap_if_name
 
+def get_interface_linux_carrier_value(if_name):
+    (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{if_name}/carrier")
+    if not ok:
+        return None
+    return status_linux.strip()
+
 def vpp_get_interface_status(sw_if_index=None, dev_id=None):
     """Get VPP interface state.
 

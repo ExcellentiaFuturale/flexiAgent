@@ -292,11 +292,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                 status_vpp = 'up' if connected else 'down'
             else:
                 status_vpp = fwutils.vpp_get_interface_status(dev_id=dev_id).get('link')
-            (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{tap_name}/carrier")
-            if status_vpp == 'down' and ok and status_linux and int(status_linux)==1:
+            status_linux = fwutils.get_interface_linux_carrier_value(tap_name)
+            if status_vpp == 'down' and status_linux == '1':
                 self.log.debug(f"detected NO-CARRIER for {tap_name}")
                 fwutils.os_system(f"echo 0 > /sys/class/net/{tap_name}/carrier")
-            elif status_vpp == 'up' and ok and status_linux and int(status_linux)==0:
+            elif status_vpp == 'up' and status_linux == '0':
                 self.log.debug(f"detected CARRIER UP for {tap_name}")
                 fwutils.os_system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
                 if dev_id in fwglobals.g.db.get('router_api',{}).get('dhcpd',{}).get('interfaces',{}):

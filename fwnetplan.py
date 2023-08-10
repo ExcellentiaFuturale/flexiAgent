@@ -574,7 +574,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         #
         if is_add and (ip or dhcp == "yes"):
             if_addr = fwutils.get_interface_address(ifname, log=False)
-            if not if_addr and fwutils.vpp_get_interface_status(dev_id=dev_id).get('link') == "up":
+            if not if_addr and fwutils.get_interface_linux_carrier_value(ifname) == '1':
                 for _ in range(10):
                     time.sleep(1)
                     if_addr = fwutils.get_interface_address(ifname, log=False)
