@@ -112,9 +112,9 @@ g_dumpers = {
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_routes':                 { 'shell_cmd': 'ip route > <dumper_out_file>' },
     'linux_sys_class_net':          { 'shell_cmd': 'ls -l /sys/class/net/ > <dumper_out_file>' },
-    'linux_syslog':                 { 'shell_cmd': 'cp /var/log/syslog <temp_folder>/linux_syslog.log 2>/dev/null ;' +
-                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'linux_syslog.1':               { 'shell_cmd': 'cp /var/log/syslog.1 <temp_folder>/linux_syslog_1.log 2>/dev/null ;' +
+    'linux_syslog':                 { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
+                                                   'cp /var/log/syslog* <temp_folder>/logs/ 2>/dev/null ;' +
+                                                   'mv <temp_folder>/logs/syslog <temp_folder>/linux_syslog.log 2>/dev/null ;' +  # Move main log into root folder for convenience
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_uuid':                   { 'shell_cmd': 'cp /sys/class/dmi/id/product_uuid <temp_folder>/linux_uuid.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
@@ -138,7 +138,8 @@ g_dumpers = {
 
     'frr_ip_route':                 { 'shell_cmd': f'vtysh -c "show ip route json" > <temp_folder>/frr_ip_route.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'frr_log':                      { 'shell_cmd': f'cp {g.FRR_LOG_FILE} <temp_folder>/frr.log 2>/dev/null ;' +
+    'frr_log':                      { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
+                                                   f'cp {g.FRR_LOG_FILE} <temp_folder>/log/frr.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'frr_ospf_neighbors':           { 'shell_cmd': f'vtysh -c "show ip ospf neighbor all json" > <temp_folder>/frr_ip_ospf_neighbors.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
@@ -154,18 +155,18 @@ g_dumpers = {
     'fwagent_conf':                 { 'shell_cmd': 'mkdir -p <temp_folder>/fwagent && ' +
                                                    'cp -r /etc/flexiwan/agent/* <temp_folder>/fwagent/ 2>/dev/null' },
     'fwagent_device_signature':     { 'shell_cmd': 'fwagent show --configuration signature > <dumper_out_file>' },
-    'fwagent_logs': 				{ 'shell_cmd': 'mkdir -p <temp_folder>/flexiwan_logs && ' +
-                                                   'cp /var/log/flexiwan/*.log /var/log/flexiwan/*.log.1 <temp_folder>/flexiwan_logs/ 2>/dev/null ;' +
-                                                   'mv <temp_folder>/flexiwan_logs/agent.log <temp_folder>/fwagent.log 2>/dev/null ;' +  # Move main log into root folder for convenience
+    'fwagent_logs': 				{ 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
+                                                   'cp /var/log/flexiwan/*.log* <temp_folder>/logs/ 2>/dev/null ;' +
+                                                   'mv <temp_folder>/logs/agent.log <temp_folder>/fwagent.log 2>/dev/null ;' +  # Move main log into root folder for convenience
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'dpkg_log':                     { 'shell_cmd': 'cp /var/log/dpkg.log <temp_folder>/dpkg.log 2>/dev/null ;' +
+    'dpkg_log':                     { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
+                                                   'cp /var/log/dpkg.log* <temp_folder>/logs/ 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'dpkg_log.1':                   { 'shell_cmd': 'cp /var/log/dpkg.log.1 <temp_folder>/dpkg_1.log 2>/dev/null ;' +
+    'hostapd.log':                  { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
+                                                   f'cp {g.HOSTAPD_LOG_FILE} <temp_folder>/logs/hostapd.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-
-    'hostapd.log':                  { 'shell_cmd': 'cp %s <temp_folder>/hostapd.log 2>/dev/null ;' % (g.HOSTAPD_LOG_FILE) +
-                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'hostapd.log.backup':           { 'shell_cmd': 'cp %s <temp_folder>/hostapd.log.backup 2>/dev/null ;' % (g.HOSTAPD_LOG_FILE_BACKUP) +
+    'hostapd.log.backup':           { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
+                                                   f'cp {g.HOSTAPD_LOG_FILE_BACKUP} <temp_folder>/logs/hostapd.log.backup 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     'fwagent_db_applications':      { 'shell_cmd': 'fwagent show --database applications > <dumper_out_file>' },
