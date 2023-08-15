@@ -38,7 +38,7 @@ def _encode(obj):
     return sqlite3.Binary(pickle.dumps(obj, protocol=2))
 
 
-class FwSqliteDict(SqliteDict, FwObject):
+class FwSqliteDict(FwObject, SqliteDict):
     """This is base DB class implementation, based on SqliteDict."""
 
     def __init__(self, db_file):
@@ -46,8 +46,11 @@ class FwSqliteDict(SqliteDict, FwObject):
 
         :param db_file:      SQLite database file name.
         """
-        super().__init__(filename=db_file, flag='c', autocommit=True, encode=_encode, decode=_decode)
+        SqliteDict.__init__(self, filename=db_file, flag='c', autocommit=True, encode=_encode, decode=_decode)
         FwObject.__init__(self)
+
+    def initialize(self):
+        super().initialize()  # supper() assumes the "FwObject, SqliteDict" order of inheritance!
 
     def finalize(self):
         """Close DB
@@ -55,6 +58,7 @@ class FwSqliteDict(SqliteDict, FwObject):
         :returns: None.
         """
         self.close()
+        super().finalize()
 
     def clean(self):
         """Clean DB

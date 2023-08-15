@@ -91,6 +91,7 @@ class FwWanMonitor(FwObject):
             return
         self.thread_wan_monitor = fwthread.FwRouterThread(target=self.wan_monitor_thread_func, name="WAN Monitor", log=self.log)
         self.thread_wan_monitor.start()
+        super().initialize()
 
     def finalize(self):
         """Destructor method
@@ -100,6 +101,7 @@ class FwWanMonitor(FwObject):
         if self.thread_wan_monitor:
             self.thread_wan_monitor.join()
             self.thread_wan_monitor = None
+        super().finalize()
 
     def wan_monitor_thread_func(self, ticks):
         server = self._get_server()

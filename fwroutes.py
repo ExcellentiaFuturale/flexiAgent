@@ -125,6 +125,7 @@ class FwRoutes(FwObject):
         """
         self.thread_routes = fwthread.FwRouterThread(target=self.route_thread_func, name="Routes", log=self.log)
         self.thread_routes.start()
+        super().initialize()
 
     def finalize(self):
         """Stops the FwRoutes activity - stops the main loop thread.
@@ -132,6 +133,7 @@ class FwRoutes(FwObject):
         if self.thread_routes:
             self.thread_routes.join()
             self.thread_routes = None
+        super().finalize()
 
     def route_thread_func(self, ticks):
         # Firstly sync static routes from router configuration DB to Linux

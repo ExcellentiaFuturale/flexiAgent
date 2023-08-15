@@ -99,6 +99,7 @@ class FwStatistics(FwObject):
         self.thread_statistics.start()
         self.thread_device_info = fwthread.FwRouterThread(target=self.device_info_thread_func, name='Device Info', log=self.log)
         self.thread_device_info.start()
+        super().initialize()
 
     def finalize(self):
         """Destructor method
@@ -109,6 +110,7 @@ class FwStatistics(FwObject):
         if self.thread_device_info:
             self.thread_device_info.join()
             self.thread_device_info = None
+        super().finalize()
 
     def statistics_thread_func(self, ticks):
         timeout = 30
