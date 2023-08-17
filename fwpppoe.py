@@ -403,7 +403,6 @@ class FwPppoeClient(FwObject):
         self.pap_config = FwPppoeSecretsConfig(path, 'pap-secrets')
         self._populate_users()
         self.lock = threading.RLock()
-        self.initialized = False
 
     def initialize(self):
         """Start all PPPoE connections and PPPoE thread.
@@ -414,7 +413,7 @@ class FwPppoeClient(FwObject):
         self.thread_pppoec = fwthread.FwThread(target=self.pppoec_thread_func, name='PPPOE Client', log=self.log)
         self.thread_pppoec.start()
 
-        self.initialized = True
+        super().initialize()
 
     def __enter__(self):
         return self
@@ -435,7 +434,7 @@ class FwPppoeClient(FwObject):
                 self.thread_pppoec.stop()
                 self.thread_pppoec = None
             self.stop()
-            self.initialized = False
+            super().finalize()
 
         self.interfaces.close()
         self.interfaces = None

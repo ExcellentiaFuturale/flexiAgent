@@ -45,12 +45,6 @@ class FwIKEv2(FwObject):
         # caused the `with` statement execution to fail. If the `with`
         # statement finishes without an exception being raised, these
         # arguments will be `None`.
-        self.finalize()
-
-    def initialize(self):
-        return
-
-    def finalize(self):
         return
 
     def is_private_key_created(self):

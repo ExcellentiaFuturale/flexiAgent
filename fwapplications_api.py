@@ -78,11 +78,12 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
 
     def initialize(self):
         self.start_applications_thread()
+        super().initialize()
 
     def finalize(self):
         self.stop_applications_thread()
         self.app_instances = {}
-        return
+        super().finalize()
 
     def start_applications_thread(self):
         if not self.application_thread:

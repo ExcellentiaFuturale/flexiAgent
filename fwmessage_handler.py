@@ -55,10 +55,12 @@ class FwMessageHandler(FwObject):
     def initialize(self):
         self.thread_handle_messages.start()
         fwthread.set_request_processing_thread(self.thread_handle_messages.ident)
+        super().initialize()
 
     def finalize(self):
         fwthread.unset_request_processing_thread(self.thread_handle_messages.ident)
         self.thread_handle_messages.stop()
+        super().finalize()
 
     def handle_incoming_message(self, incoming_msg=None):
         """Handles request received from flexiManage.

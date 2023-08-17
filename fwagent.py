@@ -132,8 +132,12 @@ class FwAgent(FwObject):
         # arguments will be `None`.
         self.finalize()
 
+    def initialize(self):
+        super().initialize()
+
     def finalize(self):
         self.ws.finalize()
+        super().finalize()
 
     def _mark_connection_failure(self, err):
         try:
@@ -1089,6 +1093,7 @@ class FwagentDaemon(FwObject):
         # So, we just run Pyro4.Daemon.serveSimple() as a daemon thread.
         # That causes the agent to exit, when all non-daemon threads are terminated.
         if self.thread_rpc_loop:
+            self.log.debug("RPC service: stopping ...")
             self.thread_rpc_loop = None
 
 
@@ -1111,7 +1116,14 @@ def daemon(debug_conf_filename=None):
 
     with FwagentDaemon() as agent_daemon:
         agent_daemon.start_rpc_service()
-        agent_daemon.run_agent()
+        try:
+            agent_daemon.run_agent()
+        except Exception as e:
+            fwglobals.log.excep(f"run_agent() failed: {str(e)}: {traceback.format_exc()}")
+            # The RPC service is implemented by daemon thread, so if any of our
+            # threads are stuck for some reason, it will not exit, holding the FwagentDaemon
+            # on the air. So, to be on safe side enforce exit.
+            sys.exit(1)
         agent_daemon.stop_rpc_service()
 
 def daemon_rpc_safe(func, **kwargs):
