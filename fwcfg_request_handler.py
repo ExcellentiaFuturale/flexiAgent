@@ -399,7 +399,7 @@ class FwCfgRequestHandler(FwObject):
                         raise Exception(err_str)
                 except Exception as e:
                     err_str = "_revert: exception while '%s': %s(%s): %s" % \
-                                (t['cmd']['descr'], rev_cmd['func'], format(rev_cmd['params']), str(e))
+                                (t['cmd']['descr'], rev_cmd['func'], format(rev_cmd.get('params',"")), str(e))
                     self.log.excep(err_str)
                     return   # Don't continue, system is in undefined state now!
 
