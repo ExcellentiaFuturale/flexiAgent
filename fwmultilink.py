@@ -190,6 +190,8 @@ class FwMultilink(FwObject):
         link_id = dev_id if dev_id else str(sw_if_index)
         link = self.db['links'].get(link_id)
 
+        self.log.debug(f"vpp_update_labels: remove={remove}, labels={labels}, next_hop={next_hop}, dev_id={dev_id}, sw_if_index={sw_if_index}, link={link}")
+
         # Remove link
         if remove:
             if not link:
@@ -198,7 +200,7 @@ class FwMultilink(FwObject):
             err_str = self._remove_link(link)
             if err_str:
                 return (False, err_str)
-            return True
+            return (True, "")
 
         # Add link.
         # It can be link modification, if link exists in database, or it can be
@@ -236,7 +238,7 @@ class FwMultilink(FwObject):
         err_str = self._add_link(link)
         if err_str:
             return (False, err_str)
-        return True
+        return (True, "")
 
     def _add_link(self, link):
         # Allocate ID-s for labels and convert them into string
@@ -282,3 +284,16 @@ class FwMultilink(FwObject):
 
     def get_link(self, dev_id):
         return self.db['links'].get(dev_id)
+
+    def sync_addresses(self, dev_id, interface):
+        '''Check if next_hop (GW) of the interface was changed and update vpp if needed.
+        '''
+        next_hop = interface.get('gw')
+        link     = self.get_link(dev_id)
+        if not link or link.next_hop == next_hop:
+            return
+        self.log.debug(f"sync_addresses: {dev_id}: next hop changed: {link.next_hop} -> {next_hop}")
+        success, err_str = self.vpp_update_labels(
+            remove=False, labels=link.labels, next_hop=next_hop, dev_id=dev_id)
+        if not success:
+            self.log.error(f"sync_addresses: {dev_id}: failed to set new next hop '{next_hop}': {err_str}")
