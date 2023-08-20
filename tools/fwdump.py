@@ -113,8 +113,8 @@ g_dumpers = {
     'linux_routes':                 { 'shell_cmd': 'ip route > <dumper_out_file>' },
     'linux_sys_class_net':          { 'shell_cmd': 'ls -l /sys/class/net/ > <dumper_out_file>' },
     'linux_syslog':                 { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
-                                                   'cp /var/log/syslog* <temp_folder>/logs/ 2>/dev/null ;' +
-                                                   'mv <temp_folder>/logs/syslog <temp_folder>/linux_syslog.log 2>/dev/null ;' +  # Move main log into root folder for convenience
+                                                   'cp /var/log/syslog <temp_folder>/logs/syslog.log 2>/dev/null ;' + # add "*.log" to have "open with" association on Windows
+                                                   'cp /var/log/syslog.1 <temp_folder>/logs/ 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_uuid':                   { 'shell_cmd': 'cp /sys/class/dmi/id/product_uuid <temp_folder>/linux_uuid.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
@@ -156,8 +156,10 @@ g_dumpers = {
                                                    'cp -r /etc/flexiwan/agent/* <temp_folder>/fwagent/ 2>/dev/null' },
     'fwagent_device_signature':     { 'shell_cmd': 'fwagent show --configuration signature > <dumper_out_file>' },
     'fwagent_logs': 				{ 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
-                                                   'cp /var/log/flexiwan/*.log* <temp_folder>/logs/ 2>/dev/null ;' +
-                                                   'mv <temp_folder>/logs/agent.log <temp_folder>/fwagent.log 2>/dev/null ;' +  # Move main log into root folder for convenience
+                                                   'cp /var/log/flexiwan/agent.log <temp_folder>/fwagent.log 2>/dev/null ;' + # save latest log into root folder for convenience
+                                                   'cp /var/log/flexiwan/agent.log.1   <temp_folder>/logs/ 2>/dev/null ;' +
+                                                   'cp /var/log/flexiwan/agentui.log   <temp_folder>/logs/ 2>/dev/null ;' +
+                                                   'cp /var/log/flexiwan/agentui.log.1 <temp_folder>/logs/ 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'dpkg_log':                     { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
                                                    'cp /var/log/dpkg.log* <temp_folder>/logs/ 2>/dev/null ;' +
@@ -229,7 +231,8 @@ g_dumpers = {
 }
 
 class FwDump(FwObject):
-    def __init__(self, temp_folder=None, quiet=False, include_vpp_core=None):
+    def __init__(self, temp_folder=None, quiet=False, full_dump=False,
+                 include_all_logs=False, include_vpp_core=False):
 
         FwObject.__init__(self)
 
@@ -238,7 +241,13 @@ class FwDump(FwObject):
         self.prompt         = 'fwdump>> '
         self.zip_file       = None
         self.hostname       = os.uname()[1]
+        self.full_dump        = full_dump
+        self.include_all_logs = include_all_logs
         self.include_vpp_core = include_vpp_core
+
+        if full_dump:
+            self.include_all_logs = True
+            self.include_vpp_core = True
 
         if not temp_folder:
             timestamp = fwutils.build_timestamped_filename('')
@@ -308,7 +317,10 @@ class FwDump(FwObject):
 
     def zip(self, filename=None, path=None, delete_temp_folder=True):
         if not filename:
-            filename = fwutils.build_timestamped_filename('fwdump_%s' % self.hostname, '.tar.gz')
+            filename = f'fwdump_{self.hostname}'
+            if self.full_dump:
+                filename += '_full'
+            filename = fwutils.build_timestamped_filename(filename, '.tar.gz')
         if path:
             filename = os.path.join(path, filename)
         self.zip_file = filename
@@ -356,6 +368,11 @@ class FwDump(FwObject):
 
         dumpers = list(g_dumpers.keys())
         self._dump(dumpers)
+        if self.include_all_logs:
+            os.system(f'mkdir -p {self.temp_folder}/logs')
+            os.system(f'cp /var/log/syslog*.gz {self.temp_folder}/logs/ 2>/dev/null')
+            os.system(f'cp /var/log/flexiwan/*.gz {self.temp_folder}/logs/ 2>/dev/null')
+
         if self.include_vpp_core:
             corefile_dir = self.temp_folder + "/corefiles/"
             os.makedirs(corefile_dir)
@@ -386,7 +403,8 @@ class FwDump(FwObject):
         self._dump(dumpers)
 
 def main(args):
-    with FwDump(temp_folder=args.temp_folder, quiet=args.quiet,
+    with FwDump(temp_folder=args.temp_folder, quiet=args.quiet, full_dump=args.full_dump,
+                include_all_logs=args.include_all_logs,
                 include_vpp_core=args.include_vpp_core) as dump:
 
         if args.feature:
@@ -417,13 +435,17 @@ if __name__ == '__main__':
                         help="don't archive dumped data into single file. Path to folder with dumps will be printed on exit.")
     parser.add_argument('--feature', choices=['multilink'], default=None,
                         help="dump info related to this feature only")
+    parser.add_argument('-f', '--full', action='store_true', dest='full_dump',
+                        help="Include all possible data, overwhelming user by size of final archive. Switches ON all -iX flags.")
+    parser.add_argument('-if', '--include_all_logs', action='store_true',
+                        help="Include all available logs, like archived syslog-s")
+    parser.add_argument('-ic', '--include_vpp_core', nargs='?', const=3, type=int, choices=range(1, 4),
+                        help="Include VPP coredumps to be part of fwdump")
     parser.add_argument('-q', '--quiet', action='store_true',
                         help="silent mode, overrides existing temporary folder if was provided with --temp_folder")
     parser.add_argument('--temp_folder', default=None,
                         help="folder where to keep not zipped dumped info")
     parser.add_argument('--zip_file', default=None,
                         help="filename to be used for the final archive, can be full/relative. If not specified, default name will be used and printed on exit.")
-    parser.add_argument('-c', '--include_vpp_core', nargs='?', const=3, type=int, choices=range(1, 4),
-                        help="Include VPP coredumps to be part of fwdump")
     args = parser.parse_args()
     main(args)

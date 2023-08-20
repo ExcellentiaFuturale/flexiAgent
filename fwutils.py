@@ -3640,26 +3640,32 @@ def get_min_metric_device(skip_dev_id):
 
     return (metric_min_dev_id, metric_min)
 
-def fwdump(filename=None, path=None, clean_log=False):
+def fwdump(filename=None, path=None, clean_log=False, full_dump=False):
     '''This function invokes 'fwdump' utility while ensuring no DoS on disk space.
 
     :param filename:  the name of the final file where to dump will be tar.gz-ed
     :param clean_log: if True, agent log files will be cleaned
     '''
     try:
-        cmd = 'fwdump'
+        cmd = 'fwdump --full' if full_dump else 'fwdump'
         if filename:
             cmd += ' --zip_file ' + filename
         if not path:
             path = fwglobals.g.DUMP_FOLDER
         cmd += ' --dest_folder ' + path
 
-        # Ensure no more than last 5 dumps are saved to avoid disk out of space
+        # Ensure no more than last 3 regular dumps or 3 last full dumps in order not to shock the disk
         #
-        files = glob.glob("%s/*.tar.gz" % path)
-        if len(files) > 5:
-            files.sort()
-            os.remove(files[0])
+        dump_files, full_dump_files = [], []
+        for f in glob.glob(f"{path}/*.tar.gz"):
+            if "_full_" in os.path.basename(f):
+                full_dump_files.append(f)
+            else:
+                dump_files.append(f)
+        files = full_dump_files if full_dump else dump_files
+        files.sort()                # Timestamp incorporated into fwdump filename should grow alphabetically
+        while len(files) > 2:       # 'while' is needed to clean dumps created by earlier versions that used larger limit
+            os.remove(files.pop(0))
 
         subprocess.check_call(cmd + ' > /dev/null 2>&1', shell=True)
 
