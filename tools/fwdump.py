@@ -36,6 +36,7 @@ def fwdump_signal_handler(signum, frame):
     exit(1)
 signal.signal(signal.SIGINT, fwdump_signal_handler)
 
+import json
 import os
 import re
 import subprocess
@@ -346,6 +347,14 @@ class FwDump(FwObject):
                         'func': 'fwlte.dump',
                         'args': { 'lte_if_name': if_name, 'prefix_path': f'{self.temp_folder}/{file_name}' } }
                 }
+
+            # collect modem manager info
+            fwutils.exec_to_file(f'mmcli --list-modems -J', f'{self.temp_folder}/mmcli_list_modems.json')
+            with open(f'{self.temp_folder}/mmcli_list_modems.json', 'r') as f:
+                output = json.loads(f.read())
+                for modem_path in output.get('modem-list', []):
+                    mm_modem_num = modem_path.split('/')[-1]
+                    fwutils.exec_to_file(f'mmcli -m {mm_modem_num} -J', f'{self.temp_folder}/mmcli_{mm_modem_num}.json')
         except:
             pass # Do not crash in case of LTE code error
 
