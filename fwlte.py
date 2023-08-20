@@ -141,7 +141,7 @@ class FwLinuxModem(FwObject):
             raise e
 
     def _enable(self):
-        # # Give up to 1 minute to the ModemManager to load the modems list.
+        # # Give up to 40 seconds to the ModemManager to load the modems list.
         for _ in range(20):
             modem_list_output = self._mmcli_exec('-L')
             # {
@@ -154,7 +154,7 @@ class FwLinuxModem(FwObject):
                 break
             # send scan command and check after few moments
             self._mmcli_exec('-S', False)
-            time.sleep(3)
+            time.sleep(2)
 
         modem_info = None
         for modem in modem_list:
