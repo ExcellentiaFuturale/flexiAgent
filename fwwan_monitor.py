@@ -108,7 +108,7 @@ class FwWanMonitor(FwObject):
         if server:
             routes = self._get_routes()
             for r in routes:
-                modem = fwglobals.g.modems.get_safe(r.dev_id)
+                modem = fwglobals.g.modems.get(r.dev_id, raise_exception_on_not_found=False)
                 if modem and modem.is_resetting():
                     continue
                 self._check_connectivity(r, server)
