@@ -99,6 +99,7 @@ class FwAgent(FwObject):
         self.versions             = fwutils.get_device_versions(fwglobals.g.VERSIONS_FILE)
         self.pending_replies      = []
         self.reconnecting         = False
+        self.start_stop_router_seq = None
 
         self.ws = fwwebsocket.FwWebSocketClient(
                                     on_open    = self._on_open,
@@ -131,8 +132,12 @@ class FwAgent(FwObject):
         # arguments will be `None`.
         self.finalize()
 
+    def initialize(self):
+        super().initialize()
+
     def finalize(self):
         self.ws.finalize()
+        super().finalize()
 
     def _mark_connection_failure(self, err):
         try:
@@ -141,13 +146,6 @@ class FwAgent(FwObject):
                 self.log.debug("_mark_connection_failure: %s" % str(err))
         except Exception as e:
             self.log.excep("Failed to create connection failure file: %s" % str(e))
-
-    def _clean_connection_failure(self):
-        # We use 'subprocess.check_call()' to get an exception if writing into file fails.
-        # The file update is vital for the upgrade process by fwupgrade.sh.
-        #
-        subprocess.check_call(f'echo "success" > {fwglobals.g.CONN_FAILURE_FILE}', shell=True)
-        self.log.debug("_clean_connection_failure")
 
     def _setup_repository(self, repo):
         # Extract repo info. e.g. 'https://deb.flexiwan.com|flexiWAN|main'
@@ -386,19 +384,36 @@ class FwAgent(FwObject):
                 try:
                     received = self.ws.recv(timeout=1)
                     msg = json.loads(received) if received else None
-                    if msg and msg['msg']['message'] == "sync-device" and fwglobals.g.loadsimulator:
+
+                    # Suppress exception and error log prints by WebSocket on VPP start/stop
+                    # to calm down customers and QA :)
+                    #
+                    req = msg['msg']['message'] if msg else None
+                    if req == 'start-router' or req == 'stop-router':
+                        self.ws.push_logger(fwglobals.g.logger_devnull)
+                        self.start_stop_router_seq = msg['seq']
+
+                    if req == "sync-device" and fwglobals.g.loadsimulator:
                         out_msgs = [{'seq':msg['seq'], 'msg':{'ok':1}}]
                     else:
                         out_msgs = fwglobals.g.message_handler.handle_incoming_message(msg)
                     for msg in out_msgs:
+                        if msg['seq'] == self.start_stop_router_seq:
+                            self.ws.pop_logger()
+                            self.start_stop_router_seq = None
                         if not self.reconnecting:
                             self.ws.send(json.dumps(msg, cls=fwutils.FwJsonEncoder))
                         else:
                             self.log.info(f"going to reconnect -> queue reply {msg['seq']}")
                             self.pending_replies.append(msg)
                 except Exception as e:
-                    self.log.error(f"failed to handle received message or to send outgoing: {str(e)}")
+                    if self.start_stop_router_seq:
+                        self.ws.pop_logger()
+                        self.start_stop_router_seq = None
+                    else:
+                        self.log.error(f"failed to handle received message or to send outgoing: {str(e)}")
                     pass
+
             self.ws.close()
             return True
 
@@ -410,7 +425,8 @@ class FwAgent(FwObject):
                     error  = "not approved"
             else:
                 self.connection_error_code = fwglobals.g.WS_STATUS_ERROR_LOCAL_ERROR
-            self.log.error(f"connect: {error}")
+            if not self.start_stop_router_seq:
+                self.log.error(f"connect: {error}")
 
             # Create a file to signal the upgrade process that the
             # upgraded agent failed to connect to the management.
@@ -456,7 +472,12 @@ class FwAgent(FwObject):
         self.log.info("connected to flexiManage")
 
         self.reconnecting = False
-        self._clean_connection_failure()
+
+        # Update connection status file used by fwupgrade.sh.
+        # We use 'subprocess.check_call()' to get an exception if writing into file fails.
+        # The file update is vital for the upgrade process.
+        #
+        subprocess.check_call(f'echo "success" > {fwglobals.g.CONN_FAILURE_FILE}', shell=True)
 
         # Send pending message replies to the flexiManage upon connection reopen.
         # These are replies to messages that might have cause the connection
@@ -1072,6 +1093,7 @@ class FwagentDaemon(FwObject):
         # So, we just run Pyro4.Daemon.serveSimple() as a daemon thread.
         # That causes the agent to exit, when all non-daemon threads are terminated.
         if self.thread_rpc_loop:
+            self.log.debug("RPC service: stopping ...")
             self.thread_rpc_loop = None
 
 
@@ -1094,7 +1116,14 @@ def daemon(debug_conf_filename=None):
 
     with FwagentDaemon() as agent_daemon:
         agent_daemon.start_rpc_service()
-        agent_daemon.run_agent()
+        try:
+            agent_daemon.run_agent()
+        except Exception as e:
+            fwglobals.log.excep(f"run_agent() failed: {str(e)}: {traceback.format_exc()}")
+            # The RPC service is implemented by daemon thread, so if any of our
+            # threads are stuck for some reason, it will not exit, holding the FwagentDaemon
+            # on the air. So, to be on safe side enforce exit.
+            sys.exit(1)
         agent_daemon.stop_rpc_service()
 
 def daemon_rpc_safe(func, **kwargs):

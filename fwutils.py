@@ -1507,6 +1507,12 @@ def vpp_sw_if_index_to_tap(sw_if_index):
     _, tap_if_name = vpp_get_tap_info(vpp_sw_if_index=sw_if_index)
     return tap_if_name
 
+def get_interface_linux_carrier_value(if_name):
+    (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{if_name}/carrier")
+    if not ok:
+        return None
+    return status_linux.strip()
+
 def vpp_get_interface_status(sw_if_index=None, dev_id=None):
     """Get VPP interface state.
 
@@ -2863,18 +2869,21 @@ def fix_received_message(msg):
 
     def _fix_interface_type(msg):
 
-        def _is_type_modified(_request):
+        def _is_lan_wan_type_modified(_request):
             if _request['message'] == 'modify-interface':
                 new_type = _request['params'].get('type',"").lower()
                 if not new_type:
                     return False
-                old_type = fwglobals.g.router_cfg.get_interfaces(dev_id=_request['params']['dev_id'])[0]['type'].lower()
+                interfaces = fwglobals.g.router_cfg.get_interfaces(dev_id=_request['params']['dev_id'])
+                if not interfaces:
+                    return False
+                old_type = interfaces[0].get('type',"").lower()
                 if (new_type != old_type):
                     return True
             return False
 
         if msg['message'] == 'modify-interface':
-            if _is_type_modified(msg):
+            if _is_lan_wan_type_modified(msg):
                 msg = {
                         'message': 'aggregated',
                         'params' : { 'requests': [ msg ] }
@@ -2883,7 +2892,7 @@ def fix_received_message(msg):
         if msg['message'] == 'aggregated':
             requests = msg['params']['requests']
             for idx, request in reversed(list(enumerate(requests))):    # reversed() -> optimize a bit requests.insert() below
-                if _is_type_modified(request):
+                if _is_lan_wan_type_modified(request):
                     requests[idx]['message'] = 'add-interface'          # 'modify-interface' -> 'add-interface'
                     remove_interface = {'message': 'remove-interface', 'params': {'dev_id': request['params']['dev_id']}}
                     requests.insert(idx, remove_interface)
@@ -3463,32 +3472,33 @@ def check_root_access():
     return False
 
 def disable_ipv6():
-    """ disable default and all ipv6
-    """
+
     # Firstly check if the setting is already set to avoid unneeded calls and log prints
-    try:
-        out = subprocess.check_output(['sysctl', 'net.ipv6.conf.all.disable_ipv6']).decode().strip()
-        val = int(out.split('=')[1])
-        if val == 1:
-            return # already disabled
-    except subprocess.CalledProcessError as e:
-        fwglobals.log.error(f"Fetch disable IPv6 all command failed : {e.returncode}")
-    except:
-        pass
+    # Ensure the "sysctl -a" command does not bring even single interface with disable_ipv6=0:
+    # The output can be:
+    #   net.ipv6.conf.all.disable_ipv6 = 1
+    #   net.ipv6.conf.default.disable_ipv6 = 1
+    #   net.ipv6.conf.enp0s10.disable_ipv6 = 0
+    #   net.ipv6.conf.enp0s3.disable_ipv6 = 0
+    #   net.ipv6.conf.enp0s8.disable_ipv6 = 0
+    #   net.ipv6.conf.enp0s9.disable_ipv6 = 1
+    #   net.ipv6.conf.lo.disable_ipv6 = 1
+    #
+    ret = os.system('sysctl -a | grep -E "net.ipv6.conf.*disable_ipv6.*=.*0" > /dev/null 2>&1')
+    if ret != 0:
+        return  # "disable_ipv6 = 0" not found - return
 
-    sys_cmd = 'sysctl -w net.ipv6.conf.all.disable_ipv6=1 > /dev/null'
-    rc = os.system(sys_cmd)
-    if rc:
-        fwglobals.log.error("Disable IPv6 all command failed : %s" % (sys_cmd))
-    else:
-        fwglobals.log.debug("Disable IPv6 all command successfully executed: %s" % (sys_cmd))
+    # Ensure that the 'all' and the 'default' are disabled, then load the changes.
+    #
+    ret_disable_all     = os.system('sysctl -w net.ipv6.conf.all.disable_ipv6=1 > /dev/null')
+    ret_disable_default = os.system('sysctl -w net.ipv6.conf.default.disable_ipv6=1 > /dev/null')
+    ret_apply           = os.system('sysctl -p')  # load changes
 
-    sys_cmd = 'sysctl -w net.ipv6.conf.default.disable_ipv6=1 > /dev/null'
-    rc = os.system(sys_cmd)
-    if rc:
-        fwglobals.log.error("Disable IPv6 default command failed : %s" % (sys_cmd))
+    if ret_disable_all or ret_disable_default or ret_apply:
+        fwglobals.log.error(f"Failed to disable IPv6: all={ret_disable_all} default={ret_disable_default} apply={ret_apply}")
     else:
-        fwglobals.log.debug("Disable IPv6 default command successfully executed: %s" % (sys_cmd))
+        fwglobals.log.debug("IPv6 was disabled")
+
 
 def set_default_linux_reverse_path_filter(rpf_value):
 

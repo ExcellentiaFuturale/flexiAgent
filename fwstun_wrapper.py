@@ -98,6 +98,8 @@ class FwStunWrap(FwObject):
         self.thread_stun = threading.Thread(target=self._stun_thread, name='STUN Thread')
         self.thread_stun.start()
 
+        super().initialize()
+
     def _initialize_stun_cache(self):
         self.stun_cache.clear()
         ifaces, os_wan_ips = fwutils.get_all_interfaces()
@@ -125,6 +127,7 @@ class FwStunWrap(FwObject):
         if self.thread_stun:
             self.thread_stun.join()
             self.thread_stun = None
+        super().finalize()
 
     def _update_cache_from_OS(self):
         """ Check the OS to find newly added/removed WAN interfaces and add/remove them

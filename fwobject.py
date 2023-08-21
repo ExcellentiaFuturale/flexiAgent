@@ -37,6 +37,13 @@ class FwObject():
         self.name = name if name else self.__class__.__name__
         self.log = FwObjectLogger(object_name=self.name, log=log)
         self.loggers = [self.log] # Stack of loggers, where the last in list is used for logging
+        self.initialized = False
+
+    def initialize(self):
+        self.initialized = True
+
+    def finalize(self):
+        self.initialized = False
 
     def push_logger(self, log):
         self.loggers.append(log)

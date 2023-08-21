@@ -336,7 +336,6 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
     '''
 
     old_ethernets = {}
-    ifnames_removed_from_yaml = []
     type = type.upper()
 
     if fwutils.is_vlan_interface(dev_id=dev_id):
@@ -430,7 +429,6 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
             '''
             if old_ifname in ethernets:
                 del ethernets[old_ifname]
-                ifnames_removed_from_yaml.append(old_ifname)
 
             if set_name and is_lte:
                 # For LTE interface with set-name we need to keep the `set-name` on the physical interface and not for the vppsb (see explanation above).
@@ -501,13 +499,6 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
                 fwutils.remove_linux_default_route(ifname)
 
         fwutils.netplan_apply('add_remove_netplan_interface')
-
-        # If we remove interface from yaml-s, that means the interface should
-        # be taken out of operations, remove IP from it to avoid collisions
-        # with VPP addresses.
-        #
-        for removed_ifname in ifnames_removed_from_yaml:
-            fwutils.os_system(f"ip address flush dev {removed_ifname}")
 
         if is_add and set_name and set_name is not ifname and not is_lte:
             # To understand the following code, it is necessary to understand the following two principles:
@@ -583,7 +574,7 @@ def add_remove_netplan_interface(is_add, dev_id, ip, gw, metric, dhcp, type, dns
         #
         if is_add and (ip or dhcp == "yes"):
             if_addr = fwutils.get_interface_address(ifname, log=False)
-            if not if_addr and fwutils.vpp_get_interface_status(dev_id=dev_id).get('link') == "up":
+            if not if_addr and fwutils.get_interface_linux_carrier_value(ifname) == '1':
                 for _ in range(10):
                     time.sleep(1)
                     if_addr = fwutils.get_interface_address(ifname, log=False)

@@ -55,10 +55,12 @@ class FwMessageHandler(FwObject):
     def initialize(self):
         self.thread_handle_messages.start()
         fwthread.set_request_processing_thread(self.thread_handle_messages.ident)
+        super().initialize()
 
     def finalize(self):
         fwthread.unset_request_processing_thread(self.thread_handle_messages.ident)
         self.thread_handle_messages.stop()
+        super().finalize()
 
     def handle_incoming_message(self, incoming_msg=None):
         """Handles request received from flexiManage.
@@ -227,17 +229,7 @@ class FwMessageHandler(FwObject):
                 self.log.debug(f"_handle_received_request: wait for {rt.thread_names} threads to finish")
             rt.request_cond_var.wait_for(rt.is_no_active_threads)
 
-            default_route_before = fwroutes.get_default_route()
-
             reply = fwglobals.g.handle_request(request, original_request)
-
-            default_route_after = fwroutes.get_default_route()
-
-            if default_route_before.dev != default_route_after.dev or \
-               default_route_before.via != default_route_after.via:
-                # reconnect the agent to avoid WebSocket timeout
-                self.log.debug(f"reconnect as default route was changed: '{default_route_before}' -> '{default_route_after}'")
-                fwglobals.g.fwagent.reconnect()
 
             rt.handling_request = False
             return reply

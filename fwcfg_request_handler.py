@@ -285,7 +285,7 @@ class FwCfgRequestHandler(FwObject):
                 if err_str:   # On failure go back revert already executed commands
                     fwglobals.g.jobs.update_current_record({'request': req, 'command': cmd, 'error': err_str})
                     self.log.debug(f"_execute_translation_command('{cmd['func']}') failed")
-                    raise Exception("API failed: %s" % cmd['func'])
+                    raise Exception(err_str)
 
             except Exception as e:
                 err_str = "_execute: %s(%s) failed: %s, %s" % (cmd['func'], format(cmd.get('params')), str(e), str(traceback.format_exc()))
@@ -298,7 +298,8 @@ class FwCfgRequestHandler(FwObject):
                 # On failure go back to the begining of list and revert executed commands.
                 self._revert(cmd_list, idx)
                 self.log.debug("=== finished revert of %s ===" % (req))
-                raise Exception('failed to %s. (error: %s)' % (cmd['descr'], str(e)))
+                cmd_descr = cmd['descr'][0].lower() + cmd['descr'][1:] # ensure the first letter is not capital
+                raise Exception(f'failed to {cmd_descr}: {str(e)}')
 
             # At this point the execution succeeded.
             # Now substitute the revert command, as it will be needed for complement request, e.g. for remove-tunnel.
@@ -398,7 +399,7 @@ class FwCfgRequestHandler(FwObject):
                         raise Exception(err_str)
                 except Exception as e:
                     err_str = "_revert: exception while '%s': %s(%s): %s" % \
-                                (t['cmd']['descr'], rev_cmd['func'], format(rev_cmd['params']), str(e))
+                                (t['cmd']['descr'], rev_cmd['func'], format(rev_cmd.get('params',"")), str(e))
                     self.log.excep(err_str)
                     return   # Don't continue, system is in undefined state now!
 

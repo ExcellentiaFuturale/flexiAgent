@@ -48,11 +48,8 @@ from fwsystem_api import FWSYSTEM_API
 from fwagent_api import FWAGENT_API
 from fwapplications_api import FWAPPLICATIONS_API
 from os_api import OS_API
-from fwlog import FwLogFile
-from fwlog import FwObjectLogger
-from fwlog import FwSyslog
-from fwlog import FWLOG_LEVEL_INFO
-from fwlog import FWLOG_LEVEL_DEBUG
+from fwlog import FwObjectLogger, FwLogFile, FwLogSyslog, FwLogDevNull
+from fwlog import FWLOG_LEVEL_INFO, FWLOG_LEVEL_DEBUG
 from fwpolicies import FwPolicies
 from fwrouter_cfg import FwRouterCfg
 from fwroutes import FwRoutes
@@ -361,7 +358,6 @@ class Fwglobals(FwObject):
         self.handle_request_lock           = threading.RLock()
         self.is_gcp_vm                     = fwutils.detect_gcp_vm()
         self.default_vxlan_port            = 4789
-        self.fwagent_initialized           = False
 
         # Config limit for QoS scheduler memory usage (limits to 'x' % of configured VPP memory)
         self.QOS_SCHED_MAX_MEMORY_PERCENT = 5
@@ -449,6 +445,8 @@ class Fwglobals(FwObject):
             'add-firewall-policy':    self.logger_add_firewall_policy,
             'remove-firewall-policy': self.logger_add_firewall_policy,
         }
+        self.logger_devnull = FwObjectLogger('/dev/null',  log=FwLogDevNull())
+
 
         # Some lte modules have a problem with drivers binding.
         # As workaround, we reload the driver to fix it.
@@ -480,7 +478,7 @@ class Fwglobals(FwObject):
         self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
         self.message_handler  = FwMessageHandler()
 
-        self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before restore_vpp_if_needed!
+        self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before router_api.initialize()!
 
         fwutils.set_default_linux_reverse_path_filter(2)  # RPF set to Loose mode
         fwutils.disable_ipv6()
@@ -503,8 +501,7 @@ class Fwglobals(FwObject):
     def destroy_agent(self):
         """Graceful shutdown...
         """
-        if self.fwagent_initialized:
-            self.finalize_agent()
+        self.finalize_agent()
 
         del self.message_handler
         del self.routes
@@ -535,13 +532,15 @@ class Fwglobals(FwObject):
         #
         self.firewall_acl_cache = fwfirewall.FwFirewallAclCache(self.db)
 
-        # IMPORTANT! Some of the features below should be initialized before restore_vpp_if_needed
+        # IMPORTANT! Some of the features below should be initialized before router_api.initialize()
         #
+        self.fwagent.initialize()
+        self.router_cfg.initialize()
         self.stun_wrapper.initialize()
 
-        self.router_api.restore_vpp_if_needed()
+        self.router_api.initialize()
 
-        # IMPORTANT! Some of the features below should be initialized after restore_vpp_if_needed
+        # IMPORTANT! Some of the features below should be initialized after router_api.initialize()
         #
         self.wan_monitor.initialize()
         self.pppoe.initialize()
@@ -549,28 +548,39 @@ class Fwglobals(FwObject):
         self.routes.initialize()
         self.applications_api.initialize()
         self.statistics.initialize()
+        self.qos.initialize()
         self.message_handler.initialize()
 
         self.log.debug('initialize_agent: completed')
-        self.fwagent_initialized = True
 
     def finalize_agent(self):
         self.log.debug('finalize_agent: started')
-        self.fwagent_initialized = False
         self.router_threads.teardown = True   # Stop all threads in parallel to speedup gracefull exit
         try:
-            self.message_handler.finalize()
-            self.qos.finalize()
-            self.routes.finalize()
-            self.pppoe.finalize()
-            self.statistics.finalize()
-            self.wan_monitor.finalize()
-            self.stun_wrapper.finalize()
-            self.system_api.finalize()
-            self.router_api.finalize()
-            self.applications_api.finalize()
-            self.fwagent.finalize()
-            self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
+            if self.message_handler.initialized:
+                self.message_handler.finalize()
+            if self.qos.initialized:
+                self.qos.finalize()
+            if self.routes.initialized:
+                self.routes.finalize()
+            if self.pppoe.initialized:
+                self.pppoe.finalize()
+            if self.statistics.initialized:
+                self.statistics.finalize()
+            if self.wan_monitor.initialized:
+                self.wan_monitor.finalize()
+            if self.stun_wrapper.initialized:
+                self.stun_wrapper.finalize()
+            if self.system_api.initialized:
+                self.system_api.finalize()
+            if self.router_api.initialized:
+                self.router_api.finalize()
+            if self.applications_api.initialized:
+                self.applications_api.finalize()
+            if self.fwagent.initialized:
+                self.fwagent.finalize()
+            if self.router_cfg.initialized:
+                self.router_cfg.finalize() # IMPORTANT! Finalize database at the last place!
         except Exception as e:
             self.log.excep(f"finalize_agent: {str(e)}: {traceback.format_exc()}")
         self.log.debug('finalize_agent: completed')
@@ -895,7 +905,7 @@ def initialize(log_level=FWLOG_LEVEL_INFO, quiet=False):
     global g_initialized
     if not g_initialized:
         global log
-        log = FwSyslog(log_level)
+        log = FwLogSyslog(log_level)
         if quiet:
             log.set_target(to_terminal=False)
         global g

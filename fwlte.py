@@ -23,9 +23,8 @@ import os
 import re
 import subprocess
 import time
+import traceback
 from datetime import datetime, timedelta
-
-import serial
 
 import fw_os_utils
 import fwglobals
@@ -54,9 +53,8 @@ class FwLinuxModem(FwObject):
         self.imei = None
         self.sim_presented = None
         self.mode = None
-        self.ip = None
-        self.gateway = None
-        self.dns_servers = []
+
+        self._initialize_ip_config()
 
         self.mbim_session = '0'
 
@@ -72,6 +70,11 @@ class FwLinuxModem(FwObject):
         elif 'qmi_wwan' in drivers:
             self.driver = 'qmi_wwan'
             self.mode = 'QMI'
+
+    def _initialize_ip_config(self):
+        self.ip = None
+        self.gateway = None
+        self.dns_servers = []
 
     def is_connected(self):
         return self._get_connection_state() == 'activated'
@@ -138,20 +141,20 @@ class FwLinuxModem(FwObject):
             raise e
 
     def _enable(self):
-        # {
-        #     "modem": {
-        #         ...
-        #         "dbus-path": "/org/freedesktop/ModemManager1/Modem/0",
-        #         ...
-        #      }
-        # }
-        modem_list_output = self._mmcli_exec('-L')
-        modem_list = modem_list_output.get('modem-list', [])
-        if not modem_list:
+        # # Give up to 40 seconds to the ModemManager to load the modems list.
+        for _ in range(20):
+            modem_list_output = self._mmcli_exec('-L')
+            # {
+            #   "modem-list": [
+            #       "/org/freedesktop/ModemManager1/Modem/0"
+            #   ]
+            # }
+            modem_list = modem_list_output.get('modem-list', [])
+            if modem_list:
+                break
             # send scan command and check after few moments
             self._mmcli_exec('-S', False)
-            time.sleep(5)
-            modem_list = modem_list_output.get('modem-list', [])
+            time.sleep(2)
 
         modem_info = None
         for modem in modem_list:
@@ -172,17 +175,10 @@ class FwLinuxModem(FwObject):
         return self.modem_manager_id
 
     def _load_info_from_modem_manager(self):
-        # {
-        #     "modem": {
-        #         ...
-        #         "dbus-path": "/org/freedesktop/ModemManager1/Modem/0",
-        #         ...
-        #      }
-        # }
         info = self._get_modem_manager_data()
         generic = info.get('generic', {})
 
-        self.imei = info.get('3gpp', {}).get('imei')
+        self.imei = generic.get('equipment-identifier')
         self.model = generic.get('model')
         self.sim_presented = self._get_sim_card_status(info) == 'present'
         self.vendor = generic.get('manufacturer')
@@ -291,7 +287,38 @@ class FwLinuxModem(FwObject):
                 dns_secondary = line.split(':')[-1].strip().replace("'", '')
                 self.dns_servers.append(dns_secondary)
 
+    def _ensure_pdp_context(self, apn):
+        '''
+        Check deeply in modem if Packet Data Protocol is defined.
+        This check is not mandatory for most of the ISPs,
+        but we found that for AT&T it is required in order to connect to the network.
+        '''
+        try:
+            exists = False
+            pdp_context_lines = self._run_at_command('AT+CGDCONT?').splitlines()
+            # response = '+CGDCONT: 1,"IP","internet.rl","0.0.0.0",0,0,0,0'
+            for pdp_context_line in pdp_context_lines:
+                line_params = pdp_context_line.split(',')
+                if len(line_params) > 3 and line_params[2].strip('"') == apn:
+                    exists = True
+                    break
+
+            if not exists:
+                self.log.info(f'_ensure_pdp_context({apn}): APN not found in {str(pdp_context_lines)}. Adding now')
+                self._run_at_command(f'AT+CGDCONT=1,\\"IP\\",\\"{apn}\\"')
+                # in order to apply it, run "CFUN" commands which is kind of soft reboot.
+                self._run_at_command(f'AT+CFUN=0')
+                self._run_at_command(f'AT+CFUN=1')
+                # give it a bit time. If it is not enough, watchdog takes care to connect it again
+                time.sleep(2)
+        except Exception as e:
+            self.log.error(f'_ensure_pdp_context({apn}): {str(e)}')
+            # do not raise error as it not mandatory for most of ISPs
+
     def connect(self, apn=None, user=None, password=None, auth=None):
+        if apn:
+            self._ensure_pdp_context(apn)
+
         connection_params = self._prepare_connection_params(apn, user, password, auth)
         mbim_commands = [
             '--query-subscriber-ready-status',
@@ -318,25 +345,30 @@ class FwLinuxModem(FwObject):
 
     def disconnect(self):
         self._run_mbimcli_command(f'--disconnect={self.mbim_session}')
-        self.ip = None
-        self.gateway = None
-        self.dns_servers = []
+        self._initialize_ip_config()
 
-    def get_ip_configuration(self, cache=True, config_name=None):
+    def get_ip_configuration(self, cache=True):
+        if cache == False:
+            self._initialize_ip_config()
+
         # if not exists, take from modem and update cache
-        if not self.ip or not self.gateway or not self.dns_servers or cache == False:
+        if not self.ip or not self.gateway or not self.dns_servers:
             self._update_ip_configuration()
 
-        if config_name == 'ip':
-            return self.ip
-        elif config_name == 'gateway':
-            return self.gateway
-        elif config_name == 'dns_servers':
-            return self.dns_servers
         return self.ip, self.gateway, self.dns_servers
 
     def reset(self):
-        self._mmcli_modem_exec(f'-r', False)
+        try:
+            self._mmcli_modem_exec(f'-r', False)
+        except Exception as e:
+            # if it doesn't work with modem manager, do reset with AT command
+            if 'Quectel' in self.vendor:
+                self._run_at_command('AT+QPOWD=0')
+            elif 'Sierra' in self.vendor:
+                self._run_at_command('AT!RESET')
+            else:
+                raise e
+
         self.modem_manager_id = None # modem manager gives another id after reset
 
         # In the reset process, the LTE interface (wwan) is deleted from Linux, and then comes back up.
@@ -513,6 +545,13 @@ class FwLinuxModem(FwObject):
                 self._modem_manager_signal_setup()
         return (output, err)
 
+    def _get_modem_manager_sim_data(self, modem_data=None):
+        if not modem_data:
+            modem_data = self._get_modem_manager_data()
+        sim_path = modem_data.get('generic', {}).get('sim')
+        sim_data = self._mmcli_exec(f'-i {sim_path}')
+        return sim_data.get('sim', {})
+
     def _run_pin_command(self, mmcli_pin_flag):
         data = self._get_modem_manager_data()
         sim_path = data.get('generic', {}).get('sim')
@@ -661,6 +700,11 @@ class FwLinuxModem(FwObject):
             data = self._get_modem_manager_data()
         return data.get('3gpp', {}).get('operator-name')
 
+    def _run_at_command(self, at_command):
+        output = self._mmcli_modem_exec(f'--command={at_command}', False)
+        output = output.replace('response:', '').replace("\'", '').strip()
+        return output
+
     def set_mbim_mode(self, log=None):
         """Switch LTE modem to the MBIM mode
         """
@@ -674,19 +718,8 @@ class FwLinuxModem(FwObject):
 
             log.debug(f'Modem Vendor: {self.vendor}. Modem Model: {self.model}')
 
-            at_commands = []
             if 'Quectel' in self.vendor or re.match('Quectel', self.model, re.IGNORECASE): # Special fix for Quectel ec25 mini pci card
-                at_commands = ['AT+QCFG="usbnet",2']
-
-                if not self.at_ports:
-                    raise Exception(f'No serial port is found')
-
-                ser = serial.Serial(f'/dev/{self.at_ports[0]}')
-                for at in at_commands:
-                    at_cmd = bytes(at + '\r', 'utf-8')
-                    ser.write(at_cmd)
-                    time.sleep(0.5)
-                ser.close()
+                self._run_at_command('AT+QCFG=\\"usbnet\\",2')
             elif 'Sierra Wireless' in self.vendor:
                 self._run_qmicli_command('--dms-swi-set-usb-composition=8')
             else:
@@ -742,6 +775,14 @@ class FwLinuxModem(FwObject):
                 res['register_state'] = line.split(':')[-1].strip().replace("'", '')
                 break
         return res
+
+    def get_sim_info(self, data=None):
+        sim_data = self._get_modem_manager_sim_data(data)
+        sim_info = {
+            'iccid': sim_data.get('properties', {}).get('iccid'),
+            'imsi': sim_data.get('properties', {}).get('imsi')
+        }
+        return sim_info
 
     def _get_phone_number(self, data=None):
         if not data:
@@ -846,36 +887,6 @@ class FwModem(FwLinuxModem):
         self.state = MODEM_STATES.CONNECTING
 
         try:
-            if self.mode == 'QMI':
-                raise Exception("Unsupported modem mode (QMI)")
-
-            # check if sim exists
-            if self._get_sim_card_status() != "present":
-                raise Exception("SIM not present")
-
-            # check PIN status
-            pin_state = self.get_pin_state().get('pin1_status', 'disabled')
-            if pin_state not in ['disabled', 'enabled-verified']:
-                if not pin:
-                    raise Exception("PIN is required")
-
-                # If a user enters a wrong pin, the function will fail, but flexiManage will send three times `sync` jobs.
-                # As a result, the SIM may be locked. So we save the wrong pin in the cache
-                # and we will not try again with this wrong one.
-                wrong_pin = self._get_db_entry('wrong_pin')
-                if wrong_pin and wrong_pin == pin:
-                    raise Exception("Wrong PIN provisioned")
-
-                _, err = self._verify_pin(pin)
-                if err:
-                    self._set_db_entry('wrong_pin', pin)
-                    raise Exception("PIN is wrong")
-
-            # At this point, we sure that the sim is unblocked.
-            # After a block, the sim might open it from different places (manually qmicli command, for example),
-            # so we need to make sure to clear this cache
-            self._set_db_entry('wrong_pin', None)
-
             # Check if modem already connected to ISP.
             if self.is_connected():
                 return
@@ -892,7 +903,7 @@ class FwModem(FwLinuxModem):
         finally:
             self.state = MODEM_STATES.IDLE
 
-    def configure_interface(self, metric='0'):
+    def configure_interface(self, metric=None):
         '''
         To get LTE connectivity, two steps are required:
         1. Creating a connection between the modem and cellular provider.
@@ -918,6 +929,8 @@ class FwModem(FwLinuxModem):
                 for r in routes:
                     fwutils.os_system(f"ip route del {r}")
             # set updated default route
+            if not metric:
+                metric = '0'
             fwutils.os_system(f"ip route add default via {gateway} proto static metric {metric}")
 
             # configure dns servers for the interface.
@@ -988,17 +1001,20 @@ class FwModem(FwLinuxModem):
             'pin_state'           : {},
             'connection_state'    : '',
             'registration_network': {},
+            'sim'                 : {},
             'state'               : self.state,
             'mode'                : self.mode,
         }
 
-        if self.mode == 'QMI' or self.is_resetting() or not self.sim_presented:
+        if self.mode == 'QMI' or self.is_resetting():
             return lte_info
 
         data = self._get_modem_manager_data()
-        modem_state, _ = self._get_modem_state(data)
 
-        lte_info['sim_status']           = self._get_sim_card_status(data)
+        lte_info['sim_status'] = self._get_sim_card_status(data)
+        if not self.sim_presented:
+            return lte_info
+
         lte_info['packet_service_state'] = self._get_packets_state()
         lte_info['hardware_info']        = self._get_hardware_info()
         lte_info['default_settings']     = self.get_default_settings(data)
@@ -1006,8 +1022,10 @@ class FwModem(FwLinuxModem):
         lte_info['pin_state']            = self.get_pin_state(data)
         lte_info['connection_state']     = self._get_connection_state()
         lte_info['registration_network'] = self._get_registration_state()
+        lte_info['sim']                  = self.get_sim_info()
 
         # to fetch information below, modem cannot be locked
+        modem_state, _ = self._get_modem_state(data)
         if modem_state == 'locked':
             return lte_info
 
@@ -1043,6 +1061,12 @@ class FwModem(FwLinuxModem):
             if not gw:
                 self.log.debug(f"set_arp_entry: no GW was found for {self.dev_id}")
                 return
+
+        if_name = self._get_lte_if_name()
+        if_addr = fwutils.get_interface_address(if_name, log=False)
+        if not if_addr:
+            self.log.debug(f"set_arp_entry: no IP was found for {if_name} interfaces")
+            return
 
         log_prefix=f"set_arp_entry({self.dev_id})"
 
@@ -1393,6 +1417,57 @@ class FwModem(FwLinuxModem):
 
         self.log.debug("%s: LTE IP was changed: %s -> %s" % (self.dev_id, iface_addr, modem_addr))
 
+    def validate_modem(self):
+        if self.mode == 'QMI':
+            return (False, "Unsupported modem mode (QMI)")
+
+    def validate_sim(self, pin):
+        pin_state = self.get_pin_state().get('pin1_status', 'disabled')
+        # pin state can be: disabled, sim-missing, blocked, enabled-verified, enabled-not-verified.
+
+        # check if sim exists
+        if pin_state == 'sim-missing' or self._get_sim_card_status() != "present":
+            return (False, "SIM not present")
+
+        if pin_state == 'disabled':
+            self._set_db_entry('wrong_pin', None)
+            return
+
+        if pin_state == 'blocked':
+            return (False, "SIM is blocked with PUK")
+
+        # At this point, sim status is enabled-verified or enabled-not-verified.
+        if not pin:
+            return (False, "PIN is required")
+
+        # In case of an incorrect PIN entry,
+        # we store the PIN and refrain from attempting it again to prevent the SIM from being blocked.
+        wrong_pin = self._get_db_entry('wrong_pin')
+        if wrong_pin and wrong_pin == pin:
+            return (False, "Wrong PIN provisioned")
+
+        if pin_state == 'enabled-not-verified': # We cannot verify a SIM card that has already been verified
+            _, err = self._verify_pin(pin)
+            if err:
+                self._set_db_entry('wrong_pin', pin)
+                return (False, "PIN is wrong")
+
+        if pin_state == 'enabled-verified':
+            # If a user changes the PIN and it has already been verified,
+            # it is not possible to directly confirm whether the new PIN is correct.
+            # To check, we use a "trick" by executing the change PIN command with
+            # the requested PIN entered as both the old and new PIN.
+            # If the command fails, then the PIN is incorrect.
+            # If the command succeeds, then the new PIN is correct.
+            _, err = self._change_pin(pin, pin)
+            if err:
+                self._set_db_entry('wrong_pin', pin)
+                return (False, "PIN is wrong")
+
+        # We can now confirm that the PIN is either valid or disabled,
+        # which means we can remove the protection for incorrect PINs.
+        self._set_db_entry('wrong_pin', None)
+
 class FwModemManager():
     def __init__(self):
         self.modems = {}
@@ -1414,14 +1489,10 @@ class FwModemManager():
             except Exception as e:
                 fwglobals.log.error(f'failed to load modem. dev_id={dev_id}, err={str(e)}')
 
-    def get(self, dev_id):
+    def get(self, dev_id, raise_exception_on_not_found=True):
         modem = self.modems.get(dev_id)
-        if not modem:
-            raise Exception(f"No modem found. dev_id={dev_id}")
-        return modem
-
-    def get_safe(self, dev_id):
-        modem = self.modems.get(dev_id)
+        if not modem and raise_exception_on_not_found:
+            raise Exception(f"No modem found. dev_id={dev_id}. {str(traceback.format_exc())}")
         return modem
 
     def call(self, dev_id, func, args = {}):
@@ -1443,8 +1514,20 @@ class FwModemManager():
 
         return out
 
-def get_ip_configuration(dev_id, key):
-    return fwglobals.g.modems.get(dev_id).get_ip_configuration(config_name=key)
+def get_one_ip_configuration(dev_id, config_name):
+    """ Get IP configuration by a config name.
+
+    :param config_name: The config name to return - One of: ip, gateway, dns_servers
+
+    :return: Config value or empty string.
+    """
+    ip, gateway, dns_servers = fwglobals.g.modems.get(dev_id).get_ip_configuration()
+    if config_name == 'ip':
+        return ip or '' # do not return None to translation substitute function
+    elif config_name == 'gateway':
+        return gateway or '' # do not return None to translation substitute function
+    elif config_name == 'dns_servers':
+        return dns_servers or '' # do not return None to translation substitute function
 
 def disconnect_all():
     """ Disconnect all modems safely

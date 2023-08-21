@@ -46,7 +46,7 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
         """Constructor method.
         """
         # FWAPPLICATIONS_API can be called without globals initialization.
-        if not hasattr(fwglobals, 'g'):
+        if not fwglobals.g:
             fwglobals.initialize()
 
         cfg = FwApplicationsCfg()
@@ -78,11 +78,12 @@ class FWAPPLICATIONS_API(FwCfgRequestHandler):
 
     def initialize(self):
         self.start_applications_thread()
+        super().initialize()
 
     def finalize(self):
         self.stop_applications_thread()
         self.app_instances = {}
-        return
+        super().finalize()
 
     def start_applications_thread(self):
         if not self.application_thread:
@@ -271,7 +272,7 @@ def call_applications_hook(hook, identifier=None, params=None):
     '''This function calls a function within applications_api even if the agent object is not initialized
     '''
     # when calling this function from fwdump, there is no "g" in fwglobals
-    if hasattr(fwglobals, 'g') and hasattr(fwglobals.g, 'applications_api'):
+    if hasattr(fwglobals.g, 'applications_api'):
         return fwglobals.g.applications_api.call_hook(hook, identifier=identifier, params=params)
 
     with FWAPPLICATIONS_API() as applications_api:

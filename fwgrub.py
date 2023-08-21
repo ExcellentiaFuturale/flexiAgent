@@ -65,7 +65,8 @@ class FwGrub:
                 return curr_parameters[name]
         return None
 
-    def set_param(self, name, value='', line_name='GRUB_CMDLINE_LINUX'):
+    def set_param(self, name, value='', line_name='GRUB_CMDLINE_LINUX_DEFAULT'):
+        self.unset_param(name)  # Ensure the parameter will not appear in other lines
         for curr_line_name, curr_parameters in self.parameters.items():
             if line_name and line_name != curr_line_name:
                 continue
@@ -80,7 +81,6 @@ class FwGrub:
             if name in curr_parameters:
                 del curr_parameters[name]
                 self.updated = True
-                break
 
     def flush(self):
         '''Flushes dictionary with parameters into the GRUB_CMDLINE_LINUX/_DEFAULT

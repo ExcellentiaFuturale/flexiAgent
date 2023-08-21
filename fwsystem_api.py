@@ -60,11 +60,13 @@ class FWSYSTEM_API(FwCfgRequestHandler):
         if self.thread_lte_wifi_watchdog is None:
             self.thread_lte_wifi_watchdog = fwthread.FwRouterThread(target=self.lte_wifi_watchdog_thread_func, name='LTE/WiFi Watchdog', log=self.log)
             self.thread_lte_wifi_watchdog.start()
+        super().initialize()
 
     def finalize(self):
         if self.thread_lte_wifi_watchdog:
             self.thread_lte_wifi_watchdog.join()
             self.thread_lte_wifi_watchdog = None
+        super().finalize()
 
     def wifi_watchdog(self, ticks):
         if not ticks % self.wifi_reconnect_interval.current == 0:
