@@ -142,7 +142,7 @@ class FwNotifications:
             event_data = {'value': stats_value,'threshold': critical_threshold, 'severity': 'critical', 'unit': unit or event_settings.get('thresholdUnit'), 'type': alertType}
             self._update_entry(self.alerts, event_entry, event_data, event_type, tunnel_id)
         elif self._is_warning(counts_entry) and last_severity != 'warning' and not is_critical:
-            event_data = {'value': stats_value,'threshold': critical_threshold, 'severity': 'warning', 'unit': unit or event_settings.get('thresholdUnit'),'type': alertType}
+            event_data = {'value': stats_value,'threshold': warning_threshold, 'severity': 'warning', 'unit': unit or event_settings.get('thresholdUnit'),'type': alertType}
             self._update_entry(self.alerts, event_entry, event_data, event_type, tunnel_id)
         # an alert removal operation can be done only if the current sample is success/warning
         elif event_status != self.MARKED_AS_CRITICAL:
