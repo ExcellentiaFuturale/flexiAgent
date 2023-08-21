@@ -151,6 +151,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         """
         self._stop_threads()  # IMPORTANT! Do that before rest of finalizations!
         self.vpp_api.finalize()
+        super().finalize()
 
     def vpp_watchdog_thread_func(self, ticks):
         """Watchdog thread function.
@@ -159,7 +160,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         """
         if not self.state_is_started():
             return
-        if not fw_os_utils.vpp_does_run():      # This 'if' prevents debug print by restore_vpp_if_needed() every second
+        if not fw_os_utils.vpp_does_run():      # This 'if' prevents debug print by router_api.initialize() every second
             self.log.debug("watchdog: initiate restore")
 
             self.state_change(FwRouterState.STOPPED)    # Reset state ASAP, so:
@@ -292,11 +293,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                 status_vpp = 'up' if connected else 'down'
             else:
                 status_vpp = fwutils.vpp_get_interface_status(dev_id=dev_id).get('link')
-            (ok, status_linux) = fwutils.exec(f"cat /sys/class/net/{tap_name}/carrier")
-            if status_vpp == 'down' and ok and status_linux and int(status_linux)==1:
+            status_linux = fwutils.get_interface_linux_carrier_value(tap_name)
+            if status_vpp == 'down' and status_linux == '1':
                 self.log.debug(f"detected NO-CARRIER for {tap_name}")
                 fwutils.os_system(f"echo 0 > /sys/class/net/{tap_name}/carrier")
-            elif status_vpp == 'up' and ok and status_linux and int(status_linux)==0:
+            elif status_vpp == 'up' and status_linux == '0':
                 self.log.debug(f"detected CARRIER UP for {tap_name}")
                 fwutils.os_system(f"echo 1 > /sys/class/net/{tap_name}/carrier")
                 if dev_id in fwglobals.g.db.get('router_api',{}).get('dhcpd',{}).get('interfaces',{}):
@@ -465,7 +466,7 @@ class FWROUTER_API(FwCfgRequestHandler):
     def _clear_monitor_interfaces(self):
         self.monitor_interfaces = {}
 
-    def restore_vpp_if_needed(self):
+    def initialize(self):
         """Restore VPP.
         If vpp doesn't run because of crash or device reboot,
         and it was started by management, start vpp and restore it's configuration.
@@ -485,12 +486,12 @@ class FWROUTER_API(FwCfgRequestHandler):
         vpp_runs = fw_os_utils.vpp_does_run()
         vpp_should_be_started = self.cfg_db.exists({'message': 'start-router'})
         if vpp_runs or not vpp_should_be_started:
-            self.log.debug("restore_vpp_if_needed: no need to restore(vpp_runs=%s, vpp_should_be_started=%s)" %
+            self.log.debug("initialize: no need to restore(vpp_runs=%s, vpp_should_be_started=%s)" %
                 (str(vpp_runs), str(vpp_should_be_started)))
             if vpp_runs:
                 self.state_change(FwRouterState.STARTED)
             if self.state_is_started():
-                self.log.debug("restore_vpp_if_needed: vpp_pid=%s" % str(fw_os_utils.vpp_pid()))
+                self.log.debug("initialize: vpp_pid=%s" % str(fw_os_utils.vpp_pid()))
                 self._start_threads()
                 # We use here read_from_disk because we can't fill the netplan cache from scratch when vpp is running.
                 # We use the original interface names in this cache,
@@ -500,10 +501,12 @@ class FWROUTER_API(FwCfgRequestHandler):
             else:
                 fwnetplan.restore_linux_netplan_files()
                 fwutils.get_linux_interfaces(cached=False) # Refill global interface cache once netplan was restored
+            super().initialize()
             return False
 
         self._restore_vpp()
         fwutils.get_linux_interfaces(cached=False) # Refill global interface cache once VPP is on air
+        super().initialize()
         return True
 
     def _restore_vpp(self):
@@ -534,7 +537,7 @@ class FWROUTER_API(FwCfgRequestHandler):
 
             fwglobals.g.handle_request({'message': 'start-router'})
         except Exception as e:
-            self.log.excep("restore_vpp_if_needed: %s" % str(e))
+            self.log.excep("initialize: %s" % str(e))
             self.state_change(FwRouterState.FAILED, "failed to restore vpp configuration")
         self.log.info("====restore vpp: finished===")
 

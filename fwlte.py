@@ -23,9 +23,8 @@ import os
 import re
 import subprocess
 import time
+import traceback
 from datetime import datetime, timedelta
-
-import serial
 
 import fw_os_utils
 import fwglobals
@@ -142,20 +141,20 @@ class FwLinuxModem(FwObject):
             raise e
 
     def _enable(self):
-        # {
-        #     "modem": {
-        #         ...
-        #         "dbus-path": "/org/freedesktop/ModemManager1/Modem/0",
-        #         ...
-        #      }
-        # }
-        modem_list_output = self._mmcli_exec('-L')
-        modem_list = modem_list_output.get('modem-list', [])
-        if not modem_list:
+        # # Give up to 40 seconds to the ModemManager to load the modems list.
+        for _ in range(20):
+            modem_list_output = self._mmcli_exec('-L')
+            # {
+            #   "modem-list": [
+            #       "/org/freedesktop/ModemManager1/Modem/0"
+            #   ]
+            # }
+            modem_list = modem_list_output.get('modem-list', [])
+            if modem_list:
+                break
             # send scan command and check after few moments
             self._mmcli_exec('-S', False)
-            time.sleep(5)
-            modem_list = modem_list_output.get('modem-list', [])
+            time.sleep(2)
 
         modem_info = None
         for modem in modem_list:
@@ -176,13 +175,6 @@ class FwLinuxModem(FwObject):
         return self.modem_manager_id
 
     def _load_info_from_modem_manager(self):
-        # {
-        #     "modem": {
-        #         ...
-        #         "dbus-path": "/org/freedesktop/ModemManager1/Modem/0",
-        #         ...
-        #      }
-        # }
         info = self._get_modem_manager_data()
         generic = info.get('generic', {})
 
@@ -1070,6 +1062,12 @@ class FwModem(FwLinuxModem):
                 self.log.debug(f"set_arp_entry: no GW was found for {self.dev_id}")
                 return
 
+        if_name = self._get_lte_if_name()
+        if_addr = fwutils.get_interface_address(if_name, log=False)
+        if not if_addr:
+            self.log.debug(f"set_arp_entry: no IP was found for {if_name} interfaces")
+            return
+
         log_prefix=f"set_arp_entry({self.dev_id})"
 
         if is_add:
@@ -1491,14 +1489,10 @@ class FwModemManager():
             except Exception as e:
                 fwglobals.log.error(f'failed to load modem. dev_id={dev_id}, err={str(e)}')
 
-    def get(self, dev_id):
+    def get(self, dev_id, raise_exception_on_not_found=True):
         modem = self.modems.get(dev_id)
-        if not modem:
-            raise Exception(f"No modem found. dev_id={dev_id}")
-        return modem
-
-    def get_safe(self, dev_id):
-        modem = self.modems.get(dev_id)
+        if not modem and raise_exception_on_not_found:
+            raise Exception(f"No modem found. dev_id={dev_id}. {str(traceback.format_exc())}")
         return modem
 
     def call(self, dev_id, func, args = {}):

@@ -172,9 +172,12 @@ class FwQoS(FwObject):
         self.reset()
 
 
+    def initialize(self):
+        super().initialize()
+
     def finalize(self):
         self.__qos_db.close()
-
+        super().finalize()
 
     def reset(self):
         """
