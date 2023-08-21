@@ -444,6 +444,19 @@ class FwAgent(FwObject):
         significantly by enforcing connection re-establishment.
         This function closes the current connection and opens the new one.
         """
+
+        # Avoid reconnect by route_thread_func() due to change in default route.
+        # That should avoid unnecessary reconnection, when default route is changed
+        # due to 'start-router'/'stop-router' execution, as in these cases
+        # the agent is reconnected explicitly. The explicit reconnection is done
+        # for various reasons. On start we want to have connection as soon as
+        # interfaces are configured and before any heavy configurations, like
+        # applications or policies. On stop (and on start) the default route might
+        # look exactly same as before stop/start, if 'set-name' option is used
+        # in netplan to have persistent interface name.
+        #
+        fwglobals.g.routes.default_route = None
+
         if self.ws == None:
             self.log.info("flexiManage is not connected, ignore reconnection request")
         elif self.reconnecting:
