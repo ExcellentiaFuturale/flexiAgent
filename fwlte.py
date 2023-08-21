@@ -1468,16 +1468,28 @@ class FwModem(FwLinuxModem):
         # which means we can remove the protection for incorrect PINs.
         self._set_db_entry('wrong_pin', None)
 
-class FwModemManager():
-    def __init__(self):
+class FwModemManager(FwObject):
+    def __init__(self, scan=False):
         self.modems = {}
-        self.scan()
+        if scan:
+            self.scan()
 
     def __enter__(self):
+        self.initialize()
         return self
 
     def __exit__(self, exc_type, exc_value, tb):
+        self.finalize()
         return
+
+    def initialize(self, restore_lte_configuration=False):
+        self.scan()
+        if restore_lte_configuration: # IMPORTANT: restore after scan() !
+            fwglobals.g.system_api.restore_configuration(types=['add-lte'])
+        super().initialize
+
+    def finalize(self):
+        super().finalize
 
     def scan(self):
         self.modems = {}
