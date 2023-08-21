@@ -88,7 +88,7 @@ class Checker:
         self.log = fwlog.FwLogFile(fwglobals.g.SYSTEM_CHECKER_LOG_FILE, level=fwlog.FWLOG_LEVEL_DEBUG)
         self.log.set_target(to_terminal=True)
 
-        self.modems = fwglobals.g.modems if fwglobals.g.modems else FwModemManager()
+        self.modems = fwglobals.g.modems if fwglobals.g.modems else FwModemManager(scan=True)
 
         self.CFG_VPP_CONF_FILE      = fwglobals.g.VPP_CONFIG_FILE
         self.CFG_FWAGENT_CONF_FILE  = fwglobals.g.FWAGENT_CONF_FILE
