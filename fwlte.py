@@ -1482,8 +1482,10 @@ class FwModemManager(FwObject):
         self.finalize()
         return
 
-    def initialize(self):
+    def initialize(self, restore_lte_configuration=False):
         self.scan()
+        if restore_lte_configuration: # IMPORTANT: restore after scan() !
+            fwglobals.g.system_api.restore_configuration(types=['add-lte'])
         super().initialize
 
     def finalize(self):

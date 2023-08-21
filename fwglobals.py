@@ -474,8 +474,6 @@ class Fwglobals(FwObject):
         self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
         self.message_handler  = FwMessageHandler()
 
-        self.system_api.restore_configuration() # IMPORTANT! The System configurations should be restored before router_api.initialize()!
-
         fwutils.set_default_linux_reverse_path_filter(2)  # RPF set to Loose mode
         fwutils.disable_ipv6()
 
@@ -533,7 +531,7 @@ class Fwglobals(FwObject):
         self.fwagent.initialize()
         self.router_cfg.initialize()
         self.stun_wrapper.initialize()
-        self.modems.initialize()
+        self.modems.initialize(restore_lte_configuration=True)
 
         self.router_api.initialize()
 
@@ -574,7 +572,7 @@ class Fwglobals(FwObject):
                 self.router_api.finalize()
             if self.applications_api.initialized:
                 self.applications_api.finalize()
-            if self.fwagent.initialized:
+            if self.modems.initialized:
                 self.modems.finalize()
             if self.fwagent.initialized:
                 self.fwagent.finalize()
