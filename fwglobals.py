@@ -533,6 +533,7 @@ class Fwglobals(FwObject):
         self.fwagent.initialize()
         self.router_cfg.initialize()
         self.stun_wrapper.initialize()
+        self.modems.initialize()
 
         self.router_api.initialize()
 
@@ -573,6 +574,8 @@ class Fwglobals(FwObject):
                 self.router_api.finalize()
             if self.applications_api.initialized:
                 self.applications_api.finalize()
+            if self.fwagent.initialized:
+                self.modems.finalize()
             if self.fwagent.initialized:
                 self.fwagent.finalize()
             if self.router_cfg.initialized:
