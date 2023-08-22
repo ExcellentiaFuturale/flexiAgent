@@ -20,16 +20,9 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
 
-import os
 import re
-import subprocess
-import sys
-import threading
-import time
-import traceback
 
 import fwglobals
-import fwlte
 import fwnetplan
 import fwpppoe
 import fwroutes
@@ -37,6 +30,14 @@ import fwthread
 import fwutils
 
 from fwobject import FwObject
+
+class FwWanMonitorRoute(fwroutes.FwRoute):
+    def __init__(self, route):
+        fwroutes.FwRoute.__init__(self, route.prefix, route.via, route.dev, route.proto, route.metric, dev_id=route.dev_id)
+        self.probes     = {}        # Ping results per server
+        self.ok         = True      # If True there is connectivity to internet
+        self.stats      = {'ifname': '', 'rtt': 0, 'drop_rate':0}    # Connectivity stats results
+        self.stale      = 0         # Counter of thread iterations where route was not found in OS
 
 class FwWanMonitor(FwObject):
     """This object monitors internet connectivity over default WAN interface,
@@ -108,6 +109,8 @@ class FwWanMonitor(FwObject):
         if server:
             routes = self._get_routes()
             for r in routes:
+                if r.stale:  # the route does not present in OS currently
+                    continue
                 modem = fwglobals.g.modems.get(r.dev_id, raise_exception_on_not_found=False)
                 if modem and modem.is_resetting():
                     continue
@@ -134,6 +137,8 @@ class FwWanMonitor(FwObject):
             #
             if not route.dev_id:
                 continue
+
+            route = FwWanMonitorRoute(route)
 
             # Filter out routes on interfaces where flexiManage disabled monitoring.
             # Note the 'monitorInternet' flag might not exist (in case of device
@@ -169,6 +174,7 @@ class FwWanMonitor(FwObject):
                 route.probes    = cached.probes
                 route.ok        = cached.ok
                 route.stats     = cached.stats
+                route.stale     = 0
             else:
                 self.log.debug("Start WAN Monitoring on '%s'" % (str(route)))
 
@@ -185,6 +191,15 @@ class FwWanMonitor(FwObject):
         #
         stale_keys = list(set(self.routes.keys()) - set(os_routes.keys()))
         for key in stale_keys:
+            self.routes[key].stale += 1
+            if self.routes[key].stale < 4:
+                # The route might disappear from OS temporary due to 'netplan apply'
+                # run by fwagent for any reason. That happens because netplan has
+                # flaw in design: it reruns DHCP negotiation on interfaces even
+                # if they were not changed since previous 'netplan apply'.
+                # During this renegotiation routes through these interfaces are
+                # removed from OS.
+                continue
             self.log.debug("Stop WAN Monitoring on '%s'" % (str(self.routes[key])))
             del self.routes[key]
 
