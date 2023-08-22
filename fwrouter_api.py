@@ -1468,6 +1468,8 @@ class FWROUTER_API(FwCfgRequestHandler):
         fwglobals.g.applications_api.call_hook('on_router_is_stopped')
         fwglobals.g.pppoe.start()
 
+        fwglobals.g.fwagent.reconnect()
+
     def _on_add_interface_after(self, type, sw_if_index, params):
         """add-interface postprocessing
 
@@ -1672,7 +1674,6 @@ class FWROUTER_API(FwCfgRequestHandler):
             # reconnect as soon as interfaces are initialized
             #
             if last_msg == 'add-interface' and msg['message'] != 'add-interface':
-                fwglobals.g.routes.default_route = None   # Avoid reconnect by route_thread_func() due to change in default route
                 fwglobals.g.fwagent.reconnect()
             last_msg = msg['message']
 
