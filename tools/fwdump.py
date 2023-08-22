@@ -113,9 +113,9 @@ g_dumpers = {
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_routes':                 { 'shell_cmd': 'ip route > <dumper_out_file>' },
     'linux_sys_class_net':          { 'shell_cmd': 'ls -l /sys/class/net/ > <dumper_out_file>' },
-    'linux_syslog':                 { 'shell_cmd': 'cp /var/log/syslog <temp_folder>/linux_syslog.log 2>/dev/null ;' +
-                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'linux_syslog.1':               { 'shell_cmd': 'cp /var/log/syslog.1 <temp_folder>/linux_syslog_1.log 2>/dev/null ;' +
+    'linux_syslog':                 { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
+                                                   'cp /var/log/syslog <temp_folder>/logs/syslog.log 2>/dev/null ;' + # add "*.log" to have "open with" association on Windows
+                                                   'cp /var/log/syslog.1 <temp_folder>/logs/ 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_uuid':                   { 'shell_cmd': 'cp /sys/class/dmi/id/product_uuid <temp_folder>/linux_uuid.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
@@ -139,7 +139,8 @@ g_dumpers = {
 
     'frr_ip_route':                 { 'shell_cmd': f'vtysh -c "show ip route json" > <temp_folder>/frr_ip_route.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'frr_log':                      { 'shell_cmd': f'cp {g.FRR_LOG_FILE} <temp_folder>/frr.log 2>/dev/null ;' +
+    'frr_log':                      { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
+                                                   f'cp {g.FRR_LOG_FILE} <temp_folder>/log/frr.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'frr_ospf_neighbors':           { 'shell_cmd': f'vtysh -c "show ip ospf neighbor all json" > <temp_folder>/frr_ip_ospf_neighbors.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
@@ -155,18 +156,20 @@ g_dumpers = {
     'fwagent_conf':                 { 'shell_cmd': 'mkdir -p <temp_folder>/fwagent && ' +
                                                    'cp -r /etc/flexiwan/agent/* <temp_folder>/fwagent/ 2>/dev/null' },
     'fwagent_device_signature':     { 'shell_cmd': 'fwagent show --configuration signature > <dumper_out_file>' },
-    'fwagent_logs': 				{ 'shell_cmd': 'mkdir -p <temp_folder>/flexiwan_logs && ' +
-                                                   'cp /var/log/flexiwan/*.log /var/log/flexiwan/*.log.1 <temp_folder>/flexiwan_logs/ 2>/dev/null ;' +
-                                                   'mv <temp_folder>/flexiwan_logs/agent.log <temp_folder>/fwagent.log 2>/dev/null ;' +  # Move main log into root folder for convenience
+    'fwagent_logs': 				{ 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
+                                                   'cp /var/log/flexiwan/agent.log <temp_folder>/fwagent.log 2>/dev/null ;' + # save latest log into root folder for convenience
+                                                   'cp /var/log/flexiwan/agent.log.1   <temp_folder>/logs/ 2>/dev/null ;' +
+                                                   'cp /var/log/flexiwan/agentui.log   <temp_folder>/logs/ 2>/dev/null ;' +
+                                                   'cp /var/log/flexiwan/agentui.log.1 <temp_folder>/logs/ 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'dpkg_log':                     { 'shell_cmd': 'cp /var/log/dpkg.log <temp_folder>/dpkg.log 2>/dev/null ;' +
+    'dpkg_log':                     { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
+                                                   'cp /var/log/dpkg.log* <temp_folder>/logs/ 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'dpkg_log.1':                   { 'shell_cmd': 'cp /var/log/dpkg.log.1 <temp_folder>/dpkg_1.log 2>/dev/null ;' +
+    'hostapd.log':                  { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
+                                                   f'cp {g.HOSTAPD_LOG_FILE} <temp_folder>/logs/hostapd.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-
-    'hostapd.log':                  { 'shell_cmd': 'cp %s <temp_folder>/hostapd.log 2>/dev/null ;' % (g.HOSTAPD_LOG_FILE) +
-                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'hostapd.log.backup':           { 'shell_cmd': 'cp %s <temp_folder>/hostapd.log.backup 2>/dev/null ;' % (g.HOSTAPD_LOG_FILE_BACKUP) +
+    'hostapd.log.backup':           { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
+                                                   f'cp {g.HOSTAPD_LOG_FILE_BACKUP} <temp_folder>/logs/hostapd.log.backup 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     'fwagent_db_applications':      { 'shell_cmd': 'fwagent show --database applications > <dumper_out_file>' },
@@ -229,7 +232,8 @@ g_dumpers = {
 }
 
 class FwDump(FwObject):
-    def __init__(self, temp_folder=None, quiet=False, include_vpp_core=None):
+    def __init__(self, temp_folder=None, quiet=False, full_dump=False,
+                 include_all_logs=False, include_vpp_core=False):
 
         FwObject.__init__(self)
 
@@ -238,7 +242,13 @@ class FwDump(FwObject):
         self.prompt         = 'fwdump>> '
         self.zip_file       = None
         self.hostname       = os.uname()[1]
+        self.full_dump        = full_dump
+        self.include_all_logs = include_all_logs
         self.include_vpp_core = include_vpp_core
+
+        if full_dump:
+            self.include_all_logs = True
+            self.include_vpp_core = True
 
         if not temp_folder:
             timestamp = fwutils.build_timestamped_filename('')
@@ -308,7 +318,10 @@ class FwDump(FwObject):
 
     def zip(self, filename=None, path=None, delete_temp_folder=True):
         if not filename:
-            filename = fwutils.build_timestamped_filename('fwdump_%s' % self.hostname, '.tar.gz')
+            filename = f'fwdump_{self.hostname}'
+            if self.full_dump:
+                filename += '_full'
+            filename = fwutils.build_timestamped_filename(filename, '.tar.gz')
         if path:
             filename = os.path.join(path, filename)
         self.zip_file = filename
@@ -364,6 +377,11 @@ class FwDump(FwObject):
 
         dumpers = list(g_dumpers.keys())
         self._dump(dumpers)
+        if self.include_all_logs:
+            os.system(f'mkdir -p {self.temp_folder}/logs')
+            os.system(f'cp /var/log/syslog*.gz {self.temp_folder}/logs/ 2>/dev/null')
+            os.system(f'cp /var/log/flexiwan/*.gz {self.temp_folder}/logs/ 2>/dev/null')
+
         if self.include_vpp_core:
             corefile_dir = self.temp_folder + "/corefiles/"
             os.makedirs(corefile_dir)
@@ -394,7 +412,8 @@ class FwDump(FwObject):
         self._dump(dumpers)
 
 def main(args):
-    with FwDump(temp_folder=args.temp_folder, quiet=args.quiet,
+    with FwDump(temp_folder=args.temp_folder, quiet=args.quiet, full_dump=args.full_dump,
+                include_all_logs=args.include_all_logs,
                 include_vpp_core=args.include_vpp_core) as dump:
 
         if args.feature:
@@ -425,13 +444,17 @@ if __name__ == '__main__':
                         help="don't archive dumped data into single file. Path to folder with dumps will be printed on exit.")
     parser.add_argument('--feature', choices=['multilink'], default=None,
                         help="dump info related to this feature only")
+    parser.add_argument('-f', '--full', action='store_true', dest='full_dump',
+                        help="Include all possible data, overwhelming user by size of final archive. Switches ON all -iX flags.")
+    parser.add_argument('-if', '--include_all_logs', action='store_true',
+                        help="Include all available logs, like archived syslog-s")
+    parser.add_argument('-ic', '--include_vpp_core', nargs='?', const=3, type=int, choices=range(1, 4),
+                        help="Include VPP coredumps to be part of fwdump")
     parser.add_argument('-q', '--quiet', action='store_true',
                         help="silent mode, overrides existing temporary folder if was provided with --temp_folder")
     parser.add_argument('--temp_folder', default=None,
                         help="folder where to keep not zipped dumped info")
     parser.add_argument('--zip_file', default=None,
                         help="filename to be used for the final archive, can be full/relative. If not specified, default name will be used and printed on exit.")
-    parser.add_argument('-c', '--include_vpp_core', nargs='?', const=3, type=int, choices=range(1, 4),
-                        help="Include VPP coredumps to be part of fwdump")
     args = parser.parse_args()
     main(args)
