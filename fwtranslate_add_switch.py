@@ -138,8 +138,8 @@ def add_switch(params):
     cmd['cmd']['params']        = {
                     'api':  "create_loopback_instance",
                     'args': {
-                        'is_specified': 1,
-                        'substs': [ { 'add_param':'user_instance', 'val_by_key':bridge_cache_key} ]
+                        'is_specified': 0,
+                        'user_instance': 0,
                     },
     }
     cmd['cmd']['cache_ret_val'] = (loopback_ret_attr, loopback_cache_key)

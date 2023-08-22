@@ -170,14 +170,6 @@ def generate_sa_id():
     fwglobals.g.db['router_api'] = router_api_db
     return sa_id
 
-def validate_tunnel_id(tunnel_id):
-    bridge_id = tunnel_id*2+1 # each tunnel uses two bridges - one with id=tunnel_id*2 and one with id=tunnel_id*2+1
-    min, max = fwglobals.g.LOOPBACK_ID_TUNNELS
-    if min <= bridge_id <= max:
-        return (True, None)
-    return (False,
-        "tunnel_id %d can't be served due to out of available bridge id-s" % (tunnel_id))
-
 def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal=False, vppsb_tun=False):
     """Add loopback command into the list.
 
@@ -221,8 +213,8 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, id, internal
     cmd['cmd']['object'] = "fwglobals.g.router_api.vpp_api"
     cmd['cmd']['params'] = {
                     'api':  "create_loopback_instance",
-                    'args': { 'mac_address':mac_bytes, 'is_specified': 1,
-                              'user_instance': id, 'flexiwan_flags': (no_vppsb|vppsb_tun),
+                    'args': { 'mac_address':mac_bytes, 'is_specified': 0,
+                              'user_instance': 0, 'flexiwan_flags': (no_vppsb|vppsb_tun),
                             }
     }
     cmd['cmd']['cache_ret_val'] = (ret_attr,cache_key)
@@ -1765,14 +1757,6 @@ def add_tunnel(params):
         vxlan_ips = {'src':params['src'], 'dst':params['dst']}
         remote_loop0_cfg = {'addr':remote_loop0_ip, 'mac':str(remote_loop0_mac)}
         remote_loop1_cfg = {'addr':str(remote_loop1_ip), 'mac':str(remote_loop1_mac)}
-
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']      = "validate_tunnel_id"
-        cmd['cmd']['module']    = "fwtranslate_add_tunnel"
-        cmd['cmd']['descr']     = "validate tunnel id"
-        cmd['cmd']['params']    = { 'tunnel_id': params['tunnel-id'] }
-        cmd_list.append(cmd)
 
         # Get tunnel QoS commands
         fwglobals.g.qos.get_add_tunnel_qos_commands(params, cmd_list)
