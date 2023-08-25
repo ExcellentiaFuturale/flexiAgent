@@ -224,6 +224,7 @@ g_dumpers = {
     'vpp_nat44_sessions':           { 'shell_cmd': 'vppctl show nat44 sessions > <dumper_out_file>' },
     'vpp_nat44_summary':            { 'shell_cmd': 'vppctl show nat44 summary > <dumper_out_file>' },
     'vpp_tap_inject':               { 'shell_cmd': 'vppctl show tap-inject > <dumper_out_file>' },
+    'vpp_vrrp_vr':                  { 'shell_cmd': 'vppctl sh vrrp vr > <dumper_out_file>' },
     'vpp_vxlan_tunnel':             { 'shell_cmd': 'vppctl sh vxlan tunnel > <dumper_out_file>' },
     'vpp_qos_interface_config':     { 'shell_cmd': 'vppctl show dpdk interface hqos > <dumper_out_file>' },
     'vpp_qos_interface_stats':      { 'shell_cmd': 'vppctl show dpdk hqos queue > <dumper_out_file>' },
