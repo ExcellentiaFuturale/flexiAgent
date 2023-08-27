@@ -93,9 +93,9 @@ def start_router(params=None):
     cmd['revert']['descr']  = "fwrouter_api._on_stop_router_after()"
     cmd_list.append(cmd)
 
-    dev_id_list         = []
-    pci_list_vmxnet3 = []
-    assigned_linux_interfaces = []
+    dpdk_dev_id_list     = [] # non-dpdk interfaces should not be listed here
+    linux_if_name_list   = [] # dpdk and non-dpdk interfaces should be listed here
+    vmxnet3_dev_id_list  = []
 
     # Remove interfaces from Linux.
     #   sudo ip link set dev enp0s8 down
@@ -115,22 +115,23 @@ def start_router(params=None):
             cmd['cmd']['descr']   = "shutdown dev %s in Linux" % linux_if
             cmd_list.append(cmd)
 
+            linux_if_name_list.append(linux_if)
+
             # Non-dpdk interface should not appear in /etc/vpp/startup.conf because they don't have a pci address.
             # Additional spacial logic for these interfaces is at add_interface translator
             if fwutils.is_non_dpdk_interface(params['dev_id']):
                 # LTE interface requires startup conf entry for creating tap interface
                 if fwlte.is_lte_interface_by_dev_id(params['dev_id']):
-                    dev_id_list.append(params['dev_id'])
+                    dpdk_dev_id_list.append(params['dev_id'])
                 continue
-            assigned_linux_interfaces.append(linux_if)
 
             # Mark 'vmxnet3' interfaces as they need special care:
             #   They require additional VPP call vmxnet3_create on start
             #      and complement vmxnet3_delete on stop
             if fwutils.dev_id_is_vmxnet3(params['dev_id']):
-                pci_list_vmxnet3.append(params['dev_id'])
+                vmxnet3_dev_id_list.append(params['dev_id'])
 
-            dev_id_list.append(params['dev_id'])
+            dpdk_dev_id_list.append(params['dev_id'])
 
     vpp_filename = fwglobals.g.VPP_CONFIG_FILE
 
@@ -152,7 +153,7 @@ def start_router(params=None):
     cmd['cmd']['params']  = {
         'vpp_config_filename' : vpp_filename,
         'is_add'              : True,
-        'num_interfaces'      : len(assigned_linux_interfaces),
+        'num_interfaces'      : len(dpdk_dev_id_list),
     }
     cmd['revert'] = {}
     cmd['revert']['name']   = "python"
@@ -162,7 +163,7 @@ def start_router(params=None):
     cmd['revert']['params'] = {
         'vpp_config_filename' : vpp_filename,
         'is_add'              : False,
-        'num_interfaces'      : len(assigned_linux_interfaces),
+        'num_interfaces'      : len(dpdk_dev_id_list),
     }
     cmd_list.append(cmd)
 
@@ -179,7 +180,7 @@ def start_router(params=None):
     cmd['cmd']['func']    = "vpp_startup_conf_add_dpdk_config"
     cmd['cmd']['module']  = "fwutils"
     cmd['cmd']['descr']   = "add devices to %s" % vpp_filename
-    cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename, 'devices': dev_id_list }
+    cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename, 'devices': dpdk_dev_id_list }
     cmd['revert'] = {}
     cmd['revert']['func']   = "vpp_startup_conf_remove_dpdk_config"
     cmd['revert']['module'] = "fwutils"
@@ -198,13 +199,13 @@ def start_router(params=None):
     cmd['revert']['descr'] = "restore linux netplan files"
     cmd_list.append(cmd)
 
-    if assigned_linux_interfaces:
+    if linux_if_name_list:
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']    = "netplan_unload_vpp_assigned_ports"
+        cmd['cmd']['func']    = "netplan_unload_assigned_ports"
         cmd['cmd']['module']  = "fwnetplan"
-        cmd['cmd']['descr']   = "Unload to-be-VPP interfaces from linux networkd"
-        cmd['cmd']['params']  = { 'assigned_linux_interfaces' : assigned_linux_interfaces }
+        cmd['cmd']['descr']   = "Unload interfaces from fwrun netplan files"
+        cmd['cmd']['params']  = { 'assigned_linux_interfaces' : linux_if_name_list }
         cmd_list.append(cmd)
 
     #  Create commands that start vpp and configure it with addresses
@@ -309,7 +310,7 @@ def start_router(params=None):
     # into 'remove-interface' and 'add-interface', so we want to avoid deletion
     # and creation interface on every 'modify-interface'. There is no sense to do
     # that and it causes problems in FIB, when default route interface is deleted.
-    for dev_id in pci_list_vmxnet3:
+    for dev_id in vmxnet3_dev_id_list:
         _, pci = fwutils.dev_id_parse(dev_id)
         pci_bytes = fwutils.pci_str_to_bytes(pci)
         cmd = {}
