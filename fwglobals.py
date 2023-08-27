@@ -530,6 +530,7 @@ class Fwglobals(FwObject):
         #
         self.fwagent.initialize()
         self.router_cfg.initialize()
+        self.pppoe.initialize()
         self.stun_wrapper.initialize()
         self.modems.initialize(restore_lte_configuration=True)
 
@@ -538,7 +539,6 @@ class Fwglobals(FwObject):
         # IMPORTANT! Some of the features below should be initialized after router_api.initialize()
         #
         self.wan_monitor.initialize()
-        self.pppoe.initialize()
         self.system_api.initialize()  # This one does not depend on VPP :)
         self.routes.initialize()
         self.applications_api.initialize()
