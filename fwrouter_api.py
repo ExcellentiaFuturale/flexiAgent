@@ -276,20 +276,18 @@ class FWROUTER_API(FwCfgRequestHandler):
         :param new_interfaces: the current interface snap
         """
         for dev_id, new in new_interfaces.items():
+
+            # Sync multilink data
+            #
+            self.multilink.sync_addresses(dev_id, new)
+
             old = old_interfaces.get(dev_id)
             if not old:
                 continue   # escape newly added interface, take care of it on next sync
 
             if old['gw'] != new['gw']:
+                self.log.debug(f"_sync_addresses: {dev_id}: GW: {old['gw']} -> {new['gw']}")
                 if new['type'] == 'wan':
-                    # Update FWABF link with new GW, it is used for multilink policies
-                    #
-                    link = self.multilink.get_link(dev_id)
-                    if link:
-                        self.multilink.vpp_update_labels(
-                            remove=False, labels=link.labels, next_hop=new['gw'], dev_id=dev_id)
-
-                    # Update ARP entry of LTE interface
                     try:
                         if new['deviceType'] == 'lte':
                             fwlte.set_arp_entry(is_add=False, dev_id=dev_id, gw=old['gw'])
@@ -298,6 +296,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                         pass
 
             if old['addr'] != new['addr']:
+                self.log.debug(f"_sync_addresses: {dev_id}: IP: {old['addr']} -> {new['addr']}")
                 if new['type'] == 'lan' and 'OSPF' in new['routing']:
                     self.frr.ospf_network_update(dev_id, new['addr'])
 
