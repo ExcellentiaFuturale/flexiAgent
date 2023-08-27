@@ -407,6 +407,10 @@ class FwPppoeClient(FwObject):
     def initialize(self):
         """Start all PPPoE connections and PPPoE thread.
         """
+        self.connections.clear()
+        for dev_id, pppoe_iface in self.interfaces.items():
+            self._add_connection(dev_id, pppoe_iface)
+
         self.scan()
         self.start()
 
