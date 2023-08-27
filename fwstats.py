@@ -29,8 +29,8 @@
 # We suppress this warning to have a clean screen, when running fwagent daemon from command line.
 #
 import warnings
-warnings.filterwarnings(action="ignore", message="ignoring.*/sys/class/hwmon/hwmon", category=RuntimeWarning, module=".*psutil")
 
+warnings.filterwarnings(action="ignore", message="ignoring.*/sys/class/hwmon/hwmon", category=RuntimeWarning, module=".*psutil")
 import copy
 import math
 import time
@@ -45,7 +45,6 @@ import fwlte
 import fwthread
 import fwutils
 import fwwifi
-
 from fwobject import FwObject
 from fwtunnel_stats import tunnel_stats_get
 
@@ -82,6 +81,8 @@ class FwStatistics(FwObject):
             'wifi_stats':           {},
             'application_stats':    {},
             'vrrp':                 {},
+            'alerts':               {},
+            'alerts_hash':          ''
         }
 
     def __enter__(self):
@@ -228,6 +229,7 @@ class FwStatistics(FwObject):
             self.updates_list.pop(0)
 
         stats = dict(self.stats)
+        system_health = self._get_system_health()
         self.updates_list.append({
                 'ok': stats['ok'],
                 'running': stats['running'],
@@ -236,11 +238,12 @@ class FwStatistics(FwObject):
                 'tunnel_stats': stats['tunnel_stats'],
                 'lte_stats': stats['lte_stats'],
                 'wifi_stats': stats['wifi_stats'],
-                'health': self._get_system_health(),
+                'health': system_health,
                 'utc': time.time(),
                 'vrrp': stats['vrrp'],
+                'alerts': fwglobals.g.notifications.calculate_alerts(stats['tunnel_stats'], system_health),
+                'alerts_hash': fwglobals.g.notifications.get_alerts_hash()
             })
-
 
     def _get_system_health(self):
         # Get CPU info
@@ -314,8 +317,10 @@ class FwStatistics(FwObject):
                 'health': {},
                 'period': 0,
                 'utc': time.time(),
-                'ikev2':    ikev2_certificate_expiration,
-                'reconfig': reconfig
+                'ikev2': ikev2_certificate_expiration,
+                'reconfig': reconfig,
+                'alerts': fwglobals.g.notifications.alerts,
+                'alerts_hash': fwglobals.g.notifications.get_alerts_hash()
             }
             res_update_list.append(info)
         else:
@@ -326,7 +331,6 @@ class FwStatistics(FwObject):
             res_update_list[-1]['application_stats'] = apps_stats
             res_update_list[-1]['health'] = self._get_system_health()
             res_update_list[-1]['ikev2'] = ikev2_certificate_expiration
-
         return res_update_list
 
     def get_device_info(self, cached=True, job_ids=None, tunnel_ids=None):

@@ -45,6 +45,7 @@ class FwSystemCfg(FwCfgDatabase):
         if not types:
             types = [
                 'add-lte',
+                'add-notifications-config'
             ]
 
         return FwCfgDatabase.dump(self, types, escape, full, keys)
@@ -59,8 +60,17 @@ class FwSystemCfg(FwCfgDatabase):
         sections = {                # Use stairway to ensure section order in
                                     # output string created by json.dumps()
                                     #
-            'add-lte':         "======= LTE =======",
+            'add-lte':                          "======= LTE =======",
+            'add-notifications-config':         "======= NOTIFICATIONS CONFIG =======",
         }
 
         cfg = self.dump(types=types, escape=escape, full=full, keys=True)
         return FwCfgDatabase.dumps(self, cfg, sections, full)
+
+    def get_notifications_config(self):
+        notifications_config_req = self.get_requests('add-notifications-config')
+        # add-notifications-config is a single request and can't be more than that.
+        # Therefore, convert it from a list to an object or None
+        if not notifications_config_req:
+            return None
+        return notifications_config_req[0]
