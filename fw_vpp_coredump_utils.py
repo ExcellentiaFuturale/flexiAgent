@@ -33,6 +33,7 @@ FW_VPP_COREDUMP_FOLDER = "/var/crash"
 FW_VPP_COREDUMP_PERMISSIONS = 0o775
 FW_VPP_COREDUMP_LOCATION = FW_VPP_COREDUMP_FOLDER + "/"
 FW_VPP_COREDUMP_START_STR_LIST = ["core-vpp", "core-lcore"]
+FW_VPP_COREDUMP_COMPRESSED_START_STR = "fw_coredump-"
 FW_VPP_COREDUMP_END_STR = "-dump"
 FW_MAX_CORE_RETAIN_LIMIT = 3
 FW_VPP_COREDUMP_LOCK = threading.Lock()
@@ -131,7 +132,7 @@ class FwVppCoredumpProcess(threading.Thread):
         ts_str = datetime.datetime.fromtimestamp(epoch_ts).strftime('%Y%m%d_%H%M%S')
 
         # Create work directory and prepare target tar filename/directory
-        tar_dir_name = "fw_coredump-" + ts_str + "-" + os.path.basename(corefile)
+        tar_dir_name = FW_VPP_COREDUMP_COMPRESSED_START_STR + ts_str + "-" + os.path.basename(corefile)
         work_dir_path = FW_VPP_COREDUMP_LOCATION + "TEMP-" + tar_dir_name + "/"
         os.makedirs(work_dir_path, exist_ok=True)
         out_tar_filename = FW_VPP_COREDUMP_LOCATION + tar_dir_name + ".tar.gz"
@@ -185,15 +186,15 @@ class FwVppCoredumpProcess(threading.Thread):
     @staticmethod
     def __vpp_coredump_limit_cores():
 
-        files = vpp_get_coredump_files()
-        filenames = sorted(files, key=lambda t: -os.stat(t).st_ctime)
+        filenames = vpp_get_compressed_coredump_files_time_sorted()
+        if filenames is None:
+            return
         count = 0
         for filename in filenames:
-            if tarfile.is_tarfile(filename):
-                count = count +1
-                if count > FW_MAX_CORE_RETAIN_LIMIT:
-                    os.remove(filename)
-                    fwglobals.log.info("vpp_coredump_limit_cores:Remove core: %s" % (filename))
+            count = count +1
+            if count > FW_MAX_CORE_RETAIN_LIMIT:
+                os.remove(filename)
+                fwglobals.log.info("vpp_coredump_limit_cores:Remove core: %s" % (filename))
 
 
     def run(self):
@@ -214,6 +215,14 @@ class FwVppCoredumpProcess(threading.Thread):
         finally:
             FW_VPP_COREDUMP_LOCK.release()
         fwglobals.log.info("VPP coredump process: Thread end")
+
+
+def vpp_get_compressed_coredump_files_time_sorted():
+    """
+    Function that returns list of compressed coredump files prepared by FlexiAgent
+    """
+    files = glob.glob((FW_VPP_COREDUMP_LOCATION + FW_VPP_COREDUMP_COMPRESSED_START_STR + "*"))
+    return sorted(files, key=lambda t: -os.stat(t).st_ctime) if files else None
 
 
 def vpp_get_coredump_files():
@@ -285,16 +294,15 @@ def vpp_coredump_process():
 
 def vpp_coredump_copy_cores(dest_folder, copy_count):
 
-    # Sorting enables selecting recent cores for copy
-    files = vpp_get_coredump_files()
-    filenames = sorted(files, key=lambda t: -os.stat(t).st_ctime)
+    filenames = vpp_get_compressed_coredump_files_time_sorted()
+    if filenames is None:
+        return
     count = 0
     for filename in filenames:
-        if tarfile.is_tarfile(filename):
-            shutil.copy2(filename, dest_folder)
-            count = count +1
-            if count == copy_count:
-                break
+        shutil.copy2(filename, dest_folder)
+        count = count +1
+        if count == copy_count:
+            break
 
 
 def vpp_coredump_sys_setup():
