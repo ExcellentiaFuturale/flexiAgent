@@ -4292,6 +4292,21 @@ def build_loopback_mac_address(sw_if_index):
     mac = mac[:-2] + ':' + mac[-2:]
     return mac_str_to_bytes(mac)
 
+def vpp_vrrp_restart(vr_id, dev_id):
+    sw_if_index = dev_id_to_vpp_sw_if_index(dev_id)
+    fwglobals.g.router_api.vpp_api.vpp.call(
+        'vrrp_vr_start_stop',
+        is_start=0,
+        vr_id=vr_id,
+        sw_if_index=sw_if_index
+    )
+    fwglobals.g.router_api.vpp_api.vpp.call(
+        'vrrp_vr_start_stop',
+        is_start=1,
+        vr_id=vr_id,
+        sw_if_index=sw_if_index
+    )
+
 def vpp_vrrp_add_del_track_interfaces(track_interfaces, is_add, vr_id, sw_if_index, track_ifc_priority, mandatory_only):
     interfaces = []
     for track_interface in track_interfaces:

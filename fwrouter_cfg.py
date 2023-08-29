@@ -169,8 +169,15 @@ class FwRouterCfg(FwCfgDatabase):
             return None
         return bgp_req[0]
 
-    def get_vrrp_groups(self):
-        return self.get_requests('add-vrrp-group')
+    def get_vrrp_groups(self, dev_id=None):
+        vrrp_groups = self.get_requests('add-vrrp-group')
+        if not dev_id:
+            return vrrp_groups
+        result = []
+        for params in vrrp_groups:
+            if params['devId'] == dev_id:
+                result.append(params)
+        return result
 
     def get_vxlan_config(self):
         vxlan_config = self.get_requests('add-vxlan-config')
