@@ -3640,40 +3640,51 @@ def get_min_metric_device(skip_dev_id):
 
     return (metric_min_dev_id, metric_min)
 
-def fwdump(filename=None, path=None, clean_log=False, full_dump=False):
+def fwdump(filename=None, path=None, clean_log=False, normal_dump=True, full_dump=False):
     '''This function invokes 'fwdump' utility while ensuring no DoS on disk space.
 
     :param filename:  the name of the final file where to dump will be tar.gz-ed
+    :param path     : the folder where to put the resulting 'filename'.
     :param clean_log: if True, agent log files will be cleaned
+    :param normal_dump: if True, the commonly used info only will be dumped
+    :param full_dump:   if True, all available info will be dumpled,
+                        including coredump-s and all available logs.
     '''
-    try:
-        cmd = 'fwdump --full' if full_dump else 'fwdump'
-        if filename:
-            cmd += ' --zip_file ' + filename
-        if not path:
-            path = fwglobals.g.DUMP_FOLDER
-        cmd += ' --dest_folder ' + path
+    def _fwdump(filename=None, path=None, full_dump=False):
+        try:
+            cmd = 'fwdump --full' if full_dump else 'fwdump'
+            if filename:
+                cmd += ' --zip_file ' + filename
+            if not path:
+                path = fwglobals.g.DUMP_FOLDER
+            cmd += ' --dest_folder ' + path
 
-        # Ensure no more than last 3 regular dumps or 3 last full dumps in order not to shock the disk
-        #
-        dump_files, full_dump_files = [], []
-        for f in glob.glob(f"{path}/*.tar.gz"):
-            if "_full_" in os.path.basename(f):
-                full_dump_files.append(f)
-            else:
-                dump_files.append(f)
-        files = full_dump_files if full_dump else dump_files
-        files.sort()                # Timestamp incorporated into fwdump filename should grow alphabetically
-        while len(files) > 2:       # 'while' is needed to clean dumps created by earlier versions that used larger limit
-            os.remove(files.pop(0))
+            # Ensure no more than last 3 regular dumps or 3 last full dumps in order not to shock the disk
+            #
+            dump_files, full_dump_files = [], []
+            for f in glob.glob(f"{path}/*.tar.gz"):
+                if "_full_" in os.path.basename(f):
+                    full_dump_files.append(f)
+                else:
+                    dump_files.append(f)
+            files = full_dump_files if full_dump else dump_files
+            files.sort()                # Timestamp incorporated into fwdump filename should grow alphabetically
+            while len(files) > 4:       # 'while' is needed to clean dumps created by earlier versions that used larger limit
+                os.remove(files.pop(0))
 
-        subprocess.check_call(cmd + ' > /dev/null 2>&1', shell=True)
+            subprocess.check_call(cmd + ' > /dev/null 2>&1', shell=True)
 
-        if clean_log:
-            os.system("echo '' > %s" % fwglobals.g.ROUTER_LOG_FILE)
-            os.system("echo '' > %s" % fwglobals.g.APPLICATION_IDS_LOG_FILE)
-    except Exception as e:
-        fwglobals.log.error("failed to dump: %s" % (str(e)))
+        except Exception as e:
+            fwglobals.log.error("failed to dump: %s" % (str(e)))
+
+    if (normal_dump):
+        _fwdump(filename=filename, path=path, full_dump=False)
+    if (full_dump):
+        _fwdump(filename=filename, path=path, full_dump=True)
+    if clean_log:
+        os.system("echo '' > %s" % fwglobals.g.ROUTER_LOG_FILE)
+        os.system("echo '' > %s" % fwglobals.g.APPLICATION_IDS_LOG_FILE)
+
 
 def linux_check_gateway_exist(gw):
     interfaces = psutil.net_if_addrs()

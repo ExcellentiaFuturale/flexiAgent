@@ -578,8 +578,8 @@ def version():
             print('%s %s' % (component.ljust(width), versions['components'][component]['version']))
         print(delimiter)
 
-def dump(filename, path, clean_log):
-    fwutils.fwdump(filename=filename, path=path, clean_log=clean_log)
+def dump(filename, path, clean_log, full):
+    fwutils.fwdump(filename=filename, path=path, clean_log=clean_log, normal_dump=(not full), full_dump=full)
 
 def reset(soft=False, quiet=False, pppoe=False):
     """Handles 'fwagent reset' command.
@@ -1353,7 +1353,7 @@ if __name__ == '__main__':
         'start': lambda args: start(start_router=args.start_router, start_applications=args.start_applications),
         'daemon': lambda args: daemon(debug_conf_filename=args.debug_conf_filename),
         'simulate': lambda args: loadsimulator.simulate(count=int(args.count)),
-        'dump': lambda args: dump(filename=args.filename, path=args.path, clean_log=args.clean_log),
+        'dump': lambda args: dump(filename=args.filename, path=args.path, clean_log=args.clean_log, full=args.full),
         'show': lambda args: show(
             agent=args.agent,
             configuration=args.configuration,
@@ -1440,10 +1440,12 @@ if __name__ == '__main__':
     parser_dump = subparsers.add_parser('dump', help='Dump various system info into x.tar.gz file')
     parser_dump.add_argument('-f', '--file', dest='filename', default=None,
                         help="The name of the result archive file. Can be full path. The default is 'fwdump_<hostname>_<YYYYMMDD>_<HHMMSS>.tar.gz")
-    parser_dump.add_argument('-p', '--path', dest='path', default=None,
-                        help="The path to the final name. The default is %s" % fwglobals.g.DUMP_FOLDER)
+    parser_dump.add_argument('-p', '--path', dest='path', default=os.getcwd(),
+                        help="The path to the final name. The default is cwd")
     parser_dump.add_argument('-c', '--clean_log', action='store_true',
                         help="Clean agent log")
+    parser_dump.add_argument('--full', action='store_true',
+                        help="Take full dump including all available logs")
 
     for cmd_name, cli_command in fwglobals.cli_commands.items():
       cli_parser     = subparsers.add_parser(cmd_name, help=cli_command['help'])
