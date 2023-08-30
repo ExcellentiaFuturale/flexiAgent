@@ -165,10 +165,14 @@ class FwLinuxModem(FwObject):
 
             self.modem_manager_id = modem_info.get('dbus-path')
 
-            modem_state, _ = self._get_modem_state(modem_info)
-            if modem_state != 'locked': # locked modem will be enabled once PIN will be verified
-                self._modem_manager_enable_modem()
-                self._modem_manager_signal_setup()
+            modem_state, modem_failed_reason = self._get_modem_state(modem_info)
+            if modem_state == 'failed' and modem_failed_reason == 'sim-missing':
+                break
+            if modem_state == 'locked':
+                break
+
+            self._modem_manager_enable_modem()
+            self._modem_manager_signal_setup()
 
         if not modem_info:
             raise Exception(f"modem {self.usb_device} not found in modem list: {str(modem_list)}")
