@@ -995,7 +995,12 @@ class FWROUTER_API(FwCfgRequestHandler):
         if req == 'aggregated':
             for _request in params['requests']:
                 if re.match('remove-', _request['message']):
-                    _request['params'] = self.cfg_db.get_request_params(_request)
+                    params = self.cfg_db.get_request_params(_request)
+                    if params == None:
+                        # If params were not found in main database, there is a chance
+                        # that request was moved into pending database. Try it.
+                        params = self.pending_cfg_db.get_request_params(_request)
+                    _request['params'] = params
 
         if self.state_is_stopped():
             if req == 'aggregated':  # take a care of order of parent & sub-interfaces

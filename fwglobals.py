@@ -62,6 +62,7 @@ from fwthread import FwRouterThreading
 from fwwan_monitor import FwWanMonitor
 from fwikev2 import FwIKEv2
 from fw_traffic_identification import FwTrafficIdentifications
+from fwnotifications import FwNotifications
 
 # sync flag indicated if module implement sync logic.
 # IMPORTANT! Please keep the list order. It indicates the sync priorities
@@ -153,6 +154,8 @@ request_handlers = {
     # System API
     'add-lte':                      {'name': '_call_system_api', 'sign': True},
     'remove-lte':                   {'name': '_call_system_api', 'sign': True},
+    'add-notifications-config':     {'name': '_call_system_api', 'sign': True},
+    'remove-notifications-config':  {'name': '_call_system_api', 'sign': True},
 
     # Applications api
     'add-app-install':             {'name': '_call_applications_api', 'sign': True},
@@ -452,6 +455,7 @@ class Fwglobals(FwObject):
         if not fw_os_utils.vpp_does_run():
             fwlte.reload_lte_drivers_if_needed()
 
+        self.notifications    = FwNotifications()
         self.db               = SqliteDict(self.DATA_DB_FILE, autocommit=True)  # IMPORTANT! Load data at the first place!
         self.fwagent          = FwAgent(handle_signals=False)
         self.router_cfg       = FwRouterCfg(self.ROUTER_CFG_FILE) # IMPORTANT! Initialize database at the first place!
@@ -530,6 +534,7 @@ class Fwglobals(FwObject):
         #
         self.fwagent.initialize()
         self.router_cfg.initialize()
+        self.pppoe.initialize()
         self.stun_wrapper.initialize()
         self.modems.initialize(restore_lte_configuration=True)
 
@@ -538,7 +543,6 @@ class Fwglobals(FwObject):
         # IMPORTANT! Some of the features below should be initialized after router_api.initialize()
         #
         self.wan_monitor.initialize()
-        self.pppoe.initialize()
         self.system_api.initialize()  # This one does not depend on VPP :)
         self.routes.initialize()
         self.applications_api.initialize()
