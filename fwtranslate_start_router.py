@@ -93,9 +93,9 @@ def start_router(params=None):
     cmd['revert']['descr']  = "fwrouter_api._on_stop_router_after()"
     cmd_list.append(cmd)
 
-    dpdk_dev_id_list     = [] # non-dpdk interfaces should not be listed here
-    linux_if_name_list   = [] # dpdk and non-dpdk interfaces should be listed here
-    vmxnet3_dev_id_list  = []
+    vpp_startup_conf_dev_ids = [] # only interfaces that should be in the dpdk section in startup.conf
+    linux_if_name_list       = [] # dpdk and non-dpdk interfaces should be listed here
+    vmxnet3_dev_id_list      = []
 
     # Remove interfaces from Linux.
     #   sudo ip link set dev enp0s8 down
@@ -122,7 +122,7 @@ def start_router(params=None):
             if fwutils.is_non_dpdk_interface(params['dev_id']):
                 # LTE interface requires startup conf entry for creating tap interface
                 if fwlte.is_lte_interface_by_dev_id(params['dev_id']):
-                    dpdk_dev_id_list.append(params['dev_id'])
+                    vpp_startup_conf_dev_ids.append(params['dev_id'])
                 continue
 
             # Mark 'vmxnet3' interfaces as they need special care:
@@ -131,7 +131,7 @@ def start_router(params=None):
             if fwutils.dev_id_is_vmxnet3(params['dev_id']):
                 vmxnet3_dev_id_list.append(params['dev_id'])
 
-            dpdk_dev_id_list.append(params['dev_id'])
+            vpp_startup_conf_dev_ids.append(params['dev_id'])
 
     vpp_filename = fwglobals.g.VPP_CONFIG_FILE
 
@@ -153,7 +153,7 @@ def start_router(params=None):
     cmd['cmd']['params']  = {
         'vpp_config_filename' : vpp_filename,
         'is_add'              : True,
-        'num_interfaces'      : len(dpdk_dev_id_list),
+        'num_interfaces'      : len(vpp_startup_conf_dev_ids),
     }
     cmd['revert'] = {}
     cmd['revert']['name']   = "python"
@@ -163,7 +163,7 @@ def start_router(params=None):
     cmd['revert']['params'] = {
         'vpp_config_filename' : vpp_filename,
         'is_add'              : False,
-        'num_interfaces'      : len(dpdk_dev_id_list),
+        'num_interfaces'      : len(vpp_startup_conf_dev_ids),
     }
     cmd_list.append(cmd)
 
@@ -180,7 +180,7 @@ def start_router(params=None):
     cmd['cmd']['func']    = "vpp_startup_conf_add_dpdk_config"
     cmd['cmd']['module']  = "fwutils"
     cmd['cmd']['descr']   = "add devices to %s" % vpp_filename
-    cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename, 'devices': dpdk_dev_id_list }
+    cmd['cmd']['params']  = { 'vpp_config_filename' : vpp_filename, 'devices': vpp_startup_conf_dev_ids }
     cmd['revert'] = {}
     cmd['revert']['func']   = "vpp_startup_conf_remove_dpdk_config"
     cmd['revert']['module'] = "fwutils"
