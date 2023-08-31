@@ -69,6 +69,14 @@ g_dumpers = {
                                                    'cp /var/log/apt/*.log <temp_folder>/linux_apt 2>/dev/null ; ' +
                                                    'cp /var/log/apt/*.log.1.gz <temp_folder>/linux_apt 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'linux_autosense':              { 'shell_cmd': 'mkdir -p <temp_folder>/linux_autosense/etc/default && ' +
+                                                   'cp -rf /etc/networkd-dispatcher <temp_folder>/linux_autosense/etc/ 2>/dev/null ; ' +
+                                                   'cp /etc/default/networkd-dispatcher <temp_folder>/linux_autosense/etc/default/ 2>/dev/null ; ' +
+                                                   'systemctl cat networkd-dispatcher.service > <temp_folder>/linux_autosense/networkd-dispatcher.service.cat.txt 2>/dev/null ; ' +
+                                                   'systemctl show networkd-dispatcher.service > <temp_folder>/linux_autosense/networkd-dispatcher.service.show.txt 2>/dev/null ; ' +
+                                                   'systemctl status networkd-dispatcher.service > <temp_folder>/linux_autosense/networkd-dispatcher.service.status.txt 2>/dev/null ; ' +
+                                                   'cp /var/log/flexiwan/autosense.log <temp_folder>/linux_autosense 2>/dev/null ; ' +
+                                                   'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'linux_cpu':                    { 'shell_cmd': 'cat /proc/cpuinfo > <dumper_out_file>' },
     'linux_dhcpd':                  { 'shell_cmd': 'mkdir -p <temp_folder>/linux_dhcpd/ && ' +
                                                    'cp /etc/dhcp/dhcpd.conf* <temp_folder>/linux_dhcpd 2>/dev/null ; ' +
