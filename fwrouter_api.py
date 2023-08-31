@@ -303,6 +303,14 @@ class FWROUTER_API(FwCfgRequestHandler):
                 if dev_id in fwglobals.g.db.get('router_api',{}).get('dhcpd',{}).get('interfaces',{}):
                     restart_dhcpd = True
 
+                # When we use sys/class/net/carrier, the VPP fails to handle the VRRP status correctly,
+                # causing it to stay in the "Interface down" state even after the carrier is restored.
+                # To fix this, we need to restart VRRP.
+                dev_id_vrrp_groups = self.cfg_db.get_vrrp_groups(dev_id=dev_id)
+                for dev_id_vrrp_group_params in dev_id_vrrp_groups:
+                    virtual_router_id = dev_id_vrrp_group_params['virtualRouterId']
+                    fwutils.vpp_vrrp_restart(vr_id=virtual_router_id, dev_id=dev_id)
+
             virtual_router_ids = vrrp_router_ids_by_tracked_dev_id.get(dev_id, [])
             if status_vpp == 'down':
                 for virtual_router_id in virtual_router_ids:
