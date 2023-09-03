@@ -105,7 +105,7 @@ request_handlers = {
     'get-wifi-info':                     {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
     'get-lte-info':                      {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
     'reset-lte':                         {'name': '_call_agent_api'},
-    'modify-lte-pin':                    {'name': '_call_agent_api'},
+    'modify-lte-pin':                    {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
     'get-device-certificate':            {'name': '_call_agent_api'},
     'set-cpu-info':                      {'name': '_call_agent_api'},
     'get-bgp-status':                    {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
@@ -150,7 +150,7 @@ request_handlers = {
     'modify-vxlan-config':          {'name': '_call_router_api', 'sign': True},
     'add-vrrp-group':               {'name': '_call_router_api', 'sign': True},
     'remove-vrrp-group':            {'name': '_call_router_api', 'sign': True},
-    
+
     # System API
     'add-lte':                      {'name': '_call_system_api', 'sign': True},
     'remove-lte':                   {'name': '_call_system_api', 'sign': True},
