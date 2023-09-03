@@ -87,14 +87,27 @@ def netplan_get_filepaths():
            glob.glob("/run/netplan/*.yaml")
 
 
-def netplan_unload_vpp_assigned_ports(assigned_linux_interfaces):
+def netplan_unload_assigned_ports(assigned_linux_interfaces):
     '''
-    The function is called after taking backup of original netplan file and
-    before adding VPP tap interfaces to netplan. The function modifies the system
-    netplan files (Common example: Modifies 50-cloud-init.yaml) i.e removes the
-    ports assigned to VPP from it and applies the updated config. Doing this is
-    needed to prevent, VPP tap-inject interfaces from getting renamed immediately
-    after create (due to set-name) by linux system network service.
+    This function is called after the agent has backed up the netplan files and
+    created fwrun.yaml files that we will modify and work with during the router startup.
+
+    In the fwrun files, we keep the configurations of unassigned interfaces as they are.
+    These files also include assigned interfaces with their Linux names, such as "eth0".
+
+    In most cases, it's alright to have unconfigured assigned interfaces in netplan before the add-interface processes.
+    This is because when the VPP service starts,
+    the assigned interfaces (eth0) will no longer exist in Linux as they'll move to DPDK control.
+    Therefore, "netplan apply" calls won't find those interfaces and won't make any changes.
+
+    However, having some interfaces in the fwrun files before the add-interface processing is problematic:
+    - For "set-name", we must prevent interfaces from being renamed immediately after the creation of the Tap-inject module.
+    - Non-DPDK interfaces (like WiFi) shouldn't have the old configuration now.
+    In both cases, they'll be configured on the corresponding add-interface.
+
+    Since we already have the old information in the backup files,
+    there is no need for it to be in the fwrun files.
+    Hence, this function removes the assigned interfaces.
 
     params assigned_linux_interfaces: List of Linux interface names assigned to VPP
     '''
@@ -114,12 +127,11 @@ def netplan_unload_vpp_assigned_ports(assigned_linux_interfaces):
                     ethernets = network['ethernets']
                     ethernets_updates = copy.deepcopy(ethernets)
                     for dev in ethernets:
-                        set_name = ethernets[dev].get('set-name', dev)
-                        if set_name in assigned_linux_interfaces:
+                        if_name = ethernets[dev].get('set-name', dev)
+                        if if_name in assigned_linux_interfaces:
                             del ethernets_updates[dev]
                             changed_ethernets = True
-                            fwglobals.log.debug("netplan_unload_vpp_assigned_ports: Device: %s \
-                                File: %s" % (set_name, fname))
+                            fwglobals.log.debug(f"netplan_unload_assigned_ports: Device: {if_name} File: {fname}")
                 if 'vlans' in network:
                     vlans = network['vlans']
                     vlans_updates = copy.deepcopy(vlans)
@@ -128,8 +140,7 @@ def netplan_unload_vpp_assigned_ports(assigned_linux_interfaces):
                         if link and link in assigned_linux_interfaces:
                             del vlans_updates[dev]
                             changed_vlans = True
-                            fwglobals.log.debug("netplan_unload_vpp_assigned_ports: Vlan: %s \
-                                File: %s" % (dev, fname))
+                            fwglobals.log.debug(f"netplan_unload_assigned_ports: Vlan: {dev} File: {fname}")
         if changed_ethernets:
             config['network']['ethernets'] = ethernets_updates
         if changed_vlans:
@@ -140,7 +151,7 @@ def netplan_unload_vpp_assigned_ports(assigned_linux_interfaces):
             netplan_apply = True
 
     if netplan_apply:
-        fwutils.netplan_apply('netplan_unload_vpp_assigned_ports')
+        fwutils.netplan_apply('netplan_unload_assigned_ports')
 
 
 def load_netplan_filenames(read_from_disk=False, get_only=False):
@@ -233,7 +244,7 @@ def _write_to_netplan_file(fname, config, **args):
 def _revert_netplan_file(fname, config, reason):
     fwglobals.log.error(reason)
     _write_to_netplan_file(fname, config)
-    fwutils.netplan_apply(f"add_remove_netplan_interface: {reason}")
+    fwutils.netplan_apply(f"_revert_netplan_file: {reason}")
 
 def _add_netplan_file(fname):
     if os.path.exists(fname):
