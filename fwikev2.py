@@ -146,7 +146,7 @@ class FwIKEv2(FwObject):
         if 'error' in expiration and expiration['error'] != '':
             return {'ok': 0, 'message': 'Cannot get certificate expiration date'}
 
-        fwglobals.g.statistics.update_ikev2_certificate_expiration(self.get_certificate_expiration())
+        fwglobals.g.statistics.update_ikev2_certificate_expiration(expiration)
         return {'message': {'certificate': certificate, 'expiration': expiration['certificateExpiration']}, 'ok': 1}
 
     def profile_name_get(self, tunnel_id):
