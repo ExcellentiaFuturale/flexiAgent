@@ -378,3 +378,9 @@ class FwStatistics(FwObject):
         :returns: None.
         """
         self.stats['running'] = running
+
+    def update_ikev2_certificate_expiration(self, info):
+        # No lock for simplicity, the penalty might be one more unnecessary
+        # 'get-device-certificate' transaction
+        #
+        self.device_info['ikev2'] = info
