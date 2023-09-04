@@ -2498,7 +2498,7 @@ def modify_dhcpd_conf(is_add, dev_id, range_start, range_end, dns, mac_assign, o
         host_name_string = ''
         use_host_name_as_dhcp_option = mac.get('useHostNameAsDhcpOption')
         if use_host_name_as_dhcp_option:
-            host_name_string = f'option host-name {host};\n'
+            host_name_string = f'option host-name \\"{host}\\";\n'
 
         mac_assign_string = 'echo "' + host_string + ethernet_string + ip_address_string + host_name_string + \
                             '}"' + ' | sudo tee -a %s;' % config_file
