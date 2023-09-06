@@ -81,6 +81,7 @@ class FwStatistics(FwObject):
             'wifi_stats':           {},
             'application_stats':    {},
             'vrrp':                 {},
+            'bgp':                  {},
             'alerts':               {},
             'alerts_hash':          ''
         }
@@ -119,8 +120,13 @@ class FwStatistics(FwObject):
             if fwglobals.g.loadsimulator:
                 fwglobals.g.loadsimulator.update_stats()
             else:
-                renew_lte_wifi_stats = ticks % (timeout * 2) == 0 # Renew LTE and WiFi statistics every second update
-                self._update_stats(renew_lte_wifi_stats=renew_lte_wifi_stats)
+                if ticks == timeout: # on first time, add the info
+                    renew_lte_wifi_stats = True
+                    add_bgp_stats = True
+                else:
+                    renew_lte_wifi_stats = ticks % (timeout * 2) == 0 # Renew LTE and WiFi statistics every second update
+                    add_bgp_stats = ticks % (timeout * 6) == 0 # Add bgp info to stats once in 3 minutes
+                self._update_stats(renew_lte_wifi_stats=renew_lte_wifi_stats, add_bgp_stats=add_bgp_stats)
 
     def device_info_thread_func(self, ticks):
         if (ticks % 10) == 0:
@@ -149,7 +155,7 @@ class FwStatistics(FwObject):
 
         return states
 
-    def _update_stats(self, renew_lte_wifi_stats=True):
+    def _update_stats(self, renew_lte_wifi_stats=True, add_bgp_stats=False):
         """Update statistics dictionary using values retrieved from VPP interfaces.
 
         :returns: None.
@@ -225,6 +231,11 @@ class FwStatistics(FwObject):
             self.stats['lte_stats'] = prev_stats['lte_stats']
             self.stats['wifi_stats'] = prev_stats['wifi_stats']
 
+        if add_bgp_stats:
+            self.stats['bgp'] = fwglobals.g.router_api.frr.get_bgp_summary_json()
+        else:
+            self.stats['bgp'] = {}
+
         if len(self.updates_list) is UPDATE_LIST_MAX_SIZE:
             self.updates_list.pop(0)
 
@@ -241,6 +252,7 @@ class FwStatistics(FwObject):
                 'health': system_health,
                 'utc': time.time(),
                 'vrrp': stats['vrrp'],
+                'bgp': stats['bgp'],
                 'alerts': fwglobals.g.notifications.calculate_alerts(stats['tunnel_stats'], system_health),
                 'alerts_hash': fwglobals.g.notifications.get_alerts_hash()
             })
@@ -312,6 +324,7 @@ class FwStatistics(FwObject):
                 'application_stats': apps_stats,
                 'tunnel_stats': {},
                 'vrrp': {},
+                'bgp': {},
                 'lte_stats': {},
                 'wifi_stats': {},
                 'health': {},

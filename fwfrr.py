@@ -21,6 +21,7 @@
 ################################################################################
 
 import json
+import subprocess
 
 from sqlitedict import SqliteDict
 
@@ -343,3 +344,77 @@ class FwFrr(FwObject):
         remove_commands.append(f'no route-map {name}')
 
         return add_commands, remove_commands
+
+    def get_bgp_summary_json(self):
+        try:
+            cmd = 'vtysh -c "show bgp summary json"'
+            frr_json_output = subprocess.check_output(cmd, shell=True).decode().strip()
+            # {
+            #   "ipv4Unicast":{
+            #     "routerId":"192.168.1.108",
+            #     "as":1234,
+            #     "vrfId":0,
+            #     "vrfName":"default",
+            #     "tableVersion":1,
+            #     "ribCount":1,
+            #     "ribMemory":192,
+            #     "peerCount":1,
+            #     "peerMemory":741464,
+            #     "peers":{
+            #       "7.7.7.7":{
+            #         "remoteAs":77,
+            #         "localAs":1234,
+            #         "version":4,
+            #         "msgRcvd":0,
+            #         "msgSent":0,
+            #         "tableVersion":0,
+            #         "outq":0,
+            #         "inq":0,
+            #         "peerUptime":"never",
+            #         "peerUptimeMsec":0,
+            #         "pfxRcd":0,
+            #         "pfxSnt":0,
+            #         "state":"Idle",
+            #         "peerState":"OK",
+            #         "connectionsEstablished":0,
+            #         "connectionsDropped":0,
+            #         "idType":"ipv4"
+            #       }
+            #     },
+            #     "failedPeers":1,
+            #     "displayedPeers":1,
+            #     "totalPeers":1,
+            #     "dynamicPeers":0,
+            #     "bestPath":{
+            #       "multiPathRelax":"true"
+            #     }
+            #   }
+            # }
+            output_json = json.loads(frr_json_output).get('ipv4Unicast', {})
+            res = {
+                'routerId': output_json.get('routerId'),
+                'as': output_json.get('as'),
+                'failedPeers': output_json.get('failedPeers'),
+                'displayedPeers': output_json.get('displayedPeers'),
+                'totalPeers': output_json.get('totalPeers'),
+                'peers': {}
+            }
+
+            peers = output_json.get('peers')
+            for peer_ip in peers:
+                res['peers'][peer_ip] = {
+                    'remoteAs': peers[peer_ip]['remoteAs'],
+                    'msgRcvd': peers[peer_ip]['msgRcvd'],
+                    'msgSent': peers[peer_ip]['msgSent'],
+                    'peerUptime': peers[peer_ip]['peerUptime'],
+                    'peerUptimeMsec': peers[peer_ip]['peerUptimeMsec'],
+                    'pfxRcd': peers[peer_ip]['pfxRcd'],
+                    'pfxSnt': peers[peer_ip]['pfxSnt'],
+                    'state': peers[peer_ip]['state'],
+                    'peerState': peers[peer_ip]['peerState']
+                }
+
+            return res
+        except Exception as e:
+            self.log.error(f"get_bgp_summary_json(): {str(e)}")
+            raise e
