@@ -333,6 +333,7 @@ def start_router(params=None):
         }
         cmd_list.append(cmd)
 
+
     # Once VPP started, apply configuration to it.
     cmd = {}
     cmd['cmd'] = {}

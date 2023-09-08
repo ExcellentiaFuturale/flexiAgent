@@ -77,6 +77,7 @@ class FwRouterCfg(FwCfgDatabase):
                 'add-application',
                 'add-multilink-policy',
                 'add-firewall-policy',
+                'add-lan-nat-policy',
                 'add-ospf',
                 'add-qos-traffic-map',
                 'add-qos-policy',
@@ -104,6 +105,7 @@ class FwRouterCfg(FwCfgDatabase):
             'add-application':      "============ APPLICATIONS ============",
             'add-multilink-policy': "============= POLICIES =============",
             'add-firewall-policy':  "============= FIREWALL POLICY =============",
+            'add-lan-nat-policy':   "============= LAN NAT POLICY =============",
             'add-ospf':             "============= OSPF =============",
             'add-vxlan-config':     "============= VXLAN CONFIG =============",
             'add-routing-bgp':      "============= ROUTING BGP =============",
@@ -203,6 +205,11 @@ class FwRouterCfg(FwCfgDatabase):
     def get_qos_policy(self):
         if 'add-qos-policy' in self:
             return self['add-qos-policy']['params']
+        return None
+
+    def get_lan_nat_policy(self):
+        if 'add-lan-nat-policy' in self:
+            return self['add-lan-nat-policy']['params']
         return None
 
     def get_sync_list(self, requests):

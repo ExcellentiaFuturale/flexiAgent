@@ -473,8 +473,7 @@ class FwCfgRequestHandler(FwObject):
         #
         if type(params)==list:
             for p in params:
-                if type(p)==list or\
-                (type(p)==dict and not 'substs' in p):  # Escape 'substs' element
+                if type(p)==list or type(p)==dict:
                     self.substitute(cache, p)
         elif type(params)==dict:
             for item in list(params.items()):
