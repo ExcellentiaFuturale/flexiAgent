@@ -3209,7 +3209,8 @@ def frr_add_remove_interface_routes_if_needed(is_add, routing, dev_id):
 
 # A list of allowed outputs from vtysh that should not fail the job
 allowed_vtysh_outputs = [
-    'For this router-id change to take effect, save config and restart ospfd\n'
+    'For this router-id change to take effect, save config and restart ospfd\n',
+    'For this router-id change to take effect, use "clear ip ospf process" command\n'
 ]
 def frr_vtysh_run(commands, restart_frr=False, wait_after=None, on_error_commands=[]):
     '''Run vtysh command to configure router
