@@ -3492,7 +3492,7 @@ def disable_ipv6():
     #
     ret_disable_all     = os.system('sysctl -w net.ipv6.conf.all.disable_ipv6=1 > /dev/null')
     ret_disable_default = os.system('sysctl -w net.ipv6.conf.default.disable_ipv6=1 > /dev/null')
-    ret_apply           = os.system('sysctl -p')  # load changes
+    ret_apply           = os.system('sysctl -p > /dev/null')  # load changes
 
     if ret_disable_all or ret_disable_default or ret_apply:
         fwglobals.log.error(f"Failed to disable IPv6: all={ret_disable_all} default={ret_disable_default} apply={ret_apply}")
