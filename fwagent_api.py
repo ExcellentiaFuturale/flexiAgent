@@ -452,9 +452,7 @@ class FWAGENT_API(FwObject):
             return {'ok': 1, 'message': { }}
 
         try:
-            cmd = 'vtysh -c "show bgp summary json"'
-            frr_json_output = subprocess.check_output(cmd, shell=True).decode().strip()
-            data = json.loads(frr_json_output)
-            return {'ok': 1, 'message': data.get('ipv4Unicast', {}) }
+            data = fwglobals.g.router_api.frr.get_bgp_summary_json()
+            return {'ok': 1, 'message': data }
         except Exception as e:
             return {'ok': 0, 'message': str(e) }
