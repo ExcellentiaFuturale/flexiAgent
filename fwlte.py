@@ -1474,6 +1474,7 @@ class FwModem(FwLinuxModem):
 
 class FwModemManager(FwObject):
     def __init__(self, scan=False):
+        FwObject.__init__(self)
         self.modems = {}
         if scan:
             self.scan()
@@ -1490,10 +1491,10 @@ class FwModemManager(FwObject):
         self.scan()
         if restore_lte_configuration: # IMPORTANT: restore after scan() !
             fwglobals.g.system_api.restore_configuration(types=['add-lte'])
-        super().initialize
+        super().initialize()
 
     def finalize(self):
-        super().finalize
+        super().finalize()
 
     def scan(self):
         self.modems = {}
