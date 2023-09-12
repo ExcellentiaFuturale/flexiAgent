@@ -77,19 +77,6 @@ def add_dhcp_config(params):
     }
     cmd_list.append(cmd)
 
-    cmd = {}
-    cmd['cmd'] = {}
-    cmd['cmd']['func']   = "os_system"
-    cmd['cmd']['module'] = "fwutils"
-    cmd['cmd']['params'] = { 'cmd': 'systemctl restart isc-dhcp-server', 'log_prefix': '_restart_dhcp_server' }
-    cmd['cmd']['descr'] = "restart dhcp service"
-    cmd['revert'] = {}
-    cmd['revert']['func']   = "os_system"
-    cmd['revert']['module'] = "fwutils"
-    cmd['revert']['params'] = { 'cmd': 'systemctl restart isc-dhcp-server', 'log_prefix': '_restart_dhcp_server' }
-    cmd['revert']['descr'] = "restart dhcp service"
-    cmd_list.append(cmd)
-
     return cmd_list
 
 
