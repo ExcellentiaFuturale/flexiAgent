@@ -293,7 +293,7 @@ class FwCfgRequestHandler(FwObject):
                 self.log.debug("=== failed execution of %s ===" % (req))
                 if fwglobals.g.router_api.state_is_starting_stopping() and \
                    self.fwdump_counter_on_start_router==0:
-                    fwutils.fwdump(normal_dump=True, full_dump=True)  # Create both dumps, as full dump can be too heavy to be downloaded from device
+                    fwutils.fwdump()
                     self.fwdump_counter_on_start_router += 1
                 # On failure go back to the begining of list and revert executed commands.
                 self._revert(cmd_list, idx)
