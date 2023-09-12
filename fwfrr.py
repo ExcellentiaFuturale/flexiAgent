@@ -391,6 +391,9 @@ class FwFrr(FwObject):
             #   }
             # }
             output_json = json.loads(frr_json_output).get('ipv4Unicast', {})
+            if not output_json:
+                return {}
+
             res = {
                 'routerId': output_json.get('routerId'),
                 'as': output_json.get('as'),
@@ -400,7 +403,7 @@ class FwFrr(FwObject):
                 'peers': {}
             }
 
-            peers = output_json.get('peers')
+            peers = output_json.get('peers', [])
             for peer_ip in peers:
                 res['peers'][peer_ip] = {
                     'remoteAs': peers[peer_ip]['remoteAs'],
