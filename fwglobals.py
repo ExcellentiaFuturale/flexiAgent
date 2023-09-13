@@ -150,7 +150,9 @@ request_handlers = {
     'modify-vxlan-config':          {'name': '_call_router_api', 'sign': True},
     'add-vrrp-group':               {'name': '_call_router_api', 'sign': True},
     'remove-vrrp-group':            {'name': '_call_router_api', 'sign': True},
-    
+    'add-lan-nat-policy':           {'name': '_call_router_api', 'sign': True},
+    'remove-lan-nat-policy':        {'name': '_call_router_api', 'sign': True},
+
     # System API
     'add-lte':                      {'name': '_call_system_api', 'sign': True},
     'remove-lte':                   {'name': '_call_system_api', 'sign': True},
@@ -321,6 +323,8 @@ class Fwglobals(FwObject):
         self.FRR_OSPF_ROUTE_MAP = 'fw-redist-ospf-rm'
         self.FRR_BGP_ACL       = 'fw-redist-bgp-acl'
         self.FRR_BGP_ROUTE_MAP = 'fw-redist-bgp-rm'
+        self.FRR_LAN_NAT_ROUTE_ACL = "fw-redist-lan-nat-acl"
+        self.FRR_LAN_NAT_ROUTE_MAP = "fw-redist-lan-nat-rm"
         self.DHCPD_CONFIG_FILE   = '/etc/dhcp/dhcpd.conf'
         self.DHCPD_CONFIG_FILE_BACKUP = '/etc/dhcp/dhcpd.conf.fworig'
         self.ISC_DHCP_CONFIG_FILE = '/etc/default/isc-dhcp-server'

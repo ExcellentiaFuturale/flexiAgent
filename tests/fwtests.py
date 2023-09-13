@@ -68,6 +68,7 @@ class TestFwagent:
         daemon_pid = fwagent_daemon_pid()
         if daemon_pid:
             os.system('kill -9 %s' % daemon_pid)                # Ensure daemon by previous failed test does not run
+        # JD Comment for VPP run
         if vpp_does_run():
             os.system('%s --quiet' % self.fwkill_py)            # The kill shot - ensure vpp does not run
         os.system('%s reset --soft --quiet --pppoe' % self.fwagent_py)  # Clean fwagent files like persistent configuration database
