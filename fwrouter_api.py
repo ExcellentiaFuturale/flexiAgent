@@ -928,6 +928,9 @@ class FWROUTER_API(FwCfgRequestHandler):
             if (_should_restart_on_qos_policy(request)):
                 restart_router  = True
             return _return_val()
+        elif re.match('(add|remove)-dhcp-config', request['message']):
+            restart_dhcp_service  = True
+            return _return_val()
         elif request['message'] != 'aggregated':
             return _return_val()
         else:   # aggregated request
@@ -938,6 +941,8 @@ class FWROUTER_API(FwCfgRequestHandler):
                 if re.match('(add|remove)-qos-policy', _request['message']):
                     if (_should_restart_on_qos_policy(_request)):
                         restart_router  = True
+                elif re.match('(add|remove)-dhcp-config', _request['message']):
+                    restart_dhcp_service  = True
                 elif re.match('(add|remove)-interface', _request['message']):
                     dev_id = _request['params']['dev_id']
                     # Track vlans. If only vlans in add/remove requests do not restart router
