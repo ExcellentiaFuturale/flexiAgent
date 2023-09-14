@@ -296,6 +296,7 @@ class Fwglobals(FwObject):
         self.CONN_FAILURE_FILE   = self.DATA_PATH + '.upgrade_failed'
         self.IKEV2_FOLDER        = self.DATA_PATH + 'ikev2/'
         self.ROUTER_LOG_FILE     = '/var/log/flexiwan/agent.log'
+        self.HUGE_LINE_LOG_FILE  = '/var/log/flexiwan/agent.huge_lines.log'
         self.APPLICATION_IDS_LOG_FILE = '/var/log/flexiwan/application_ids.log'
         self.FIREWALL_LOG_FILE = '/var/log/flexiwan/firewall.log'
         self.AGENT_UI_LOG_FILE   = '/var/log/flexiwan/agentui.log'
@@ -361,6 +362,8 @@ class Fwglobals(FwObject):
 
         # Config limit for QoS scheduler memory usage (limits to 'x' % of configured VPP memory)
         self.QOS_SCHED_MAX_MEMORY_PERCENT = 5
+
+        log.set_huge_line_file(self.HUGE_LINE_LOG_FILE)
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
