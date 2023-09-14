@@ -146,14 +146,21 @@ class Fwlog:
 
 
 class FwLogSyslog(Fwlog):
-    def __init__(self, level=FWLOG_LEVEL_INFO, identification="fwagent"):
+    def __init__(self, level=FWLOG_LEVEL_INFO, identification="fwagent", huge_line_file=None):
         """Constructor method
         """
         Fwlog.__init__(self, level=level, name="syslog(ident=fwagent)")
         syslog.openlog(ident=identification)
 
+        self.huge_line_log = None
+        if huge_line_file:
+            self.set_huge_line_file(huge_line_file)
+
     def __str__(self):
-        return "syslog"
+        return "syslog" if not self.huge_line_log else f"syslog & {str(self.huge_line_log)}"
+
+    def set_huge_line_file(self, huge_line_log_filename):
+        self.huge_line_log = FwLogFile(huge_line_log_filename)
 
     def _log(self, log_message, to_terminal=True, to_syslog=True, truncate_long_line=True):
         """Print log message.
@@ -170,7 +177,7 @@ class FwLogSyslog(Fwlog):
 
         if to_syslog and self.to_syslog_enabled:
 
-            chunk_len = 4096
+            chunk_len = 2048
 
             # Prepend prefix (name of class that produced log line) and truncate the log line to 4K.
             # Note syslog discards lines beyond 8K by default, so take a caution if you modify this code!
@@ -181,8 +188,10 @@ class FwLogSyslog(Fwlog):
                 return
 
             if truncate_long_line:
-                log_message = log_message[0:chunk_len] + ' <truncated>'
-                syslog.syslog(log_message)
+                truncated_message = log_message[0:chunk_len] + ' <truncated>'
+                syslog.syslog(truncated_message)
+                if self.huge_line_log:
+                    self.huge_line_log._log(log_message)
                 return
 
             msgs = [log_message[i:i+chunk_len] for i in range(0, len(log_message), chunk_len)]
