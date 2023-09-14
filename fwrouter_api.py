@@ -163,7 +163,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         if not fw_os_utils.vpp_does_run():      # This 'if' prevents debug print by router_api.initialize() every second
             self.log.debug("watchdog: initiate restore")
 
-            fwutils.fwdump()
+            fwutils.fwdump(filename="vpp_watchdog")
 
             self.state_change(FwRouterState.STOPPED)    # Reset state ASAP, so:
                                                         # 1. Monitoring Threads will suspend activity

@@ -1439,7 +1439,8 @@ if __name__ == '__main__':
                         # Note we don't use circle brackets, e.g. "--api inject_requests(request.json)" to avoid bash confuse
     parser_dump = subparsers.add_parser('dump', help='Dump various system info into x.tar.gz file')
     parser_dump.add_argument('-f', '--file', dest='filename', default=None,
-                        help="The name of the result archive file. Can be full path. The default is 'fwdump_<hostname>_<YYYYMMDD>_<HHMMSS>.tar.gz")
+                        help="The name of the result archive file. \n" +
+                             "The default is 'fwdump', when hostname and timestamp are appended automatically.")
     parser_dump.add_argument('-p', '--path', dest='path', default=os.getcwd(),
                         help="The path to the final name. The default is cwd")
     parser_dump.add_argument('-c', '--clean_log', action='store_true',

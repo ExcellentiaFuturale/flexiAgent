@@ -3655,7 +3655,7 @@ def fwdump(filename=None, path=None, clean_log=False, normal_dump=True, full_dum
         try:
             cmd = 'fwdump --full' if full_dump else 'fwdump'
             if filename:
-                cmd += ' --zip_file ' + filename
+                cmd += ' --name ' + filename
             if not path:
                 path = fwglobals.g.DUMP_FOLDER
             cmd += ' --dest_folder ' + path
