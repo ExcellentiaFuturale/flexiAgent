@@ -325,15 +325,16 @@ class FwDump(FwObject):
                     continue
 
 
-    def zip(self, filename=None, path=None, delete_temp_folder=True):
-        if not filename:
-            filename = f'fwdump_{self.hostname}'
-            if self.full_dump:
-                filename += '_full'
-            filename = fwutils.build_timestamped_filename(filename, '.tar.gz')
+    def zip(self, name, path, add_hostname, add_timestamp):
+        self.zip_file = name
+        if add_hostname:
+            self.zip_file += f'_{self.hostname}'
+        if self.full_dump:
+            self.zip_file += '_full'
+        if add_timestamp:
+            self.zip_file = fwutils.build_timestamped_filename(self.zip_file, '.tar.gz')
         if path:
-            filename = os.path.join(path, filename)
-        self.zip_file = filename
+            self.zip_file = os.path.join(path, self.zip_file)
 
         cmd = 'tar -zcf %s -C %s .' % (self.zip_file, self.temp_folder)
         try:
@@ -436,7 +437,7 @@ def main(args):
             dump.dump_all()
 
         if args.dont_zip == False:
-            dump.zip(filename=args.zip_file, path=args.dest_folder)
+            dump.zip(args.name, args.dest_folder, (not args.no_hostname), (not args.no_timestamp))
             print(dump.prompt + 'done: %s' % dump.zip_file)
         else:
             print(dump.prompt + 'done: %s' % dump.temp_folder)
@@ -459,11 +460,15 @@ if __name__ == '__main__':
                         help="Include all available logs, like archived syslog-s")
     parser.add_argument('-ic', '--include_vpp_core', nargs='?', const=3, type=int, choices=range(1, 4),
                         help="Include VPP coredumps to be part of fwdump")
+    parser.add_argument('-n', '--name', default='fwdump',
+                        help="the name to be used for the final archive file. If not provided, 'fwdump' will be used.")
+    parser.add_argument('-nh', '--no_hostname', default=False,
+                        help="Don't append hostname to the filename of the final archive")
+    parser.add_argument('-nt', '--no_timestamp', default=False,
+                        help="Don't append timestamp to the filename of the final archive")
     parser.add_argument('-q', '--quiet', action='store_true',
                         help="silent mode, overrides existing temporary folder if was provided with --temp_folder")
     parser.add_argument('--temp_folder', default=None,
                         help="folder where to keep not zipped dumped info")
-    parser.add_argument('--zip_file', default=None,
-                        help="filename to be used for the final archive, can be full/relative. If not specified, default name will be used and printed on exit.")
     args = parser.parse_args()
     main(args)
