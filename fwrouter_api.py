@@ -1688,6 +1688,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-vrrp-group',
         ]
         last_msg = None
+        start_dhcp_server = False
         messages = self.cfg_db.dump(types=types)
         for msg in messages:
 
@@ -1697,9 +1698,19 @@ class FWROUTER_API(FwCfgRequestHandler):
                 fwglobals.g.fwagent.reconnect()
             last_msg = msg['message']
 
+            # We start DHCP Server here and not on 'add-dhcp-config' execution
+            # to ensure that it is started only once for all 'add-dhcp-config'-s.
+            # Otherwise, we might hit the 'too many restarts in second' systemd limit.
+            #
+            if msg['message'] == 'add-dhcp-config':
+                start_dhcp_server = True
+
             reply = fwglobals.g.router_api._call_simple(msg)
             if reply.get('ok', 1) == 0:  # Break and return error on failure of any request
                 return reply
+
+        if start_dhcp_server:
+            fwutils.os_system('systemctl start isc-dhcp-server', '_on_apply_router_config')
 
     def sync(self, incoming_requests, full_sync=False):
         self.pending_cfg_db.clean()
