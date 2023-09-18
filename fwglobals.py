@@ -363,7 +363,8 @@ class Fwglobals(FwObject):
         # Config limit for QoS scheduler memory usage (limits to 'x' % of configured VPP memory)
         self.QOS_SCHED_MAX_MEMORY_PERCENT = 5
 
-        log.set_huge_line_file(self.HUGE_LINE_LOG_FILE)
+        if log:
+            log.set_huge_line_file(self.HUGE_LINE_LOG_FILE)
 
         # Load configuration from file
         self.cfg = self.FwConfiguration(self.FWAGENT_CONF_FILE, self.DATA_PATH, log=log)
