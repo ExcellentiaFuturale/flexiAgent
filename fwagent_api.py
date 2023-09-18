@@ -445,12 +445,6 @@ class FWAGENT_API(FwObject):
 
         :returns: Dictionary with BGP Status.
         """
-        if not fwglobals.g.router_api.state_is_started():
-            return {'ok': 1, 'message': { }}
-
-        if not fwglobals.g.router_cfg.get_bgp():
-            return {'ok': 1, 'message': { }}
-
         try:
             data = fwglobals.g.router_api.frr.get_bgp_summary_json()
             return {'ok': 1, 'message': data }
