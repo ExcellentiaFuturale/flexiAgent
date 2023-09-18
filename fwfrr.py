@@ -25,6 +25,7 @@ import subprocess
 
 from sqlitedict import SqliteDict
 
+import fwglobals
 import fwutils
 from fwobject import FwObject
 
@@ -347,6 +348,12 @@ class FwFrr(FwObject):
 
     def get_bgp_summary_json(self):
         try:
+            if not fwglobals.g.router_api.state_is_started():
+                return {}
+
+            if not fwglobals.g.router_cfg.get_bgp():
+                return {}
+
             cmd = 'vtysh -c "show bgp summary json"'
             frr_json_output = subprocess.check_output(cmd, shell=True).decode().strip()
             # {
