@@ -34,13 +34,12 @@ import fwthread
 
 from fwobject import FwObject
 
-class FwPppoeConnection(FwObject):
+class FwPppoeConnection():
     """The object that represents PPPoE connection.
     It manages connection config files inside /etc/ppp/peers/ folder.
     Also it initiates PPPoE connections using pon/poff scripts.
     """
     def __init__(self, id, dev_id, path, filename):
-        FwObject.__init__(self)
         self.id = id
         self.path = path
         self.filename = filename + '-' + str(id)
@@ -88,7 +87,7 @@ class FwPppoeConnection(FwObject):
                     file.write('usepeerdns' + os.linesep)
 
         except Exception as e:
-            self.log.error("save: %s" % str(e))
+            fwglobals.log.error("FwPppoeConnection: save: %s" % str(e))
 
     def scan_and_connect_if_needed(self, connect_if_needed):
         """Check Linux interfaces if PPPoE tunnel (pppX) is created.
@@ -167,7 +166,7 @@ class FwPppoeConnection(FwObject):
             time.sleep(1)
 
         if timeout == 0:
-            self.log.error(f'pppoe close: timeout on waiting pppd to stop')
+            fwglobals.log.error(f'FwPppoeConnection: pppoe close: timeout on waiting pppd to stop')
             return
 
         self.addr = ''
@@ -181,7 +180,7 @@ class FwPppoeConnection(FwObject):
                 os.remove(self.path + self.filename)
 
         except Exception as e:
-            self.log.error("remove: %s" % str(e))
+            fwglobals.log.error("FwPppoeConnection: remove: %s" % str(e))
 
     def setup_tun_if_params(self):
         """Setup TUN interface params
@@ -191,7 +190,7 @@ class FwPppoeConnection(FwObject):
 
         self.tun_vppsb_if_name = fwutils.vpp_if_name_to_tap(self.tun_vpp_if_name)
         if not self.tun_vppsb_if_name:
-            self.log.error("setup_tun_if_params: tun_vppsb_if_name is empty")
+            fwglobals.log.error("FwPppoeConnection: setup_tun_if_params: tun_vppsb_if_name is empty")
             return False
 
         fwglobals.g.cache.dev_id_to_vpp_if_name[self.dev_id] = self.tun_vpp_if_name
@@ -240,7 +239,7 @@ class FwPppoeConnection(FwObject):
         else:
             success, err_str = fwroutes.add_remove_route('0.0.0.0/0', self.gw, self.metric, False, self.dev_id, 'static', self.ppp_if_name, False)
             if not success:
-                self.log.error(f"add_linux_ip_route: failed to add route: {err_str}")
+                fwglobals.log.error(f"FwPppoeConnection: add_linux_ip_route: failed to add route: {err_str}")
 
     def remove_linux_ip_route(self, addr):
         """Remove ip address from TUN interface.
@@ -255,7 +254,7 @@ class FwPppoeConnection(FwObject):
 
         success, err_str = fwroutes.add_remove_route('0.0.0.0/0', None, None, True, self.dev_id, 'static', self.tun_vppsb_if_name, False)
         if not success:
-            self.log.error(f"remove_linux_ip_route: failed to remove route: {err_str}")
+            fwglobals.log.error(f"FwPppoeConnection: remove_linux_ip_route: failed to remove route: {err_str}")
 
         sys_cmd = f'ip addr del {addr} dev {self.tun_vppsb_if_name}'
         fwutils.os_system(sys_cmd, 'PPPoE remove_linux_ip_route')
