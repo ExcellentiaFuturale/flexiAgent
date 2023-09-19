@@ -29,6 +29,7 @@ import signal
 
 import fwagent
 
+from fwstats import UPDATE_LIST_MAX_SIZE
 from fwobject import FwObject
 
 class LoadSimulator(FwObject):
@@ -173,7 +174,7 @@ class LoadSimulator(FwObject):
 
         # Add the update to the list of updates. If the list is full,
         # remove the oldest update before pushing the new one
-        if len(fwstats.updates_list) is fwstats.UPDATE_LIST_MAX_SIZE:
+        if len(fwstats.updates_list) is UPDATE_LIST_MAX_SIZE:
             fwstats.updates_list.pop(0)
 
         fwstats.updates_list.append({
