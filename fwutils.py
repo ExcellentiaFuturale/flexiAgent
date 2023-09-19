@@ -3057,7 +3057,7 @@ def get_interface_link_state(if_name, dev_id, device_type=None):
     # Check if interface is managed by vpp (vppctl).
     vpp_if_name = tap_to_vpp_if_name(if_name)
     if vpp_if_name:
-        return vpp_get_interface_status(dev_id=dev_id).get('link')
+        return vpp_get_interface_status(dev_id=dev_id).get('link') or ''
 
     return _return_ethtool_value(if_name)
 
