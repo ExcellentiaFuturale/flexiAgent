@@ -374,9 +374,12 @@ class FwDump(FwObject):
                 }
 
             # collect modem manager info
-            fwutils.exec_to_file(f'mmcli --list-modems -J', f'{self.temp_folder}/mmcli_list_modems.json')
+            fwutils.exec_to_file(f'mmcli --list-modems -J 2>/dev/null', f'{self.temp_folder}/mmcli_list_modems.json')
             with open(f'{self.temp_folder}/mmcli_list_modems.json', 'r') as f:
-                output = json.loads(f.read())
+                content = f.read()
+                if not content: # file can be empty if no modems exist in the machine
+                    return
+                output = json.loads(content)
                 for modem_path in output.get('modem-list', []):
                     mm_modem_num = modem_path.split('/')[-1]
                     fwutils.exec_to_file(f'mmcli -m {mm_modem_num} -J', f'{self.temp_folder}/mmcli_{mm_modem_num}.json')
