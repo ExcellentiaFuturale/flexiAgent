@@ -100,6 +100,8 @@ fwrouter_translators = {
 
     'add-vrrp-group':           {'module': __import__('fwtranslate_add_vrrp_group'), 'api':'add_vrrp_group'},
     'remove-vrrp-group':        {'module': __import__('fwtranslate_revert'),   'api':'revert'},
+    'add-lan-nat-policy':       {'module': __import__('fwtranslate_add_lan_nat_policy'), 'api':'add_lan_nat_policy'},
+    'remove-lan-nat-policy':    {'module': __import__('fwtranslate_revert'),   'api':'revert'},
 }
 
 class FwRouterState(enum.Enum):
@@ -716,6 +718,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 (req == 'add-application' or
                 req == 'add-multilink-policy' or
                 req == 'add-firewall-policy' or
+                req == 'add-lan-nat-policy' or
                 req == 'add-qos-traffic-map' or
                 (req == 'add-qos-policy' or req == 'remove-qos-policy')):
                 self.cfg_db.update(request)
@@ -1067,6 +1070,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         firewall_policy_params  = self.cfg_db.get_firewall_policy()
         qos_policy_params       = self.cfg_db.get_qos_policy()
         qos_traffic_map_params  = self.cfg_db.get_qos_traffic_map()
+        lan_nat_policy          = self.cfg_db.get_lan_nat_policy()
 
         # 'add-application'/'remove-application' preprocessing:
         # 1. The multilink/firewall/etc policy should be re-installed:
@@ -1107,6 +1111,8 @@ class FWROUTER_API(FwCfgRequestHandler):
             return _single_message_add_corresponding_remove(req, qos_policy_params, params)
         if qos_traffic_map_params and req == 'add-qos-traffic-map':
             return _single_message_add_corresponding_remove(req, qos_traffic_map_params, params)
+        if lan_nat_policy and req == 'add-lan-nat-policy':
+            return _single_message_add_corresponding_remove(req, lan_nat_policy, params)
 
         return request
 
@@ -1163,7 +1169,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         add_order = [
             'add-ospf', 'add-routing-filter', 'add-routing-bgp', 'add-switch',
             'add-interface', 'add-vrrp-group', 'add-vxlan-config', 'add-tunnel', 'add-route', 'add-dhcp-config',
-            'add-application', 'add-multilink-policy', 'add-firewall-policy',
+            'add-application', 'add-multilink-policy', 'add-firewall-policy', 'add-lan-nat-policy',
             'add-qos-traffic-map', 'add-qos-policy'
         ]
         remove_order = [ re.sub('add-','remove-', name) for name in add_order ]
@@ -1247,6 +1253,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                 'remove_policy_found' : False,
                 'params': self.cfg_db.get_firewall_policy()
                 },
+            'lan-nat': {
+                'add_policy_found' :    False,
+                'remove_policy_found' : False,
+                'params': self.cfg_db.get_lan_nat_policy()
+                },
         }
 
         # Find out if policies should be reinstalled.
@@ -1264,6 +1275,10 @@ class FWROUTER_API(FwCfgRequestHandler):
                 policies['firewall']['add_policy_found'] = True
             elif req_name == 'remove-firewall-policy':
                 policies['firewall']['remove_policy_found'] = True
+            elif req_name == 'add-lan-nat-policy':
+                policies['lan-nat']['add_policy_found'] = True
+            elif req_name == 'remove-lan-nat-policy':
+                policies['lan-nat']['remove_policy_found'] = True
 
         if not reinstall:
             return False   # False -> request was not modified
@@ -1326,6 +1341,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                 'found':                False,
                 'remove_request_found': False,
                 'params':               self.cfg_db.get_qos_policy()
+            },
+            'add-lan-nat-policy': {
+                'found':                False,
+                'remove_request_found': False,
+                'params':               self.cfg_db.get_lan_nat_policy()
             },
         }
         for _request in requests:
@@ -1681,6 +1701,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             'add-application',
             'add-multilink-policy',
             'add-firewall-policy',
+            'add-lan-nat-policy',
             'add-qos-traffic-map',
             'add-qos-policy',
             'add-route',            # Routes should come after tunnels and after BGP, as they might use them!
@@ -1805,4 +1826,3 @@ def preprocess_reorder_sub_interfaces(requests):
             requests[parent_index], requests[sub_index] = requests[sub_index], requests[parent_index]
 
     return requests
-

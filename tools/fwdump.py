@@ -240,6 +240,7 @@ g_dumpers = {
     'vpp_qos_interface_stats':      { 'shell_cmd': 'vppctl show dpdk hqos queue > <dumper_out_file>' },
     'vpp_qos_egress_map':           { 'shell_cmd': 'vppctl show qos egress map > <dumper_out_file>' },
     'vpp_qos_egress_mark':          { 'shell_cmd': 'vppctl show qos mark > <dumper_out_file>' },
+    'vpp_lan_nat44_1to1_actions':   { 'shell_cmd': 'vppctl show nat44 1to1 acl-actions > <dumper_out_file>' },
 }
 
 class FwDump(FwObject):
