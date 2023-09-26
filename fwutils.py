@@ -1737,7 +1737,7 @@ def reset_router_api_db(enforce=False):
 
     if not 'sa_id' in fwglobals.g.db['router_api'] or enforce:
         router_api_db['sa_id'] = 0
-    if not 'bridges' in fwglobals.g.db['router_api'] or enforce:
+    if not 'switch_bridges' in fwglobals.g.db['router_api'] or enforce:
         #
         # Bridge domain id in VPP is up to 24 bits (see #define L2_BD_ID_MAX ((1<<24)-1))
         # In addition, we use bridge domain id as id for loopback BVI interface set on this bridge.
@@ -1750,7 +1750,12 @@ def reset_router_api_db(enforce=False):
         # hence step of '2' in the range.
         #
         min_id, max_id = fwglobals.g.LOOPBACK_ID_SWITCHES
-        router_api_db['bridges'] = {
+        router_api_db['switch_bridges'] = {
+            'vacant_ids': list(range(min_id, max_id, 2))
+        }
+    if not 'tunnel_bridges' in fwglobals.g.db['router_api'] or enforce:
+        min_id, max_id = fwglobals.g.LOOPBACK_ID_TUNNELS
+        router_api_db['tunnel_bridges'] = {
             'vacant_ids': list(range(min_id, max_id, 2))
         }
     if not 'sw_if_index_to_vpp_if_name' in router_api_db or enforce:
@@ -4391,3 +4396,52 @@ def normalize_for_json_dumps(input_value):
         return input_value
 
     return new if normilized else input_value
+
+def release_bridge_id(object_id, type=None):
+    router_api_db = fwglobals.g.db['router_api']
+    bridges_db = router_api_db[type]
+
+    bridge_id = get_bridge_id(object_id, type)
+    if not bridge_id:
+        return (True, None)
+    del bridges_db[object_id]
+    bridges_db['vacant_ids'].append(bridge_id)
+    bridges_db['vacant_ids'].sort()
+
+    # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
+    fwglobals.g.db['router_api'] = router_api_db
+
+def get_bridge_id(object_id, type=None):
+    router_api_db = fwglobals.g.db['router_api']
+    bridges_db = router_api_db[type]
+    return bridges_db.get(object_id)
+
+def allocate_bridge_id(object_id, type=None, result_cache=None):
+    """Get bridge identifier.
+
+    :returns: A bridge identifier.
+    """
+    router_api_db = fwglobals.g.db['router_api']
+    bridges_db = router_api_db[type]
+
+    # Check if bridge id already created for this address
+    bridge_id = get_bridge_id(object_id, type)
+
+    # Allocate new id
+    if not bridge_id:
+        if bridges_db['vacant_ids']:
+            bridge_id = bridges_db['vacant_ids'].pop(0)
+        else:
+            raise Exception(f'Failed to allocate bridge id. vacant_ids is empty')
+
+    # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
+    router_api_db[type][object_id] = bridge_id
+    fwglobals.g.db['router_api'] = router_api_db
+
+    # Store 'bridge_id' in cache if provided by caller.
+    #
+    if result_cache and result_cache['result_attr'] == 'bridge_id':
+        result_cache['cache']['bridge_id_0'] = bridge_id
+        result_cache['cache']['bridge_id_1'] = bridge_id+1
+
+    return (bridge_id, None)

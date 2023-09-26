@@ -22,55 +22,6 @@
 
 import fwglobals
 
-def release_bridge_id(addr):
-    router_api_db = fwglobals.g.db['router_api']
-    bridges_db = router_api_db['bridges']
-
-    bridge_id = bridges_db.get(addr)
-    if not bridge_id:
-        return (True, None)
-    del bridges_db[addr]
-
-    bridges_db['vacant_ids'].append(bridge_id)
-    bridges_db['vacant_ids'].sort()
-
-    # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
-    fwglobals.g.db['router_api'] = router_api_db
-
-def get_bridge_id(addr):
-    router_api_db = fwglobals.g.db['router_api']
-    bridges_db = router_api_db['bridges']
-    return bridges_db.get(addr)
-
-def allocate_bridge_id(addr, result_cache=None):
-    """Get bridge identifier.
-
-    :returns: A bridge identifier.
-    """
-    router_api_db = fwglobals.g.db['router_api']
-    bridges_db = router_api_db['bridges']
-
-    # Check if bridge id already created for this address
-    bridge_id = get_bridge_id(addr)
-
-    # Allocate new id
-    if not bridge_id:
-        if not 'vacant_ids' in bridges_db:
-            return (None, "Failed to allocate bridge id. vacant_ids is empty")
-        bridge_id = bridges_db['vacant_ids'].pop(0)
-
-    # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
-    router_api_db['bridges'][addr] = bridge_id
-    fwglobals.g.db['router_api'] = router_api_db
-
-    # Store 'bridge_id' in cache if provided by caller.
-    #
-    if result_cache and result_cache['result_attr'] == 'bridge_id':
-        key = result_cache['key']
-        result_cache['cache'][key] = bridge_id
-
-    return (bridge_id, None)
-
 def add_switch(params):
     """Generate commands to add a VPP l2 bridge with bvi interface.
 
@@ -83,22 +34,22 @@ def add_switch(params):
     addr = params['addr']
 
     bridge_ret_attr = 'bridge_id'
-    bridge_cache_key = 'bridge_id_%s' % addr
+    bridge_cache_key = 'bridge_id_0'
     loopback_ret_attr = 'sw_if_index'
     loopback_cache_key = 'loop_bridge_%s' % addr
 
     cmd = {}
     cmd['cmd'] = {}
     cmd['cmd']['func']      = "allocate_bridge_id"
-    cmd['cmd']['module']    = "fwtranslate_add_switch"
+    cmd['cmd']['module']    = "fwutils"
     cmd['cmd']['descr']     = "get bridge id for address %s" % addr
     cmd['cmd']['cache_ret_val'] = (bridge_ret_attr, bridge_cache_key)
-    cmd['cmd']['params']    = { 'addr': addr }
+    cmd['cmd']['params']    = { 'object_id': addr, 'type': 'switch_bridges' }
     cmd['revert'] = {}
     cmd['revert']['func']   = "release_bridge_id"
-    cmd['revert']['module'] = "fwtranslate_add_switch"
+    cmd['revert']['module'] = "fwutils"
     cmd['revert']['descr']  = "remove bridge id for address %s" % addr
-    cmd['revert']['params'] = { 'addr': addr }
+    cmd['revert']['params'] = { 'object_id': addr, 'type': 'switch_bridges' }
     cmd_list.append(cmd)
 
     cmd = {}
