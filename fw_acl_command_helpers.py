@@ -29,8 +29,8 @@ import fwglobals
 import fwutils
 
 
-def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
-                 is_ingress, add_last_deny_ace):
+def add_acl_rule(acl_id, source, destination, permit, is_ingress,
+                 add_last_deny_ace, acl_user_attr=None):
     """ Function that encapsulates call to generation of ACL command and its params
 
     :param id: String identifier representing the ACL
@@ -38,6 +38,8 @@ def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
     :param destination: json/dict message repersenting the destination
     :param action: json/dict message repersenting the action
     :param is_ingress: Boolean representing is ingress or not
+    :param add_last_deny_ace: Flag to indicate if a last deny rule to be auto added
+    :param acl_user_attr: User attributes to be attached to this rule
     :return: Dict representing the command. None can be returned if the given
              traffic tags based match does not have a valid match in the app/traffic ID DB
     """
@@ -70,7 +72,7 @@ def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
         return ip_with_prefix, port_from, port_to, protocols_map if protocols_map else None
 
 
-    def build_vpp_acl_params(source_match, dest_match, permit, service_class, importance, is_ingress):
+    def build_vpp_acl_params(source_match, dest_match, permit,  is_ingress, acl_user_attr):
 
         rules = []
         src_ip_with_prefix, src_port_from, src_port_to, src_proto =\
@@ -109,8 +111,7 @@ def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
                               'srcport_or_icmptype_last': sport_to,
                               'dstport_or_icmpcode_first': dport_from,
                               'dstport_or_icmpcode_last': dport_to,
-                              'service_class': service_class,
-                              'importance': importance})
+                              'acl_user_attr': acl_user_attr})
             else:
                 rules.append({'is_permit': int(permit is True),
                               'is_ipv6': 0,
@@ -121,8 +122,7 @@ def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
                               'srcport_or_icmptype_last': dport_to,
                               'dstport_or_icmpcode_first': sport_from,
                               'dstport_or_icmpcode_last': sport_to,
-                              'service_class': service_class,
-                              'importance': importance})
+                              'acl_user_attr': acl_user_attr})
         return rules
 
 
@@ -139,8 +139,7 @@ def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
         return 1
 
 
-    def generate_acl_params(source, destination, permit,
-                            rule_service_class, rule_importance, is_ingress):
+    def generate_acl_params(source, destination, permit, is_ingress, acl_user_attr):
 
         acl_rules = []
         dest_matches = []
@@ -187,8 +186,7 @@ def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
             for source_match in source_matches:
                 if is_match_unique(source_match, source_match_prev):
                     rules = build_vpp_acl_params(
-                        source_match, dest_match, permit,
-                        rule_service_class, rule_importance, is_ingress)
+                        source_match, dest_match, permit, is_ingress, acl_user_attr)
                     acl_rules.extend(rules)
                     source_match_prev = source_match
 
@@ -230,7 +228,8 @@ def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
     cmd = {}
 
     acl_rules, tags_based = generate_acl_params\
-                            (source, destination, permit, service_class, importance, is_ingress)
+                            (source, destination, permit, is_ingress, acl_user_attr)
+
     if not acl_rules:
         fwglobals.log.warning('Generated ACL rule is empty. ' +
             'Check if traffic tags has a valid match.' +
@@ -246,7 +245,7 @@ def add_acl_rule(acl_id, source, destination, permit, service_class, importance,
         # Append acl definition with a deny entry - Block all other sources
         if add_last_deny_ace:
             last_acl, __  = generate_acl_params\
-                            (None, destination, False, service_class, importance, is_ingress)
+                            (None, destination, False, is_ingress, acl_user_attr)
             if last_acl:
                 acl_rules.extend(last_acl)
             else:
@@ -385,3 +384,31 @@ def add_acl_rules_interfaces(is_add, dev_ids, ingress_acl_ids=[], egress_acl_ids
 
     for sw_if_index in sw_if_indexes:
         vpp_add_acl_rules(is_add, sw_if_index, ingress_acl_ids, egress_acl_ids)
+
+
+def build_acl_user_attributes (user_value, service_class=0, importance=0):
+    """
+    Build user attributes structure that can be attached to ACL rule.
+    The attributes can be used to encode additional user values to be associated with this rule.
+
+    :param user_value: User value to be attached to the rule
+    :type user_value: Integer
+    :param service_class: Service class attribute to be attached to the rule, defaults to 0
+    :type service_class: int, optional
+    :param importance: Importance attribute to be attached to the rule, defaults to 0
+    :type importance: int, optional
+    :return: user attribute structure that can be passed to the VPP add acl API
+    :rtype: dict
+    """
+    if user_value:
+        acl_user_attr = {
+            'user_value': user_value
+        }
+    else:
+        acl_user_attr = {
+            'attributes': {
+                'service_class': service_class,
+                'importance': importance
+            }
+        }
+    return acl_user_attr

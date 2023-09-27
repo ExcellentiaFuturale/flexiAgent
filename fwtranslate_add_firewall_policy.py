@@ -112,7 +112,7 @@ def add_firewall_policy(params):
                         rule_type, rule_index)
                     dest_rule_params = convert_dest_to_acl_rule_params(destination)
                     cmd_list.append(fw_acl_command_helpers.add_acl_rule(
-                        ingress_id, source, dest_rule_params, True, 0, 0, True, True))
+                        ingress_id, source, dest_rule_params, True, True, True))
 
                 if rule_type == InboundNatType.IDENTITY_MAPPING:
                     cmd_list.extend(fw_nat_command_helpers.translate_get_nat_identity_config(
@@ -191,11 +191,11 @@ def add_firewall_policy(params):
             ingress_id = 'fw_lan_ingress_rule_%d' % rule_index
 
             cmd1 = fw_acl_command_helpers.add_acl_rule(ingress_id, source, destination,
-                    permit, 0, 0, True, False)
+                    permit, True, False)
             if cmd1:
                 egress_id = 'fw_lan_egress_rule_%d' % rule_index
                 cmd2 = fw_acl_command_helpers.add_acl_rule(egress_id, source, destination,
-                        permit, 0, 0, False, False)
+                        permit, False, False)
 
             if cmd1 and cmd2:
                 cmd_list.append(cmd1)
@@ -257,7 +257,7 @@ def add_firewall_policy(params):
     # Add default Allow all ACLs
     # Traffic with no static/identity mapping shall get dropped by NAT lookup failure
     cmd_list.append(fw_acl_command_helpers.add_acl_rule(DEFAULT_ALLOW_ID,
-                                                        None, None, True, 0, 0, True, False))
+                                                        None, None, True, True, False))
 
     outbound_rules = copy.deepcopy(params.get('outbound'))
     if outbound_rules:

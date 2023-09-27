@@ -92,12 +92,13 @@ def _add_traffic_identification_acl(traffic, acl_key_list, cmd_list):
     destination = {}
     destination['ipProtoPort'] = traffic['rules']
     rule_id1 = 'fw_app_rule_%s' % (traffic_id)
+    acl_user_attr = fw_acl_command_helpers.build_acl_user_attributes (0, service_class, importance)
     cmd1 = fw_acl_command_helpers.add_acl_rule\
-               (rule_id1, None, destination, True, service_class, importance, False, False)
+               (rule_id1, None, destination, True, False, False, acl_user_attr)
     if cmd1:
         rule_id2 = 'fw_app_rule_%s_reverse' % (traffic_id)
         cmd2 = fw_acl_command_helpers.add_acl_rule\
-                    (rule_id2, None, destination, True, service_class, importance, True, False)
+                    (rule_id2, None, destination, True, True, False, acl_user_attr)
     if cmd1 and cmd2:
         cmd_list.append(cmd1)
         cmd_list.append(cmd2)

@@ -3343,7 +3343,10 @@ def frr_setup_config():
     frr_commands.extend([
         f"route-map {fwglobals.g.FRR_OSPF_ROUTE_MAP} permit 1",
         f"match ip address {fwglobals.g.FRR_OSPF_ACL}",
-        "router ospf", f"redistribute kernel route-map {fwglobals.g.FRR_OSPF_ROUTE_MAP}"
+        f"route-map {fwglobals.g.FRR_LAN_NAT_ROUTE_MAP} permit 1",
+        f"match ip address {fwglobals.g.FRR_LAN_NAT_ROUTE_ACL}",
+        "router ospf", f"redistribute kernel route-map {fwglobals.g.FRR_OSPF_ROUTE_MAP}",
+        f"redistribute static route-map {fwglobals.g.FRR_LAN_NAT_ROUTE_MAP}"
     ])
     frr_vtysh_run(frr_commands)
 

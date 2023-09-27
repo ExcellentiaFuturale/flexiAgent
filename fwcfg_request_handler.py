@@ -393,7 +393,10 @@ class FwCfgRequestHandler(FwObject):
                 rev_cmd = t['revert']
                 self.log.debug(f"_revert: {self._dump_translation_cmd_params(rev_cmd)}")
                 try:
-                    err_str = self._execute_translation_command(rev_cmd)
+                    execute_result = None if not 'cache_ret_val' in rev_cmd else \
+                        { 'result_attr' : rev_cmd['cache_ret_val'][0] ,
+                         'cache' : self.cmd_cache , 'key' :  rev_cmd['cache_ret_val'][1] }
+                    err_str = self._execute_translation_command(rev_cmd, execute_result)
                     if err_str:
                         self.log.error(f"_revert('{rev_cmd['func']}') failed")
                         raise Exception(err_str)
@@ -472,8 +475,7 @@ class FwCfgRequestHandler(FwObject):
         #
         if type(params)==list:
             for p in params:
-                if type(p)==list or\
-                (type(p)==dict and not 'substs' in p):  # Escape 'substs' element
+                if type(p)==list or type(p)==dict:
                     self.substitute(cache, p)
         elif type(params)==dict:
             for item in list(params.items()):

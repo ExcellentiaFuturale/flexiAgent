@@ -158,6 +158,7 @@ def add_routing_bgp(params):
     vtysh_commands += [
         'address-family ipv4 unicast',
         f"redistribute kernel route-map {fwglobals.g.FRR_BGP_ROUTE_MAP}",
+        f"redistribute static route-map {fwglobals.g.FRR_LAN_NAT_ROUTE_MAP}",
         'redistribute ospf' if redistribute_ospf else None,
     ]
 

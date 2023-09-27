@@ -26,6 +26,7 @@ import ctypes
 import fwglobals
 import fwutils
 from fw_traffic_identification import TRAFFIC_IMPORTANCE_VALUES, TRAFFIC_SERVICE_CLASS_VALUES
+import fw_acl_command_helpers
 
 # add-multilink-policy
 # --------------------------------------
@@ -203,6 +204,7 @@ def _traffic_to_acl_rules(rules):
         serviceClass = TRAFFIC_SERVICE_CLASS_VALUES.get(traffic_rule.get('serviceClass', 'default'))
         importance = TRAFFIC_IMPORTANCE_VALUES.get(traffic_rule.get('importance', 'low'))
 
+        acl_user_attr = fw_acl_command_helpers.build_acl_user_attributes (0, serviceClass, importance)
         for p in proto:
             acl_rules.append({
                 'is_permit': 1, 'is_ipv6': 0, 'proto': p,
@@ -212,8 +214,7 @@ def _traffic_to_acl_rules(rules):
                 'dstport_or_icmpcode_first': port_from,
                 'dstport_or_icmpcode_last': port_to,
                 'dst_prefix': ip_prefix,
-                'service_class': serviceClass,
-                'importance': importance
+                'acl_user_attr': acl_user_attr,
             })
             acl_rules.append({
                 'is_permit': 1, 'is_ipv6': 0, 'proto': p,
@@ -223,8 +224,7 @@ def _traffic_to_acl_rules(rules):
                 'dstport_or_icmpcode_first': 0,
                 'dstport_or_icmpcode_last': 65535,
                 'dst_prefix': '0.0.0.0/0',
-                'service_class': serviceClass,
-                'importance': importance
+                'acl_user_attr': acl_user_attr,
             })
     return acl_rules
 

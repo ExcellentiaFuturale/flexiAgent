@@ -1,0 +1,49 @@
+[
+    {
+        "message": "add-lan-nat-policy",
+        "params": {
+            "nat44-1to1": [
+                {
+                    "source" :{
+                        "match" : "10.0.0.0/24",
+                        "action": "172.16.11.0/24",
+                        "interface": "__INTERFACE_2__dev_id"
+                    },
+                    "destination" :{
+                        "match" : "200.8.8.1/32",
+                        "action": "10.128.0.1/32"
+                    }
+                },
+                {
+                    "source" :{
+                        "match" : "10.0.0.0/24",
+                        "action": "172.16.11.0/24",
+                        "interface": "__INTERFACE_2__dev_id"
+                    }
+                },
+                {
+                    "source" :{
+                        "match" : "10.0.0.0/24",
+                        "action": "172.16.11.0/24",
+                        "interface": "__INTERFACE_2__dev_id"
+                    },
+                    "destination" :{
+                        "match" : "200.4.4.0/24",
+                        "action": "10.128.0.0/24"
+                    }
+                }
+            ]
+        }
+    },
+    {
+        "entity": "agent",
+        "message": "start-router",
+        "params": {
+            "interfaces": [
+                "__INTERFACE_1__",
+                "__INTERFACE_2__",
+                "__INTERFACE_3__"
+            ]
+        }
+    }
+]
