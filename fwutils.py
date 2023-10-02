@@ -1161,7 +1161,7 @@ def bridge_addr_to_bvi_sw_if_index(bridge_addr):
         return None
 
     # check if interface indeed in a bridge
-    bd_id = fwtranslate_add_switch.get_bridge_id(bridge_addr)
+    bd_id = get_bridge_id(bridge_addr)
     if not bd_id:
         fwglobals.log.error('bridge_addr_to_bvi_tap: failed to fetch bridge id for address: %s' % str(bridge_addr))
         return None

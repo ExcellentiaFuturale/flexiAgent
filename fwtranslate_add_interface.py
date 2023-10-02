@@ -443,7 +443,7 @@ def add_interface(params):
                 'port_type':0,
                 'substs':   [
                     { 'add_param':'rx_sw_if_index', 'val_by_func':'dev_id_to_vpp_sw_if_index', 'arg':dev_id },
-                    { 'add_param':'bd_id', 'val_by_func': 'fwtranslate_add_switch.get_bridge_id', 'arg': bridge_addr }
+                    { 'add_param':'bd_id', 'val_by_func': 'fwutils.get_bridge_id', 'arg': bridge_addr }
                 ]
             },
         }
@@ -457,7 +457,7 @@ def add_interface(params):
                 'enable': 0,
                 'substs': [
                     { 'add_param':'rx_sw_if_index', 'val_by_func': 'dev_id_to_vpp_sw_if_index', 'arg':dev_id },
-                    { 'add_param':'bd_id', 'val_by_func': 'fwtranslate_add_switch.get_bridge_id', 'arg': bridge_addr }
+                    { 'add_param':'bd_id', 'val_by_func': 'fwutils.get_bridge_id', 'arg': bridge_addr }
                 ]
             },
         }
