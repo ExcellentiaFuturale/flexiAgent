@@ -1724,6 +1724,12 @@ class FWROUTER_API(FwCfgRequestHandler):
         messages = self.cfg_db.dump(types=types)
         for idx, msg in enumerate(messages):
 
+            # reconnect as soon as interfaces are initialized
+            #
+            if last_msg == 'add-interface' and msg['message'] != 'add-interface':
+                fwglobals.g.fwagent.reconnect()
+            last_msg = msg['message']
+
             # We start DHCP Server here and not on 'add-dhcp-config' execution
             # to ensure that it is started only once for all 'add-dhcp-config'-s.
             # Otherwise, we might hit the 'too many restarts in second' systemd limit.
@@ -1735,12 +1741,11 @@ class FWROUTER_API(FwCfgRequestHandler):
             if reply.get('ok', 1) == 0:  # Break and return error on failure of any request
                 return reply
 
-            # Reconnect as soon as interfaces are initialized.
-            # 'idx' check takes a care of the edge case, where self.cfg_db has add-interface-s only.
+            # reconnect if we have no more requests after the last 'add-interface',
+            # as in this case the reconnect() above will be not called.
             #
-            if last_msg == 'add-interface' and (msg['message'] != 'add-interface' or idx == len(messages)-1):
+            if msg['message'] == 'add-interface' and idx == len(messages)-1:
                 fwglobals.g.fwagent.reconnect()
-            last_msg = msg['message']
 
         if start_dhcp_server:
             fwutils.os_system('systemctl start isc-dhcp-server', '_on_apply_router_config')
