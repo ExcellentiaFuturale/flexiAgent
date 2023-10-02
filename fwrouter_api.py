@@ -1722,7 +1722,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         last_msg = None
         start_dhcp_server = False
         messages = self.cfg_db.dump(types=types)
-        for msg in messages:
+        for idx, msg in enumerate(messages):
 
             # reconnect as soon as interfaces are initialized
             #
@@ -1740,6 +1740,12 @@ class FWROUTER_API(FwCfgRequestHandler):
             reply = fwglobals.g.router_api._call_simple(msg)
             if reply.get('ok', 1) == 0:  # Break and return error on failure of any request
                 return reply
+
+            # reconnect if we have no more requests after the last 'add-interface',
+            # as in this case the reconnect() above will be not called.
+            #
+            if msg['message'] == 'add-interface' and idx == len(messages)-1:
+                fwglobals.g.fwagent.reconnect()
 
         if start_dhcp_server:
             fwutils.os_system('systemctl start isc-dhcp-server', '_on_apply_router_config')
