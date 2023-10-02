@@ -1254,7 +1254,8 @@ def tunnel_to_vpp_if_name(params):
                    It is 'params' field of the 'add-tunnel' request.
     :returns: name of the tunnel loopback interface in vpp.
     """
-    vpp_if_name = 'loop%d' % (params['tunnel-id']*2)
+    bridge_id = get_bridge_id(object_id=params['tunnel-id'], type='tunnel_bridges')
+    vpp_if_name = f'loop{bridge_id}'
     return vpp_if_name
 
 def peer_tunnel_to_vpp_if_name(params):
