@@ -1722,13 +1722,7 @@ class FWROUTER_API(FwCfgRequestHandler):
         last_msg = None
         start_dhcp_server = False
         messages = self.cfg_db.dump(types=types)
-        for msg in messages:
-
-            # reconnect as soon as interfaces are initialized
-            #
-            if last_msg == 'add-interface' and msg['message'] != 'add-interface':
-                fwglobals.g.fwagent.reconnect()
-            last_msg = msg['message']
+        for idx, msg in enumerate(messages):
 
             # We start DHCP Server here and not on 'add-dhcp-config' execution
             # to ensure that it is started only once for all 'add-dhcp-config'-s.
@@ -1740,6 +1734,13 @@ class FWROUTER_API(FwCfgRequestHandler):
             reply = fwglobals.g.router_api._call_simple(msg)
             if reply.get('ok', 1) == 0:  # Break and return error on failure of any request
                 return reply
+
+            # Reconnect as soon as interfaces are initialized.
+            # 'idx' check takes a care of the edge case, where self.cfg_db has add-interface-s only.
+            #
+            if last_msg == 'add-interface' and (msg['message'] != 'add-interface' or idx == len(messages)-1):
+                fwglobals.g.fwagent.reconnect()
+            last_msg = msg['message']
 
         if start_dhcp_server:
             fwutils.os_system('systemctl start isc-dhcp-server', '_on_apply_router_config')
