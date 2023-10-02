@@ -634,7 +634,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             #    In this case we have to ping the GW-s after modification.
             #    See explanations on that workaround later in this function.
             #
-            (restart_router, gateways, restart_dhcp_service) = self._analyze_request(request)
+            (restart_router, gateways, restart_dhcp_service, reconnect_agent) = self._analyze_request(request)
 
             # Some requests require preprocessing.
             # For example before handling 'add-application' the currently configured
@@ -652,7 +652,6 @@ class FWROUTER_API(FwCfgRequestHandler):
 
             # Finally handle the request
             #
-
             reply = FwCfgRequestHandler.call(self, request, dont_revert_on_failure)
 
             # Start vpp if it should be restarted
@@ -660,8 +659,9 @@ class FWROUTER_API(FwCfgRequestHandler):
             if restart_router:
                 fwglobals.g.router_api._call_simple({'message':'start-router'})
 
-            # Restart DHCP service if needed
-            #
+            if reconnect_agent:
+                fwglobals.g.fwagent.reconnect()
+
             if restart_dhcp_service:
                 if not restart_router: # on router restart DHCP service is restarted as well
                     cmd = 'systemctl restart isc-dhcp-server'
@@ -916,11 +916,11 @@ class FWROUTER_API(FwCfgRequestHandler):
                     return True
             return False
 
-        (restart_router, gateways, restart_dhcp_service) = \
-        (False,          [],       False,              )
+        restart_router, gateways, restart_dhcp_service, reconnect_agent = \
+        False,          [],       False,                False
 
         def _return_val():
-            return (restart_router, gateways, restart_dhcp_service)
+            return (restart_router, gateways, restart_dhcp_service, reconnect_agent)
 
         if re.match('(add|remove)-interface', request['message']):
             if self.state_is_started():
@@ -976,6 +976,17 @@ class FWROUTER_API(FwCfgRequestHandler):
                     restart_router = True
             if modify_requests and self.state_is_started():
                 restart_dhcp_service = True
+
+                # If 'modify-interface' for default route was received, the NAT session for the WebSocket connection
+                # might be removed from VPP during execution of the simulated 'remove-interface'.
+                # As a result, the connection packets will be dropped by VPP and connection will be stuck.
+                # To recover out of this situation, we just reconnect agent once the request was handled.
+                #
+                default_route = fwroutes.get_default_route()
+                for dev_id in modify_requests.keys():
+                    if dev_id == default_route.dev_id:
+                        reconnect_agent = True
+                        break
             return _return_val()
 
     def _preprocess_request(self, request):
