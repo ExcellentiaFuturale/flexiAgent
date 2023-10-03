@@ -57,6 +57,7 @@ class VPP_API_CLIENT(VPPApiClient):
         VPPApiClient.__init__(self, apifiles=self.jsonfiles, use_socket=False, read_timeout=30, loglevel='WARNING')
         self.logger.addHandler(SysLogHandler(address='/dev/log'))
         self.lock = threading.RLock()
+        self.log = log
 
 #        vpp_methods = []
 #        for method_name in dir(self):
@@ -91,14 +92,20 @@ class VPP_API_CLIENT(VPPApiClient):
             assert api_func, 'vpp_api: api=%s not found' % (api_name)
 
             rv = api_func(**kwargs)
-            if isinstance(rv, type) == False:  # If returned value is built-in type
+            retval = None
+            try:
+                # 'retval' is the attribute returned by the VPP API to indicate success or error
+                # Note: VPP Dump APIs do not return this attribute
+                retval = getattr(rv, 'retval')
+            except:
+                if api_name.endswith("_dump"):
+                    retval = 0
+            if retval is None or retval != 0:
+                self.log.error('VPP API call failed rv=%s: API: %s)' % (retval, api_name))
+                return None
+            else:
                 return rv
-            else:                              # If returned value is object that represents VPP API reply
-                if rv.retval == 0:
-                    return rv
-                else:
-                    self.log.error('rv=%s: %s(%s)' % (rv.retval, api_name, str(**kwargs)))
-                    return None
+
 
     def connect(self, name):
         with self.lock:
