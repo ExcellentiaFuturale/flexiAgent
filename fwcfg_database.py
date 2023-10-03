@@ -68,9 +68,11 @@ class FwCfgDatabase(FwSqliteDict):
         params  = request.get('params')
 
         # add-/remove-/modify-X requests use key function defined for 'add-X'.
-        # start-router & stop-router break add-/remove-/modify- convention.
+        # start-router & stop-router & set-cpu-info break add-/remove-/modify- convention.
         if req=='start-router' or req=='stop-router':
             src_req = 'start-router'
+        elif req=='set-cpu-info':
+            src_req = 'set-cpu-info'
         else:
             src_req = re.sub(r'^\w+', 'add', req)
 

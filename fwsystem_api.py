@@ -37,7 +37,8 @@ fwsystem_translators = {
     'add-lte':                          {'module': __import__('fwtranslate_add_lte'),    'api':'add_lte'},
     'remove-lte':                       {'module': __import__('fwtranslate_revert'),    'api':'revert'},
     'add-notifications-config':         {'module': __import__('fwtranslate_add_notifications_config'),  'api':'add_notifications_config'},
-    'remove-notifications-config':      {'module':  __import__('fwtranslate_revert'),  'api':'revert'}
+    'remove-notifications-config':      {'module': __import__('fwtranslate_revert'),  'api':'revert'},
+    'set-cpu-info':                     {'module': __import__('fwtranslate_set_cpu_info'),  'api':'set_cpu_info'},
 }
 
 class FWSYSTEM_API(FwCfgRequestHandler):

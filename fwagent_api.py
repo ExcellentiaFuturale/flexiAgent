@@ -60,7 +60,6 @@ fwagent_api = {
     'sync-device':                   '_sync_device',
     'upgrade-device-sw':             '_upgrade_device_sw',
     'upgrade-linux-sw':              '_upgrade_linux_sw',
-    'set-cpu-info':                  '_set_cpu_info',
     'get-bgp-status':                '_get_bgp_status',
 }
 
@@ -139,30 +138,6 @@ class FWAGENT_API(FwObject):
         tunnel_ids  = params.get('tunnels') if params else None
         device_info = fwglobals.g.statistics.get_device_info(job_ids=job_ids, tunnel_ids=tunnel_ids)
         return {'message': device_info, 'ok': 1}
-
-    def _set_cpu_info(self, params):
-        """Get device information.
-
-        :param params: Parameters from flexiManage.
-
-        :returns: Dictionary with information and status code.
-        """
-        try:
-            vpp_cores = params.get('vppCores')
-            power_saving = params.get('powerSaving')
-            with fwsystem_checker_common.Checker() as checker:
-                update_vpp, update_grub = checker.set_cpu_info(vpp_cores, power_saving)
-                reply = {'ok': 1, 'message': {'cpuInfo' : checker.get_cpu_info()} }
-                if update_grub:
-                    self.log.info("_set_cpu_info: Rebooting the system for changes to take effect.")
-                    os.system('sudo reboot')
-                elif update_vpp and fwglobals.g.router_api.state_is_started():
-                    self.log.info("_set_cpu_info: Restart the router to apply changes in VPP configuration.")
-                    fwglobals.g.handle_request({'message':'stop-router'})
-                    fwglobals.g.handle_request({'message': 'start-router'})
-        except Exception as e:
-            reply = {'ok': 0, 'message': str(e) }
-        return reply
 
     def _get_device_stats(self, params):
         """Get device and interface statistics.

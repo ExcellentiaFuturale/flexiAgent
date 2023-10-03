@@ -107,7 +107,6 @@ request_handlers = {
     'reset-lte':                         {'name': '_call_agent_api'},
     'modify-lte-pin':                    {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
     'get-device-certificate':            {'name': '_call_agent_api'},
-    'set-cpu-info':                      {'name': '_call_agent_api'},
     'get-bgp-status':                    {'name': '_call_agent_api', 'processing': {'synchronous': True, 'exclusive': False}},
 
     # Aggregated API
@@ -158,6 +157,7 @@ request_handlers = {
     'remove-lte':                   {'name': '_call_system_api', 'sign': True},
     'add-notifications-config':     {'name': '_call_system_api', 'sign': True},
     'remove-notifications-config':  {'name': '_call_system_api', 'sign': True},
+    'set-cpu-info':                 {'name': '_call_system_api', 'sign': True},
 
     # Applications api
     'add-app-install':             {'name': '_call_applications_api', 'sign': True},

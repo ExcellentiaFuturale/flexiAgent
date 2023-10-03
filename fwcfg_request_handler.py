@@ -616,6 +616,9 @@ class FwCfgRequestHandler(FwObject):
             elif re.match('start-router', req) and fw_os_utils.vpp_does_run():
                 # start-router & stop-router break add-/remove-/modify- convention.
                 return True
+            elif re.match('set-cpu-info', req) and self.cfg_db.exists(__request):
+                # set-cpu-info break add-/remove-/modify- convention.
+                return True
             elif re.match('modify-', req):
                 # For modification request check if it goes to modify indeed.
                 # The check ignores the 'ignored_params' that might be defined

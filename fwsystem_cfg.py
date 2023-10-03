@@ -38,6 +38,28 @@ class FwSystemCfg(FwCfgDatabase):
     :param db_file: SQLite DB file name.
     """
 
+    def update(self, request, cmd_list=None, executed=False):
+        # The `set-cpu-info` does not conform `add-X`, `remove-X`, `modify-X` format
+        # handled by the superclass update(), so we handle it here.
+        # All the rest are handled by FwCfgDatabase.update().
+        #
+
+        req     = request['message']
+        req_key = None
+        try:
+            if re.match('set-cpu-info', req):
+                params  = request.get('params')
+                req_key = self._get_request_key(request)
+                self[req_key] = { 'request' : req , 'params' : params , 'cmd_list' : cmd_list , 'executed' : executed }
+            else:
+                FwCfgDatabase.update(self, request, cmd_list, executed)
+        except KeyError:
+            pass
+        except Exception as e:
+            self.log.error("update(%s) failed: %s, %s" % \
+                        (req_key, str(e), str(traceback.format_exc())))
+            raise Exception('failed to update request database')
+
     def dump(self, types=None, escape=None, full=False, keys=False):
         """Dumps system configuration into list of requests.
         """
@@ -45,7 +67,8 @@ class FwSystemCfg(FwCfgDatabase):
         if not types:
             types = [
                 'add-lte',
-                'add-notifications-config'
+                'add-notifications-config',
+                'set-cpu-info',
             ]
 
         return FwCfgDatabase.dump(self, types, escape, full, keys)
@@ -62,6 +85,7 @@ class FwSystemCfg(FwCfgDatabase):
                                     #
             'add-lte':                          "======= LTE =======",
             'add-notifications-config':         "======= NOTIFICATIONS CONFIG =======",
+            'set-cpu-info':                     "======= SET CPU INFO =======",
         }
 
         cfg = self.dump(types=types, escape=escape, full=full, keys=True)
