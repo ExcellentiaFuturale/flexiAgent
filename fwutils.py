@@ -1161,7 +1161,7 @@ def bridge_addr_to_bvi_sw_if_index(bridge_addr):
         return None
 
     # check if interface indeed in a bridge
-    bd_id = get_bridge_id(bridge_addr)
+    bd_id = get_bridge_id(bridge_addr, 'switch_bridges')
     if not bd_id:
         fwglobals.log.error('bridge_addr_to_bvi_tap: failed to fetch bridge id for address: %s' % str(bridge_addr))
         return None
@@ -4401,7 +4401,7 @@ def normalize_for_json_dumps(input_value):
 
     return new if normilized else input_value
 
-def release_bridge_id(object_id, type=None):
+def release_bridge_id(object_id, type):
     router_api_db = fwglobals.g.db['router_api']
     bridges_db = router_api_db[type]
 
@@ -4415,12 +4415,12 @@ def release_bridge_id(object_id, type=None):
     # SqlDict can't handle in-memory modifications, so we have to replace whole top level dict
     fwglobals.g.db['router_api'] = router_api_db
 
-def get_bridge_id(object_id, type=None):
+def get_bridge_id(object_id, type):
     router_api_db = fwglobals.g.db['router_api']
     bridges_db = router_api_db[type]
     return bridges_db.get(object_id)
 
-def allocate_bridge_id(object_id, type=None, result_cache=None):
+def allocate_bridge_id(object_id, type, result_cache=None):
     """Get bridge identifier.
 
     :returns: A bridge identifier.
@@ -4448,4 +4448,4 @@ def allocate_bridge_id(object_id, type=None, result_cache=None):
         result_cache['cache']['bridge_id_0'] = bridge_id
         result_cache['cache']['bridge_id_1'] = bridge_id+1
 
-    return (bridge_id, None)
+    return bridge_id
