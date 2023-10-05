@@ -232,6 +232,7 @@ g_dumpers = {
     'vpp_nat44_interface_address':  { 'shell_cmd': 'vppctl show nat44 interface address > <dumper_out_file>' },
     'vpp_nat44_static_mappings':    { 'shell_cmd': 'vppctl show nat44 static mappings > <dumper_out_file>' },
     'vpp_nat44_sessions':           { 'shell_cmd': 'vppctl show nat44 sessions > <dumper_out_file>' },
+    'vpp_nat44_1to1_actions':       { 'shell_cmd': 'vppctl show nat44 1to1 acl-actions > <dumper_out_file>' },
     'vpp_nat44_summary':            { 'shell_cmd': 'vppctl show nat44 summary > <dumper_out_file>' },
     'vpp_tap_inject':               { 'shell_cmd': 'vppctl show tap-inject > <dumper_out_file>' },
     'vpp_vrrp_vr':                  { 'shell_cmd': 'vppctl sh vrrp vr > <dumper_out_file>' },
@@ -240,7 +241,6 @@ g_dumpers = {
     'vpp_qos_interface_stats':      { 'shell_cmd': 'vppctl show dpdk hqos queue > <dumper_out_file>' },
     'vpp_qos_egress_map':           { 'shell_cmd': 'vppctl show qos egress map > <dumper_out_file>' },
     'vpp_qos_egress_mark':          { 'shell_cmd': 'vppctl show qos mark > <dumper_out_file>' },
-    'vpp_lan_nat44_1to1_actions':   { 'shell_cmd': 'vppctl show nat44 1to1 acl-actions > <dumper_out_file>' },
 }
 
 class FwDump(FwObject):

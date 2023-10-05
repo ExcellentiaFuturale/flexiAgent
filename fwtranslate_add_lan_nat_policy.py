@@ -26,6 +26,7 @@ import copy
 import fwutils
 import fwglobals
 import fw_acl_command_helpers
+import fwroutes
 
 # -----------------
 # Feature overview:
@@ -390,8 +391,9 @@ def add_lan_nat_policy(params):
             acl_cmd = "access-list %s permit %s" % \
                 (fwglobals.g.FRR_LAN_NAT_ROUTE_ACL , src_nat_prefix)
             revert_acl_cmd = "no " + acl_cmd
-            route_cmd = "ip route %s Null0" % src_nat_prefix
-            revert_route_cmd = "no ip route %s Null0" % src_nat_prefix
+            # This route added via frr is reflected in linux routing table with rtproto value of 196
+            route_cmd = "ip route %s %s" % (src_nat_prefix, fwroutes.FRR_NULL_INTERFACE)
+            revert_route_cmd = "no " + route_cmd
             frr_cmd_list.extend([acl_cmd, route_cmd])
             rev_frr_cmd_list.extend([revert_acl_cmd, revert_route_cmd])
 

@@ -56,7 +56,10 @@ routes_protocol_map = {
     188: 'ospf',
     189: 'rip',
     192: 'eigrp',
+    196: 'zstatic', #RTPROT_ZSTATIC - Null0 route added via FRR-Zebra for LAN SNAT address
 }
+
+FRR_NULL_INTERFACE = 'Null0' #Interface name specified in FRR command to add a Null route
 
 routes_protocol_id_map = { y:x for x, y in routes_protocol_map.items() }
 
@@ -300,7 +303,9 @@ class FwLinuxRoutes(dict):
                 if prefix and addr != prefix:
                     continue
 
-                if not nexthops:
+                if rt_proto == 'zstatic':
+                    nexthops.append(FwRouteNextHop(None, FRR_NULL_INTERFACE))
+                elif not nexthops:
                     nexthops.append(FwRouteNextHop(None,dev))
 
                 for nexthop in nexthops:

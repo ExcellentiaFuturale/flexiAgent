@@ -135,7 +135,8 @@ class FwWanMonitor(FwObject):
             # Filter out routes on tunnel interfaces.
             # Tunnels use loopback interfaces that has no physical device, so dev_id should be None.
             #
-            if not route.dev_id:
+            # Skip Null interface routes
+            if not route.dev_id or route.dev_id == fwroutes.FRR_NULL_INTERFACE:
                 continue
 
             route = FwWanMonitorRoute(route)
