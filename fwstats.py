@@ -367,12 +367,12 @@ class FwStatistics(FwObject):
             with fwglobals.g.handle_request_lock:
                 info['network'] = {}
                 info['network']['interfaces'] = list(fwutils.get_linux_interfaces(cached=False).values())
-                info['reconfig']              = '' if fwglobals.g.loadsimulator else fwutils.get_reconfig_hash()
+                previous_reconfig             = self.device_info.get('reconfig')
+                info['reconfig']              = '' if fwglobals.g.loadsimulator else fwutils.get_reconfig_hash(previous_reconfig)
                 info['ikev2']                 = fwglobals.g.ikev2.get_certificate_expiration()
                 info['cpuInfo']               = fwsystem_checker_common.Checker().get_cpu_info()
 
             self.device_info = info
-            self.log.debug("device info refreshed")
 
 
         info = copy.deepcopy(self.device_info)
