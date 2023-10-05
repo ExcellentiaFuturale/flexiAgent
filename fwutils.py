@@ -573,7 +573,6 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
                 return copy.deepcopy(interfaces.get(if_dev_id))
             return copy.deepcopy(interfaces)
 
-        fwglobals.log.debug("get_linux_interfaces: Start to build Linux interfaces cache")
         interfaces.clear()
 
         linux_inf = psutil.net_if_addrs()
@@ -705,7 +704,6 @@ def get_linux_interfaces(cached=True, if_dev_id=None):
 
             interfaces[dev_id] = interface
 
-        fwglobals.log.debug("get_linux_interfaces: Finished to build Linux interfaces cache")
         if if_dev_id:
             return copy.deepcopy(interfaces.get(if_dev_id))
         return copy.deepcopy(interfaces)
@@ -3564,7 +3562,7 @@ def remove_linux_default_route(dev):
         fwglobals.log.error(str(e))
         return (False, str(e))
 
-def get_reconfig_hash():
+def get_reconfig_hash(prev_hash_val=None):
     """ This function creates a string that holds all the information added to the reconfig
     data, and then create a hash string from it.
 
@@ -3607,7 +3605,8 @@ def get_reconfig_hash():
         res += 'link:'  + link + ','
 
     hash = hashlib.md5(res.encode()).hexdigest()
-    fwglobals.log.debug("get_reconfig_hash: %s: %s" % (hash, res))
+    if hash != prev_hash_val:  # log only if changed or if prev_hash_val was not provided
+        fwglobals.log.debug("get_reconfig_hash: %s: %s" % (hash, res))
     return hash
 
 def vpp_wan_tap_inject_configure(dev_id, remove):
