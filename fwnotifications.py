@@ -79,8 +79,8 @@ class FwNotifications:
         tunnels = fwglobals.g.router_api.cfg_db.get_tunnels()
         tunnel_dict = {tunnel['tunnel-id']: tunnel for tunnel in tunnels}
         for tunnel_id in tunnel_stats:
-            tunnel_statistics = tunnel_stats[tunnel_id]
-            tunnel_notifications = tunnel_dict[tunnel_id].get('notificationsSettings', {})
+            tunnel_statistics = tunnel_stats.get(tunnel_id)
+            tunnel_notifications = tunnel_dict.get(tunnel_id).get('notificationsSettings', {})
             for tunnel_rule in tunnel_rules:
                 # Determine the event settings for this tunnel, either using specific settings
                 # or falling back to the general organization's settings
