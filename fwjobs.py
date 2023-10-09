@@ -206,7 +206,7 @@ class FwJobs(FwObject):
 
             entry['state'] = state
             if error:
-                entry['errors'].append(fwutils.normalize_for_json_dumps(error))
+                entry['errors'].append(error)
             self.db[job_id] = entry # The underneath sqldict does not support in-memory modification, so replace whole element
             return
         except Exception as e:
@@ -241,7 +241,7 @@ class FwJobs(FwObject):
 
     def dumps(self):
         """Dumps stored jobs into printable string."""
-        return json.dumps(self.dump(), indent=2, sort_keys=True)
+        return json.dumps(self.dump(), indent=2, sort_keys=True, cls=fwutils.FwJsonEncoder)
 
     def update_job_error(self, error, job_id=None):
         """Updates job error.
@@ -263,7 +263,7 @@ class FwJobs(FwObject):
             return
 
         if error:
-            entry['errors'].append(fwutils.normalize_for_json_dumps(error))
+            entry['errors'].append(error)
             self.db[job_id] = entry # The underneath sqldict does not support in-memory modification, so replace whole element
             return
         self.log.warning(f"(update_job_error), job {job_id}, error is empty, nothing to update")
