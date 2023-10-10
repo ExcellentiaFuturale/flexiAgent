@@ -19,6 +19,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 ################################################################################
+import fwglobals
 
 def revert(request, db):
     """Generate list of commands for the 'remove-X' type of requests.
@@ -50,4 +51,7 @@ def revert(request, db):
             cmd['cmd'] = cmd_src['revert']
             cmd['revert'] = cmd_src['cmd']
             cmd_list.append(cmd)
+    if request.get('message') == 'remove-tunnel':
+        # Remove notifications for the removed tunnel
+        fwglobals.g.notifications.removeDeletedTunnelNotifications(request.get('params').get('tunnel-id'))
     return cmd_list
