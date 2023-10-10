@@ -202,3 +202,9 @@ class FwNotifications:
         # Delete event_type key from alerts if its associated dictionary is empty
         if not self.alerts[event_type]:
             del self.alerts[event_type]
+
+    def removeDeletedTunnelNotifications(self, tunnel_id):
+        # Iterating over a copy of self.alerts.items()
+        for event_type, eventData in list(self.alerts.items()):
+            if tunnel_id in eventData:
+                self._delete_entry(event_type, tunnel_id)
