@@ -3658,6 +3658,8 @@ def fwdump(filename=None, path=None, clean_log=False, normal_dump=True, full_dum
     :param normal_dump: if True, the commonly used info only will be dumped
     :param full_dump:   if True, all available info will be dumpled,
                         including coredump-s and all available logs.
+
+    :returns: generated dump file name
     '''
     def _fwdump(filename=None, path=None, full_dump=False):
         try:
@@ -3681,18 +3683,34 @@ def fwdump(filename=None, path=None, clean_log=False, normal_dump=True, full_dum
             while len(files) > 4:       # 'while' is needed to clean dumps created by earlier versions that used larger limit
                 os.remove(files.pop(0))
 
-            subprocess.check_call(cmd + ' > /dev/null 2>&1', shell=True)
+            result = subprocess.run(cmd, shell=True, capture_output=True)
+            result.check_returncode()
+            if result.returncode != 0:
+                raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
+
+            # Isolate name of the created dump file out of the 'fwdump' print onto screen.
+            # To ensure no change in format of the "fwdump" print we validate it by checking
+            # If the file with retrieved filename exists.
+            # The expected format of 'fwdump' STDOUT is:
+            #     root@ubuntu2004 ~# fwdump --full --name mycooldump --dest_folder /var/log/flexiwan/fwdump
+            #     fwdump>> done: /var/log/flexiwan/fwdump/mycooldump_ubuntu2004.localdomain_full_20231007_172145.tar.gz
+            filename = result.stdout.decode().strip().split(" ")[2]
+            if not os.path.exists(filename):
+                raise Exception(f"{filename} not found on disk (STDOUT of 'fwdump': {result.stdout.decode().strip()}")
+            return filename
 
         except Exception as e:
             fwglobals.log.error("failed to dump: %s" % (str(e)))
 
+    dump_filename = None
     if (normal_dump):
-        _fwdump(filename=filename, path=path, full_dump=False)
+        dump_filename = _fwdump(filename=filename, path=path, full_dump=False)
     if (full_dump):
-        _fwdump(filename=filename, path=path, full_dump=True)
+        dump_filename = _fwdump(filename=filename, path=path, full_dump=True)
     if clean_log:
         os.system("echo '' > %s" % fwglobals.g.ROUTER_LOG_FILE)
         os.system("echo '' > %s" % fwglobals.g.APPLICATION_IDS_LOG_FILE)
+    return dump_filename
 
 
 def linux_check_gateway_exist(gw):

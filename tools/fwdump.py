@@ -444,6 +444,8 @@ def main(args):
 
         if args.dont_zip == False:
             dump.zip(args.name, args.dest_folder, (not args.no_hostname), (not args.no_timestamp))
+            # 'fwutils.fwdump(...)' exploits format of this print to get full name of the archive file.
+            # Take caution while changing it!
             print(dump.prompt + 'done: %s' % dump.zip_file)
         else:
             print(dump.prompt + 'done: %s' % dump.temp_folder)
