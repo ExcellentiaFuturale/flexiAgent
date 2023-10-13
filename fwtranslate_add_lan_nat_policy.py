@@ -190,6 +190,20 @@ def add_lan_nat_policy(params):
         :return: NAT actions (Array), Source NAT prefixes (set) and NAT interfaces (Dict)
         :rtype: Array, Set, Dict
         """
+
+        def is_valid_subnet(subnet_bytes, prefix_len):
+            prefix_addr = int.from_bytes(subnet_bytes, "big")
+            if prefix_len == 0 or prefix_len == 32:
+                prefix_mask = 0xFFFFFFFF
+            elif prefix_len < 32:
+                prefix_mask = (0xFFFFFFFF << (32 - prefix_len))
+            else:
+                return False
+            if (prefix_addr & prefix_mask) == prefix_addr:
+                return True
+            else:
+                return False
+
         nat_actions = []
         src_nat_prefixes = set()
         nat_interfaces = {'dev_ids': {}, 'bvi': {} }
@@ -214,6 +228,15 @@ def add_lan_nat_policy(params):
                 fwutils.ip_str_to_bytes(rule['source']['match'])
             out_nat_action['nat_dst']['len'] = src_prefix_len
 
+            # Validate Source Match / NAT-Action subnets
+            if not (is_valid_subnet (in_nat_action['nat_src']['address'], src_prefix_len)):
+                raise Exception ("Invalid LAN NAT subnet Mask - NAT Source Action %s" %
+                                 rule['source']['action'])
+
+            if not (is_valid_subnet (out_nat_action['nat_dst']['address'], src_prefix_len)):
+                raise Exception ("Invalid LAN NAT subnet Mask - NAT Source Action %s" %
+                                 rule['source']['match'])
+
             # Check if also 1:1 DNAT is configured
             if rule.get('destination'):
                 # In IN direction - Action is to also apply DNAT
@@ -230,6 +253,15 @@ def add_lan_nat_policy(params):
                 out_nat_action['nat_src']['address'], _ =\
                     fwutils.ip_str_to_bytes(rule['destination']['match'])
                 out_nat_action['nat_src']['len'] = dst_prefix_len
+
+                # Validate Destination Match / NAT-Action subnets
+                if not (is_valid_subnet (in_nat_action['nat_dst']['address'], dst_prefix_len)):
+                    raise Exception ("Invalid LAN NAT subnet Mask - NAT Destination Action %s" %
+                                     rule['destination']['action'])
+
+                if not (is_valid_subnet (out_nat_action['nat_src']['address'], dst_prefix_len)):
+                    raise Exception ("Invalid LAN NAT subnet Mask - Destination Match %s" %
+                                     rule['destination']['match'])
 
             # Encode the ACL action field with the index of the NAT action context
             in_action_id = len(nat_actions)
