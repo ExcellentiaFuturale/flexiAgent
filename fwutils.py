@@ -3683,7 +3683,7 @@ def fwdump(filename=None, path=None, clean_log=False, normal_dump=True, full_dum
             while len(files) > 4:       # 'while' is needed to clean dumps created by earlier versions that used larger limit
                 os.remove(files.pop(0))
 
-            result = subprocess.run(cmd, shell=True, capture_output=True)
+            result = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             result.check_returncode()
             if result.returncode != 0:
                 raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
