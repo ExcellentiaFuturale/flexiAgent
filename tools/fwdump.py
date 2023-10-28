@@ -256,10 +256,12 @@ class FwDump(FwObject):
         self.full_dump        = full_dump
         self.include_all_logs = include_all_logs
         self.include_vpp_core = include_vpp_core
+        self.include_agent_etc = False  # include content of /etc/flexiwan/agent/ folder - *.sqlite files, configuration, etc.
 
         if full_dump:
             self.include_all_logs = True
             self.include_vpp_core = True
+            self.include_agent_etc = True
 
         if not temp_folder:
             timestamp = fwutils.build_timestamped_filename('')
@@ -402,6 +404,10 @@ class FwDump(FwObject):
             corefile_dir = self.temp_folder + "/corefiles/"
             os.makedirs(corefile_dir)
             vpp_coredump_copy_cores(corefile_dir, self.include_vpp_core)
+
+        if self.include_agent_etc:
+            os.system(f'mkdir -p {self.temp_folder}/fwagent')
+            os.system(f'cp -r /etc/flexiwan/agent/. {self.temp_folder}/fwagent/ 2>/dev/null')
 
     def dump_multilink(self):
         dumpers = [
