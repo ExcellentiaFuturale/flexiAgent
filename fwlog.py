@@ -177,7 +177,7 @@ class FwLogSyslog(Fwlog):
 
         if to_syslog and self.to_syslog_enabled:
 
-            chunk_len = 2048
+            chunk_len = 4096  # Should be big enough to include `add-tunnel` with certificate for IKEv2 tunnels
 
             # Prepend prefix (name of class that produced log line) and truncate the log line to 4K.
             # Note syslog discards lines beyond 8K by default, so take a caution if you modify this code!
