@@ -77,6 +77,7 @@ g_dumpers = {
                                                    'systemctl status networkd-dispatcher.service > <temp_folder>/linux_autosense/networkd-dispatcher.service.status.txt 2>/dev/null ; ' +
                                                    'cp /var/log/flexiwan/autosense.log <temp_folder>/linux_autosense 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'linux_brctl':                  { 'shell_cmd': 'brctl show > <dumper_out_file>' },
     'linux_cpu':                    { 'shell_cmd': 'cat /proc/cpuinfo > <dumper_out_file>' },
     'linux_dhcpd':                  { 'shell_cmd': 'mkdir -p <temp_folder>/linux_dhcpd/ && ' +
                                                    'cp /etc/dhcp/dhcpd.conf* <temp_folder>/linux_dhcpd 2>/dev/null ; ' +
@@ -157,8 +158,6 @@ g_dumpers = {
     ############################################################################
     # flexiEdge agent stuff - !!! PLEASE KEEP ALPHABET ORDER !!!
     #
-    'brctl_show':                   { 'shell_cmd': 'brctl show > <dumper_out_file>' },
-
     'fwagent_cache':                { 'shell_cmd': 'fwagent show --agent cache > <dumper_out_file>' },
     'fwagent_conf':                 { 'shell_cmd': 'mkdir -p <temp_folder>/fwagent && ' +
                                                    'cp -r /etc/flexiwan/agent/* <temp_folder>/fwagent/ 2>/dev/null' },
