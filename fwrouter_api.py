@@ -492,8 +492,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         # Restore failure state if recorded on disk:
         if os.path.exists(fwglobals.g.ROUTER_STATE_FILE):
             self.state_change(FwRouterState.FAILED, 'recorded failure was restored')
-            self.log.excep("router is in failed state, try to start it from flexiManage \
-                or use 'fwagent reset [--soft]' to recover")
 
         # If vpp runs already, or if management didn't request to start it, return.
         vpp_runs = fw_os_utils.vpp_does_run()
