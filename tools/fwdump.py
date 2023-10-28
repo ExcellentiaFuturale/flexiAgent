@@ -140,19 +140,18 @@ g_dumpers = {
     # FRR stuff - !!! PLEASE KEEP ALPHABET ORDER !!!
     #
     'frr_conf':                     { 'shell_cmd': 'mkdir -p <temp_folder>/frr && cp /etc/frr/* <temp_folder>/frr/ 2>/dev/null' },
-    'frr_bgp_summary':              { 'shell_cmd': f'vtysh -c "show bgp summary" > <temp_folder>/frr_bgp_summary.json 2>/dev/null ;' +
+    'frr_bgp_summary':              { 'shell_cmd': f'vtysh -c "show bgp summary" > <temp_folder>/frr/frr_bgp_summary.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'frr_ip_bgp':                   { 'shell_cmd': f'vtysh -c "show ip bgp" > <temp_folder>/frr_ip_bgp.log 2>/dev/null ;' +
+    'frr_ip_bgp':                   { 'shell_cmd': f'vtysh -c "show ip bgp" > <temp_folder>/frr/frr_ip_bgp.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
-    'frr_ip_route':                 { 'shell_cmd': f'vtysh -c "show ip route json" > <temp_folder>/frr_ip_route.json 2>/dev/null ;' +
+    'frr_ip_route':                 { 'shell_cmd': f'vtysh -c "show ip route json" > <temp_folder>/frr/frr_ip_route.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'frr_log':                      { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
-                                                   f'cp {g.FRR_LOG_FILE} <temp_folder>/log/frr.log 2>/dev/null ;' +
+    'frr_log':                      { 'shell_cmd': f'cp {g.FRR_LOG_FILE} <temp_folder>/frr/frr.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'frr_ospf_neighbors':           { 'shell_cmd': f'vtysh -c "show ip ospf neighbor all json" > <temp_folder>/frr_ip_ospf_neighbors.json 2>/dev/null ;' +
+    'frr_ospf_neighbors':           { 'shell_cmd': f'vtysh -c "show ip ospf neighbor all json" > <temp_folder>/frr/frr_ip_ospf_neighbors.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'frr_ospf_database':            { 'shell_cmd': f'vtysh -c "show ip ospf database" > <temp_folder>/frr_ip_ospf_database.log 2>/dev/null ;' +
+    'frr_ospf_database':            { 'shell_cmd': f'vtysh -c "show ip ospf database" > <temp_folder>/frr/frr_ip_ospf_database.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     ############################################################################
