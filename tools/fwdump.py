@@ -364,6 +364,7 @@ class FwDump(FwObject):
 
     def add_lte_files(self):
         try:
+            dump_output_folder = f'{self.temp_folder}/lte'
             if_names_by_dev_ids = fwlte.get_if_names_by_dev_ids()
             for dev_id in if_names_by_dev_ids:
                 if_name = if_names_by_dev_ids[dev_id]
@@ -371,11 +372,11 @@ class FwDump(FwObject):
                 g_dumpers[file_name] = {
                     'python': {
                         'func': 'fwlte.dump',
-                        'args': { 'lte_if_name': if_name, 'prefix_path': f'{self.temp_folder}/{file_name}' } }
+                        'args': { 'lte_if_name': if_name, 'prefix_path': f'{dump_output_folder}/{file_name}' } }
                 }
 
             # collect modem manager info
-            fwutils.exec_to_file(f'mmcli --list-modems -J 2>/dev/null', f'{self.temp_folder}/mmcli_list_modems.json')
+            fwutils.exec_to_file(f'mmcli --list-modems -J 2>/dev/null', f'{dump_output_folder}/mmcli_list_modems.json')
             with open(f'{self.temp_folder}/mmcli_list_modems.json', 'r') as f:
                 content = f.read()
                 if not content: # file can be empty if no modems exist in the machine
@@ -383,7 +384,7 @@ class FwDump(FwObject):
                 output = json.loads(content)
                 for modem_path in output.get('modem-list', []):
                     mm_modem_num = modem_path.split('/')[-1]
-                    fwutils.exec_to_file(f'mmcli -m {mm_modem_num} -J', f'{self.temp_folder}/mmcli_{mm_modem_num}.json')
+                    fwutils.exec_to_file(f'mmcli -m {mm_modem_num} -J', f'{dump_output_folder}/mmcli_{mm_modem_num}.json')
         except:
             pass # Do not crash in case of LTE code error
 
