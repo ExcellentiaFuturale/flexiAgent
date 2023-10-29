@@ -66,15 +66,24 @@ class FwStunWrap(FwObject):
         self.stun_retry    = 60
         fwstun.set_log(fwglobals.log)
 
-    def _log_address_cache(self):
-        """ prints the content on the local cache
+    def _log_address_cache(self, dev_id=None):
+        """Print the content of the local cache for WAN addresses.
+
+        : param dev_id : (optional) If specified, only print data for the given dev_id.
         """
         if self.stun_cache:
-            for dev_id in self.stun_cache:
-                # print only WAN address
-                if self.stun_cache[dev_id].get('local_ip') != '' and \
-                    self.stun_cache[dev_id].get('gateway') != '':
-                    self.log.debug(dev_id + ':' + str(self.stun_cache[dev_id]))
+            if dev_id:
+                cache_data = self.stun_cache.get(dev_id)
+                if cache_data and cache_data.get('local_ip') and cache_data.get('gateway'):
+                    self.log.debug(f"{dev_id}: {cache_data}")
+            else:
+                for dev_id, cache_data in self.stun_cache.items():
+                    local_ip = cache_data.get('local_ip')
+                    gateway = cache_data.get('gateway')
+                    if local_ip and gateway:
+                        self.log.debug(f"{dev_id}: {cache_data}")
+        else:
+            self.log.debug("Stun_cache is empty")
 
     def initialize(self):
         """ Initialize STUN cache by sending STUN requests on all WAN interfaces before the first
@@ -92,8 +101,6 @@ class FwStunWrap(FwObject):
         fwstun.stun_servers_list = fwstun.STUN_SERVERS_SHORT_LIST  # reduce initialization time by using a few servers
         self._send_stun_requests()
         fwstun.stun_servers_list = fwstun.STUN_SERVERS
-
-        self._log_address_cache()
 
         self.thread_stun = threading.Thread(target=self._stun_thread, name='STUN Thread')
         self.thread_stun.start()
@@ -243,7 +250,9 @@ class FwStunWrap(FwObject):
             # Do not reset info on interface participating in a connected tunnel
             if cached_addr.get('local_ip') in ip_up_set:
                 continue
-            self.initialize_addr(dev_id)
+            # Check if the STUN request was successful before resetting
+            if cached_addr.get('success') == True:
+                self.initialize_addr(dev_id)
 
     def _handle_stun_none_response(self, dev_id):
         """ Handle non response after STUN request was sent.
@@ -277,14 +286,15 @@ class FwStunWrap(FwObject):
             return
 
         self.log.debug(f"found external {p_ip}:{p_port} for {cached_addr['local_ip']}:{self.vxlan_port}")
-        cached_addr['success']     = True
-        cached_addr['send_time']   = 0
+        cached_addr['success']          = True
+        cached_addr['send_time']        = 0
         cached_addr['nat_type']         = nat_type
         cached_addr['public_ip']        = p_ip
         cached_addr['public_port']      = p_port
         cached_addr['server_index']     = st_index
 
         fwutils.set_linux_interfaces_stun(dev_id, p_ip, p_port, nat_type)
+        self._log_address_cache(dev_id)
 
     def _send_stun_requests(self):
         """ Send STUN request for each address that has no public IP and port

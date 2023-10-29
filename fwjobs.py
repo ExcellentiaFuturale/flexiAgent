@@ -230,10 +230,10 @@ class FwJobs(FwObject):
         for job_id in sorted(db_keys):
             job = {
                 'job_id': job_id,
-                'request': self.db[job_id].get('request', ''),
-                'received_at': self.db[job_id].get('received_at', {}),
-                'errors': self.db[job_id].get('errors', []),
-                'state': self.db[job_id].get('state', ''),
+                'request': self.db.get(job_id, {}).get('request', ''),
+                'received_at': self.db.get(job_id, {}).get('received_at', {}),
+                'errors': self.db.get(job_id, {}).get('errors', []),
+                'state': self.db.get(job_id, {}).get('state', ''),
             }
             jobs.append(job)
 
@@ -277,7 +277,7 @@ class FwJobs(FwObject):
         """
         job_ids = []
         for job_id in self.job_ids:
-            if self.db[job_id].get('request', '') in requests:
+            if self.db.get(job_id, {}).get('request', '') in requests:
                 job_ids.append(job_id)
 
         return job_ids

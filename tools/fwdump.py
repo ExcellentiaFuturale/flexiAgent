@@ -77,6 +77,7 @@ g_dumpers = {
                                                    'systemctl status networkd-dispatcher.service > <temp_folder>/linux_autosense/networkd-dispatcher.service.status.txt 2>/dev/null ; ' +
                                                    'cp /var/log/flexiwan/autosense.log <temp_folder>/linux_autosense 2>/dev/null ; ' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
+    'linux_brctl':                  { 'shell_cmd': 'brctl show > <dumper_out_file>' },
     'linux_cpu':                    { 'shell_cmd': 'cat /proc/cpuinfo > <dumper_out_file>' },
     'linux_dhcpd':                  { 'shell_cmd': 'mkdir -p <temp_folder>/linux_dhcpd/ && ' +
                                                    'cp /etc/dhcp/dhcpd.conf* <temp_folder>/linux_dhcpd 2>/dev/null ; ' +
@@ -140,26 +141,23 @@ g_dumpers = {
     # FRR stuff - !!! PLEASE KEEP ALPHABET ORDER !!!
     #
     'frr_conf':                     { 'shell_cmd': 'mkdir -p <temp_folder>/frr && cp /etc/frr/* <temp_folder>/frr/ 2>/dev/null' },
-    'frr_bgp_summary':              { 'shell_cmd': f'vtysh -c "show bgp summary" > <temp_folder>/frr_bgp_summary.json 2>/dev/null ;' +
+    'frr_bgp_summary':              { 'shell_cmd': f'vtysh -c "show bgp summary" > <temp_folder>/frr/frr_bgp_summary.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'frr_ip_bgp':                   { 'shell_cmd': f'vtysh -c "show ip bgp" > <temp_folder>/frr_ip_bgp.log 2>/dev/null ;' +
+    'frr_ip_bgp':                   { 'shell_cmd': f'vtysh -c "show ip bgp" > <temp_folder>/frr/frr_ip_bgp.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
-    'frr_ip_route':                 { 'shell_cmd': f'vtysh -c "show ip route json" > <temp_folder>/frr_ip_route.json 2>/dev/null ;' +
+    'frr_ip_route':                 { 'shell_cmd': f'vtysh -c "show ip route json" > <temp_folder>/frr/frr_ip_route.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'frr_log':                      { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
-                                                   f'cp {g.FRR_LOG_FILE} <temp_folder>/log/frr.log 2>/dev/null ;' +
+    'frr_log':                      { 'shell_cmd': f'cp {g.FRR_LOG_FILE} <temp_folder>/frr/frr.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'frr_ospf_neighbors':           { 'shell_cmd': f'vtysh -c "show ip ospf neighbor all json" > <temp_folder>/frr_ip_ospf_neighbors.json 2>/dev/null ;' +
+    'frr_ospf_neighbors':           { 'shell_cmd': f'vtysh -c "show ip ospf neighbor all json" > <temp_folder>/frr/frr_ip_ospf_neighbors.json 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
-    'frr_ospf_database':            { 'shell_cmd': f'vtysh -c "show ip ospf database" > <temp_folder>/frr_ip_ospf_database.log 2>/dev/null ;' +
+    'frr_ospf_database':            { 'shell_cmd': f'vtysh -c "show ip ospf database" > <temp_folder>/frr/frr_ip_ospf_database.log 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
 
     ############################################################################
     # flexiEdge agent stuff - !!! PLEASE KEEP ALPHABET ORDER !!!
     #
-    'brctl_show':                   { 'shell_cmd': 'brctl show > <dumper_out_file>' },
-
     'fwagent_cache':                { 'shell_cmd': 'fwagent show --agent cache > <dumper_out_file>' },
     'fwagent_conf':                 { 'shell_cmd': 'mkdir -p <temp_folder>/fwagent && ' +
                                                    'cp -r /etc/flexiwan/agent/* <temp_folder>/fwagent/ 2>/dev/null' },
@@ -225,6 +223,7 @@ g_dumpers = {
     'vpp_fwabf_links':              { 'shell_cmd': 'vppctl sh fwabf link > <dumper_out_file>' },
     'vpp_fwabf_policies':           { 'shell_cmd': 'vppctl sh fwabf policy > <dumper_out_file>' },
     'vpp_fwabf_attachments':        { 'shell_cmd': 'vppctl sh fwabf attach > <dumper_out_file>' },
+    'vpp_l3xc':                     { 'shell_cmd': 'vppctl sh l3xc > <dumper_out_file>' },
     'vpp_neighbors':                { 'shell_cmd': 'vppctl sh ip neighbors > <dumper_out_file>' },
     'vpp_nat44_addresses':          { 'shell_cmd': 'vppctl show nat44 addresses verbose > <dumper_out_file>' },
     'vpp_nat44_hash_tables':        { 'shell_cmd': 'vppctl show nat44 hash tables > <dumper_out_file>' },
@@ -257,10 +256,12 @@ class FwDump(FwObject):
         self.full_dump        = full_dump
         self.include_all_logs = include_all_logs
         self.include_vpp_core = include_vpp_core
+        self.include_agent_etc = False  # include content of /etc/flexiwan/agent/ folder - *.sqlite files, configuration, etc.
 
         if full_dump:
             self.include_all_logs = True
             self.include_vpp_core = True
+            self.include_agent_etc = True
 
         if not temp_folder:
             timestamp = fwutils.build_timestamped_filename('')
@@ -364,6 +365,7 @@ class FwDump(FwObject):
 
     def add_lte_files(self):
         try:
+            dump_output_folder = f'{self.temp_folder}/lte'
             if_names_by_dev_ids = fwlte.get_if_names_by_dev_ids()
             for dev_id in if_names_by_dev_ids:
                 if_name = if_names_by_dev_ids[dev_id]
@@ -371,11 +373,11 @@ class FwDump(FwObject):
                 g_dumpers[file_name] = {
                     'python': {
                         'func': 'fwlte.dump',
-                        'args': { 'lte_if_name': if_name, 'prefix_path': f'{self.temp_folder}/{file_name}' } }
+                        'args': { 'lte_if_name': if_name, 'prefix_path': f'{dump_output_folder}/{file_name}' } }
                 }
 
             # collect modem manager info
-            fwutils.exec_to_file(f'mmcli --list-modems -J 2>/dev/null', f'{self.temp_folder}/mmcli_list_modems.json')
+            fwutils.exec_to_file(f'mmcli --list-modems -J 2>/dev/null', f'{dump_output_folder}/mmcli_list_modems.json')
             with open(f'{self.temp_folder}/mmcli_list_modems.json', 'r') as f:
                 content = f.read()
                 if not content: # file can be empty if no modems exist in the machine
@@ -383,7 +385,7 @@ class FwDump(FwObject):
                 output = json.loads(content)
                 for modem_path in output.get('modem-list', []):
                     mm_modem_num = modem_path.split('/')[-1]
-                    fwutils.exec_to_file(f'mmcli -m {mm_modem_num} -J', f'{self.temp_folder}/mmcli_{mm_modem_num}.json')
+                    fwutils.exec_to_file(f'mmcli -m {mm_modem_num} -J', f'{dump_output_folder}/mmcli_{mm_modem_num}.json')
         except:
             pass # Do not crash in case of LTE code error
 
@@ -402,6 +404,10 @@ class FwDump(FwObject):
             corefile_dir = self.temp_folder + "/corefiles/"
             os.makedirs(corefile_dir)
             vpp_coredump_copy_cores(corefile_dir, self.include_vpp_core)
+
+        if self.include_agent_etc:
+            os.system(f'mkdir -p {self.temp_folder}/fwagent')
+            os.system(f'cp -r /etc/flexiwan/agent/. {self.temp_folder}/fwagent/ 2>/dev/null')
 
     def dump_multilink(self):
         dumpers = [
@@ -444,6 +450,8 @@ def main(args):
 
         if args.dont_zip == False:
             dump.zip(args.name, args.dest_folder, (not args.no_hostname), (not args.no_timestamp))
+            # 'fwutils.fwdump(...)' exploits format of this print to get full name of the archive file.
+            # Take caution while changing it!
             print(dump.prompt + 'done: %s' % dump.zip_file)
         else:
             print(dump.prompt + 'done: %s' % dump.temp_folder)

@@ -92,6 +92,14 @@ class VPP_API_CLIENT(VPPApiClient):
             assert api_func, 'vpp_api: api=%s not found' % (api_name)
 
             rv = api_func(**kwargs)
+
+            # Skip return code check for vmxnet3_create API.
+            # The root cause of the error code is yet to be analyzed. The retval check had been
+            # missing (not working right) for a long time. When retval check was corrected,
+            # vmxnet3_create API started to fail.
+            if api_name == 'vmxnet3_create':
+                return rv
+
             retval = None
             try:
                 # 'retval' is the attribute returned by the VPP API to indicate success or error

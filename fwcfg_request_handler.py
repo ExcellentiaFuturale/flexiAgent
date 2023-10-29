@@ -286,6 +286,8 @@ class FwCfgRequestHandler(FwObject):
                     fwglobals.g.jobs.update_current_record({'request': req, 'command': cmd, 'error': err_str})
                     self.log.debug(f"_execute_translation_command('{cmd['func']}') failed")
                     raise Exception(err_str)
+                if req == 'remove-tunnel':
+                    fwglobals.g.notifications.removeDeletedTunnelNotifications(request.get('params').get('tunnel-id'))
 
             except Exception as e:
                 err_str = "_execute: %s(%s) failed: %s, %s" % (cmd['func'], format(cmd.get('params')), str(e), str(traceback.format_exc()))

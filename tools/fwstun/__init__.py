@@ -158,6 +158,7 @@ def stun_test(sock, host, port, source_ip, source_port, send_data=""):
         try:
             sock.sendto(data, (host, port))
         except Exception as e:
+            stun_log(f"Stun: sendto {host}:{port}: {str(e)}", 'warning')
             retVal['Resp'] = False
             return retVal
         try:
@@ -172,7 +173,11 @@ def stun_test(sock, host, port, source_ip, source_port, send_data=""):
             # from some reason we sometimes get msgtype u'00800' resulting KeyError exception
             bind_resp_msg = dictValToMsgType[msgtype] == "BindResponseMsg"
         except KeyError:
-            stun_log("Stun: received unknown message type: %s" %(msgtype))
+            stun_log("Stun: received unknown message type: %s" %(msgtype), 'warning')
+            retVal['Resp'] = False
+            return retVal
+        except Exception as e:
+            stun_log(f"Stun: An error occurred: {str(e)}", 'warning')
             retVal['Resp'] = False
             return retVal
         trans_id_match = trans_id.upper() == b2a_hexstr(buf[4:20]).upper()
@@ -299,7 +304,7 @@ def get_nat_type(s, source_ip, source_port, stun_host, stun_port, idx_start):
             ret = stun_test(s, changedIP, changedPort, source_ip, source_port)
             stun_log("Stun: Result: %s" %(ret))
             if not ret['Resp']:
-                typ = SymmetricNAT
+                typ = ChangedAddressError
             else:
                 if exIP == ret['ExternalIP'] and exPort == ret['ExternalPort']:
                     changePortRequest = ''.join([ChangeRequest, '0004',

@@ -313,6 +313,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 dev_id_vrrp_groups = self.cfg_db.get_vrrp_groups(dev_id=dev_id)
                 for dev_id_vrrp_group_params in dev_id_vrrp_groups:
                     virtual_router_id = dev_id_vrrp_group_params['virtualRouterId']
+                    self.log.debug(f"restarting VRRP ID {virtual_router_id}. dev_id={dev_id}. tap_name={tap_name}")
                     fwutils.vpp_vrrp_restart(vr_id=virtual_router_id, dev_id=dev_id)
 
             virtual_router_ids = vrrp_router_ids_by_tracked_dev_id.get(dev_id, [])
@@ -491,8 +492,6 @@ class FWROUTER_API(FwCfgRequestHandler):
         # Restore failure state if recorded on disk:
         if os.path.exists(fwglobals.g.ROUTER_STATE_FILE):
             self.state_change(FwRouterState.FAILED, 'recorded failure was restored')
-            self.log.excep("router is in failed state, try to start it from flexiManage \
-                or use 'fwagent reset [--soft]' to recover")
 
         # If vpp runs already, or if management didn't request to start it, return.
         vpp_runs = fw_os_utils.vpp_does_run()
