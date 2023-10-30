@@ -194,7 +194,7 @@ def start_router(params=None):
     cmd['cmd']['module']  = "fwnetplan"
     cmd['cmd']['descr'] = "backup Linux netplan files"
     cmd['revert'] = {}
-    cmd['revert']['func']    = "restore_linux_netplan_files"
+    cmd['revert']['func']    = "restore_linux_netplan_files_created_by_vpp"
     cmd['revert']['module']  = "fwnetplan"
     cmd['revert']['descr'] = "restore linux netplan files"
     cmd_list.append(cmd)
