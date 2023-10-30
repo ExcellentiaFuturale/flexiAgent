@@ -33,6 +33,7 @@ from netaddr import IPAddress, IPNetwork
 
 import fw_acl_command_helpers
 import fw_nat_command_helpers
+import fwfirewall
 import fw_vpp_coredump_utils
 import fwglobals
 import fwlte
@@ -1433,6 +1434,8 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         # Reset FlexiWAN QoS contexts on VPP start
         fwglobals.g.qos.reset()
+        # Reset Flexiwan Firewall contexts on VPP start
+        fwglobals.g.firewall.reset()
 
     def _sync_after_start(self):
         """Resets signature once interface got IP during router starting.
@@ -1537,48 +1540,35 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         if not vpp_if_name:
             vpp_if_name = fwutils.vpp_sw_if_index_to_name(sw_if_index)
-        if not sw_if_index:
+        if sw_if_index is None:
             sw_if_index = fwutils.vpp_if_name_to_sw_if_index(vpp_if_name)
+            if sw_if_index is None:
+                err_msg = 'Failed to get sw_if_index from vpp_if_name'
+                self.log.error(f"apply_features_on_interface({add, if_type}): failed. {err_msg}")
+                raise Exception(err_msg)
 
         if not dev_id:
             dev_id = fwutils.vpp_if_name_to_dev_id(vpp_if_name)
 
+        self.log.debug(f"apply_features_on_interface({add, if_type, vpp_if_name, dev_id})")
         with FwCfgMultiOpsWithRevert() as handler:
             try:
-                # apply firewall
-                if if_type == 'lan':
-                    ingress_acls = fwglobals.g.firewall_acl_cache.get(dev_id, 'ingress')
-                    if not ingress_acls:
-                        ingress_acls = fwglobals.g.firewall_acl_cache.get('global_lan', 'ingress')
-
-                    egress_acls = fwglobals.g.firewall_acl_cache.get(dev_id, 'egress')
-                    if not egress_acls:
-                        egress_acls = fwglobals.g.firewall_acl_cache.get('global_lan', 'egress')
-
-                    handler.exec(
-                        func=fw_acl_command_helpers.vpp_add_acl_rules,
-                        params={ 'is_add': add, 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': egress_acls },
-                        revert_func=fw_acl_command_helpers.vpp_add_acl_rules if add else None,
-                        revert_params={ 'is_add': (not add), 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': egress_acls } if add else None,
-                    )
-
+                # Attach Firewall ACLs
+                handler.exec(
+                    func=fwfirewall.setup_firewall_acls,
+                    params={ 'is_add': add, 'dev_id': dev_id,
+                            'if_type': if_type,  'sw_if_index': sw_if_index },
+                    revert_func=fwfirewall.setup_firewall_acls if add else None,
+                    revert_params={ 'is_add': add, 'dev_id': dev_id, 'if_type': if_type,
+                                   'sw_if_index': sw_if_index } if add else None
+                )
+                # Attach Firewall NAT
                 if if_type == 'wan':
-                    ingress_acls = fwglobals.g.firewall_acl_cache.get(dev_id, 'ingress')
-                    if not ingress_acls:
-                        ingress_acls = fwglobals.g.firewall_acl_cache.get('global_wan', 'ingress')
-
                     handler.exec(
-                        func=fw_acl_command_helpers.vpp_add_acl_rules,
-                        params={ 'is_add': add, 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': [] },
-                        revert_func=fw_acl_command_helpers.vpp_add_acl_rules if add else None,
-                        revert_params={ 'is_add': (not add), 'sw_if_index': sw_if_index, 'ingress_acl_ids': ingress_acls, 'egress_acl_ids': [] } if add else None,
-                    )
-
-                    handler.exec(
-                        func=fw_nat_command_helpers.add_nat_rules_interfaces,
-                        params={ 'is_add': add, 'sw_if_index': sw_if_index },
-                        revert_func=fw_nat_command_helpers.add_nat_rules_interfaces,
-                        revert_params={ 'is_add': (not add), 'sw_if_index': sw_if_index },
+                        func=fwglobals.g.firewall.process_wan_global_identity_nat,
+                        params={ 'is_add': add, 'dev_id': dev_id },
+                        revert_func=fwglobals.g.firewall.process_wan_global_identity_nat if add else None,
+                        revert_params={ 'is_add': add, 'dev_id': dev_id } if add else None
                     )
 
                 # apply qos classification on application interfaces

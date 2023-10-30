@@ -25,8 +25,10 @@ import copy
 import enum
 
 import fwglobals
+import fwutils
 import fw_acl_command_helpers
 import fw_nat_command_helpers
+import fwfirewall
 
 class InboundNatType(enum.Enum):
     """
@@ -38,6 +40,50 @@ class InboundNatType(enum.Enum):
 
 DEFAULT_ALLOW_ID = 'fw_default_allow_id'
 
+def get_firewall_map_acl_keys_command():
+    """
+    Generate command to map ACL keys to ACL index
+    """
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']   = "map_acl_keys_to_index"
+    cmd['cmd']['object'] = "fwglobals.g.firewall"
+    cmd['cmd']['descr']  = "Map Firewall ACL keys to actual ACL Index"
+    return cmd
+
+def get_setup_firewall_interface_command():
+    """
+    Generate command to make ACL attachments to the interfaces
+    """
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']   = "setup_interface_acls"
+    cmd['cmd']['object'] = "fwglobals.g.firewall"
+    cmd['cmd']['descr']  = "Process attachments on dynamic interfaces"
+
+    cmd['revert'] = {}
+    cmd['revert']['func']   = "clear_interface_acls"
+    cmd['revert']['object'] = "fwglobals.g.firewall"
+    cmd['revert']['descr']  = "Process attachments on dynamic interfaces"
+    return cmd
+
+def get_setup_global_identity_nat_command():
+    """
+    Generate command to setup global Identity NAT rules on the interfaces
+    """
+    cmd = {}
+    cmd['cmd'] = {}
+    cmd['cmd']['func']   = "process_wan_global_identity_nat"
+    cmd['cmd']['object'] = "fwglobals.g.firewall"
+    cmd['cmd']['descr']  = "Setup global Identity NAT rules"
+    cmd['cmd']['params'] = { 'is_add' : True }
+
+    cmd['revert'] = {}
+    cmd['revert']['func']   = "process_wan_global_identity_nat"
+    cmd['revert']['object'] = "fwglobals.g.firewall"
+    cmd['revert']['descr']  = "Remove global Identity NAT rules"
+    cmd['revert']['params'] = { 'is_add' : False }
+    return cmd
 
 def add_firewall_policy(params):
     """
@@ -74,12 +120,7 @@ def add_firewall_policy(params):
 
         cmd_list = []
         intf_attachments = {}
-        wan_dev_ids = set()
         global_ingress_ids = []
-
-        interfaces = fwglobals.g.router_cfg.get_interfaces(type='wan')
-        for intf in interfaces:
-            wan_dev_ids.add(intf['dev_id'])
 
         for rule_name, rules in inbound_rules.items():
             if rule_name == "nat1to1":
@@ -101,12 +142,6 @@ def add_firewall_policy(params):
                 interface = destination.get('interface')
                 dev_ids = [interface] if interface else []
 
-                if dev_ids:
-                    is_global_rule = False
-                else:
-                    is_global_rule = True
-                    dev_ids = list(wan_dev_ids)
-
                 if source:
                     ingress_id = 'fw_wan_ingress__type_%s_rule_%d' % (
                         rule_type, rule_index)
@@ -114,44 +149,46 @@ def add_firewall_policy(params):
                     cmd_list.append(fw_acl_command_helpers.add_acl_rule(
                         ingress_id, source, dest_rule_params, True, True, True))
 
-                if rule_type == InboundNatType.IDENTITY_MAPPING:
-                    cmd_list.extend(fw_nat_command_helpers.translate_get_nat_identity_config(
-                        dev_ids, destination.get('protocols'), destination['ports']))
+                if dev_ids:
+                    for dev_id in dev_ids:
+                        if rule_type == InboundNatType.IDENTITY_MAPPING:
+                            cmd_list.extend(fw_nat_command_helpers.get_nat_identity_config(
+                                dev_id, destination.get('protocols'), destination['ports']))
 
-                for dev_id in dev_ids:
-                    if rule_type == InboundNatType.NAT_1TO1:
-                        cmd_list.extend(fw_nat_command_helpers.get_nat_1to1_config(
-                            dev_id, action['internalIP']))
+                        elif rule_type == InboundNatType.NAT_1TO1:
+                            cmd_list.extend(fw_nat_command_helpers.get_nat_1to1_config(
+                                dev_id, action['internalIP']))
 
-                    if rule_type == InboundNatType.PORT_FORWARD:
-                        cmd_list.extend(fw_nat_command_helpers.get_nat_port_forward_config(
-                            dev_id, destination.get('protocols'), destination['ports'],
-                            action['internalIP'], action['internalPortStart']))
+                        elif rule_type == InboundNatType.PORT_FORWARD:
+                            cmd_list.extend(fw_nat_command_helpers.get_nat_port_forward_config(
+                                dev_id, destination.get('protocols'), destination['ports'],
+                                action['internalIP'], action['internalPortStart']))
 
+                        if ingress_id:
+                            if intf_attachments.get(dev_id) is None:
+                                    intf_attachments[dev_id] = {}
+                                    intf_attachments[dev_id]['ingress'] =\
+                                        copy.deepcopy(global_ingress_ids)
+                            intf_attachments[dev_id]['ingress'].append(ingress_id)
+                else:
+                    if rule_type == InboundNatType.IDENTITY_MAPPING:
+                        fwglobals.g.firewall.add_wan_global_identity_nat\
+                            (destination.get('protocols'), destination['ports'])
+                    # Global rule
                     if ingress_id:
-                       if intf_attachments.get(dev_id) is None:
-                            intf_attachments[dev_id] = {}
-                            intf_attachments[dev_id]['ingress'] = global_ingress_ids.copy()
-                       intf_attachments[dev_id]['ingress'].append(ingress_id)
-
-                if is_global_rule and ingress_id:
-                    global_ingress_ids.append(ingress_id)
+                        for dev_id in intf_attachments.keys():
+                            intf_attachments[dev_id]['ingress'].append(ingress_id)
+                        global_ingress_ids.append(ingress_id)
 
         for dev_id, value in intf_attachments.items():
             # Add last default ACL as allow ALL
             value['ingress'].append(DEFAULT_ALLOW_ID)
-
-            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(
-                value['ingress'], [], [dev_id]))
-
-            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule(
-                dev_id, 'ingress', value['ingress'], 'inbound'))
+            fwglobals.g.firewall.set_interface_acls (dev_id, value['ingress'], None,
+                                                     fwutils.dev_id_to_vpp_sw_if_index(dev_id))
 
         if global_ingress_ids:
             global_ingress_ids.append(DEFAULT_ALLOW_ID)
-            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule(
-                'global_wan', 'ingress', global_ingress_ids, 'inbound'))
-
+            fwglobals.g.firewall.set_wan_global_acls (global_ingress_ids, None)
         return cmd_list
 
 
@@ -159,20 +196,8 @@ def add_firewall_policy(params):
 
         cmd_list = []
         intf_attachments = {}
-        lan_dev_ids = set()
         global_ingress_ids = []
         global_egress_ids = []
-
-        interfaces = fwglobals.g.router_cfg.get_interfaces(type='lan')
-        for intf in interfaces:
-            lan_dev_ids.add(intf['dev_id'])
-
-        app_lans = fwglobals.g.applications_api.get_interfaces(type="lan", vpp_interfaces=True,
-                                                               linux_interfaces=False)
-        # for applications interfaces we are using
-        # the prefix 'app_' and the identifier name as the key.
-        for app_identifier in app_lans:
-            lan_dev_ids.add(f'app_{app_identifier}')
 
         for rule_index, rule in enumerate(outbound_rules['rules']):
 
@@ -206,52 +231,53 @@ def add_firewall_policy(params):
                 continue
 
             if dev_ids:
-                is_global_rule = False
-                # Handle application LANs that are added after firewall.
-                # In case if we have specific rule and global rule afterwards
-                # we need lan_dev_ids to contain dev_id of application LAN.
                 for dev_id in dev_ids:
-                    lan_dev_ids.add(dev_id)
-            else:
-                is_global_rule = True
-                dev_ids = list(lan_dev_ids)
-
-            for dev_id in dev_ids:
-                if intf_attachments.get(dev_id) is None:
-                    intf_attachments[dev_id] = {}
-                    intf_attachments[dev_id]['ingress'] = global_ingress_ids.copy()
-                    intf_attachments[dev_id]['egress'] = global_egress_ids.copy()
-
+                    if intf_attachments.get(dev_id) is None:
+                        intf_attachments[dev_id] = {}
+                        intf_attachments[dev_id]['ingress'] = copy.deepcopy(global_ingress_ids)
+                        intf_attachments[dev_id]['egress'] = copy.deepcopy(global_egress_ids)
                 intf_attachments[dev_id]['ingress'].append(ingress_id)
                 intf_attachments[dev_id]['egress'].append(egress_id)
-
-            if is_global_rule:
+            else:
+                # Global rule
+                for dev_id in intf_attachments.keys():
+                    intf_attachments[dev_id]['ingress'].append(ingress_id)
+                    intf_attachments[dev_id]['egress'].append(egress_id)
                 global_ingress_ids.append(ingress_id)
                 global_egress_ids.append(egress_id)
 
-        for dev_id, value in intf_attachments.items():
+        for dev_id in list(intf_attachments):
             # Add last default ACL as allow ALL
-            value['ingress'].append(DEFAULT_ALLOW_ID)
-            value['egress'].append(DEFAULT_ALLOW_ID)
-
-            cmd_list.append(fw_acl_command_helpers.add_interface_attachment(
-                value['ingress'], value['egress'], [dev_id]))
-
-            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule(dev_id, 'ingress', value['ingress']))
-            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule(dev_id, 'egress', value['egress']))
+            intf_attachments[dev_id]['ingress'].append(DEFAULT_ALLOW_ID)
+            intf_attachments[dev_id]['egress'].append(DEFAULT_ALLOW_ID)
+            if not dev_id.startswith('app_'):
+                fwglobals.g.firewall.set_interface_acls\
+                    (dev_id, intf_attachments[dev_id]['ingress'],
+                     intf_attachments[dev_id]['egress'], fwutils.dev_id_to_vpp_sw_if_index(dev_id))
+            else:
+                sw_if_index_list, app_id_list = fwfirewall.get_app_sw_if_index_list(dev_id)
+                for idx, sw_if_index in enumerate(sw_if_index_list):
+                    app_dev_id = fwfirewall.get_firewall_interface_key_for_app\
+                        (app_id_list[idx], sw_if_index)
+                    intf_attachments[app_dev_id] = {}
+                    intf_attachments[app_dev_id]['ingress'] =\
+                        copy.deepcopy(intf_attachments[dev_id]['ingress'])
+                    intf_attachments[app_dev_id]['egress'] =\
+                        copy.deepcopy(intf_attachments[dev_id]['egress'])
+                    fwglobals.g.firewall.set_interface_acls\
+                        (app_dev_id, intf_attachments[dev_id]['ingress'],
+                        intf_attachments[dev_id]['egress'], sw_if_index)
 
         if global_ingress_ids:
             global_ingress_ids.append(DEFAULT_ALLOW_ID)
-            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('global_lan', 'ingress', global_ingress_ids))
         if global_egress_ids:
             global_egress_ids.append(DEFAULT_ALLOW_ID)
-            cmd_list.append(fw_acl_command_helpers.translate_cache_acl_rule('global_lan', 'egress', global_egress_ids))
-
+        fwglobals.g.firewall.set_lan_global_acls (global_ingress_ids, global_egress_ids)
 
         return cmd_list
 
-    # Clean Firewall ACL cache
-    fwglobals.g.firewall_acl_cache.clear()
+    # Reset Firewall contexts
+    fwglobals.g.firewall.reset()
 
     cmd_list = []
     # Add default Allow all ACLs
@@ -259,14 +285,22 @@ def add_firewall_policy(params):
     cmd_list.append(fw_acl_command_helpers.add_acl_rule(DEFAULT_ALLOW_ID,
                                                         None, None, True, True, False))
 
-    outbound_rules = copy.deepcopy(params.get('outbound'))
+    outbound_rules = params.get('outbound')
     if outbound_rules:
         cmd_list.extend(process_outbound_rules(outbound_rules))
 
-    inbound_rules = copy.deepcopy(params.get('inbound'))
+    inbound_rules = params.get('inbound')
     if inbound_rules:
         cmd_list.extend(process_inbound_rules(inbound_rules))
 
+    #Command to transform acl keys to acl index using the command cache
+    cmd_list.append(get_firewall_map_acl_keys_command())
+
+    #Setup command to be executed for making ACL attachments
+    cmd_list.append(get_setup_firewall_interface_command())
+
+    #Setup command to be executed for making global Identity NAT rules
+    cmd_list.append(get_setup_global_identity_nat_command())
     return cmd_list
 
 
