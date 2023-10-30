@@ -1832,7 +1832,7 @@ def print_general_database():
             obj = {}
             obj[key] = fwglobals.g.db[key]
             out.append(obj)
-        cfg = json.dumps(out, indent=2, sort_keys=True)
+        cfg = json.dumps(out, indent=2)
         print(cfg)
     except Exception as e:
         fwglobals.log.error(str(e))
