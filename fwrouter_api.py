@@ -510,7 +510,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                 # Hence, we fill the cache with the backup in the disk
                 fwnetplan.load_netplan_filenames(read_from_disk=vpp_runs)
             else:
-                fwnetplan.restore_linux_netplan_files()
+                fwnetplan.restore_linux_netplan_files_created_by_vpp()
                 fwutils.get_linux_interfaces(cached=False) # Refill global interface cache once netplan was restored
             super().initialize()
             return False
@@ -537,7 +537,7 @@ class FWROUTER_API(FwCfgRequestHandler):
             # during start-router execution. To avoid that we restore original
             # Linux netplan files to remove any lte related information.
             #
-            fwnetplan.restore_linux_netplan_files()
+            fwnetplan.restore_linux_netplan_files_created_by_vpp()
 
             # Reset cache of interfaces for address monitoring.
             # This is needed, when VPP is restored by watchdog on VPP crash.
