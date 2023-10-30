@@ -160,7 +160,8 @@ class FwLogSyslog(Fwlog):
         return "syslog" if not self.huge_line_log else f"syslog & {str(self.huge_line_log)}"
 
     def set_huge_line_file(self, huge_line_log_filename):
-        self.huge_line_log = FwLogFile(huge_line_log_filename)
+        if os.access(huge_line_log_filename, os.W_OK):  # Prevent "Permission denied" when is invoked by non-root (e.g. 'fwagent show', 'fwdump', etc)
+            self.huge_line_log = FwLogFile(huge_line_log_filename)
 
     def _log(self, log_message, to_terminal=True, to_syslog=True, truncate_long_line=True):
         """Print log message.
