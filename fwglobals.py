@@ -344,6 +344,7 @@ class Fwglobals(FwObject):
         self.NETPLAN_FILE        = '/etc/netplan/99-flexiwan.fwrun.yaml'
         self.WS_STATUS_ERROR_NOT_APPROVED = 403
         self.WS_STATUS_ERROR_LOCAL_ERROR  = 800 # Should be over maximal HTTP STATUS CODE - 699
+        self.WS_TIMEOUT                   = 180 # seconds, if no requests were received in X seconds - reconnect
         self.fwagent = None
         self.pppoe = None
         self.modems = None
