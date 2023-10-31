@@ -22,8 +22,11 @@
 
 import hashlib
 import json
+import logging
 
 import fwglobals
+
+logger = logging.getLogger(__name__)
 
 
 class FwNotifications:
@@ -47,6 +50,7 @@ class FwNotifications:
     def __init__(self):
         self.alerts = {}
         self.event_counts = {}
+        fwglobals.log.debug("FwNotifications initialized.")
 
     def get_alerts_hash(self):
         """
@@ -66,6 +70,7 @@ class FwNotifications:
     def calculate_alerts(self, tunnel_stats, system_health):
         config = fwglobals.g.system_api.cfg_db.get_notifications_config()
         if not config:
+            fwglobals.log.warning("Notifications config not found.")
             return {}
         rules = config.get('rules', {})
         tunnel_rules = []
@@ -80,6 +85,7 @@ class FwNotifications:
         tunnel_dict = {tunnel['tunnel-id']: tunnel for tunnel in tunnels}
         for tunnel_id in tunnel_stats:
             if tunnel_id not in tunnel_dict:
+                fwglobals.log.debug(f"Tunnel ID: {tunnel_id} exists in statisctics but not found in tunnel_dict. Skipping...")
                 continue
             tunnel_statistics = tunnel_stats[tunnel_id]
             tunnel_notifications = tunnel_dict[tunnel_id].get('notificationsSettings', {})
@@ -203,8 +209,9 @@ class FwNotifications:
         if not self.alerts[event_type]:
             del self.alerts[event_type]
 
-    def removeDeletedTunnelNotifications(self, tunnel_id):
+    def removeDeletedTunnelAlerts(self, tunnel_id):
         # Iterating over a copy of self.alerts.items()
         for event_type, eventData in list(self.alerts.items()):
             if tunnel_id in eventData:
+                fwglobals.log.info(f"Removing alert of deleted tunnel. tunnel_id: {tunnel_id}, alert: {event_type}")
                 self._delete_entry(event_type, tunnel_id)
