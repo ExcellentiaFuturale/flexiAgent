@@ -1658,7 +1658,7 @@ def stop_vpp():
     # Restore original netplan files.
     # If no files were restored, run 'netplan apply' to be on safe side
     #
-    restored_files = fwnetplan.restore_linux_netplan_files()
+    restored_files = fwnetplan.restore_linux_netplan_files_created_by_vpp()
     if not restored_files:
         netplan_apply('stop_vpp')
 
@@ -1697,7 +1697,9 @@ def reset_router_cfg():
         db_policies.clean()
     with FwTrafficIdentifications(fwglobals.g.TRAFFIC_ID_DB_FILE) as traffic_db:
         traffic_db.clean()
-    fwnetplan.restore_linux_netplan_files()
+    fwnetplan.restore_linux_netplan_files_created_by_vpp()
+    # restore also the interfaces modified by edgeUI
+    fwnetplan.restore_linux_netplan_files_created_by_flexiEdgeUI()
     with FwIKEv2() as ike:
         ike.clean()
     with FwApplicationsCfg() as applications_cfg:
@@ -1832,7 +1834,7 @@ def print_general_database():
             obj = {}
             obj[key] = fwglobals.g.db[key]
             out.append(obj)
-        cfg = json.dumps(out, indent=2, sort_keys=True)
+        cfg = json.dumps(out, indent=2)
         print(cfg)
     except Exception as e:
         fwglobals.log.error(str(e))

@@ -58,7 +58,13 @@ def backup_linux_netplan_files():
         if os.path.exists(fname):
             os.remove(fname)
 
-def restore_linux_netplan_files():
+def restore_linux_netplan_files_created_by_vpp():
+    '''
+    Restores netplan files modified by vpp.
+    Whenever vpp starts, the modified netplan files will receive fwrun prefix
+    (01-netcfg.fwrun.yaml) while the original netplan files have the backup
+    extension of fw_run_orig (01-netcfg.yaml.fworig)
+    '''
     files = glob.glob("/etc/netplan/*.fwrun.yaml") + \
             glob.glob("/lib/netplan/*.fwrun.yaml") + \
             glob.glob("/run/netplan/*.fwrun.yaml")
@@ -76,7 +82,34 @@ def restore_linux_netplan_files():
             os.remove(fname_backup)
 
     if files:
-        fwutils.netplan_apply('restore_linux_netplan_files')
+        fwutils.netplan_apply('restore_linux_netplan_files_created_by_vpp')
+    return files
+
+def restore_linux_netplan_files_created_by_flexiEdgeUI():
+    '''
+    Restores netplan files modified by edgeUI.
+    Whenever users modify Linux interfaces using edgeUI, the prefix is
+    baseline (01-netcfg.baseline.yaml) while the backup extension becomes fworig
+    (01-netcfg.yaml.fworig)
+    '''
+    files = glob.glob("/etc/netplan/*.baseline.yaml") + \
+            glob.glob("/lib/netplan/*.baseline.yaml") + \
+            glob.glob("/run/netplan/*.baseline.yaml")
+
+    for fname in files:
+        fname_run = fname
+        fname = fname_run.replace('baseline.yaml', 'yaml')
+        fname_backup = fname + '.fworig'
+
+        if os.path.exists(fname_run):
+            os.remove(fname_run)
+
+        if os.path.exists(fname_backup):
+            _copyfile(fname_backup, fname)
+            os.remove(fname_backup)
+
+    if files:
+        fwutils.netplan_apply('restore_linux_netplan_files_created_by_flexiEdgeUI')
     return files
 
 

@@ -485,6 +485,7 @@ class Fwglobals(FwObject):
         self.statistics       = FwStatistics()
         self.traffic_identifications = FwTrafficIdentifications(self.TRAFFIC_ID_DB_FILE, logger=self.logger_add_application)
         self.message_handler  = FwMessageHandler()
+        self.firewall         = fwfirewall.FwFirewall()
 
         fwutils.set_default_linux_reverse_path_filter(2)  # RPF set to Loose mode
         fwutils.disable_ipv6()
@@ -531,12 +532,6 @@ class Fwglobals(FwObject):
         """Restore VPP if needed and start various features.
         """
         self.log.debug('initialize_agent: started')
-
-        # Construct ACL cache here, and not in the FwGlobals constructor,
-        # as it requires root permissions (to access sqlitedict file).
-        # And the constructor is called on any command, even 'fwagent version'.
-        #
-        self.firewall_acl_cache = fwfirewall.FwFirewallAclCache(self.db)
 
         # IMPORTANT! Some of the features below should be initialized before router_api.initialize()
         #
@@ -889,8 +884,8 @@ class Fwglobals(FwObject):
                 func = getattr(self.applications_api, func_name)
             elif object_name == 'fwglobals.g.qos':
                 func = getattr(self.qos, func_name)
-            elif object_name == 'fwglobals.g.firewall_acl_cache':
-                func = getattr(self.firewall_acl_cache, func_name)
+            elif object_name == 'fwglobals.g.firewall':
+                func = getattr(self.firewall, func_name)
             elif object_name == 'fwglobals.g.stun_wrapper':
                 func = getattr(self.stun_wrapper, func_name)
             elif object_name == 'fwglobals.g.jobs':
