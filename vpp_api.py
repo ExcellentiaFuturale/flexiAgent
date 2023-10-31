@@ -93,12 +93,13 @@ class VPP_API_CLIENT(VPPApiClient):
 
             rv = api_func(**kwargs)
 
-            # Skip return code check for vmxnet3_create API.
+            # Skip return code check for vmxnet3_create and vmxnet3_delete API.
             # The root cause of the error code is yet to be analyzed. The retval check had been
             # missing (not working right) for a long time. When retval check was corrected,
-            # vmxnet3_create API started to fail.
-            if api_name == 'vmxnet3_create':
+            # vmxnet3 API started to fail.
+            if api_name == 'vmxnet3_create' or api_name == 'vmxnet3_delete':
                 return rv
+
 
             retval = None
             try:
