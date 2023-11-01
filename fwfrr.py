@@ -120,7 +120,16 @@ class FwFrr(FwObject):
             return
 
         if ospf_network['address']:  # update FRR only if interface has IP
-            ret, err_str = self.run_ospf_remove(ospf_network['address'], ospf_network['area'])
+            # For bridges, each interface has a record in the OSPF database, containing the bridge's address.
+            # However, in FRR configuration, the network appears only once.
+            # If two modify-interfaces are on the same bridge,
+            # and we execute two remove-interfaces (due to "aggregated" request with two "modify-interface"),
+            # the second remove throws an error because the network is already deleted from OSPF but it will have a record in our DB.
+            # To resolve this, we check if the bridged network exists in FRR before removing it.
+            #
+            bridged_addr = fwutils.is_bridged_interface(dev_id)
+
+            ret, err_str = self.run_ospf_remove(ospf_network['address'], ospf_network['area'], skip_if_not_exists=(bridged_addr is not None))
             if not ret:
                 self.log.excep(f"ospf_network_remove({dev_id}): failed to update frr: {err_str}")
 
@@ -194,7 +203,22 @@ class FwFrr(FwObject):
 
         return commands
 
-    def run_ospf_remove(self, address, area):
+    def run_ospf_remove(self, address, area, skip_if_not_exists=False):
+        if skip_if_not_exists:
+            frr_json_output = subprocess.check_output('vtysh -c "show ip ospf interface json"', shell=True).decode().strip()
+            #{
+            #   "interfaces":{
+            #       "vpp4":{
+            #           ...
+            #           "ipAddress":"112.1.1.1",
+            #           "ipAddressPrefixlen":24,
+            #           ...
+            output_json = json.loads(frr_json_output).get('interfaces', {})
+            network_exists = [ifc for ifc, details in output_json.items() if f'{details.get("ipAddress")}/{details.get("ipAddressPrefixlen")}' == address]
+            if not network_exists:
+                self.log.debug(f"run_ospf_remove({address}, {area}): removal command is unnecessary. Network non-existent")
+                return (True, None)
+
         ret, err_str = fwutils.frr_vtysh_run(["router ospf", f"no network {address} area {area}"])
         return ret, err_str
 
