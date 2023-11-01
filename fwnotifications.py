@@ -25,6 +25,7 @@ import json
 
 import fwglobals
 
+import fwutils
 
 class FwNotifications:
     """
@@ -79,7 +80,8 @@ class FwNotifications:
         tunnels = fwglobals.g.router_api.cfg_db.get_tunnels()
         tunnel_dict = {tunnel['tunnel-id']: tunnel for tunnel in tunnels}
         for tunnel_id in tunnel_stats:
-            if tunnel_id not in tunnel_dict:
+            if tunnel_id not in tunnel_dict or self._should_skip_tunnel_alerts_calculation(tunnel_stats, tunnel_id):
+                fwglobals.log.debug(f"Skipping tunnel {tunnel_id} alerts calculation")
                 continue
             tunnel_statistics = tunnel_stats[tunnel_id]
             tunnel_notifications = tunnel_dict[tunnel_id].get('notificationsSettings', {})
@@ -90,6 +92,34 @@ class FwNotifications:
                 unit = rules[tunnel_rule].get('thresholdUnit')
                 self._analyze_stats_value(tunnel_rule, event_settings, tunnel_statistics, tunnel_id, unit)
         return self.alerts
+
+    def _should_skip_tunnel_alerts_calculation(self, tunnel_stats, tunnel_id):
+        tunnel_info = fwglobals.g.router_cfg.get_tunnel(tunnel_id)
+        interfaces_info = list(fwutils.get_linux_interfaces(cached=False).values())
+
+        if tunnel_stats[tunnel_id].get('status') == 'down':
+            fwglobals.log.debug(f"Tunnel {tunnel_id} is down.")
+            return True
+
+        for interface in interfaces_info:
+            if interface['devId'] != tunnel_info['dev_id']:
+                continue
+            if not interface['internetAccess']:
+                fwglobals.log.debug(f"Interface {interface['name']} has internet connectivity issues.")
+                return True
+            if not interface['IPv4']:
+                fwglobals.log.debug(f"IP address missing for interface {interface['name']}.")
+                return True
+            if interface['link'] == 'down':
+                fwglobals.log.debug(f"Link status of interface {interface['name']} is down.")
+                return True
+
+        router_is_running = fwglobals.g.router_api.state_is_started()
+        if not router_is_running:
+            fwglobals.log.debug(f"Router is not running.")
+            return True
+
+        return False
 
     def _get_value_from_stats(self, event_type, stats):
         stats_key_by_event_type = {
