@@ -87,9 +87,12 @@ class FwNotifications:
 
         tunnels = fwglobals.g.router_api.cfg_db.get_tunnels()
         tunnel_dict = {tunnel['tunnel-id']: tunnel for tunnel in tunnels}
+
+        tunnel_skip_dict = self._should_skip_tunnel_alerts_calculation(tunnel_stats)
+        tunnels_to_skip = [tunnel_id for tunnel_id, skip in tunnel_skip_dict.items() if skip]
+
         for tunnel_id in tunnel_stats:
-            if tunnel_id not in tunnel_dict or self._should_skip_tunnel_alerts_calculation(tunnel_stats, tunnel_id):
-                fwglobals.log.debug(f"Skipping tunnel {tunnel_id} alerts calculation")
+            if tunnel_id not in tunnel_dict or tunnel_id in tunnels_to_skip:
                 continue
             tunnel_statistics = tunnel_stats[tunnel_id]
             tunnel_notifications = tunnel_dict[tunnel_id].get('notificationsSettings', {})
@@ -99,44 +102,64 @@ class FwNotifications:
                 event_settings = tunnel_notifications.get(tunnel_rule, rules[tunnel_rule])
                 unit = rules[tunnel_rule].get('thresholdUnit')
                 self._analyze_stats_value(tunnel_rule, event_settings, tunnel_statistics, tunnel_id, unit)
+
+        if tunnels_to_skip:
+            fwglobals.log.debug(f"Skipped tunnels alerts calculation for tunnels: {', '.join(map(str, tunnels_to_skip))}")
+
         return self.alerts
 
-    def _should_skip_tunnel_alerts_calculation(self, tunnel_stats: dict, tunnel_id: int) -> bool:
+    def _should_skip_tunnel_alerts_calculation(self, tunnel_stats: dict) -> dict:
         """
-        Check if alert calculations should be skipped for a specific tunnel to avoid
-        sending symptom alerts to flexiManage (which has its own hierarchy, but we aim to
-        reduce the traffic if possible).
+        Check which tunnels we should skip for alert calculations to avoid sending symptom alerts to flexiManage
 
         :param tunnel_stats: Dictionary containing tunnel statistics.
-        :param tunnel_id: Integer representing the tunnel's identifier (tunnel number).
-        :return: Boolean indicating whether to skip tunnel alerts calculation.
+        :return: Dictionary of tunnels with key = tunnel_id and value = boolean if to skip
         """
-        tunnel_info = fwglobals.g.router_cfg.get_tunnel(tunnel_id)
-        interfaces_info = list(fwutils.get_linux_interfaces(cached=False).values())
-
-        if tunnel_stats[tunnel_id].get('status') == 'down':
-            fwglobals.log.debug(f"Tunnel {tunnel_id} is down.")
-            return True
-
-        for interface in interfaces_info:
-            if interface['devId'] != tunnel_info['dev_id']:
-                continue
-            if not interface['internetAccess']:
-                fwglobals.log.debug(f"Interface {interface['name']} has internet connectivity issues.")
-                return True
-            if not interface['IPv4']:
-                fwglobals.log.debug(f"IP address missing for interface {interface['name']}.")
-                return True
-            if interface['link'] == 'down':
-                fwglobals.log.debug(f"Link status of interface {interface['name']} is down.")
-                return True
-
         router_is_running = fwglobals.g.router_api.state_is_started()
         if not router_is_running:
             fwglobals.log.debug(f"Router is not running.")
-            return True
+            return {tunnel_id: True for tunnel_id in tunnel_stats}
 
-        return False
+        interfaces_info = list(fwutils.get_linux_interfaces(cached=False).values())
+        interface_dict = {interface['devId']: interface for interface in interfaces_info}
+
+        tunnel_skip_dict = {}
+        down_tunnels = []
+        connectivity_issues = []
+        missing_ips = []
+        link_down_interfaces = []
+
+        for tunnel_id, stats in tunnel_stats.items():
+            tunnel_info = fwglobals.g.router_cfg.get_tunnel(tunnel_id)
+            interface = interface_dict.get(tunnel_info['dev_id'], None)
+
+            skip = False
+            if stats.get('status') == 'down':
+                down_tunnels.append(tunnel_id)
+                skip = True
+            elif interface:
+                if not interface['internetAccess']:
+                    connectivity_issues.append(interface['name'])
+                    skip = True
+                if not interface['IPv4']:
+                    missing_ips.append(interface['name'])
+                    skip = True
+                if interface['link'] == 'down':
+                    link_down_interfaces.append(interface['name'])
+                    skip = True
+
+            tunnel_skip_dict[tunnel_id] = skip
+
+        if down_tunnels:
+            fwglobals.log.debug(f"Tunnels down: {', '.join(map(str, down_tunnels))}")
+        if connectivity_issues:
+            fwglobals.log.debug(f"Interfaces with internet connectivity issues: {', '.join(connectivity_issues)}")
+        if missing_ips:
+            fwglobals.log.debug(f"Interfaces which miss IP address: {', '.join(missing_ips)}.")
+        if link_down_interfaces:
+            fwglobals.log.debug(f"Link status down for interfaces: {', '.join(link_down_interfaces)}")
+
+        return tunnel_skip_dict
 
     def _get_value_from_stats(self, event_type: str, stats: dict) -> Union[int, float]:
         """
