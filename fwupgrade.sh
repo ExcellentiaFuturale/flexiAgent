@@ -178,6 +178,13 @@ apt_install() {
         update_fwjob "install new/old version" "${install_cmd}: failed with ${ret}: ${out}"
     fi
 
+    # Check, if apt-get failed due to dpkg lock acquired by another process:
+    # - /var/lib/dpkg/lock
+    # - /var/lib/dpkg/lock-frontend
+    if [[ "${out}" == *"Could not get lock"* ]] ; then
+        update_fwjob "install new/old version" "${install_cmd}: failed with ${ret}: ${out}"
+    fi
+
     return 100  # we totally failed
 }
 
