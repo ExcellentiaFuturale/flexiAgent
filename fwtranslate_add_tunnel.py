@@ -195,8 +195,6 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, bridge_cache
     mac  = iface_params.get('mac')
     mtu  = iface_params['mtu']
     mss  = iface_params.get('tcp-mss-clamp')
-    vpp_if_name = fwutils.tunnel_to_vpp_if_name(tunnel_params)
-
 
     # ret_attr  - attribute of the object returned by command,
     #             value of which is stored in cache to be available
@@ -254,14 +252,14 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, bridge_cache
         current_tunnel = fwglobals.g.router_cfg.get_tunnel(tunnel_params['tunnel-id'])
         current_mss    = current_tunnel.get('tcp-wss-clamp') if current_tunnel else None
         if mss and current_mss:
-            vpp_cmd        = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {mss} ip6 tx ip6-mss  {mss}'
-            vpp_revert_cmd = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {current_mss} ip6 tx ip6-mss {current_mss}'
+            vpp_cmd        = f'set interface tcp-mss-clamp loopBRIDGE-ID-STUB ip4 tx ip4-mss {mss} ip6 tx ip6-mss  {mss}'
+            vpp_revert_cmd = f'set interface tcp-mss-clamp loopBRIDGE-ID-STUB ip4 tx ip4-mss {current_mss} ip6 tx ip6-mss {current_mss}'
         elif mss and not current_mss:
-            vpp_cmd        = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {mss} ip6 tx ip6-mss {mss}'
-            vpp_revert_cmd = f'set interface tcp-mss-clamp {vpp_if_name} ip4 disable ip6 disable'
+            vpp_cmd        = f'set interface tcp-mss-clamp loopBRIDGE-ID-STUB ip4 tx ip4-mss {mss} ip6 tx ip6-mss {mss}'
+            vpp_revert_cmd = f'set interface tcp-mss-clamp loopBRIDGE-ID-STUB ip4 disable ip6 disable'
         elif not mss and current_mss:
-            vpp_cmd        = f'set interface tcp-mss-clamp {vpp_if_name} ip4 disable ip6 disable'
-            vpp_revert_cmd = f'set interface tcp-mss-clamp {vpp_if_name} ip4 tx ip4-mss {current_mss} ip6 tx ip6-mss {current_mss}'
+            vpp_cmd        = f'set interface tcp-mss-clamp loopBRIDGE-ID-STUB ip4 disable ip6 disable'
+            vpp_revert_cmd = f'set interface tcp-mss-clamp loopBRIDGE-ID-STUB ip4 tx ip4-mss {current_mss} ip6 tx ip6-mss {current_mss}'
         else: # not mss and not current_mss:
             vpp_cmd = None
 
@@ -271,12 +269,18 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, bridge_cache
             cmd['cmd']['func']    = "vpp_cli_execute"
             cmd['cmd']['module']  = "fwutils"
             cmd['cmd']['descr']   = f"set MSS {str(mss)} on loopback interface {addr}"
-            cmd['cmd']['params']  = {'cmds':[vpp_cmd]}
+            cmd['cmd']['params']  = {
+                'cmds':[vpp_cmd],
+                'substs': [ {'replace':'BRIDGE-ID-STUB', 'key': 'cmds', 'val_by_key': bridge_cache_key} ],
+                }
             cmd['revert'] = {}
             cmd['revert']['func']    = "vpp_cli_execute"
             cmd['revert']['module']  = "fwutils"
             cmd['revert']['descr']   = f"revert MSS to {str(current_mss)} on loopback interface {addr}"
-            cmd['revert']['params']  = {'cmds':[vpp_revert_cmd]}
+            cmd['revert']['params']  = {
+                'cmds':[vpp_revert_cmd],
+                'substs': [ {'replace':'BRIDGE-ID-STUB', 'key': 'cmds', 'val_by_key': bridge_cache_key} ],
+                }
             cmd_list.append(cmd)
 
     if internal:
