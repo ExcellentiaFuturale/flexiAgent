@@ -346,7 +346,13 @@ class FwNotifications:
 
         :param tunnel_id: Integer representing the tunnel's identifier (tunnel number).
         """
+        removed_alert_names = []
+
         # Iterating over a copy of self.alerts.items()
         for event_type, eventData in list(self.alerts.items()):
             if tunnel_id in eventData:
                 self._delete_entry(event_type, tunnel_id)
+                removed_alert_names.append(event_type)
+
+        if removed_alert_names:
+            fwglobals.log.debug(f"Removed alerts for deleted tunnel with tunnel_id: {tunnel_id}, alert types: {removed_alert_names}")
