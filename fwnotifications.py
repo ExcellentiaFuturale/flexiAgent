@@ -120,7 +120,7 @@ class FwNotifications:
             fwglobals.log.debug(f"Router is not running.")
             return {tunnel_id: True for tunnel_id in tunnel_stats}
 
-        interfaces_info = list(fwutils.get_linux_interfaces(cached=False).values())
+        interfaces_info = list(fwutils.get_linux_interfaces().values())
         interface_dict = {interface['devId']: interface for interface in interfaces_info}
 
         tunnel_skip_dict = {}
