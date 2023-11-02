@@ -376,14 +376,21 @@ class FwAgent(FwObject):
             headers = {
                 "User-Agent": "fwagent/%s" % (self.versions['components']['agent']['version'])
             }
-
             self.ws.connect(
                         url, headers = headers,
                         check_certificate=(not fwglobals.g.cfg.BYPASS_CERT))
+
+            seconds_since_last_received = 0
+
             while self.ws.is_connected():
                 try:
-                    received = self.ws.recv(timeout=1)
+                    received = self.ws.recv(timeout=1)  # block on recv() no more then 1 sec to probe reply queue frequently
                     msg = json.loads(received) if received else None
+
+                    seconds_since_last_received = 0 if received else seconds_since_last_received + 1
+                    if seconds_since_last_received > fwglobals.g.WS_TIMEOUT:
+                        self.log.info(f"no request in {fwglobals.g.WS_TIMEOUT} seconds - reconnect")
+                        break
 
                     # Suppress exception and error log prints by WebSocket on VPP start/stop
                     # to calm down customers and QA :)
