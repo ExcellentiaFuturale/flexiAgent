@@ -448,6 +448,12 @@ class FWROUTER_API(FwCfgRequestHandler):
 
             if old['addr'] != new['addr']:
                 if new['type'] == 'lan' and 'OSPF' in new['routing']:
+                    # There are no IP addresses on interfaces within a bridge.
+                    # Instead, the IP address exists on the BVI TAP interface.
+                    # If an IP address is removed from an interface upon joining a bridge,
+                    # there is no need to remove the network from OSPF.
+                    if new['addr'] is None and fwutils.is_bridged_interface(dev_id):
+                        continue
                     self.frr.ospf_network_update(dev_id, new['addr'])
 
     def _get_monitor_interfaces(self, cached=True):
