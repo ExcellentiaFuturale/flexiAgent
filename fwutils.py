@@ -1253,8 +1253,12 @@ def tunnel_to_vpp_if_name(params):
     :returns: name of the tunnel loopback interface in vpp.
     """
     bridge_id = get_bridge_id(object_id=params['tunnel-id'], type='tunnel_bridges')
-    vpp_if_name = f'loop{bridge_id}'
-    return vpp_if_name
+
+    if bridge_id is not None:
+        vpp_if_name = f'loop{bridge_id}'
+        return vpp_if_name
+    else:
+        raise Exception("Unable to determine the name of tunnel loopback interface.")
 
 def peer_tunnel_to_vpp_if_name(params):
     """Finds the name of the peer tunnel ipip interface in vpp.
