@@ -1560,14 +1560,15 @@ class FWROUTER_API(FwCfgRequestHandler):
         with FwCfgMultiOpsWithRevert() as handler:
             try:
                 # Attach Firewall ACLs
-                handler.exec(
-                    func=fwfirewall.setup_firewall_acls,
-                    params={ 'is_add': add, 'dev_id': dev_id,
-                            'if_type': if_type,  'sw_if_index': sw_if_index },
-                    revert_func=fwfirewall.setup_firewall_acls if add else None,
-                    revert_params={ 'is_add': add, 'dev_id': dev_id, 'if_type': if_type,
-                                   'sw_if_index': sw_if_index } if add else None
-                )
+                if if_type == 'lan' or if_type == 'switch-lan' or if_type == 'wan':
+                    handler.exec(
+                        func=fwfirewall.setup_firewall_acls,
+                        params={ 'is_add': add, 'dev_id': dev_id,
+                                'if_type': if_type,  'sw_if_index': sw_if_index },
+                        revert_func=fwfirewall.setup_firewall_acls if add else None,
+                        revert_params={ 'is_add': add, 'dev_id': dev_id, 'if_type': if_type,
+                                    'sw_if_index': sw_if_index } if add else None
+                    )
                 # Attach Firewall NAT
                 if if_type == 'wan':
                     handler.exec(

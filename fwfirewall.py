@@ -250,7 +250,7 @@ class FwFirewall(FwObject):
         """
         if dev_id:
             # With dev_id input, if_type and sw_if_index are required input parameters
-            if if_type == 'lan':
+            if if_type == 'lan' or if_type == 'switch-lan':
                 if dev_id.startswith('app_'):
                     dev_id = get_firewall_interface_key_for_app(dev_id, sw_if_index)
                 self.set_interface_acls (dev_id, self.lan_global_acls.get('ingress'),
@@ -317,8 +317,9 @@ class FwFirewall(FwObject):
             # if dev_id is provided, sw_if_index is also a required input parameter
             if dev_id.startswith('app_'):
                 dev_id = get_firewall_interface_key_for_app(dev_id, sw_if_index)
-            self.__exec_vpp_clear_interface_acls (self.interfaces[dev_id]['sw_if_index'])
-            del self.interfaces[dev_id]
+            if self.interfaces.get(dev_id):
+                self.__exec_vpp_clear_interface_acls (self.interfaces[dev_id]['sw_if_index'])
+                del self.interfaces[dev_id]
         else:
             for dev_id in self.interfaces.keys():
                 self.__exec_vpp_clear_interface_acls (self.interfaces[dev_id]['sw_if_index'])
