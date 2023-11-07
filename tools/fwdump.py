@@ -163,12 +163,9 @@ g_dumpers = {
                                                    'cp -r /etc/flexiwan/agent/* <temp_folder>/fwagent/ 2>/dev/null' },
     'fwagent_device_signature':     { 'shell_cmd': 'fwagent show --configuration signature > <dumper_out_file>' },
     'fwagent_logs': 				{ 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
-                                                   'cp /var/log/flexiwan/agent.log <temp_folder>/fwagent.log 2>/dev/null ;' + # save latest log into root folder for convenience
-                                                   'cp /var/log/flexiwan/agent.log.1   <temp_folder>/logs/ 2>/dev/null ;' +
-                                                   'cp /var/log/flexiwan/agent.huge_lines.log   <temp_folder>/logs/ 2>/dev/null ;' +
-                                                   'cp /var/log/flexiwan/agent.huge_lines.log.1 <temp_folder>/logs/ 2>/dev/null ;' +
-                                                   'cp /var/log/flexiwan/agentui.log   <temp_folder>/logs/ 2>/dev/null ;' +
-                                                   'cp /var/log/flexiwan/agentui.log.1 <temp_folder>/logs/ 2>/dev/null ;' +
+                                                   'cp /var/log/flexiwan/agent.log  <temp_folder>/fwagent.log 2>/dev/null ;' + # save latest log into root folder for convenience
+                                                   'cp /var/log/flexiwan/*.log      <temp_folder>/logs/ 2>/dev/null ;' +
+                                                   'cp /var/log/flexiwan/*.log.1    <temp_folder>/logs/ 2>/dev/null ;' +
                                                    'true' },       # Add 'true' to avoid error status code returned by shell_cmd if file does not exists
     'dpkg_log':                     { 'shell_cmd': 'mkdir -p <temp_folder>/logs && ' +
                                                    'cp /var/log/dpkg.log* <temp_folder>/logs/ 2>/dev/null ;' +
