@@ -170,7 +170,102 @@ def generate_sa_id():
     fwglobals.g.db['router_api'] = router_api_db
     return sa_id
 
-def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, bridge_cache_key, internal=False, vppsb_tun=False):
+def _set_loopback_ip_and_bring_up(cmd_list, addr, cache_key, internal=False):
+    if internal:
+        # interface.api.json: sw_interface_add_del_address (..., sw_if_index, is_add, prefix, ...)
+        # 'sw_if_index' is returned by the previous command and it is stored in the executor cache.
+        # So executor takes it out of the cache while executing this command.
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']      = "call_vpp_api"
+        cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+        cmd['cmd']['descr']     = "set %s to loopback interface" % addr
+        cmd['cmd']['params']    = {
+                        'api':    "sw_interface_add_del_address",
+                        'args':   {
+                            'is_add': 1,
+                            'prefix': addr,
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                        },
+        }
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "call_vpp_api"
+        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+        cmd['revert']['descr']  = "unset %s from loopback interface" % addr
+        cmd['revert']['params'] = {
+                        'api':    "sw_interface_add_del_address",
+                        'args':   {
+                            'is_add': 0,
+                            'prefix': addr,
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                        },
+        }
+        cmd_list.append(cmd)
+
+        # interface.api.json: sw_interface_set_flags (..., sw_if_index, flags, ...)
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']      = "call_vpp_api"
+        cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
+        cmd['cmd']['descr']     = "UP loopback interface %s" % addr
+        cmd['cmd']['params']    = {
+                        'api':    "sw_interface_set_flags",
+                        'args': {
+                            'flags':  1, # VppEnum.vl_api_if_status_flags_t.IF_STATUS_API_FLAG_ADMIN_UP
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                        },
+        }
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "call_vpp_api"
+        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
+        cmd['revert']['descr']  = "DOWN loopback interface %s" % addr
+        cmd['revert']['params'] = {
+                        'api':  "sw_interface_set_flags",
+                        'args': {
+                            'flags':  0,
+                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
+                        },
+        }
+        cmd_list.append(cmd)
+    else:
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']      = "exec"
+        cmd['cmd']['module']    = "fwutils"
+        cmd['cmd']['descr']     = "set %s to loopback interface in Linux" % addr
+        cmd['cmd']['params']    = {
+                        'cmd':    f"sudo ip addr add {addr} dev DEV-STUB",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
+        }
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "exec"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['descr']  = "unset %s from loopback interface in Linux" % addr
+        cmd['revert']['params'] = {
+                        'cmd':    f"sudo ip addr del {addr} dev DEV-STUB",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
+        }
+        cmd_list.append(cmd)
+        cmd = {}
+        cmd['cmd'] = {}
+        cmd['cmd']['func']      = "exec"
+        cmd['cmd']['module']    = "fwutils"
+        cmd['cmd']['descr']     = "UP loopback interface %s in Linux" % addr
+        cmd['cmd']['params']    = {
+                        'cmd':    "sudo ip link set dev DEV-STUB up",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
+        }
+        cmd['revert'] = {}
+        cmd['revert']['func']   = "exec"
+        cmd['revert']['module'] = "fwutils"
+        cmd['revert']['descr']  = "DOWN loopback interface %s in Linux" % addr
+        cmd['revert']['params'] = {
+                        'cmd':    "sudo ip link set dev DEV-STUB down",
+                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
+        }
+        cmd_list.append(cmd)
+
+def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, bridge_cache_key, internal=False, vppsb_tun=False, bring_up=True):
     """Add loopback command into the list.
 
     :param cmd_list:            List of commands.
@@ -283,63 +378,6 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, bridge_cache
                 }
             cmd_list.append(cmd)
 
-    if internal:
-        # interface.api.json: sw_interface_add_del_address (..., sw_if_index, is_add, prefix, ...)
-        # 'sw_if_index' is returned by the previous command and it is stored in the executor cache.
-        # So executor takes it out of the cache while executing this command.
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']      = "call_vpp_api"
-        cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
-        cmd['cmd']['descr']     = "set %s to loopback interface" % addr
-        cmd['cmd']['params']    = {
-                        'api':    "sw_interface_add_del_address",
-                        'args':   {
-                            'is_add': 1,
-                            'prefix': addr,
-                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
-                        },
-        }
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "call_vpp_api"
-        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
-        cmd['revert']['descr']  = "unset %s from loopback interface" % addr
-        cmd['revert']['params'] = {
-                        'api':    "sw_interface_add_del_address",
-                        'args':   {
-                            'is_add': 0,
-                            'prefix': addr,
-                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
-                        },
-        }
-        cmd_list.append(cmd)
-
-        # interface.api.json: sw_interface_set_flags (..., sw_if_index, flags, ...)
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']      = "call_vpp_api"
-        cmd['cmd']['object']    = "fwglobals.g.router_api.vpp_api"
-        cmd['cmd']['descr']     = "UP loopback interface %s" % addr
-        cmd['cmd']['params']    = {
-                        'api':    "sw_interface_set_flags",
-                        'args': {
-                            'flags':  1, # VppEnum.vl_api_if_status_flags_t.IF_STATUS_API_FLAG_ADMIN_UP
-                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
-                        },
-        }
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "call_vpp_api"
-        cmd['revert']['object'] = "fwglobals.g.router_api.vpp_api"
-        cmd['revert']['descr']  = "DOWN loopback interface %s" % addr
-        cmd['revert']['params'] = {
-                        'api':  "sw_interface_set_flags",
-                        'args': {
-                            'flags':  0,
-                            'substs': [ { 'add_param':'sw_if_index', 'val_by_key':cache_key} ]
-                        },
-        }
-        cmd_list.append(cmd)
-
     # interface.api.json: sw_interface_set_mtu (..., sw_if_index, mtu, ...)
     cmd = {}
     cmd['cmd'] = {}
@@ -413,43 +451,6 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, bridge_cache
 
         cmd = {}
         cmd['cmd'] = {}
-        cmd['cmd']['func']      = "exec"
-        cmd['cmd']['module']    = "fwutils"
-        cmd['cmd']['descr']     = "set %s to loopback interface in Linux" % addr
-        cmd['cmd']['params']    = {
-                        'cmd':    f"sudo ip addr add {addr} dev DEV-STUB",
-                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
-        }
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "exec"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['descr']  = "unset %s from loopback interface in Linux" % addr
-        cmd['revert']['params'] = {
-                        'cmd':    f"sudo ip addr del {addr} dev DEV-STUB",
-                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
-        }
-        cmd_list.append(cmd)
-        cmd = {}
-        cmd['cmd'] = {}
-        cmd['cmd']['func']      = "exec"
-        cmd['cmd']['module']    = "fwutils"
-        cmd['cmd']['descr']     = "UP loopback interface %s in Linux" % addr
-        cmd['cmd']['params']    = {
-                        'cmd':    "sudo ip link set dev DEV-STUB up",
-                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
-        }
-        cmd['revert'] = {}
-        cmd['revert']['func']   = "exec"
-        cmd['revert']['module'] = "fwutils"
-        cmd['revert']['descr']  = "DOWN loopback interface %s in Linux" % addr
-        cmd['revert']['params'] = {
-                        'cmd':    "sudo ip link set dev DEV-STUB down",
-                        'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
-        }
-        cmd_list.append(cmd)
-
-        cmd = {}
-        cmd['cmd'] = {}
         cmd['cmd']['func']    = "exec"
         cmd['cmd']['module']  = "fwutils"
         cmd['cmd']['descr']   = "set mtu=%s into loopback interface %s in Linux" % (mtu, addr)
@@ -458,6 +459,9 @@ def _add_loopback(cmd_list, cache_key, iface_params, tunnel_params, bridge_cache
                         'substs': [ {'replace':'DEV-STUB', 'key':'cmd', 'val_by_func':'vpp_sw_if_index_to_tap', 'arg_by_key':cache_key} ]
         }
         cmd_list.append(cmd)
+
+    if bring_up:
+        _set_loopback_ip_and_bring_up(cmd_list, addr, cache_key, internal)
 
 def _add_bridge(cmd_list, bridge_cache_key):
     """Add bridge command into the list.
@@ -1647,7 +1651,7 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key, bridge_cache_key):
     _add_ipip_multicast_rule(cmd_list, id, addr, "224.0.0.6")
 
     loopback_params = {'addr':addr, 'mtu': mtu, 'mac': mac}
-    _add_loopback(cmd_list, peer_loopback_cache_key, loopback_params, params, bridge_cache_key, vppsb_tun=True)
+    _add_loopback(cmd_list, peer_loopback_cache_key, loopback_params, params, bridge_cache_key, vppsb_tun=True, bring_up=False)
 
     substs = [ {'replace':'DEV1-STUB', 'key': 'cmds', 'val_by_func':'vpp_sw_if_index_to_name', 'arg_by_key':peer_loopback_cache_key},
                {'replace':'DEV2-STUB', 'key': 'cmds', 'val_by_func':'vpp_sw_if_index_to_name', 'arg_by_key':tunnel_cache_key},
@@ -1671,6 +1675,23 @@ def _add_peer(cmd_list, params, peer_loopback_cache_key, bridge_cache_key):
                     'cmds':['tap-inject map interface DEV1-STUB DEV2-STUB del'],
     }
     cmd_list.append(cmd)
+
+    # IMPORTANT! The loopback should be taken up after installation of the loopback<->ipip tunnel mapping.
+    # Otherwise Linux might push route through loopback into VPPSB before the mapping,
+    # thus causing the route through looback instead of route through the ipip tunnel to be pushed into VPP FIB.
+    #
+    # The following routine will ensure a proper order:
+    #  - First, install mapping between loopback and ipip tunnel
+    #  - Second, assign IP address and bring up loopback interface
+    #  And:
+    #  - First, bring loopback interface down
+    #  - Second, remove mapping between loopback and ipip tunnel
+    #
+    # It is done to address the following two issues:
+    # - VPP fib crash on removing routes as a result of manual bringing TUN interface down from Linux
+    # - stale unresolved fib entry in VPP after tunnel removal from UI
+    #
+    _set_loopback_ip_and_bring_up(cmd_list, addr, peer_loopback_cache_key)
 
     cmd = {}
     cmd['cmd'] = {}
