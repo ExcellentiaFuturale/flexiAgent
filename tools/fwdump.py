@@ -364,6 +364,8 @@ class FwDump(FwObject):
     def add_lte_files(self):
         try:
             dump_output_folder = f'{self.temp_folder}/lte'
+            os.system(f'mkdir -p {dump_output_folder}')
+
             if_names_by_dev_ids = fwlte.get_if_names_by_dev_ids()
             for dev_id in if_names_by_dev_ids:
                 if_name = if_names_by_dev_ids[dev_id]
@@ -376,7 +378,7 @@ class FwDump(FwObject):
 
             # collect modem manager info
             fwutils.exec_to_file(f'mmcli --list-modems -J 2>/dev/null', f'{dump_output_folder}/mmcli_list_modems.json')
-            with open(f'{self.temp_folder}/mmcli_list_modems.json', 'r') as f:
+            with open(f'{dump_output_folder}/mmcli_list_modems.json', 'r') as f:
                 content = f.read()
                 if not content: # file can be empty if no modems exist in the machine
                     return
