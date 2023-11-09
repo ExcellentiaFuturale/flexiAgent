@@ -1553,9 +1553,6 @@ class FWROUTER_API(FwCfgRequestHandler):
                 self.log.error(f"apply_features_on_interface({add, if_type}): failed. {err_msg}")
                 raise Exception(err_msg)
 
-        if not dev_id:
-            dev_id = fwutils.vpp_if_name_to_dev_id(vpp_if_name)
-
         self.log.debug(f"apply_features_on_interface({add, if_type, vpp_if_name, dev_id})")
         with FwCfgMultiOpsWithRevert() as handler:
             try:
@@ -1579,7 +1576,7 @@ class FWROUTER_API(FwCfgRequestHandler):
                     )
 
                 # apply qos classification on application interfaces
-                if dev_id.startswith('app_'):
+                if dev_id and dev_id.startswith('app_'):
                     # Needed only for application interfaces as it is Not added via add-interface message
                     hqos_enabled, _ = fwglobals.g.qos.get_hqos_worker_state()
                     if hqos_enabled:
