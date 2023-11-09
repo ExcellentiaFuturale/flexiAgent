@@ -303,7 +303,7 @@ class FwFirewall(FwObject):
         return
 
 
-    def clear_interface_acls(self, dev_id=None, sw_if_index=None):
+    def clear_interface_acls(self, sw_if_index=None):
         """
         Clear ACL attachment on the interfaces. if the device identifier is
         None, attachments on all interfaces are cleared using VPP API.
@@ -313,12 +313,15 @@ class FwFirewall(FwObject):
         :param sw_if_index: VPP identifier of the interface
         :type sw_if_index: Integer, optional
         """
-        if dev_id:
-            # if dev_id is provided, sw_if_index is also a required input parameter
-            if dev_id.startswith('app_'):
-                dev_id = get_firewall_interface_key_for_app(dev_id, sw_if_index)
-            if self.interfaces.get(dev_id):
-                self.__exec_vpp_clear_interface_acls (self.interfaces[dev_id]['sw_if_index'])
+        if sw_if_index is not None:
+            dev_id = None
+            for dev_id_key in self.interfaces.keys():
+                if self.interfaces[dev_id_key]['sw_if_index'] == sw_if_index:
+                    dev_id = dev_id_key
+                    break
+            if dev_id:
+                # ACLs exist for the interface
+                self.__exec_vpp_clear_interface_acls (sw_if_index)
                 del self.interfaces[dev_id]
         else:
             for dev_id in self.interfaces.keys():
@@ -374,7 +377,7 @@ def setup_firewall_acls (is_add, dev_id, if_type, sw_if_index):
     if is_add:
         fwglobals.g.firewall.setup_interface_acls(dev_id, if_type, sw_if_index)
     else:
-        fwglobals.g.firewall.clear_interface_acls(dev_id, sw_if_index)
+        fwglobals.g.firewall.clear_interface_acls(sw_if_index)
 
 
 def setup_nat_global_identity_nat (is_add, dev_id):
