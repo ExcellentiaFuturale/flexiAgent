@@ -74,7 +74,7 @@ def api_interface_create(type, addr, host_if_name, dev_id, no_vppsb, ospf=True, 
         return
 
     ret = {}
-    with FwCfgMultiOpsWithRevert() as handler:
+    with FwCfgMultiOpsWithRevert(lock=fwglobals.g.handle_request_lock) as handler:
         try:
             # create tun
             tun_vpp_if_name = handler.exec(
@@ -124,28 +124,41 @@ def api_interface_delete(vpp_if_name, type, addr, ospf=True, bgp=True, ignore_er
     if not fw_os_utils.vpp_does_run():
         return
 
-    try:
-        if ospf:
-            ret, err_str = fwglobals.g.router_api.frr.run_ospf_remove(addr, '0.0.0.0')
-            if not ret:
-                err_msg = f'api_interface_delete(): Failed to remove {addr} network from ospf. err_str={str(err_str)}'
-                if ignore_errors:
-                    fwglobals.log.error(err_msg)
-                else:
-                    raise Exception(err_msg)
+    with FwCfgMultiOpsWithRevert(lock=fwglobals.g.handle_request_lock) as handler:
+        try:
+            if ospf:
+                ret, err_str = handler.exec(
+                    func=fwglobals.g.router_api.frr.run_ospf_remove,
+                    params={ 'address': addr, 'area': '0.0.0.0' },
+                )
+                if not ret:
+                    err_msg = f'api_interface_delete(): Failed to remove {addr} network from ospf. err_str={str(err_str)}'
+                    if ignore_errors:
+                        fwglobals.log.error(err_msg)
+                    else:
+                        raise Exception(err_msg)
 
-        if bgp and fwglobals.g.router_cfg.get_bgp():
-            ret, err_str = fwglobals.g.router_api.frr.run_bgp_remove_network(addr)
-            if not ret:
-                err_msg = f'api_interface_delete(): Failed to remove {addr} network from bgp. err_str={str(err_str)}'
-                if ignore_errors:
-                    fwglobals.log.error(err_msg)
-                else:
-                    raise Exception(err_msg)
+            if bgp and fwglobals.g.router_cfg.get_bgp():
+                ret, err_str = handler.exec(
+                    func=fwglobals.g.router_api.frr.run_bgp_remove_network,
+                    params={ 'address': addr },
+                )
+                if not ret:
+                    err_msg = f'api_interface_delete(): Failed to remove {addr} network from bgp. err_str={str(err_str)}'
+                    if ignore_errors:
+                        fwglobals.log.error(err_msg)
+                    else:
+                        raise Exception(err_msg)
 
-        fwglobals.g.router_api.apply_features_on_interface(False, type, vpp_if_name=vpp_if_name)
+            handler.exec(
+                func=fwglobals.g.router_api.apply_features_on_interface,
+                params={ 'add': False, 'vpp_if_name': vpp_if_name, 'if_type': type },
+            )
+            handler.exec(
+                func=fwutils.delete_tun_tap_from_vpp,
+                params={ 'vpp_if_name': vpp_if_name, 'ignore_errors': ignore_errors},
+            )
 
-        fwutils.delete_tun_tap_from_vpp(vpp_if_name, ignore_errors)
-    except Exception as e:
-        fwglobals.log.error(f'api_interface_delete({vpp_if_name}, {type}, {addr}) failed. {str(e)}')
-        raise e
+        except Exception as e:
+            fwglobals.log.error(f'api_interface_delete({vpp_if_name}, {type}, {addr}) failed. {str(e)}')
+            handler.revert(e)

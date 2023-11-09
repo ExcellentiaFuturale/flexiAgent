@@ -870,15 +870,20 @@ class FwCfgMultiOpsWithRevert():
     to clean the system of settings that were not completed correctly.
     """
 
-    def __init__(self):
+    def __init__(self, lock=None):
         """Constructor.
         """
+        self.lock = lock
         self.revert_functions = []
 
     def __enter__(self):
+        if self.lock:
+            self.lock.acquire()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        if self.lock:
+            self.lock.release()
         return
 
     def exec(self, func, params=None, revert_func=None, revert_params=None):
