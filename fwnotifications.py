@@ -131,7 +131,7 @@ class FwNotifications:
 
         for tunnel_id, stats in tunnel_stats.items():
             tunnel_info = fwglobals.g.router_cfg.get_tunnel(tunnel_id)
-            interface = interface_dict.get(tunnel_info['dev_id'], None)
+            interface = interface_dict.get(tunnel_info.get('dev_id'))
 
             skip = False
             if stats.get('status') == 'down':
