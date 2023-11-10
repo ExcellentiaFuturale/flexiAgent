@@ -700,6 +700,7 @@ def add_interface(params):
     cmd['cmd']['params']  = {
                     'type': 'switch-lan' if bridge_addr else int_type,
                     'params': params,
+                    'dev_id': dev_id,
                     'substs': [ { 'add_param':'sw_if_index', 'val_by_func':'dev_id_to_vpp_sw_if_index', 'arg':dev_id } ]
     }
     cmd['revert'] = {}
