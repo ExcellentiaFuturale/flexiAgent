@@ -1529,14 +1529,15 @@ class FWROUTER_API(FwCfgRequestHandler):
 
         fwglobals.g.fwagent.reconnect()
 
-    def _on_add_interface_after(self, type, sw_if_index, params):
+    def _on_add_interface_after(self, type, sw_if_index, params, dev_id):
         """add-interface postprocessing
 
         :param type:        "wan"/"lan"
         :param sw_if_index: vpp sw_if_index of the interface
         """
         self._update_cache_sw_if_index(sw_if_index, type, add=True, params=params)
-        self.apply_features_on_interface(True, type, vpp_if_name=None, sw_if_index=sw_if_index)
+        self.apply_features_on_interface(True, type, vpp_if_name=None, sw_if_index=sw_if_index,
+                                         dev_id=dev_id)
 
     def apply_features_on_interface(self, add, if_type, vpp_if_name=None, sw_if_index=None, dev_id=None):
         if not vpp_if_name and not sw_if_index:
