@@ -92,7 +92,7 @@ def create_tun_in_vpp(addr):
     out = None
     try:
         cmd = f'fwagent configure router interfaces create --type lan --host_if_name vpp_remotevpn --addr {addr} --dev_id app_com.flexiwan.remotevpn --no_vppsb'
-        response_data = json.loads(subprocess.check_output(cmd, shell=True).decode())
+        response_data = json.loads(subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT).decode())
         tun_vpp_if_name = response_data.get('tun_vpp_if_name')
         if not tun_vpp_if_name:
             raise Exception(f'create_tun_in_vpp({addr}): The name of the interface created in VPP was not returned as expected. response_data={str(response_data)}')
@@ -105,7 +105,9 @@ def create_tun_in_vpp(addr):
         }
         with open(app_database_file, 'w') as f:
             json.dump(data, f)
-
+    except subprocess.CalledProcessError as exc:
+        logger.error(f'create_tun_in_vpp({addr}): {str(exc.output)}')
+        raise exc
     except Exception as e:
         logger.error(f'create_tun_in_vpp({addr}): out={str(out)}. {str(e)}')
         raise e
@@ -126,8 +128,11 @@ def remove_tun_from_vpp(addr):
                 del data['tun_vpp_if_addr']
 
             cmd = f'fwagent configure router interfaces delete --type lan --vpp_if_name {tun_vpp_if_name} --addr {addr}'
-            subprocess.check_output(cmd, shell=True)
+            subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
             logger.info(f'TUN removed from vpp. vpp_if_name={tun_vpp_if_name}')
+    except subprocess.CalledProcessError as exc:
+        logger.error(f'remove_tun_from_vpp({addr}): {str(exc.output)}')
+        raise exc
     except Exception as e:
         logger.error(f'remove_tun_from_vpp({addr}): {str(e)}')
         raise e
