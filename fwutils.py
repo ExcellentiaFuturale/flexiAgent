@@ -1257,8 +1257,9 @@ def tunnel_to_vpp_if_name(params):
     if bridge_id is not None:
         vpp_if_name = f'loop{bridge_id}'
         return vpp_if_name
-    else:
-        raise Exception("Unable to determine the name of tunnel loopback interface.")
+
+    fwglobals.log.warning("Unable to determine the name of tunnel loopback interface.")
+    return None
 
 def peer_tunnel_to_vpp_if_name(params):
     """Finds the name of the peer tunnel ipip interface in vpp.
